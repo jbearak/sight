@@ -1410,6 +1410,415 @@ display \`result'
             expect(undefined_diag).toBeUndefined();
         });
 
+        it('use-include rewrite skips do calls inside uncalled program bodies (#274)', async () => {
+            // Mirror of the combined-message test in
+            // scope-isolation-diagnostics.test.ts: a later `do` inside a
+            // program body has not executed when a top-level reference
+            // runs, so the pure use-include rewrite must blame a.do, not
+            // b.do (the later visible call site).
+            const content = [
+                'do a.do',
+                'program define q',
+                '    do b.do',
+                'end',
+                "display `x'",
+            ].join('\n');
+            const document = create_real_document_state(content);
+
+            const make_excluded = (uri: string) => new Map([
+                ['x', {
+                    name: 'x',
+                    scope: 'local' as const,
+                    location: {
+                        uri,
+                        range: {
+                            start: { line: 0, character: 0 },
+                            end: { line: 0, character: 9 },
+                        },
+                    },
+                    sourceUri: uri,
+                }],
+            ]);
+            const resolved_scope: ResolvedScope = {
+                chain: [],
+                symbols: create_empty_symbol_table(),
+                out_of_scope_symbols: [],
+                diagnostics: [],
+                has_directives: false,
+                has_auto_parents: true,
+                forward_call_symbols: [
+                    {
+                        callee_uri: 'file:///a.do',
+                        call_line: 0,
+                        symbols: create_empty_symbol_table(),
+                        effective_type: 'do',
+                        excluded_locals: make_excluded('file:///a.do'),
+                    },
+                    {
+                        callee_uri: 'file:///b.do',
+                        call_line: 2,
+                        symbols: create_empty_symbol_table(),
+                        effective_type: 'do',
+                        excluded_locals: make_excluded('file:///b.do'),
+                    },
+                ],
+            };
+
+            const the_diagnostics = await provider.get_diagnostics(
+                document,
+                DEFAULT_CONFIG,
+                undefined,
+                make_stub_scope_resolver(resolved_scope)
+            );
+
+            const the_matches = the_diagnostics.filter(
+                d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
+                    && d.message.includes("`x'")
+            );
+            expect(the_matches).toHaveLength(1);
+            expect(the_matches[0].message).toContain('defined in a.do');
+            expect(the_matches[0].message).not.toContain('b.do');
+        });
+
+        it('use-include rewrite keeps blaming do calls in the reference\'s own body (#274)', async () => {
+            // A call in the reference's own program body IS executable
+            // blame: it ran on the path to the reference, so the filter
+            // must not skip it.
+            const content = [
+                'program define q',
+                '    do b.do',
+                "    display `x'",
+                'end',
+            ].join('\n');
+            const document = create_real_document_state(content);
+
+            const resolved_scope: ResolvedScope = {
+                chain: [],
+                symbols: create_empty_symbol_table(),
+                out_of_scope_symbols: [],
+                diagnostics: [],
+                has_directives: false,
+                has_auto_parents: true,
+                forward_call_symbols: [{
+                    callee_uri: 'file:///b.do',
+                    call_line: 1,
+                    symbols: create_empty_symbol_table(),
+                    effective_type: 'do',
+                    excluded_locals: new Map([
+                        ['x', {
+                            name: 'x',
+                            scope: 'local' as const,
+                            location: {
+                                uri: 'file:///b.do',
+                                range: {
+                                    start: { line: 0, character: 0 },
+                                    end: { line: 0, character: 9 },
+                                },
+                            },
+                            sourceUri: 'file:///b.do',
+                        }],
+                    ]),
+                }],
+            };
+
+            const the_diagnostics = await provider.get_diagnostics(
+                document,
+                DEFAULT_CONFIG,
+                undefined,
+                make_stub_scope_resolver(resolved_scope)
+            );
+
+            const the_matches = the_diagnostics.filter(
+                d => d.code === StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
+                    && d.message.includes("`x'")
+            );
+            expect(the_matches).toHaveLength(1);
+            expect(the_matches[0].message).toContain('defined in b.do');
+        });
+
+        it('suppression scan skips include calls inside uncalled program bodies (#274)', async () => {
+            // An `include` inside a program body contributes its locals
+            // to the PROGRAM's frame, never to the top level — so it
+            // must not suppress a genuine undefined-local diagnostic for
+            // a top-level reference.
+            const content = [
+                'program define q',
+                '    include b.do',
+                'end',
+                "display `x'",
+            ].join('\n');
+            const document = create_real_document_state(content);
+            const forward_symbols = create_empty_symbol_table();
+            forward_symbols.localMacros.set('x', {
+                name: 'x',
+                scope: 'local',
+                location: {
+                    uri: 'file:///b.do',
+                    range: {
+                        start: { line: 0, character: 0 },
+                        end: { line: 0, character: 9 },
+                    },
+                },
+                sourceUri: 'file:///b.do',
+            });
+
+            const resolved_scope: ResolvedScope = {
+                chain: [],
+                symbols: create_empty_symbol_table(),
+                out_of_scope_symbols: [],
+                diagnostics: [],
+                has_directives: false,
+                has_auto_parents: true,
+                forward_call_symbols: [{
+                    callee_uri: 'file:///b.do',
+                    call_line: 1,
+                    symbols: forward_symbols,
+                    effective_type: 'include',
+                }],
+            };
+
+            const the_diagnostics = await provider.get_diagnostics(
+                document,
+                DEFAULT_CONFIG,
+                undefined,
+                make_stub_scope_resolver(resolved_scope)
+            );
+
+            const undefined_diag = the_diagnostics.find(
+                d => (d.data as { symbol_name?: string } | undefined)
+                    ?.symbol_name === 'x'
+            );
+            expect(undefined_diag).toBeDefined();
+        });
+
+        it('suppression via include in the reference\'s own program body still applies (#274)', async () => {
+            // Same include, but the reference sits in the same program
+            // body: both run in the same frame, so the callee's local
+            // genuinely resolves and the diagnostic stays suppressed.
+            const content = [
+                'program define q',
+                '    include b.do',
+                "    display `x'",
+                'end',
+            ].join('\n');
+            const document = create_real_document_state(content);
+            const forward_symbols = create_empty_symbol_table();
+            forward_symbols.localMacros.set('x', {
+                name: 'x',
+                scope: 'local',
+                location: {
+                    uri: 'file:///b.do',
+                    range: {
+                        start: { line: 0, character: 0 },
+                        end: { line: 0, character: 9 },
+                    },
+                },
+                sourceUri: 'file:///b.do',
+            });
+
+            const resolved_scope: ResolvedScope = {
+                chain: [],
+                symbols: create_empty_symbol_table(),
+                out_of_scope_symbols: [],
+                diagnostics: [],
+                has_directives: false,
+                has_auto_parents: true,
+                forward_call_symbols: [{
+                    callee_uri: 'file:///b.do',
+                    call_line: 1,
+                    symbols: forward_symbols,
+                    effective_type: 'include',
+                }],
+            };
+
+            const the_diagnostics = await provider.get_diagnostics(
+                document,
+                DEFAULT_CONFIG,
+                undefined,
+                make_stub_scope_resolver(resolved_scope)
+            );
+
+            const the_matches = the_diagnostics.filter(
+                d => (d.data as { symbol_name?: string } | undefined)
+                    ?.symbol_name === 'x'
+                    || d.message.includes("`x'")
+            );
+            expect(the_matches).toHaveLength(0);
+        });
+
+        it('top-level include suppression is not over-guarded (#274)', async () => {
+            // The guard only targets call sites inside program bodies; a
+            // plain top-level include keeps suppressing its locals.
+            const content = [
+                'include b.do',
+                "display `x'",
+            ].join('\n');
+            const document = create_real_document_state(content);
+            const forward_symbols = create_empty_symbol_table();
+            forward_symbols.localMacros.set('x', {
+                name: 'x',
+                scope: 'local',
+                location: {
+                    uri: 'file:///b.do',
+                    range: {
+                        start: { line: 0, character: 0 },
+                        end: { line: 0, character: 9 },
+                    },
+                },
+                sourceUri: 'file:///b.do',
+            });
+
+            const resolved_scope: ResolvedScope = {
+                chain: [],
+                symbols: create_empty_symbol_table(),
+                out_of_scope_symbols: [],
+                diagnostics: [],
+                has_directives: false,
+                has_auto_parents: true,
+                forward_call_symbols: [{
+                    callee_uri: 'file:///b.do',
+                    call_line: 0,
+                    symbols: forward_symbols,
+                    effective_type: 'include',
+                }],
+            };
+
+            const the_diagnostics = await provider.get_diagnostics(
+                document,
+                DEFAULT_CONFIG,
+                undefined,
+                make_stub_scope_resolver(resolved_scope)
+            );
+
+            const the_matches = the_diagnostics.filter(
+                d => (d.data as { symbol_name?: string } | undefined)
+                    ?.symbol_name === 'x'
+                    || d.message.includes("`x'")
+            );
+            expect(the_matches).toHaveLength(0);
+        });
+
+        it('global suppression via do in an uncalled program body is unchanged (#274)', async () => {
+            // Scope lock for the #274 guard: globals defined by a do/run
+            // inside a program body DO become visible once the program
+            // is called, which a textual filter cannot see — so global
+            // suppression deliberately keeps its lenient pre-#274
+            // behavior. If this test breaks, that trade-off changed.
+            const content = [
+                'program define q',
+                '    do b.do',
+                'end',
+                'display "$G"',
+            ].join('\n');
+            const document = create_real_document_state(content);
+            const forward_symbols = create_empty_symbol_table();
+            forward_symbols.globalMacros.set('G', {
+                name: 'G',
+                scope: 'global',
+                location: {
+                    uri: 'file:///b.do',
+                    range: {
+                        start: { line: 0, character: 0 },
+                        end: { line: 0, character: 9 },
+                    },
+                },
+                sourceUri: 'file:///b.do',
+            });
+
+            const resolved_scope: ResolvedScope = {
+                chain: [],
+                symbols: create_empty_symbol_table(),
+                out_of_scope_symbols: [],
+                diagnostics: [],
+                has_directives: false,
+                has_auto_parents: true,
+                forward_call_symbols: [{
+                    callee_uri: 'file:///b.do',
+                    call_line: 1,
+                    symbols: forward_symbols,
+                    effective_type: 'do',
+                }],
+            };
+
+            const the_diagnostics = await provider.get_diagnostics(
+                document,
+                DEFAULT_CONFIG,
+                undefined,
+                make_stub_scope_resolver(resolved_scope)
+            );
+
+            const the_matches = the_diagnostics.filter(
+                d => (d.data as { symbol_name?: string } | undefined)
+                    ?.symbol_name === 'G'
+            );
+            expect(the_matches).toHaveLength(0);
+        });
+
+        it('variable suppression via do in an uncalled program body is unchanged (#274)', async () => {
+            // Same scope lock as the global case, for dataset variables
+            // (data loaded by a called program is global state).
+            const document = create_document_state([
+                'program define q',
+                '    do b.do',
+                'end',
+                'summarize y',
+            ].join('\n'));
+            document.diagnostics = [{
+                range: {
+                    start: { line: 3, character: 10 },
+                    end: { line: 3, character: 11 },
+                },
+                message: 'y may not be defined',
+                severity: DiagnosticSeverity.Warning,
+                code: StataDiagnosticCode.UNDEFINED_VARIABLE,
+                source: 'sight',
+                data: { symbol_name: 'y', reference_kind: 'variable' },
+            }];
+            document.symbols = create_empty_symbol_table();
+
+            const forward_symbols = create_empty_symbol_table();
+            forward_symbols.variables.set('y', {
+                name: 'y',
+                location: {
+                    uri: 'file:///b.do',
+                    range: {
+                        start: { line: 0, character: 0 },
+                        end: { line: 0, character: 5 },
+                    },
+                },
+                sourceUri: 'file:///b.do',
+                source: 'gen',
+            });
+
+            const resolved_scope: ResolvedScope = {
+                chain: [],
+                symbols: create_empty_symbol_table(),
+                out_of_scope_symbols: [],
+                diagnostics: [],
+                has_directives: false,
+                has_auto_parents: true,
+                forward_call_symbols: [{
+                    callee_uri: 'file:///b.do',
+                    call_line: 1,
+                    symbols: forward_symbols,
+                    effective_type: 'do',
+                }],
+            };
+
+            const the_diagnostics = await provider.get_diagnostics(
+                document,
+                DEFAULT_CONFIG,
+                undefined,
+                make_stub_scope_resolver(resolved_scope)
+            );
+
+            const the_matches = the_diagnostics.filter(
+                d => (d.data as { symbol_name?: string } | undefined)
+                    ?.symbol_name === 'y'
+            );
+            expect(the_matches).toHaveLength(0);
+        });
+
         it('should not point header-line forward hints at program-body locals (#273)', async () => {
             // The header reference expands at definition time in the
             // do-file frame, so the hint must name the later do-file

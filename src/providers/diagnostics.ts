@@ -10,6 +10,7 @@ import {
     StataLSPConfig,
     SymbolTable,
     ScopeInfo,
+    ForwardCallSite,
     ResolvedScope,
     DirectiveDiagnostic,
     UndefinedSymbolDiagnosticData
@@ -85,6 +86,27 @@ function is_parser_error_code(code: unknown): code is ParseErrorCode {
 
 function is_stata_diagnostic_code(code: unknown): code is StataDiagnosticCode {
     return typeof code === 'string' && STATA_DIAGNOSTIC_CODES.has(code);
+}
+
+/**
+ * Executable blame only (#274): a forward call strictly inside a program
+ * body runs when that program is called, not at its textual position — so
+ * unless the reference sits in that same body, the call has not executed
+ * before the reference and must not be blamed (a later in-program `do`
+ * would otherwise shadow the real top-level one).
+ */
+function call_site_in_uncalled_program_body(
+    call_site: ForwardCallSite,
+    the_scopes: ScopeInfo[],
+    reference_position: Position
+): boolean {
+    return the_scopes.some(
+        my_scope =>
+            my_scope.type === 'program' &&
+            call_site.call_line > my_scope.range.start.line &&
+            call_site.call_line < my_scope.range.end.line &&
+            !position_within_range(reference_position, my_scope.range)
+    );
 }
 
 // ─── Testability seam for host_is_case_sensitive ─────────────────────────────
@@ -392,6 +414,22 @@ export class DiagnosticsProvider {
                     resolved_scope,
                     diag_line
                 )) {
+                    // Local suppression only comes from `include` call
+                    // sites, and an include inside a program body binds
+                    // its locals into that program's frame — they never
+                    // reach a reference outside the body even when the
+                    // program runs. Globals/variables are left alone: a
+                    // do/run inside a program body DOES define them once
+                    // the program is called, which a textual filter
+                    // cannot see (see #274).
+                    if (reference_kind === 'local'
+                        && call_site_in_uncalled_program_body(
+                            call_site,
+                            document.scopes ?? [],
+                            my_diagnostic.range.start
+                        )) {
+                        continue;
+                    }
                     if (this.is_symbol_in_forward_call(
                             symbol_name,
                             call_site.symbols,
@@ -436,26 +474,11 @@ export class DiagnosticsProvider {
                         resolved_scope,
                         diag_line
                     )) {
-                        // Executable blame only: a call strictly inside a
-                        // program body runs when that program is called,
-                        // not at its textual position — so unless the
-                        // reference sits in that same body, the call has
-                        // not executed before the reference and must not
-                        // be blamed (a later in-program `do` would
-                        // otherwise shadow the real top-level one).
-                        const in_uncalled_program = the_scopes.some(
-                            my_scope =>
-                                my_scope.type === 'program' &&
-                                call_site.call_line >
-                                    my_scope.range.start.line &&
-                                call_site.call_line <
-                                    my_scope.range.end.line &&
-                                !position_within_range(
-                                    reference_position,
-                                    my_scope.range
-                                )
-                        );
-                        if (in_uncalled_program) {
+                        if (call_site_in_uncalled_program_body(
+                                call_site,
+                                the_scopes,
+                                reference_position
+                            )) {
                             continue;
                         }
                         if (this.is_symbol_excluded_by_forward_call(
@@ -554,6 +577,13 @@ export class DiagnosticsProvider {
                     resolved_scope,
                     diag_line
                 )) {
+                    if (call_site_in_uncalled_program_body(
+                            call_site,
+                            document.scopes ?? [],
+                            my_diagnostic.range.start
+                        )) {
+                        continue;
+                    }
                     if (this.is_symbol_excluded_by_forward_call(
                             symbol_name,
                             call_site,
