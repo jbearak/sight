@@ -336,4 +336,97 @@ di \`shared'`;
             expect(hover_text(hover!.contents)).toContain('child_hover_ok.do');
         });
     });
+
+    describe('same-file exemption branches of the gate (direct)', () => {
+        // The gate call sites exempt same-file hits so a program-body
+        // local stays visible within its own file. Same-file answers
+        // normally arrive via earlier provider paths (document symbols,
+        // resolved scope), so the end-to-end controls above cannot fail
+        // on a broken exemption. These tests hit the two exempting
+        // helpers directly with a stub indexer whose only source of the
+        // same-file answer is the gated loop.
+        const MAIN_URI = 'file:///gate/main.do';
+        const OTHER_URI = 'file:///gate/other.do';
+        const PRIMARY_URI = 'file:///gate/primary.do';
+
+        function make_program_local_hit(uri: string, line: number) {
+            return {
+                name: 'shared',
+                scope: 'local' as const,
+                location: {
+                    uri,
+                    range: {
+                        start: { line, character: 4 },
+                        end: { line, character: 10 },
+                    },
+                },
+                sourceUri: uri,
+                containingScope: 'program' as const,
+                containing_program_name: 'p',
+            };
+        }
+
+        it('hover footer keeps same-file program-body hits and drops cross-file ones', () => {
+            const hover_provider = new HoverProvider(new CommandDatabase());
+            const the_hits = [
+                make_program_local_hit(MAIN_URI, 5),
+                make_program_local_hit(OTHER_URI, 7),
+            ];
+            const stub_indexer = {
+                find_symbol_definitions: () => the_hits,
+                // No get_related_uris: hover treats that as "no
+                // reachability gate", leaving only the #271 gate active.
+            };
+            const primary = {
+                location: {
+                    uri: PRIMARY_URI,
+                    range: {
+                        start: { line: 0, character: 0 },
+                        end: { line: 0, character: 6 },
+                    },
+                },
+            };
+
+            const entries = (hover_provider as any)
+                .collect_workspace_additional_definitions(
+                    'shared',
+                    'local',
+                    primary,
+                    stub_indexer,
+                    MAIN_URI,
+                );
+
+            const the_entry_uris = entries.map(
+                (my_entry: { location: { uri: string } }) =>
+                    my_entry.location.uri
+            );
+            expect(the_entry_uris).toContain(MAIN_URI);
+            expect(the_entry_uris).not.toContain(OTHER_URI);
+        });
+
+        it('definition workspace lookup keeps same-file program-body hits when include_current_uri is set', () => {
+            const definition_provider = new DefinitionProvider();
+            const the_hits = [
+                make_program_local_hit(MAIN_URI, 5),
+                make_program_local_hit(OTHER_URI, 7),
+            ];
+            const stub_indexer = {
+                find_symbol_definitions: () => the_hits,
+                get_related_uris: () => new Set([MAIN_URI, OTHER_URI]),
+            };
+
+            const locations: Location[] = (definition_provider as any)
+                .collect_workspace_definition_locations(
+                    MAIN_URI,
+                    'shared',
+                    'local',
+                    stub_indexer,
+                    { include_only: true, include_current_uri: true },
+                );
+
+            const the_location_uris = locations.map(my_loc => my_loc.uri);
+            expect(the_location_uris).toContain(MAIN_URI);
+            expect(the_location_uris).not.toContain(OTHER_URI);
+        });
+    });
 });
