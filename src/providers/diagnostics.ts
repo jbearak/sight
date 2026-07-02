@@ -417,6 +417,12 @@ export class DiagnosticsProvider {
             // same-file forward reference (the misleading behavior
             // behind the 2026-04-21 revert; see the guard comment on
             // is_symbol_defined_in_current_document).
+            //
+            // Deliberate precedence: this also outranks the forward-call
+            // "use include" rewrite when a do-called child ALSO defines
+            // the name — same-file definedness beats that rewrite per the
+            // 2026-04-21 decision (main showed the generic message there;
+            // #145 upgrades it to the scope-isolation message).
             if (symbol_name && my_diagnostic.scope_isolation) {
                 const converted = this.create_out_of_scope_rewrite(
                     my_diagnostic,

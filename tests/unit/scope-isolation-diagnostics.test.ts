@@ -186,6 +186,64 @@ display \`inside_x'
         expect(the_matches).toHaveLength(0);
     });
 
+    it('scope isolation outranks the use-include rewrite (2026-04-21 decision)', async () => {
+        // Combined case: the name exists in a same-file program body AND
+        // in a do-called child (excluded_locals). Per the 2026-04-21
+        // revert decision, same-file definedness beats the "use include"
+        // rewrite — pre-#145 that meant the generic message; now it means
+        // the scope-isolation message. Pins the precedence so a future
+        // reorder of the diagnostics pipeline cannot silently flip it.
+        const document = create_real_document_state(`
+program define p
+    local x 1
+end
+do child.do
+display \`x'
+`);
+        const resolved_scope: ResolvedScope = {
+            chain: [],
+            symbols: create_empty_symbol_table(),
+            out_of_scope_symbols: [],
+            diagnostics: [],
+            has_directives: false,
+            has_auto_parents: true,
+            forward_call_symbols: [{
+                callee_uri: 'file:///child.do',
+                call_line: 4,
+                symbols: create_empty_symbol_table(),
+                effective_type: 'do',
+                excluded_locals: new Map([
+                    ['x', {
+                        name: 'x',
+                        scope: 'local' as const,
+                        location: {
+                            uri: 'file:///child.do',
+                            range: {
+                                start: { line: 0, character: 0 },
+                                end: { line: 0, character: 9 },
+                            },
+                        },
+                        sourceUri: 'file:///child.do',
+                    }],
+                ]),
+            }],
+        };
+        const provider = make_provider();
+        const the_diagnostics = await provider.get_diagnostics(
+            document,
+            DEFAULT_CONFIG,
+            undefined,
+            make_stub_scope_resolver(resolved_scope)
+        );
+        const the_matches = the_diagnostics.filter(d =>
+            d.message.includes("`x'"));
+        expect(the_matches).toHaveLength(1);
+        expect(the_matches[0].message).toBe(
+            "`x' is defined only inside program p"
+        );
+        expect(the_matches[0].message).not.toContain('include');
+    });
+
     it('severity follows the undefinedMacro setting', async () => {
         const document = create_real_document_state(`
 program define myprog
