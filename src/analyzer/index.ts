@@ -2942,6 +2942,18 @@ export class SemanticAnalyzer {
                 existing.definition_line = definition_line;
                 existing.definition_index = node_index;
                 existing.is_expanded = true;
+                // The promotion moved this symbol's source position
+                // earlier, so the flat slot must be re-arbitrated — a
+                // same-named symbol in another scope may hold it based
+                // on the pre-promotion position (mirrors the re-publish
+                // in register_mata_macro's promotion branch).
+                if (macro.scope === 'local') {
+                    this.publish_flat_local(
+                        symbols,
+                        current_scope,
+                        existing
+                    );
+                }
             } else {
                 existing.additional_definitions.push({
                     index: node_index,

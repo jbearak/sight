@@ -200,6 +200,30 @@ end
     });
 });
 
+describe('flat view ownership after in-place expanded promotion', () => {
+    it('re-arbitrates the flat slot when promotion moves a symbol earlier', () => {
+        // The literal `local x_1 3` registers in outer's scope after
+        // inner's `local x_1 2` took the flat slot. Loop expansion then
+        // promotes outer's symbol to the constructed-name statement
+        // (line 3), which is earlier than inner's definition — the flat
+        // slot must follow.
+        const result = analyze_code(`
+program define outer
+    foreach v in 1 {
+        local x_\`v' 1
+        program define inner
+            local x_1 2
+        end
+        local x_1 3
+    }
+end
+`);
+        const flat_x1 = result.symbols.localMacros.get('x_1');
+        expect(flat_x1).toBeDefined();
+        expect(flat_x1!.containing_program_name).toBe('outer');
+    });
+});
+
 describe('flat view ownership with Mata setters', () => {
     it('an earlier Mata st_local program-local keeps the flat slot', () => {
         const result = analyze_code(`
