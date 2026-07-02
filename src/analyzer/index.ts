@@ -4310,7 +4310,11 @@ export class SemanticAnalyzer {
      * scoped registration created (or promoted) a primary `symbol` in
      * `scope`. Ownership rules for the flat slot:
      *   1. a do-file-scope definition, if any exists, always owns it;
-     *   2. else the earliest-`definition_index` program-scope definition.
+     *   2. else the program-scope definition at the earliest source
+     *      position (location.range.start — the universal anchor;
+     *      definition_index is absent on Mata-created symbols and
+     *      definition_line can be a diagnostic sentinel, e.g. 0 for
+     *      `args` locals).
      * Pass `replaced` when a same-scope promotion demoted the previous
      * primary, so an occupied slot pointing at the demoted symbol is
      * updated. The flat view never merges cross-scope
@@ -4339,11 +4343,15 @@ export class SemanticAnalyzer {
             symbols.localMacros.set(symbol.name, symbol);
             return;
         }
-        // Both program-scoped: earliest definition wins (deterministic,
-        // matches the pre-split first-def-wins flat behavior).
-        const candidate_index = symbol.definition_index ?? Infinity;
-        const current_index = current_flat.definition_index ?? Infinity;
-        if (candidate_index < current_index) {
+        // Both program-scoped: earliest source position wins
+        // (deterministic regardless of registration order, and defined
+        // for every symbol kind — see the doc comment above).
+        if (
+            this.compare_positions(
+                symbol.location.range.start,
+                current_flat.location.range.start
+            ) < 0
+        ) {
             symbols.localMacros.set(symbol.name, symbol);
         }
     }

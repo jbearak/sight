@@ -200,6 +200,22 @@ end
     });
 });
 
+describe('flat view ownership with Mata setters', () => {
+    it('an earlier Mata st_local program-local keeps the flat slot', () => {
+        const result = analyze_code(`
+program define prog_a
+    mata: st_local("x", "1")
+end
+program define prog_b
+    local x 2
+end
+`);
+        const flat_x = result.symbols.localMacros.get('x');
+        expect(flat_x).toBeDefined();
+        expect(flat_x!.containing_program_name).toBe('prog_a');
+    });
+});
+
 // Issue #263 limitation 6: an unrelated program-scoped local of the same
 // name must not poison static loop-macro expansion at the top level.
 describe('loop expansion unaffected by cross-scope collisions (#263)', () => {
