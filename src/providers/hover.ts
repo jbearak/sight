@@ -54,6 +54,7 @@ import {
 import { is_cursor_in_comment } from '../utils/comment-utils';
 import { is_cursor_in_string_literal } from '../utils/string-literal-utils';
 import { is_cross_file_hidden_local } from '../utils/dofile-locals';
+import { lookup_scoped_local_macro } from '../utils/scoped-locals';
 
 const MARKDOWN_TEXT_ESCAPE_PATTERN =
     /([\\`*_{}\[\]()#+\-.!|])/g;
@@ -978,64 +979,86 @@ export class HoverProvider {
         position?: Position,
         workspace_indexer?: WorkspaceIndexer,
     ): MarkupContent | null {
-        // Check resolved scope first if available
+        // Scope-aware same-file resolution first (#270).
+        const scoped = position
+            ? lookup_scoped_local_macro(document.scopes, position, word)
+            : { symbol: undefined, out_of_scope: false };
+        if (scoped.symbol?.containingScope === 'program') {
+            // Program locals never cross files (#271) — the visible
+            // program-scoped symbol is unconditionally the answer, and
+            // it fixes the case where an unrelated same-named local
+            // elsewhere in the file holds the flat slot.
+            return this.render_local_macro_hover(
+                document, scoped.symbol, word, workspace_root,
+                workspace_indexer,
+            );
+        }
+        if (scoped.out_of_scope) {
+            // Exclusive shadowing: the name exists only in scopes not
+            // visible from here — matches the analyzer's out-of-scope
+            // diagnostic for this reference.
+            return null;
+        }
+
+        // Do-file-scoped or no scoped opinion: unchanged — the resolved
+        // scope / flat fallback also apply cross-file execution-order
+        // precedence that document.scopes cannot see.
         const local_macro_symbols = this.safe_visible_symbols(resolved_scope, position);
         if (local_macro_symbols) {
             const local_macro = local_macro_symbols.localMacros.get(word);
             if (local_macro) {
-                const source_link = this.format_source_link(local_macro.sourceUri, document.uri, workspace_root);
-                const line_info = this.macro_definition_line_info(local_macro);
-                const source_info = source_link
-                    ? `\n\nSource: ${source_link}${line_info}`
-                    : `\n\nDefined at: this file${line_info}`;
-                // Use inline code for short values, code block for multi-line
-                const expansion_text = local_macro.value
-                    ? (local_macro.value.includes('\n')
-                        ? `\n\nExpansion:\n\`\`\`\n${local_macro.value}\n\`\`\``
-                        : `\n\nExpansion: \`${local_macro.value}\``)
-                    : '';
-                const the_combined_extras = this.collect_workspace_additional_definitions(
-                    word, 'local', local_macro, workspace_indexer, document.uri,
+                return this.render_local_macro_hover(
+                    document, local_macro, word, workspace_root,
+                    workspace_indexer,
                 );
-                const footer = this.format_redefinition_footer(
-                    local_macro.location?.uri ?? local_macro.sourceUri,
-                    the_combined_extras,
-                );
-                return {
-                    kind: MarkupKind.Markdown,
-                    value: `**Local Macro:** \`${word}\`${source_info}${expansion_text}${footer}`,
-                };
             }
         }
 
         // Fallback to document symbols
         const local_macro = document.symbols.localMacros.get(word);
         if (local_macro) {
-            const source_link = this.format_source_link(local_macro.sourceUri, document.uri, workspace_root);
-            const line_info = this.macro_definition_line_info(local_macro);
-            const source_info = source_link
-                ? `\n\nSource: ${source_link}${line_info}`
-                : `\n\nDefined at: this file${line_info}`;
-            // Use inline code for short values, code block for multi-line
-            const expansion_text = local_macro.value
-                ? (local_macro.value.includes('\n')
-                    ? `\n\nExpansion:\n\`\`\`\n${local_macro.value}\n\`\`\``
-                    : `\n\nExpansion: \`${local_macro.value}\``)
-                : '';
-            const the_combined_extras = this.collect_workspace_additional_definitions(
-                word, 'local', local_macro, workspace_indexer, document.uri,
+            return this.render_local_macro_hover(
+                document, local_macro, word, workspace_root,
+                workspace_indexer,
             );
-            const footer = this.format_redefinition_footer(
-                local_macro.location?.uri ?? local_macro.sourceUri,
-                the_combined_extras,
-            );
-            return {
-                kind: MarkupKind.Markdown,
-                value: `**Local Macro:** \`${word}\`${source_info}${expansion_text}${footer}`,
-            };
         }
 
         return null;
+    }
+
+    /**
+     * Render the hover markdown for a resolved local-macro symbol
+     * (shared by the scoped, resolved-scope, and flat lookups above).
+     */
+    private render_local_macro_hover(
+        document: DocumentState,
+        local_macro: MacroSymbol,
+        word: string,
+        workspace_root?: string,
+        workspace_indexer?: WorkspaceIndexer,
+    ): MarkupContent {
+        const source_link = this.format_source_link(local_macro.sourceUri, document.uri, workspace_root);
+        const line_info = this.macro_definition_line_info(local_macro);
+        const source_info = source_link
+            ? `\n\nSource: ${source_link}${line_info}`
+            : `\n\nDefined at: this file${line_info}`;
+        // Use inline code for short values, code block for multi-line
+        const expansion_text = local_macro.value
+            ? (local_macro.value.includes('\n')
+                ? `\n\nExpansion:\n\`\`\`\n${local_macro.value}\n\`\`\``
+                : `\n\nExpansion: \`${local_macro.value}\``)
+            : '';
+        const the_combined_extras = this.collect_workspace_additional_definitions(
+            word, 'local', local_macro, workspace_indexer, document.uri,
+        );
+        const footer = this.format_redefinition_footer(
+            local_macro.location?.uri ?? local_macro.sourceUri,
+            the_combined_extras,
+        );
+        return {
+            kind: MarkupKind.Markdown,
+            value: `**Local Macro:** \`${word}\`${source_info}${expansion_text}${footer}`,
+        };
     }
 
     /**
