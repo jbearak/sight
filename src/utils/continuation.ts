@@ -12,12 +12,14 @@ import { Token } from '../types';
  *
  * Shared by every token scan that applies this rule, so it cannot
  * drift between them. Callers either track an in-continuation flag
- * across trivia (statement spans, the diagnostics token scans) or
- * pass "the token adjacent to this terminator is a CONTINUATION"
- * when they only ever look one token away from a continuation
- * (brace placement, hover statement-start, the parser's trivia
- * skips). Both are equivalent because the lexer emits the swallowed
- * '\n' terminator directly after its continuation token.
+ * across trivia (e.g. statement spans, the diagnostics token scans,
+ * the analyzer's Mata-setter forward scan) or pass "the token
+ * adjacent to this terminator is a CONTINUATION" when they only
+ * ever look one token away from a continuation (e.g. brace
+ * placement, hover statement-start, the parser's trivia skips, the
+ * analyzer's Mata-setter backward scan). Both are equivalent
+ * because the lexer emits the swallowed '\n' terminator directly
+ * after its continuation token.
  */
 export function is_swallowed_continuation_terminator(
     my_token: Token,
