@@ -3615,6 +3615,13 @@ export class SemanticAnalyzer {
      * turn a genuine forward reference into a resolved one — see the
      * "Consumers read the PRIMARY definition markers" invariant in
      * `inject_expanded_macro`.
+     *
+     * LOCKSTEP: `macro_resolves_at_position` in utils/scoped-locals.ts
+     * is the providers' position-only mirror of this method (minus the
+     * preorder-index check, which has no position equivalent). Any
+     * change to the visibility_start / line / same-line rules here
+     * must be applied there too, or navigation and diagnostics will
+     * disagree about whether a reference resolves.
      */
     private macro_resolves_at_reference(
         macro: MacroSymbol,

@@ -53,7 +53,10 @@ import {
 } from '../utils/token-utils';
 import { is_cursor_in_comment } from '../utils/comment-utils';
 import { is_cursor_in_string_literal } from '../utils/string-literal-utils';
-import { is_cross_file_hidden_local } from '../utils/dofile-locals';
+import {
+    find_inherited_dofile_local,
+    is_cross_file_hidden_local,
+} from '../utils/dofile-locals';
 import { lookup_scoped_local_macro } from '../utils/scoped-locals';
 
 const MARKDOWN_TEXT_ESCAPE_PATTERN =
@@ -679,11 +682,22 @@ export class HoverProvider {
         workspace_root?: string,
         workspace_indexer?: WorkspaceIndexer,
     ): SymbolMatch[] {
-        // Check for out-of-scope symbol matching the reference type
+        // Check for out-of-scope symbol matching the reference type.
+        // A visible PROGRAM-scoped local pre-empts the out-of-scope
+        // display (#270 round-2 gate): the program's own local is the
+        // authoritative answer at this cursor, so a same-named
+        // cross-file out-of-scope entry must not hijack the hover.
         const reference_type = this.get_reference_type_from_context(document, position, word);
-        const out_of_scope_match = this.get_out_of_scope_hover(
-            word, reference_type, resolved_scope, document.uri, workspace_root
-        );
+        const scoped_preempts_out_of_scope =
+            reference_type === 'local_macro' &&
+            lookup_scoped_local_macro(document.scopes, position, word)
+                .symbol?.containingScope === 'program';
+        const out_of_scope_match = scoped_preempts_out_of_scope
+            ? null
+            : this.get_out_of_scope_hover(
+                word, reference_type, resolved_scope, document.uri,
+                workspace_root
+            );
         if (out_of_scope_match) {
             return [out_of_scope_match];
         }
@@ -998,10 +1012,23 @@ export class HoverProvider {
             );
         }
         if (scoped.out_of_scope) {
-            // Exclusive shadowing: the name exists only in scopes not
-            // visible from here — matches the analyzer's out-of-scope
-            // diagnostic for this reference.
-            return null;
+            // The name exists same-file only in scopes not visible
+            // from here, so the flat slot is forbidden — but a
+            // cross-file INHERITED do-file local is genuinely defined
+            // at this position (the analyzer's cross-file suppression
+            // treats it as defined), so consult include-inherited
+            // sources before giving up (#270 round-2 gate).
+            const inherited = position
+                ? find_inherited_dofile_local(
+                    resolved_scope, word, position.line, document.uri
+                )
+                : undefined;
+            return inherited
+                ? this.render_local_macro_hover(
+                    document, inherited, word, workspace_root,
+                    workspace_indexer,
+                )
+                : null;
         }
 
         // Do-file-scoped or no scoped opinion: unchanged — the resolved

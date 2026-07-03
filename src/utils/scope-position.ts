@@ -11,12 +11,13 @@
 import { Range } from 'vscode-languageserver-textdocument';
 import { ScopeInfo } from '../types';
 
-interface Position {
+export interface Position {
     line: number;
     character: number;
 }
 
-function compare_positions(a: Position, b: Position): number {
+/** Line-then-character comparator shared with scoped-locals.ts. */
+export function compare_positions(a: Position, b: Position): number {
     if (a.line !== b.line) {
         return a.line - b.line;
     }

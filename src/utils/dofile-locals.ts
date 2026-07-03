@@ -17,6 +17,7 @@ import {
     MacroSymbol,
     MatrixSymbol,
     ProgramSymbol,
+    ResolvedScope,
     ScalarSymbol,
     VariableSymbol,
 } from '../types';
@@ -37,6 +38,62 @@ export function filter_dofile_locals(
         }
     }
     return filtered;
+}
+
+/**
+ * The cross-file INHERITED do-file local for `name` visible at a
+ * position in the current file, or undefined. Locals cross file
+ * boundaries only through `include` semantics: backward via an
+ * `included-by` chain entry (already call-site filtered by the
+ * resolver), forward via an `include`-effective call site executed
+ * before the reference line. Only do-file-scoped symbols qualify
+ * (`is_dofile_local`, #271).
+ *
+ * Used by providers when a name is OUT OF SCOPE same-file (tracked
+ * only in non-visible sibling scopes, #270): the same-file flat slot
+ * is forbidden there, but an inherited do-file local is genuinely
+ * defined at the reference — the analyzer's cross-file suppression
+ * treats it as defined, so hover/definition/completion must too.
+ */
+export function find_inherited_dofile_local(
+    resolved_scope: ResolvedScope | undefined,
+    name: string,
+    reference_line: number,
+    current_uri: string
+): MacroSymbol | undefined {
+    if (!resolved_scope) {
+        return undefined;
+    }
+    for (const my_entry of resolved_scope.chain ?? []) {
+        if (my_entry.directive_type !== 'included-by') {
+            continue;
+        }
+        const my_symbol = my_entry.symbols.localMacros.get(name);
+        if (
+            my_symbol &&
+            my_symbol.sourceUri !== current_uri &&
+            is_dofile_local(my_symbol)
+        ) {
+            return my_symbol;
+        }
+    }
+    for (const my_site of resolved_scope.forward_call_symbols ?? []) {
+        if (my_site.effective_type !== 'include') {
+            continue;
+        }
+        if (reference_line <= my_site.call_line) {
+            continue;
+        }
+        const my_symbol = my_site.symbols.localMacros.get(name);
+        if (
+            my_symbol &&
+            my_symbol.sourceUri !== current_uri &&
+            is_dofile_local(my_symbol)
+        ) {
+            return my_symbol;
+        }
+    }
+    return undefined;
 }
 
 /**

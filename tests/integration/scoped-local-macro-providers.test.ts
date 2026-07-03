@@ -344,23 +344,32 @@ describe('scoped local macros: find-references (#270)', () => {
         expect(the_lines).toEqual([0, 1, 7]);
     });
 
-    it('top-level reference to a program-only local returns nothing', async () => {
+    it('top-level reference to a program-only local never pools the program\'s sites', async () => {
+        // The out-of-scope reference's identity class is "resolves to
+        // no same-file symbol" (a cross-file inherited local, or plain
+        // undefined) — its own occurrence is included, the sibling
+        // program's declaration and occurrences never are.
         const { uri, content } = await open_file('a.do', [
             'program define prog_a',   // 0
             '    local hidden 1',      // 1
-            'end',                     // 2
-            'di "`hidden\'"',          // 3
+            '    di "`hidden\'"',      // 2
+            'end',                     // 3
+            'di "`hidden\'"',          // 4
         ]);
         await indexer.initialize([test_temp_dir]);
         await document_store.open(uri, content, 1);
-        const character = content.split('\n')[3].indexOf('hidden');
+        const character = content.split('\n')[4].indexOf('hidden');
         const the_locations = await references_provider.get_references(
             document_store.get(uri)!,
-            { line: 3, character },
+            { line: 4, character },
             { includeDeclaration: true },
             indexer,
         );
-        expect(the_locations).toEqual([]);
+        const the_lines = the_locations
+            .filter(my_loc => my_loc.uri === uri)
+            .map(my_loc => my_loc.range.start.line)
+            .sort((a, b) => a - b);
+        expect(the_lines).toEqual([4]);
     });
 
     it('program-scoped target skips the cross-file scan entirely', async () => {
@@ -776,5 +785,186 @@ describe('scoped local macros: round-1 gate regressions', () => {
         );
         expect(the_item).toBeDefined();
         expect(the_item!.documentation).toBe('Value: 1');
+    });
+});
+
+// Round-2 gate regressions (#270): an out-of-scope same-file name must
+// still resolve to a cross-file INHERITED do-file local (the analyzer's
+// cross-file suppression treats it as defined), and a visible
+// program-scoped local must pre-empt the out-of-scope hover display.
+describe('scoped local macros: round-2 gate regressions', () => {
+    let test_temp_dir: string;
+    let indexer: WorkspaceIndexer;
+    let scope_resolver: ScopeResolver;
+    let forward_scope_resolver: ForwardScopeResolver;
+    let document_store: DocumentStore;
+
+    beforeEach(() => {
+        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-gate2-'));
+        indexer = new WorkspaceIndexer();
+        const the_dep_graph = new DependencyGraph();
+        indexer.set_dependency_graph(the_dep_graph);
+        scope_resolver = new ScopeResolver();
+        scope_resolver.set_dependency_graph(the_dep_graph);
+        forward_scope_resolver = new ForwardScopeResolver(scope_resolver, {
+            max_forward_depth: 10,
+        });
+        scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
+        document_store = new DocumentStore();
+    });
+
+    afterEach(() => {
+        try { scope_resolver?.dispose(); } catch {}
+        try { forward_scope_resolver?.dispose(); } catch {}
+        if (existsSync(test_temp_dir)) {
+            rmSync(test_temp_dir, { recursive: true, force: true });
+        }
+    });
+
+    async function open_file(name: string, lines: string[]) {
+        const file_path = join(test_temp_dir, name);
+        const content = lines.join('\n');
+        writeFileSync(file_path, content);
+        const uri = URI.file(file_path).toString();
+        await document_store.open(uri, content, 1);
+        return { uri, content, document_state: document_store.get(uri)! };
+    }
+
+    const PARENT_LINES = [
+        'local flag 1',        // 0
+        'include "child.do"',  // 1
+    ];
+    const CHILD_LINES = [
+        'program define foo',  // 0
+        '    local flag 9',    // 1
+        'end',                 // 2
+        'display `flag\'',     // 3
+    ];
+
+    it('hover: sibling program name does not suppress an inherited do-file local', async () => {
+        const hover_provider = new HoverProvider(new CommandDatabase());
+        const parent_path = join(test_temp_dir, 'parent.do');
+        writeFileSync(parent_path, PARENT_LINES.join('\n'));
+        const { content, document_state } =
+            await open_file('child.do', CHILD_LINES);
+        await indexer.initialize([test_temp_dir]);
+        const character = content.split('\n')[3].indexOf('flag');
+        const hover = await hover_provider.get_hover(
+            document_state,
+            { line: 3, character },
+            undefined,
+            scope_resolver,
+        );
+        const value = (hover?.contents as { value?: string })?.value ?? '';
+        expect(value).toContain('Expansion: `1`');
+        expect(value).not.toContain('Expansion: `9`');
+    });
+
+    it('definition: inherited do-file local resolves cross-file, never to the sibling program', async () => {
+        const definition_provider = new DefinitionProvider();
+        const parent_path = join(test_temp_dir, 'parent.do');
+        writeFileSync(parent_path, PARENT_LINES.join('\n'));
+        const { uri, content, document_state } =
+            await open_file('child.do', CHILD_LINES);
+        await indexer.initialize([test_temp_dir]);
+        const parent_uri = URI.file(parent_path).toString();
+        const character = content.split('\n')[3].indexOf('flag');
+        const result = await definition_provider.get_definition(
+            document_state,
+            { line: 3, character },
+            undefined,
+            undefined,
+            scope_resolver,
+            indexer,
+            undefined,
+        );
+        const the_locations = as_locations(result);
+        expect(
+            the_locations.some(
+                my_loc => my_loc.uri === parent_uri &&
+                    my_loc.range.start.line === 0
+            )
+        ).toBe(true);
+        expect(
+            the_locations.some(my_loc => my_loc.uri === uri)
+        ).toBe(false);
+    });
+
+    it('references: inherited do-file local pools cross-file sites, never the sibling program\'s', async () => {
+        const references_provider = new ReferencesProvider(scope_resolver);
+        const parent_path = join(test_temp_dir, 'parent.do');
+        writeFileSync(parent_path, PARENT_LINES.join('\n'));
+        const { uri, content, document_state } =
+            await open_file('child.do', CHILD_LINES);
+        await indexer.initialize([test_temp_dir]);
+        const parent_uri = URI.file(parent_path).toString();
+        const character = content.split('\n')[3].indexOf('flag');
+        const the_locations = await references_provider.get_references(
+            document_state,
+            { line: 3, character },
+            { includeDeclaration: true },
+            indexer,
+        );
+        const child_lines = the_locations
+            .filter(my_loc => my_loc.uri === uri)
+            .map(my_loc => my_loc.range.start.line);
+        const parent_lines = the_locations
+            .filter(my_loc => my_loc.uri === parent_uri)
+            .map(my_loc => my_loc.range.start.line);
+        expect(child_lines).toEqual([3]);
+        expect(parent_lines).toContain(0);
+        expect(child_lines).not.toContain(1);
+    });
+
+    it('completion: forward-included do-file local offered despite a sibling program reusing the name', async () => {
+        const completion_provider =
+            new CompletionProvider(new CommandDatabase());
+        writeFileSync(join(test_temp_dir, 'lib.do'), 'local hidden lib\n');
+        const { document_state } = await open_file('main.do', [
+            'include "lib.do"',        // 0
+            'program define p',        // 1
+            '    local hidden prog',   // 2
+            'end',                     // 3
+            'di "`h',                  // 4
+        ]);
+        await indexer.initialize([test_temp_dir]);
+        const the_completions = await completion_provider.get_completions(
+            document_state,
+            { line: 4, character: 6 },
+            '`',
+            scope_resolver,
+            indexer.get_all_symbols(),
+        );
+        const the_item = the_completions.find(
+            my_item => my_item.label === 'hidden'
+        );
+        expect(the_item).toBeDefined();
+        expect(the_item!.documentation).toBe('Value: lib');
+    });
+
+    it('hover: visible program local pre-empts the out-of-scope display', async () => {
+        const hover_provider = new HoverProvider(new CommandDatabase());
+        const parent_path = join(test_temp_dir, 'parent.do');
+        writeFileSync(parent_path, [
+            'local x 5',          // 0
+            'do "child.do"',      // 1
+        ].join('\n'));
+        const { content, document_state } = await open_file('child.do', [
+            'program define p',    // 0
+            '    local x 1',       // 1
+            '    di "`x\'"',       // 2
+            'end',                 // 3
+        ]);
+        await indexer.initialize([test_temp_dir]);
+        const character = content.split('\n')[2].indexOf('x\'');
+        const hover = await hover_provider.get_hover(
+            document_state,
+            { line: 2, character },
+            undefined,
+            scope_resolver,
+        );
+        const value = (hover?.contents as { value?: string })?.value ?? '';
+        expect(value).toContain('Expansion: `1`');
+        expect(value).not.toContain('(out of scope)');
     });
 });

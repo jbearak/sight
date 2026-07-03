@@ -197,6 +197,7 @@ export class ReferencesProvider {
         resolved_scope?: ResolvedScope,
         cursor_line?: number,
         target_local_macro?: MacroSymbol,
+        exclude_same_file_local?: boolean,
     ): Location[] {
         const locations: Location[] = [];
         const seen = new Set<string>();
@@ -213,9 +214,14 @@ export class ReferencesProvider {
             case 'local_macro': {
                 // Scope-aware (#270): the resolved target symbol (the
                 // cursor-visible scope's own MacroSymbol) supersedes the
-                // flat slot, which may belong to a different scope.
-                const local_macro =
-                    target_local_macro ?? symbols.localMacros.get(symbol_name);
+                // flat slot, which may belong to a different scope. For
+                // an out-of-scope reference the flat slot is forbidden
+                // entirely — the identity is the cross-file inherited
+                // local (pooled from the indexer below) or nothing.
+                const local_macro = target_local_macro
+                    ?? (exclude_same_file_local
+                        ? undefined
+                        : symbols.localMacros.get(symbol_name));
                 if (local_macro) {
                     // Loop-expanded definitions anchor at the template statement
                     // (`local x_`i'`), whose text does not contain the concrete
@@ -447,9 +453,6 @@ export class ReferencesProvider {
         const target = this.resolve_local_reference_target(
             document, position, identified_symbol
         );
-        if (target.blocked) {
-            return [];
-        }
 
         // Resolve the scope once here (cached by ScopeResolver) so
         // find_definitions can apply the call-site filter to declarations
@@ -475,33 +478,38 @@ export class ReferencesProvider {
             resolved_scope,
             position.line,
             target.symbol,
+            target.exclude_same_file_local,
         );
     }
 
     /**
      * Scope-aware target resolution for local-macro find-references
-     * (#270). `blocked: true` = the name exists only in scopes not
-     * visible from the cursor (a sibling program's local) — no
-     * legitimate target, matching hover/definition's empty result.
-     * `symbol: undefined, blocked: false` = the scoped model has no
-     * opinion (empty scopes, cross-file inherited name, positional
-     * arg); existing name-based scanning proceeds unchanged.
+     * (#270). `exclude_same_file_local: true` = the name exists
+     * same-file only in scopes not visible from the cursor (a sibling
+     * program's local): the flat slot must not be pooled and same-file
+     * occurrences count only when they resolve to no same-file symbol
+     * themselves — the reference's identity is then the cross-file
+     * INHERITED do-file local (or plain undefined), matching the
+     * analyzer's cross-file suppression (round-2 gate).
+     * `symbol: undefined, exclude_same_file_local: false` = the scoped
+     * model has no opinion (empty scopes, cross-file inherited name,
+     * positional arg); existing name-based scanning proceeds unchanged.
      */
     private resolve_local_reference_target(
         document: DocumentState,
         position: Position,
         identified_symbol: IdentifiedSymbol
-    ): { symbol?: MacroSymbol; blocked: boolean } {
+    ): { symbol?: MacroSymbol; exclude_same_file_local: boolean } {
         if (identified_symbol.type !== 'local_macro') {
-            return { blocked: false };
+            return { exclude_same_file_local: false };
         }
         const scoped = lookup_scoped_local_macro(
             document.scopes, position, identified_symbol.name
         );
-        if (scoped.out_of_scope) {
-            return { blocked: true };
-        }
-        return { symbol: scoped.symbol, blocked: false };
+        return {
+            symbol: scoped.symbol,
+            exclude_same_file_local: scoped.out_of_scope,
+        };
     }
 
     /**
@@ -917,9 +925,6 @@ export class ReferencesProvider {
         const target = this.resolve_local_reference_target(
             document, position, identified_symbol
         );
-        if (target.blocked) {
-            return [];
-        }
 
         // Resolve the scope once so find_definitions can apply the
         // call-site filter to non-variable declarations pooled from the
@@ -945,6 +950,7 @@ export class ReferencesProvider {
             resolved_scope,
             position.line,
             target.symbol,
+            target.exclude_same_file_local,
         );
     }
 
@@ -962,6 +968,7 @@ export class ReferencesProvider {
         resolved_scope?: ResolvedScope,
         cursor_line?: number,
         target_local_macro?: MacroSymbol,
+        exclude_same_file_local?: boolean,
     ): Promise<Location[]> {
         const search_context: ReferenceSearchContext = {
             symbol_name,
@@ -978,6 +985,7 @@ export class ReferencesProvider {
             resolved_scope,
             cursor_line,
             target_local_macro,
+            exclude_same_file_local,
         );
 
         // Search workspace-indexed files (Req 13.3).
@@ -1075,20 +1083,36 @@ export class ReferencesProvider {
                 // Scope-filter (#270): a same-file name match may
                 // lexically belong to a DIFFERENT same-named local
                 // (shadowing) — keep only occurrences whose own
-                // position resolves to the exact target symbol.
-                // resolve_visible_local skips lookup_scoped_local_macro's
-                // out-of-scope bookkeeping scan, which this identity
-                // comparison never reads.
-                if (
-                    symbol_type === 'local_macro' &&
-                    target_local_macro !== undefined &&
-                    resolve_visible_local(
-                        document.scopes,
-                        my_match.range.start,
-                        symbol_name
-                    ) !== target_local_macro
-                ) {
-                    continue;
+                // position resolves to the exact target symbol. For an
+                // out-of-scope reference (exclude_same_file_local) the
+                // shared identity is "resolves to no same-file symbol"
+                // (the cross-file inherited local, or plain undefined),
+                // so occurrences that resolve to some same-file local
+                // are excluded instead. resolve_visible_local skips
+                // lookup_scoped_local_macro's out-of-scope bookkeeping
+                // scan, which these comparisons never read.
+                if (symbol_type === 'local_macro') {
+                    if (
+                        target_local_macro !== undefined &&
+                        resolve_visible_local(
+                            document.scopes,
+                            my_match.range.start,
+                            symbol_name
+                        ) !== target_local_macro
+                    ) {
+                        continue;
+                    }
+                    if (
+                        target_local_macro === undefined &&
+                        exclude_same_file_local === true &&
+                        resolve_visible_local(
+                            document.scopes,
+                            my_match.range.start,
+                            symbol_name
+                        ) !== undefined
+                    ) {
+                        continue;
+                    }
                 }
                 locations.push({ uri: my_match.uri, range: my_match.range });
             }

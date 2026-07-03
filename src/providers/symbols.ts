@@ -12,6 +12,7 @@ import {
 import { Position, Range } from 'vscode-languageserver-textdocument';
 import { DocumentState } from '../document-store';
 import {
+    MacroSymbol,
     StataNode,
     EmbeddedLanguageBlockNode,
     WorkspaceSymbolMatch,
@@ -411,35 +412,81 @@ export class SymbolProvider {
         // 3. Add local macros - nest under containing program or add as
         //    top-level. Enumerate per scope (#270): the flat view keeps
         //    one representative per name, dropping same-named locals
-        //    declared in other program scopes from the outline.
-        for (const [name, macro] of enumerate_scoped_local_macros(
-            document.scopes, document.symbols.localMacros
-        )) {
-            if (macro.sourceUri === document.uri) {
-                const my_local_symbol: DocumentSymbol = {
-                    name: `\`${name}'`,
-                    kind: SymbolKind.Variable,
-                    range: macro.location.range,
-                    selectionRange: macro.location.range,
-                    detail: 'Local Macro',
-                };
-
-                // Check if this local macro is inside any program
-                const my_containing_program = find_containing_program(
-                    macro.location.range.start,
-                    program_infos
+        //    declared in other program scopes from the outline. Each
+        //    local nests under its OWNING scope's container — the
+        //    authoritative ownership already in hand — rather than
+        //    re-deriving containment geometrically (a location anchored
+        //    outside its scope's body, e.g. a directive-declared
+        //    do-file local on a line inside a program range, must not
+        //    change owners).
+        const nest_local_symbol = (
+            my_local_symbol: DocumentSymbol,
+            container: ProgramInfo | undefined,
+            declaration_position: Position
+        ): void => {
+            const my_containing_program = container?.symbol
+                ?? find_containing_program(
+                    declaration_position, program_infos
                 );
-
-                if (my_containing_program) {
-                    // Add as child of the containing program
-                    if (!my_containing_program.children) {
-                        my_containing_program.children = [];
-                    }
-                    my_containing_program.children.push(my_local_symbol);
-                } else {
-                    // Add as top-level symbol
-                    symbols.push(my_local_symbol);
+            if (my_containing_program) {
+                if (!my_containing_program.children) {
+                    my_containing_program.children = [];
                 }
+                my_containing_program.children.push(my_local_symbol);
+            } else {
+                symbols.push(my_local_symbol);
+            }
+        };
+        const make_local_symbol = (
+            name: string,
+            macro: MacroSymbol
+        ): DocumentSymbol => ({
+            name: `\`${name}'`,
+            kind: SymbolKind.Variable,
+            range: macro.location.range,
+            selectionRange: macro.location.range,
+            detail: 'Local Macro',
+        });
+        if ((document.scopes ?? []).length > 0) {
+            for (const my_scope of document.scopes!) {
+                const my_container = my_scope.type === 'program' &&
+                    my_scope.program_name
+                    ? program_infos.get(
+                        `${my_scope.program_name}#${my_scope.id}`
+                    )
+                    : undefined;
+                for (const [my_name, my_macro] of my_scope.localMacros) {
+                    if (my_macro.sourceUri !== document.uri) {
+                        continue;
+                    }
+                    const my_local_symbol =
+                        make_local_symbol(my_name, my_macro);
+                    if (my_scope.type === 'program') {
+                        // Geometric fallback only for degenerate
+                        // program scopes with no registered container.
+                        nest_local_symbol(
+                            my_local_symbol,
+                            my_container,
+                            my_macro.location.range.start
+                        );
+                    } else {
+                        // Do-file-owned: top-level by ownership.
+                        symbols.push(my_local_symbol);
+                    }
+                }
+            }
+        } else {
+            // Degenerate no-scopes fallback: flat view + geometric
+            // containment, matching the pre-#270 behavior.
+            for (const [name, macro] of document.symbols.localMacros) {
+                if (macro.sourceUri !== document.uri) {
+                    continue;
+                }
+                nest_local_symbol(
+                    make_local_symbol(name, macro),
+                    undefined,
+                    macro.location.range.start
+                );
             }
         }
 

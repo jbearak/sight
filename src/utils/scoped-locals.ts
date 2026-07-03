@@ -32,19 +32,11 @@
  */
 
 import { MacroSymbol, ScopeInfo } from '../types';
-import { find_enclosing_scope } from './scope-position';
-
-interface Position {
-    line: number;
-    character: number;
-}
-
-function compare_positions(a: Position, b: Position): number {
-    if (a.line !== b.line) {
-        return a.line - b.line;
-    }
-    return a.character - b.character;
-}
+import {
+    compare_positions,
+    find_enclosing_scope,
+    Position,
+} from './scope-position';
 
 /**
  * The ordered visibility list for a reference whose enclosing scope
@@ -76,6 +68,9 @@ export function assemble_visible_scopes(
  * earliest definition, so `additional_definitions` can never turn a
  * forward reference into a resolved one. Permissive when the symbol
  * carries no position markers.
+ *
+ * LOCKSTEP: any change to these rules must also be applied to the
+ * analyzer's `macro_resolves_at_reference`, and vice versa.
  */
 export function macro_resolves_at_position(
     symbol: MacroSymbol,
@@ -163,7 +158,9 @@ export function resolve_visible_local(
  * All local macros visible at `position`. Per name, the first
  * visible scope whose symbol has already been defined at `position`
  * wins; a name defined only later (forward) still appears via its
- * nearest visible scope — same rule as `resolve_visible_local`.
+ * nearest visible scope — the SAME resolved-first-then-forward-
+ * fallback policy as `resolve_visible_local`, encoded map-wise here
+ * for enumeration. Keep the two in lockstep.
  */
 export function collect_visible_local_macros(
     scopes: ScopeInfo[] | undefined,
