@@ -9,6 +9,7 @@ import {
 } from 'bun:test';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
+import { wait_until } from '../wait-until';
 
 const SEND_TO_STATA_DIR = path.resolve(
     import.meta.dir,
@@ -123,19 +124,13 @@ function create_vscode_mock_state(
     };
 }
 
-async function wait_for_condition(
+// Shared polling helper (tests/wait-until.ts); these call sites keep the
+// pre-extraction timing: a tight 200ms budget with 0ms yields.
+function wait_for_condition(
     predicate: () => boolean,
-    timeout_ms = 200
+    description: string
 ): Promise<void> {
-    const start_time_ms = Date.now();
-    while (!predicate()) {
-        if (Date.now() - start_time_ms > timeout_ms) {
-            throw new Error('Timed out waiting for test condition.');
-        }
-        await new Promise(resolve => {
-            setTimeout(resolve, 0);
-        });
-    }
+    return wait_until(predicate, description, 200, 0);
 }
 
 async function import_terminal_manager_module(
@@ -307,7 +302,7 @@ describe.serial('Feature: integrated terminal first-send reliability', () => {
 
         await wait_for_condition(() => {
             return vscode_state.create_terminal_calls === 1;
-        });
+        }, 'the send to create the Stata terminal');
 
         expect(vscode_state.create_terminal_calls).toBe(1);
         expect(vscode_state.the_show_calls).toEqual([true]);
@@ -382,7 +377,7 @@ describe.serial('Feature: integrated terminal first-send reliability', () => {
 
         await wait_for_condition(() => {
             return vscode_state.create_terminal_calls === 1;
-        });
+        }, 'the send to create the Stata terminal');
 
         expect(vscode_state.create_terminal_calls).toBe(1);
         expect(vscode_state.the_send_calls).toEqual([]);
@@ -418,7 +413,7 @@ describe.serial('Feature: integrated terminal first-send reliability', () => {
 
         await wait_for_condition(() => {
             return vscode_state.create_terminal_calls === 1;
-        });
+        }, 'the send to create the Stata terminal');
 
         for (const my_listener of vscode_state.the_close_listeners) {
             my_listener(vscode_state.terminal);
@@ -454,7 +449,7 @@ describe.serial('Feature: integrated terminal first-send reliability', () => {
         );
         await wait_for_condition(() => {
             return vscode_state.the_show_calls.length === 1;
-        });
+        }, 'the profile terminal to be revealed');
 
         // Must NOT type into the still-starting Stata yet.
         expect(vscode_state.the_send_calls).toEqual([]);

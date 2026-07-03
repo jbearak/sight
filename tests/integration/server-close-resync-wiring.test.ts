@@ -44,6 +44,7 @@ import type {
 import { create_server } from '../../src/server-factory';
 import { ScopeResolver } from '../../src/scope-resolver';
 import type { ScopeResolverConfig } from '../../src/types';
+import { wait_until } from '../wait-until';
 
 // ---------------------------------------------------------------------------
 // ScopeResolver instrumentation: the resolver is created inside
@@ -209,20 +210,12 @@ function make_stub_connection(options: StubConnectionOptions): {
 // Test harness
 // ---------------------------------------------------------------------------
 
-async function wait_until(
-    predicate: () => boolean,
-    description: string,
-    timeout_ms = 5000,
-    interval_ms = 20
-): Promise<void> {
-    const deadline_ms = Date.now() + timeout_ms;
-    while (!predicate()) {
-        if (Date.now() > deadline_ms) {
-            throw new Error(`Timed out waiting for: ${description}`);
-        }
-        await new Promise((resolve) => setTimeout(resolve, interval_ms));
-    }
-}
+// Every wait in this file must stay below TEST_TIMEOUT_MS so wait_until's
+// descriptive error surfaces instead of bun's generic test timeout; each
+// it() below passes TEST_TIMEOUT_MS explicitly because the default 5000ms
+// budget is too tight for the chained waits on slow CI.
+const TEST_TIMEOUT_MS = 30000;
+const WAIT_TIMEOUT_MS = 10000;
 
 let tmp_dir: string;
 let published_uris: string[] = [];
@@ -242,6 +235,9 @@ async function start_test_server(
         published_uris,
     });
     await create_server({ transport: 'stdio', quiet: true, connection });
+    // Assign before any wait/assertion can fail, so afterEach still runs
+    // the shutdown handler and no server timers outlive a failing test.
+    active_handlers = handlers;
     expect(handlers.initialize).toBeDefined();
     expect(handlers.initialized).toBeDefined();
     expect(handlers.did_open).toBeDefined();
@@ -259,9 +255,9 @@ async function start_test_server(
     await wait_until(
         () => captured_resolver !== undefined &&
             workspace_roots_seen.includes(tmp_dir),
-        'server initialization to reach the workspace-roots refresh'
+        'server initialization to reach the workspace-roots refresh',
+        WAIT_TIMEOUT_MS
     );
-    active_handlers = handlers;
     return handlers;
 }
 
@@ -348,7 +344,8 @@ describe('server onDidClose disk re-sync wiring (#287)', () => {
             () => captured_resolver!
                 .get_backward_directive_children(parent_buffer_uri)
                 .has(child_uri),
-            'buffer-based registration of child under parent_buffer'
+            'buffer-based registration of child under parent_buffer',
+            WAIT_TIMEOUT_MS
         );
 
         handlers.did_close!({ textDocument: { uri: child_uri } });
@@ -359,7 +356,8 @@ describe('server onDidClose disk re-sync wiring (#287)', () => {
             () => captured_resolver!
                 .get_backward_directive_children(parent_disk_uri)
                 .has(child_uri),
-            'disk re-sync to register child under parent_disk'
+            'disk re-sync to register child under parent_disk',
+            WAIT_TIMEOUT_MS
         );
         expect(
             captured_resolver!
@@ -374,7 +372,7 @@ describe('server onDidClose disk re-sync wiring (#287)', () => {
         expect(the_resync_calls[0].config?.backward_dependencies)
             .toBe('explicit');
         expect(await the_resync_calls[0].result).toBe(true);
-    });
+    }, TEST_TIMEOUT_MS);
 
     it('vetoes the re-sync when the document is reopened while the disk ' +
         'read is in flight (reopen guard)', async () => {
@@ -390,7 +388,8 @@ describe('server onDidClose disk re-sync wiring (#287)', () => {
             () => captured_resolver!
                 .get_backward_directive_children(parent_buffer_uri)
                 .has(child_uri),
-            'buffer-based registration of child under parent_buffer'
+            'buffer-based registration of child under parent_buffer',
+            WAIT_TIMEOUT_MS
         );
 
         // Close, then reopen synchronously — before the close handler's
@@ -404,7 +403,8 @@ describe('server onDidClose disk re-sync wiring (#287)', () => {
         // (after the settings fetch), so wait for the spied call.
         await wait_until(
             () => the_resync_calls.length === 1,
-            'the close handler to invoke the disk re-sync'
+            'the close handler to invoke the disk re-sync',
+            WAIT_TIMEOUT_MS
         );
         expect(await the_resync_calls[0].result).toBe(false);
 
@@ -419,7 +419,7 @@ describe('server onDidClose disk re-sync wiring (#287)', () => {
                 .get_backward_directive_children(parent_disk_uri)
                 .has(child_uri)
         ).toBe(false);
-    });
+    }, TEST_TIMEOUT_MS);
 
     it('revalidates open backward-directive dependents after the re-sync ' +
         'applies', async () => {
@@ -448,18 +448,38 @@ describe('server onDidClose disk re-sync wiring (#287)', () => {
                 captured_resolver!
                     .get_backward_directive_children(parent_buffer_uri)
                     .has(child_uri),
-            'both open buffers to commit their backward registrations'
+            'both open buffers to commit their backward registrations',
+            WAIT_TIMEOUT_MS
         );
 
-        // Let in-flight validation publishes settle so any new grandchild
-        // publish below is attributable to the close-path revalidation.
-        let last_count = -1;
+        // Barrier against a false pass: any new grandchild publish after
+        // did_close below must be attributable to the CLOSE-path
+        // revalidation, not a straggler from the open-time validation
+        // cascade. Two conditions: (1) both documents' initial validation
+        // cycles have published (registration above happens BEFORE the
+        // publish within the same debounced cycle, so wait for the
+        // publishes too), and (2) no publish at all for three consecutive
+        // 150ms samples (~450ms of silence, several times the 100ms
+        // debounce window), so no revalidation scheduled pre-close is
+        // still in flight.
+        await wait_until(
+            () => published_uris.includes(grandchild_uri) &&
+                published_uris.includes(child_uri),
+            'initial validation publishes for both open documents',
+            WAIT_TIMEOUT_MS
+        );
+        let stable_samples = 0;
+        let last_count = published_uris.length;
         await wait_until(() => {
             const current_count = published_uris.length;
-            const stable = current_count === last_count;
-            last_count = current_count;
-            return stable;
-        }, 'diagnostic publishes to go quiescent', 5000, 150);
+            if (current_count === last_count) {
+                stable_samples++;
+            } else {
+                stable_samples = 0;
+                last_count = current_count;
+            }
+            return stable_samples >= 3;
+        }, 'diagnostic publishes to go quiescent', WAIT_TIMEOUT_MS, 150);
 
         const grandchild_publishes_before = published_uris
             .filter((my_uri) => my_uri === grandchild_uri).length;
@@ -468,7 +488,8 @@ describe('server onDidClose disk re-sync wiring (#287)', () => {
 
         await wait_until(
             () => the_resync_calls.length === 1,
-            'the close handler to invoke the disk re-sync'
+            'the close handler to invoke the disk re-sync',
+            WAIT_TIMEOUT_MS
         );
         expect(await the_resync_calls[0].result).toBe(true);
 
@@ -478,7 +499,8 @@ describe('server onDidClose disk re-sync wiring (#287)', () => {
             () => published_uris
                 .filter((my_uri) => my_uri === grandchild_uri).length >
                 grandchild_publishes_before,
-            'grandchild diagnostics republish after close re-sync'
+            'grandchild diagnostics republish after close re-sync',
+            WAIT_TIMEOUT_MS
         );
-    });
+    }, TEST_TIMEOUT_MS);
 });

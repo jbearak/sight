@@ -1213,10 +1213,14 @@ export async function create_server(options: ServerOptions): Promise<void> {
     // Wire initialized handler
     connection.onInitialized(
         create_initialized_handler(() => {
-            // Initialize Logger - route to stderr for stdio transport, suppress if quiet
+            // Initialize Logger - route to stderr for stdio transport,
+            // suppress if quiet. With an injected connection the stdio
+            // transport flag says nothing about the host's real stdio, so
+            // never write to process.stderr in that case — route through
+            // the injected connection's console instead.
             const log_fn = quiet
                 ? () => { } // Suppress all startup messages
-                : transport === 'stdio'
+                : transport === 'stdio' && options.connection === undefined
                     ? (msg: string) => process.stderr.write(msg + '\n')
                     : log_channel || ((msg: string) => connection.console.log(msg));
 
