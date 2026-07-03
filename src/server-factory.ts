@@ -193,9 +193,16 @@ export function resolve_scoped_client_settings(
 // re-scanning. `max_backward_depth` is included because the indexer's
 // inherited-WD walk (#218) uses it to key closed-file callee edges, so
 // a depth change must re-index for those edges to stay consistent with
-// the open-document path. (`backward_dependencies` is NOT needed: the
-// indexer walk forces explicit backward resolution, so it is
-// independent of the auto/explicit mode.)
+// the open-document path. (`backward_dependencies` is NOT included even
+// though, since #286, the mode steers the parse-path registration side
+// effect in get_parsed_file: a re-scan would not re-run that
+// registration anyway (the file cache is content-keyed and unaffected
+// by settings), so including it buys a costly teardown without the
+// convergence it implies. A mid-session flip instead self-heals per
+// file: explicit→auto is healed by the cache-hit registration upgrade
+// (see upgrade_registration_on_cache_hit) and each file's next
+// parse/commit; auto→explicit leaves vestigial auto edges until the
+// next parse — benign over-revalidation, never a false suppression.)
 //
 // This signature is compared on BOTH config-change paths against a
 // single shared `last_applied_indexing_signature`: the `sight.toml`

@@ -783,7 +783,35 @@ a separate best-effort recovery path (issue #184):
   working-directory probe the parse runs (`resolve()` with
   `register_dependencies: false`) never registers the file's own edges;
   ancestor files read from disk during the walk still register *their own*
-  directives (disk-derived, correct regardless of this parse's fate).
+  edges (disk-derived, correct regardless of this parse's fate).
+- Ancestor-level registration inside `get_parsed_file` uses **effective**
+  directives under the resolution's `backward_dependencies` mode, threaded
+  through every read path — backward walks, forward callee reads, and
+  forward-closure memo builds (issue #286). In `'auto'` mode a file with no
+  explicit directives keeps (or gains) its dependency-graph parents when it
+  is read as an ancestor of another file's resolution, instead of having
+  those auto edges wiped by the clear-then-register sync until its next
+  commit. An `'explicit'`-mode resolution registers raw directives only and
+  never synthesizes graph parents; the indexer's working-directory walk
+  forces `'explicit'` for scan-order determinism and so never registers
+  auto edges. Effective ⊇ raw, so ancestor reads can only add edges
+  relative to the pre-#286 behavior. Registration remains a parse-path
+  side effect, with one exception: each file-cache entry is stamped with
+  the mode its registration ran under (plus the dependency-graph version
+  it read), and an `'auto'`-mode cache hit re-applies effective
+  registration when the entry was `'explicit'`-registered or its
+  `'auto'` registration predates a graph change, then re-stamps
+  (`upgrade_registration_on_cache_hit`). Entries whose content has
+  explicit backward directives skip the version re-check: their
+  effective registration is graph-independent, so graph churn never
+  costs them registration work. Without that upgrade, the
+  indexer's explicit WD walk priming the cache would leave a
+  directive-less ancestor's auto edges unregistered — and a graph edge
+  added after the stamp would never reach `backward_directive_children`
+  — for as long as the content stayed unchanged. Explicit-mode hits never downgrade, and memo
+  serves still perform no registration (files reached only through a
+  served closure re-register when the memo entry is evicted or their
+  content changes).
 - `commit_state` applies the staged effects synchronously, after its
   disposed/closed-generation/version guards pass. A parse discarded by a
   racing `close()` (or by `dispose()`) therefore never mutates shared
@@ -804,7 +832,9 @@ a separate best-effort recovery path (issue #184):
 
 See `tests/unit/document-store-commit-time-cross-file-effects.test.ts` for
 the race scenarios this guarantees (stale-add, valid-edge-drop across an
-A→B→C chain, dispose-during-parse, probe cache interaction, disk re-sync).
+A→B→C chain, dispose-during-parse, probe cache interaction, disk re-sync),
+and `tests/unit/scope-resolver-ancestor-effective-sync.test.ts` for the
+ancestor-level effective-sync behavior (issue #286).
 
 ## Configuration
 
