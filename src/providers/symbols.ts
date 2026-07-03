@@ -334,36 +334,65 @@ export class SymbolProvider {
         // Store program info for containment checking
         const program_infos = new Map<string, ProgramInfo>();
 
-        for (const [_name, program] of document.symbols.programs) {
-            // Defensive: only include programs defined in this document.
-            // (Prevents accidental cross-file contamination if symbols are ever merged.)
-            if (program.sourceUri !== document.uri) {
-                continue;
-            }
-
-            // Prefer AST ranges if available for accuracy
-            const my_program_range = this.get_program_range(document, program.name)
-                || program.location.range;
-
-            // Prefer selecting just the identifier for better UX in outline views.
-            const my_program_selection_range =
-                this.get_program_name_range(document, program.name, my_program_range)
-                || my_program_range;
-
+        const register_program_container = (
+            container_key: string,
+            program_name: string,
+            program_range: Range
+        ): void => {
+            // Prefer selecting just the identifier for better UX in
+            // outline views.
+            const my_selection_range =
+                this.get_program_name_range(
+                    document, program_name, program_range
+                ) || program_range;
             const my_program_symbol: DocumentSymbol = {
-                name: program.name,
+                name: program_name,
                 kind: SymbolKind.Function,
-                range: my_program_range,
-                selectionRange: my_program_selection_range,
+                range: program_range,
+                selectionRange: my_selection_range,
                 detail: 'Program',
                 children: [],
             };
-
             symbols.push(my_program_symbol);
-            program_infos.set(program.name, {
+            program_infos.set(container_key, {
                 symbol: my_program_symbol,
-                range: my_program_range,
+                range: program_range,
             });
+        };
+
+        // One container per program BODY (#270): the flat programs map
+        // holds one entry per name, so a redeclared program's second
+        // body would have no container and its locals would float to
+        // the top level. Program ScopeInfos carry each body's exact
+        // range; fall back to the flat map for degenerate states
+        // without scopes.
+        const the_program_scopes = (document.scopes ?? []).filter(
+            my_scope => my_scope.type === 'program' && my_scope.program_name
+        );
+        if (the_program_scopes.length > 0) {
+            for (const my_scope of the_program_scopes) {
+                register_program_container(
+                    `${my_scope.program_name}#${my_scope.id}`,
+                    my_scope.program_name!,
+                    my_scope.range
+                );
+            }
+        } else {
+            for (const [_name, program] of document.symbols.programs) {
+                // Defensive: only include programs defined in this document.
+                // (Prevents accidental cross-file contamination if symbols are ever merged.)
+                if (program.sourceUri !== document.uri) {
+                    continue;
+                }
+
+                // Prefer AST ranges if available for accuracy
+                const my_program_range =
+                    this.get_program_range(document, program.name)
+                    || program.location.range;
+                register_program_container(
+                    program.name, program.name, my_program_range
+                );
+            }
         }
 
         // 2. Add global macros (defined in this file) - always top-level

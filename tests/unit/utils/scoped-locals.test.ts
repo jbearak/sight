@@ -206,3 +206,59 @@ describe('enumerate_scoped_local_macros', () => {
         expect(the_entries.map(([my_name]) => my_name)).toEqual(['x']);
     });
 });
+
+// Round-1 gate regression: resolution must honor definition order —
+// a not-yet-defined program local must not shadow an already-defined
+// do-file local (mirrors the analyzer's macro_resolves_at_reference).
+describe('position-aware resolution (forward order)', () => {
+    const FORWARD_SHADOW = `
+local x top
+program define p
+    di "\`x'"
+    local x body
+end
+`;
+
+    it('reference before the program definition resolves to the do-file symbol', () => {
+        const doc = create_document_state(FORWARD_SHADOW);
+        const position = find_position_of(FORWARD_SHADOW, 'di "`x')!;
+        const result = lookup_scoped_local_macro(doc.scopes, position, 'x');
+        expect(result.symbol?.value).toBe('top');
+        expect(result.symbol?.containingScope).toBe('dofile');
+    });
+
+    it('reference after the program definition resolves to the program symbol', () => {
+        const source = `
+local x top
+program define p
+    local x body
+    di "\`x'"
+end
+`;
+        const doc = create_document_state(source);
+        const position = find_position_of(source, 'di "`x')!;
+        const result = lookup_scoped_local_macro(doc.scopes, position, 'x');
+        expect(result.symbol?.value).toBe('body');
+    });
+
+    it('forward-only same-scope reference keeps the program symbol as identity target', () => {
+        const source = `
+program define p
+    di "\`x'"
+    local x body
+end
+`;
+        const doc = create_document_state(source);
+        const position = find_position_of(source, 'di "`x')!;
+        const result = lookup_scoped_local_macro(doc.scopes, position, 'x');
+        expect(result.symbol?.value).toBe('body');
+        expect(result.out_of_scope).toBe(false);
+    });
+
+    it('collect_visible_local_macros prefers the resolved do-file symbol', () => {
+        const doc = create_document_state(FORWARD_SHADOW);
+        const position = find_position_of(FORWARD_SHADOW, 'di "`x')!;
+        const the_macros = collect_visible_local_macros(doc.scopes, position);
+        expect(the_macros.get('x')?.value).toBe('top');
+    });
+});

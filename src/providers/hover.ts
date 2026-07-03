@@ -987,10 +987,14 @@ export class HoverProvider {
             // Program locals never cross files (#271) — the visible
             // program-scoped symbol is unconditionally the answer, and
             // it fixes the case where an unrelated same-named local
-            // elsewhere in the file holds the flat slot.
+            // elsewhere in the file holds the flat slot. The workspace
+            // indexer is deliberately withheld: the redefinition
+            // footer must not pool cross-file same-name locals for a
+            // symbol whose identity never crosses files (matching
+            // definition/references skipping their cross-file scans).
             return this.render_local_macro_hover(
                 document, scoped.symbol, word, workspace_root,
-                workspace_indexer,
+                undefined,
             );
         }
         if (scoped.out_of_scope) {

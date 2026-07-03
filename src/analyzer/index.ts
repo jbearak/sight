@@ -3,6 +3,7 @@ import {
     find_enclosing_scope,
     program_body_start_line,
 } from '../utils/scope-position';
+import { assemble_visible_scopes } from '../utils/scoped-locals';
 import {
     format_undefined_macro_message,
     format_undefined_variable_message,
@@ -3452,12 +3453,10 @@ export class SemanticAnalyzer {
         }
 
         const dofile_scope = this.current_scopes[0];
-        const the_visible_scopes =
-            reference_scope.type !== 'dofile' &&
-            dofile_scope !== undefined &&
-            dofile_scope !== reference_scope
-                ? [reference_scope, dofile_scope]
-                : [reference_scope];
+        const the_visible_scopes = assemble_visible_scopes(
+            reference_scope,
+            dofile_scope
+        );
 
         let same_name_in_visible_scope = false;
         for (const my_scope of the_visible_scopes) {

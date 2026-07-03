@@ -76,6 +76,24 @@ const DIRECTIVE_PATH_CONTEXT_PATTERN = new RegExp(
 );
 
 /**
+ * Defensive SymbolTable-map coercion: production always passes Maps,
+ * but unit tests may pass plain objects (or partial stubs with the
+ * field missing). Shared by the local- and global-macro completion
+ * sources so the coercion contract lives in one place.
+ */
+function coerce_macro_map(
+    value: Map<string, MacroSymbol> | Record<string, MacroSymbol> | undefined
+): Map<string, MacroSymbol> {
+    if (value instanceof Map) {
+        return value;
+    }
+    if (value && typeof value === 'object') {
+        return new Map(Object.entries(value));
+    }
+    return new Map();
+}
+
+/**
  * Map ForwardCallSite.effective_type to directive_type for ranking.
  * 'include' -> 'included-by', else 'done-by'
  */
@@ -1715,13 +1733,7 @@ export class CompletionProvider {
         symbols: SymbolTable,
         position: Position
     ): Map<string, MacroSymbol> {
-        const localMacros = symbols.localMacros;
-        const flat: Map<string, MacroSymbol> =
-            localMacros instanceof Map
-                ? localMacros
-                : (localMacros && typeof localMacros === 'object'
-                    ? new Map(Object.entries(localMacros))
-                    : new Map());
+        const flat = coerce_macro_map(symbols.localMacros);
 
         const the_scopes = document.scopes;
         if (!the_scopes || the_scopes.length === 0) {
@@ -1742,6 +1754,16 @@ export class CompletionProvider {
 
         const the_macros = new Map<string, MacroSymbol>();
         for (const [my_name, my_macro] of flat) {
+            const scoped_symbol = the_visible_macros.get(my_name);
+            if (scoped_symbol?.containingScope === 'program') {
+                // A visible program-scoped local wins outright — even
+                // over a cross-file merged representative (#271: the
+                // program's own local shadows everything at the
+                // cursor, and a same-named local elsewhere is a
+                // different macro).
+                the_macros.set(my_name, scoped_symbol);
+                continue;
+            }
             if (
                 my_macro.sourceUri !== document.uri ||
                 !the_scoped_names.has(my_name)
@@ -1750,18 +1772,14 @@ export class CompletionProvider {
                 the_macros.set(my_name, my_macro);
                 continue;
             }
-            const scoped_symbol = the_visible_macros.get(my_name);
             if (scoped_symbol === undefined) {
                 // Tracked in this file but in no visible scope: out of
                 // scope at the cursor — drop.
                 continue;
             }
-            the_macros.set(
-                my_name,
-                scoped_symbol.containingScope === 'program'
-                    ? scoped_symbol
-                    : my_macro
-            );
+            // Do-file-scoped: keep the flat/merged entry, which already
+            // reflects cross-file execution-order shadowing.
+            the_macros.set(my_name, my_macro);
         }
         return the_macros;
     }
@@ -1800,21 +1818,11 @@ export class CompletionProvider {
         // CRITICAL FIX: Ensure 'symbols' actually has content and is a valid SymbolTable.
         // In unit tests, partial or mock objects might be passed.
         // Ensure we are accessing the Maps correctly and handling plain objects if necessary.
-        let the_macros: Map<string, MacroSymbol>;
-        if (scope === 'local') {
-            the_macros = this.build_local_macro_completion_map(
+        const the_macros: Map<string, MacroSymbol> = scope === 'local'
+            ? this.build_local_macro_completion_map(
                 document, symbols, position
-            );
-        } else {
-            const globalMacros = symbols.globalMacros;
-            if (globalMacros instanceof Map) {
-                the_macros = globalMacros;
-            } else if (globalMacros && typeof globalMacros === 'object') {
-                the_macros = new Map(Object.entries(globalMacros));
-            } else {
-                the_macros = new Map();
-            }
-        }
+            )
+            : coerce_macro_map(symbols.globalMacros);
         
         // Build lowercase index for faster prefix matching
         // This avoids calling toLowerCase() for each symbol in the loop
@@ -1891,7 +1899,18 @@ export class CompletionProvider {
             // For local macro completions, respect program scoping.
             // - If cursor is inside a program: include locals defined in that program + locals defined at file scope.
             // - If cursor is outside any program: exclude locals defined inside programs.
-            if (scope === 'local' && document.ast) {
+            // Degenerate-state fallback ONLY (#270): with scopes
+            // present, build_local_macro_completion_map already applied
+            // the authoritative ScopeInfo-based visibility; re-running
+            // this AST walk would just risk boundary disagreements
+            // (///-continued headers) and spurious matches for
+            // cross-file entries whose positions belong to other files.
+            if (
+                scope === 'local' &&
+                document.ast &&
+                (document.scopes === undefined ||
+                    document.scopes.length === 0)
+            ) {
                 const macro_pos = macro.location?.range?.start;
                 if (macro_pos) {
                     const containing_program = this.find_program_containing_position(

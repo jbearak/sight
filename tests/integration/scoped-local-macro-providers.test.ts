@@ -626,3 +626,155 @@ describe('scoped local macros: definition ignores cross-file hits for program lo
             .toEqual([2]);
     });
 });
+
+// Round-1 gate regressions (#270 review findings).
+describe('scoped local macros: round-1 gate regressions', () => {
+    let test_temp_dir: string;
+    let document_store: DocumentStore;
+
+    beforeEach(() => {
+        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-gate-'));
+        document_store = new DocumentStore();
+    });
+
+    afterEach(() => {
+        if (existsSync(test_temp_dir)) {
+            rmSync(test_temp_dir, { recursive: true, force: true });
+        }
+    });
+
+    async function open_file(name: string, lines: string[]) {
+        const file_path = join(test_temp_dir, name);
+        const content = lines.join('\n');
+        writeFileSync(file_path, content);
+        const uri = URI.file(file_path).toString();
+        await document_store.open(uri, content, 1);
+        return { uri, content, document_state: document_store.get(uri)! };
+    }
+
+    it('hover before a program-local definition shows the do-file value (forward order)', async () => {
+        const hover_provider = new HoverProvider(new CommandDatabase());
+        const { content, document_state } = await open_file('a.do', [
+            'local x top',         // 0
+            'program define p',    // 1
+            '    di "`x\'"',       // 2 — before the program definition
+            '    local x body',    // 3
+            'end',                 // 4
+        ]);
+        const character = content.split('\n')[2].indexOf('x\'');
+        const hover = await hover_provider.get_hover(
+            document_state,
+            { line: 2, character },
+        );
+        const value = (hover?.contents as { value?: string })?.value ?? '';
+        expect(value).toContain('Expansion: `top`');
+        expect(value).not.toContain('Expansion: `body`');
+    });
+
+    it('completion before a program-local definition offers the do-file symbol', async () => {
+        const completion_provider =
+            new CompletionProvider(new CommandDatabase());
+        const { document_state } = await open_file('a.do', [
+            'local x top',         // 0
+            'program define p',    // 1
+            '    di "`',           // 2 — cursor after the backtick
+            '    local x body',    // 3
+            'end',                 // 4
+        ]);
+        const the_completions = await completion_provider.get_completions(
+            document_state,
+            { line: 2, character: 9 },
+            '`',
+        );
+        const the_item = the_completions.find(
+            my_item => my_item.label === 'x'
+        );
+        expect(the_item).toBeDefined();
+        expect(the_item!.documentation).toBe('Value: top');
+    });
+
+    it('program-scoped hover footer never cites cross-file same-name locals', async () => {
+        const indexer = new WorkspaceIndexer();
+        indexer.set_dependency_graph(new DependencyGraph());
+        const hover_provider = new HoverProvider(new CommandDatabase());
+        writeFileSync(join(test_temp_dir, 'lib.do'), 'local helper lib\n');
+        const { content, document_state } = await open_file('main.do', [
+            'include "lib.do"',        // 0
+            'program define p',        // 1
+            '    local helper 1',      // 2
+            '    di "`helper\'"',      // 3
+            'end',                     // 4
+        ]);
+        await indexer.initialize([test_temp_dir]);
+        const character = content.split('\n')[3].indexOf('helper');
+        const hover = await hover_provider.get_hover(
+            document_state,
+            { line: 3, character },
+            undefined,
+            undefined,
+            undefined,
+            undefined,
+            test_temp_dir,
+            indexer,
+        );
+        const value = (hover?.contents as { value?: string })?.value ?? '';
+        expect(value).toContain('Expansion: `1`');
+        expect(value).not.toContain('Redefined');
+        expect(value).not.toContain('other file');
+    });
+
+    it('redeclared program bodies each nest their own locals in the outline', async () => {
+        const symbol_provider = new SymbolProvider();
+        const { document_state } = await open_file('a.do', [
+            'program define p',    // 0
+            '    local a 1',       // 1
+            'end',                 // 2
+            'program define p',    // 3
+            '    local b 2',       // 4
+            'end',                 // 5
+        ]);
+        const the_symbols =
+            symbol_provider.get_document_symbols(document_state);
+        const the_program_nodes = the_symbols.filter(
+            my_sym => my_sym.name === 'p' && my_sym.detail === 'Program'
+        );
+        expect(the_program_nodes).toHaveLength(2);
+        const the_nested_names = the_program_nodes.flatMap(
+            my_node => (my_node.children ?? []).map(my_child => my_child.name)
+        );
+        expect(the_nested_names).toContain("`a'");
+        expect(the_nested_names).toContain("`b'");
+        // Neither local floats to the top level.
+        const the_top_level_names = the_symbols.map(my_sym => my_sym.name);
+        expect(the_top_level_names).not.toContain("`a'");
+        expect(the_top_level_names).not.toContain("`b'");
+    });
+
+    it('a program\'s own local wins completion over a cross-file merged slot', async () => {
+        const indexer = new WorkspaceIndexer();
+        indexer.set_dependency_graph(new DependencyGraph());
+        const completion_provider =
+            new CompletionProvider(new CommandDatabase());
+        writeFileSync(join(test_temp_dir, 'lib.do'), 'local helper lib\n');
+        const { document_state } = await open_file('main.do', [
+            'include "lib.do"',        // 0
+            'program define p',        // 1
+            '    local helper 1',      // 2
+            '    di "`h',              // 3
+            'end',                     // 4
+        ]);
+        await indexer.initialize([test_temp_dir]);
+        const the_completions = await completion_provider.get_completions(
+            document_state,
+            { line: 3, character: 10 },
+            '`',
+            undefined,
+            indexer.get_all_symbols(),
+        );
+        const the_item = the_completions.find(
+            my_item => my_item.label === 'helper'
+        );
+        expect(the_item).toBeDefined();
+        expect(the_item!.documentation).toBe('Value: 1');
+    });
+});

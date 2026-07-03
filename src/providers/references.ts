@@ -16,7 +16,11 @@ import { DocumentState } from '../document-store';
 import { LanguageContext, MacroSymbol, Token, ContextRange } from '../types';
 import { get_line_text } from '../utils/line-utils';
 import { is_cross_file_hidden_local } from '../utils/dofile-locals';
-import { lookup_scoped_local_macro } from '../utils/scoped-locals';
+import {
+    lookup_scoped_local_macro,
+    resolve_scoped_or_flat,
+    resolve_visible_local,
+} from '../utils/scoped-locals';
 import type { WorkspaceIndexer } from '../indexer';
 import type { IContextTracker } from '../context-tracker/types';
 import type { ScopeResolver } from '../scope-resolver';
@@ -732,13 +736,10 @@ export class ReferencesProvider {
         // Scope-aware (#270): resolve against the scope that textually
         // contains the cursor, so a losing-flat-slot program local
         // still matches its own declaration range.
-        const scoped_decl = lookup_scoped_local_macro(
-            document.scopes, range.start, word
+        const local_macro = resolve_scoped_or_flat(
+            document.scopes, range.start, word,
+            document.symbols.localMacros
         );
-        const local_macro = scoped_decl.symbol
-            ?? (scoped_decl.out_of_scope
-                ? undefined
-                : document.symbols.localMacros.get(word));
         if (
             local_macro
             && this.position_hits_symbol_definition(range.start, local_macro)
@@ -1075,14 +1076,17 @@ export class ReferencesProvider {
                 // lexically belong to a DIFFERENT same-named local
                 // (shadowing) — keep only occurrences whose own
                 // position resolves to the exact target symbol.
+                // resolve_visible_local skips lookup_scoped_local_macro's
+                // out-of-scope bookkeeping scan, which this identity
+                // comparison never reads.
                 if (
                     symbol_type === 'local_macro' &&
                     target_local_macro !== undefined &&
-                    lookup_scoped_local_macro(
+                    resolve_visible_local(
                         document.scopes,
                         my_match.range.start,
                         symbol_name
-                    ).symbol !== target_local_macro
+                    ) !== target_local_macro
                 ) {
                     continue;
                 }

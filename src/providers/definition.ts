@@ -49,7 +49,10 @@ import { URI } from 'vscode-uri';
 import { resolve_path_rich, resolve_forward_call_rich } from '../utils/file-path-utils';
 import { get_line_text } from '../utils/line-utils';
 import { is_cross_file_hidden_local } from '../utils/dofile-locals';
-import { lookup_scoped_local_macro } from '../utils/scoped-locals';
+import {
+    lookup_scoped_local_macro,
+    resolve_scoped_or_flat,
+} from '../utils/scoped-locals';
 import { is_cursor_in_comment, is_cursor_in_block_comment } from '../utils/comment-utils';
 import {
     BACKWARD_DIRECTIVE_KEYWORDS,
@@ -266,11 +269,11 @@ export class DefinitionProvider {
      *   resolved-scope/flat code also handles cross-file
      *   execution-order shadowing that document.scopes cannot see).
      *   Callers must run the pre-existing code unchanged.
-     * - `[]`: the name IS tracked in this file but not visible from
-     *   `position` (a sibling scope's local) — exclusive shadowing,
-     *   no result; the flat slot must not substitute.
-     * - non-empty: the visible symbol is program-scoped — its own
-     *   primary + same-scope additional_definitions only. Program
+     * - `blocked: true`: the name IS tracked in this file but not
+     *   visible from `position` (a sibling scope's local) — exclusive
+     *   shadowing, no result; the flat slot must not substitute.
+     * - `blocked: false`: the visible symbol is program-scoped — its
+     *   own primary + same-scope additional_definitions only. Program
      *   locals never cross file boundaries (#271), so cross-file
      *   same-name hits are NOT merged in (a same-named local in an
      *   included file is a different macro) — consistent with
@@ -281,19 +284,22 @@ export class DefinitionProvider {
         document: DocumentState,
         word: string,
         position: Position
-    ): Location[] | null {
+    ): { blocked: boolean; locations: Location[] } | null {
         const scoped = lookup_scoped_local_macro(
             document.scopes, position, word
         );
         if (scoped.out_of_scope) {
-            return [];
+            return { blocked: true, locations: [] };
         }
         if (!scoped.symbol || scoped.symbol.containingScope !== 'program') {
             return null;
         }
-        return this.dedupe_locations(
-            this.macro_symbol_to_locations(scoped.symbol)
-        );
+        return {
+            blocked: false,
+            locations: this.dedupe_locations(
+                this.macro_symbol_to_locations(scoped.symbol)
+            ),
+        };
     }
 
     /**
@@ -309,13 +315,13 @@ export class DefinitionProvider {
         position?: Position
     ): Promise<Definition | null> {
         // Scope-aware same-file resolution first (#270).
-        const scoped_locs = position
+        const scoped = position
             ? this.resolve_scoped_local_definition(document, word, position)
             : null;
-        if (scoped_locs !== null) {
-            return scoped_locs.length > 0
-                ? this.locations_to_definition(scoped_locs)
-                : null;
+        if (scoped !== null) {
+            return scoped.blocked
+                ? null
+                : this.locations_to_definition(scoped.locations);
         }
 
         // Try scope resolver first
@@ -902,13 +908,9 @@ export class DefinitionProvider {
         // do-file-scoped symbols too — a declaration-range hit is a pure
         // text question, and the do-file symbol here is object-identical
         // to the flat entry.
-        const scoped_local = lookup_scoped_local_macro(
-            document.scopes, position, word
+        const local_macro = resolve_scoped_or_flat(
+            document.scopes, position, word, document.symbols.localMacros
         );
-        const local_macro = scoped_local.symbol
-            ?? (scoped_local.out_of_scope
-                ? undefined
-                : document.symbols.localMacros.get(word));
         if (
             local_macro
             && this.position_hits_symbol_definition(position, local_macro)
@@ -1288,13 +1290,13 @@ export class DefinitionProvider {
         // Scope-aware same-file resolution first (#270): a program-scoped
         // visible local is authoritative (never crosses files, #271); an
         // out-of-scope name must not fall back to the flat slot below.
-        const scoped_locs = this.resolve_scoped_local_definition(
+        const scoped = this.resolve_scoped_local_definition(
             document, word, position
         );
-        if (scoped_locs !== null && scoped_locs.length > 0) {
-            return this.locations_to_definition(scoped_locs);
+        if (scoped !== null && !scoped.blocked) {
+            return this.locations_to_definition(scoped.locations);
         }
-        const local_out_of_scope = scoped_locs !== null;
+        const local_out_of_scope = scoped?.blocked === true;
 
         // Try scope resolver first if available
         if (scope_resolver) {
