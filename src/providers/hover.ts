@@ -430,24 +430,8 @@ export class HoverProvider {
         // Walk backwards to find the start of the current statement. If
         // no STATEMENT_TERMINATOR is found, the statement starts at the
         // beginning of the file.
-        let statement_start_index = 0;
-        for (let i = end_index; i >= 0; i--) {
-            if (tokens[i].type === 'STATEMENT_TERMINATOR') {
-                // A '\n' terminator right after a `///` continuation is
-                // trivia, not a statement boundary — scan past both.
-                if (
-                    is_swallowed_continuation_terminator(
-                        tokens[i],
-                        i > 0 && tokens[i - 1].type === 'CONTINUATION'
-                    )
-                ) {
-                    i--; // skip the continuation too
-                    continue;
-                }
-                statement_start_index = i + 1;
-                break;
-            }
-        }
+        const statement_start_index =
+            this.find_statement_start_index(tokens, end_index);
 
         // Forward scan the statement window, matching the original
         // depth-tracking semantics. A comma counts as top-level whenever
@@ -475,6 +459,34 @@ export class HoverProvider {
         }
 
         return false;
+    }
+
+    /**
+     * Index of the first token of the statement containing
+     * `end_index`, scanning backward to the previous real statement
+     * boundary. A '\n' terminator right after a `///` continuation is
+     * trivia, not a boundary — the scan crosses it (and the
+     * continuation). Returns 0 when no boundary exists.
+     */
+    private find_statement_start_index(
+        tokens: Token[],
+        end_index: number
+    ): number {
+        for (let i = end_index; i >= 0; i--) {
+            if (tokens[i].type === 'STATEMENT_TERMINATOR') {
+                if (
+                    is_swallowed_continuation_terminator(
+                        tokens[i],
+                        i > 0 && tokens[i - 1].type === 'CONTINUATION'
+                    )
+                ) {
+                    i--; // skip the continuation too
+                    continue;
+                }
+                return i + 1;
+            }
+        }
+        return 0;
     }
 
     /**
@@ -1368,24 +1380,8 @@ export class HoverProvider {
         }
 
         // Find the start of the current statement (after last STATEMENT_TERMINATOR or start of file)
-        let statement_start_index = 0;
-        for (let i = hovered_token_index - 1; i >= 0; i--) {
-            if (tokens[i].type === 'STATEMENT_TERMINATOR') {
-                // A '\n' terminator right after a `///` continuation is
-                // trivia, not a statement boundary — scan past both.
-                if (
-                    is_swallowed_continuation_terminator(
-                        tokens[i],
-                        i > 0 && tokens[i - 1].type === 'CONTINUATION'
-                    )
-                ) {
-                    i--; // skip the continuation too
-                    continue;
-                }
-                statement_start_index = i + 1;
-                break;
-            }
-        }
+        const statement_start_index =
+            this.find_statement_start_index(tokens, hovered_token_index - 1);
 
         // Collect non-trivia WORD tokens from statement start to hovered token.
         // Preserve raw source case; Stata commands/prefixes are case-sensitive.

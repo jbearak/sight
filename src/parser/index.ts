@@ -3171,6 +3171,20 @@ export class StataParser {
    * line" means the same logical line.
    */
   find_code_after_on_same_line(start_pos: number, line: number): Token | null {
+    return this.scan_code_on_same_line(start_pos, line)?.first_token ?? null;
+  }
+
+  /**
+   * Walk the logical line starting at `start_pos` in a single pass
+   * and return its first and last non-trivia tokens, or null when the
+   * line has no code before a real terminator or EOF. A `///`
+   * continuation joins the next physical line into the same logical
+   * line. Skips WHITESPACE, COMMENT_LINE, COMMENT_BLOCK, CONTINUATION.
+   */
+  scan_code_on_same_line(
+    start_pos: number,
+    line: number
+  ): { first_token: Token; last_token: Token } | null {
     const trivia_types: TokenType[] = [
       'WHITESPACE',
       'COMMENT_LINE',
@@ -3178,6 +3192,8 @@ export class StataParser {
       'CONTINUATION',
     ];
 
+    let first_token: Token | null = null;
+    let last_token: Token | null = null;
     let current_line = line;
 
     for (let i = start_pos; i < this.tokens.length; i++) {
@@ -3185,7 +3201,7 @@ export class StataParser {
 
       // Stop if we've moved to a different line
       if (my_token.range.start.line !== current_line) {
-        return null;
+        break;
       }
 
       // The swallowed '\n' of a /// continuation joins the next
@@ -3198,7 +3214,7 @@ export class StataParser {
       ) {
         const next_token = this.tokens[i + 1];
         if (!next_token) {
-          return null;
+          break;
         }
         current_line = next_token.range.start.line;
         continue;
@@ -3206,7 +3222,7 @@ export class StataParser {
 
       // Stop at statement terminator or EOF
       if (my_token.type === 'STATEMENT_TERMINATOR' || my_token.type === 'EOF') {
-        return null;
+        break;
       }
 
       // Skip trivia tokens
@@ -3214,11 +3230,16 @@ export class StataParser {
         continue;
       }
 
-      // Found a non-trivia token on the same line
-      return my_token;
+      if (first_token === null) {
+        first_token = my_token;
+      }
+      last_token = my_token;
     }
 
-    return null;
+    if (first_token === null || last_token === null) {
+      return null;
+    }
+    return { first_token, last_token };
   }
 
   /**
@@ -3364,48 +3385,14 @@ export class StataParser {
 
     // Check for code AFTER the open brace on the same line
     // This is a warning because Stata runs but silently ignores the code
-    const code_after = this.find_code_after_on_same_line(brace_index + 1, brace_line);
+    const code_after = this.scan_code_on_same_line(brace_index + 1, brace_line);
     if (code_after) {
-      // Find the last token on the same logical line to get the full
-      // range, following /// joins like find_code_after_on_same_line
-      let last_token = code_after;
-      let my_current_line = brace_line;
-      for (let i = brace_index + 2; i < this.tokens.length; i++) {
-        const my_token = this.tokens[i];
-        if (my_token.range.start.line !== my_current_line) {
-          break;
-        }
-        if (
-          is_swallowed_continuation_terminator(
-            my_token,
-            i > 0 && this.tokens[i - 1].type === 'CONTINUATION'
-          )
-        ) {
-          const next_token = this.tokens[i + 1];
-          if (!next_token) {
-            break;
-          }
-          my_current_line = next_token.range.start.line;
-          continue;
-        }
-        if (my_token.type === 'STATEMENT_TERMINATOR' || my_token.type === 'EOF') {
-          break;
-        }
-        // Skip trivia when determining the last code token
-        const trivia_types: TokenType[] = [
-          'WHITESPACE',
-          'COMMENT_LINE',
-          'COMMENT_BLOCK',
-          'CONTINUATION',
-        ];
-        if (!trivia_types.includes(my_token.type)) {
-          last_token = my_token;
-        }
-      }
-
       this.errors.push({
         message: 'code after open brace may be silently ignored',
-        range: this.makeRange(brace_token.range.start, last_token.range.end),
+        range: this.makeRange(
+          brace_token.range.start,
+          code_after.last_token.range.end
+        ),
         code: ParseErrorCode.CODE_AFTER_OPEN_BRACE,
       });
     }
