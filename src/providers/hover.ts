@@ -42,6 +42,7 @@ import { IContextTracker } from '../context-tracker/types';
 import { LanguageContext } from '../context-tracker/types';
 import { ScopeResolver } from '../scope-resolver';
 import { format_help_link } from '../utils/help-link';
+import { is_swallowed_continuation_terminator } from '../utils/continuation';
 import type { WorkspaceIndexer } from '../indexer';
 import { build_scope_resolver_config } from '../scope-resolver';
 import { get_visible_symbols_at } from '../scope-resolver';
@@ -429,13 +430,8 @@ export class HoverProvider {
         // Walk backwards to find the start of the current statement. If
         // no STATEMENT_TERMINATOR is found, the statement starts at the
         // beginning of the file.
-        let statement_start_index = 0;
-        for (let i = end_index; i >= 0; i--) {
-            if (tokens[i].type === 'STATEMENT_TERMINATOR') {
-                statement_start_index = i + 1;
-                break;
-            }
-        }
+        const statement_start_index =
+            this.find_statement_start_index(tokens, end_index);
 
         // Forward scan the statement window, matching the original
         // depth-tracking semantics. A comma counts as top-level whenever
@@ -463,6 +459,34 @@ export class HoverProvider {
         }
 
         return false;
+    }
+
+    /**
+     * Index of the first token of the statement containing
+     * `end_index`, scanning backward to the previous real statement
+     * boundary. A '\n' terminator right after a `///` continuation is
+     * trivia, not a boundary — the scan crosses it (and the
+     * continuation). Returns 0 when no boundary exists.
+     */
+    private find_statement_start_index(
+        tokens: Token[],
+        end_index: number
+    ): number {
+        for (let i = end_index; i >= 0; i--) {
+            if (tokens[i].type === 'STATEMENT_TERMINATOR') {
+                if (
+                    is_swallowed_continuation_terminator(
+                        tokens[i],
+                        i > 0 && tokens[i - 1].type === 'CONTINUATION'
+                    )
+                ) {
+                    i--; // skip the continuation too
+                    continue;
+                }
+                return i + 1;
+            }
+        }
+        return 0;
     }
 
     /**
@@ -1356,13 +1380,8 @@ export class HoverProvider {
         }
 
         // Find the start of the current statement (after last STATEMENT_TERMINATOR or start of file)
-        let statement_start_index = 0;
-        for (let i = hovered_token_index - 1; i >= 0; i--) {
-            if (tokens[i].type === 'STATEMENT_TERMINATOR') {
-                statement_start_index = i + 1;
-                break;
-            }
-        }
+        const statement_start_index =
+            this.find_statement_start_index(tokens, hovered_token_index - 1);
 
         // Collect non-trivia WORD tokens from statement start to hovered token.
         // Preserve raw source case; Stata commands/prefixes are case-sensitive.
@@ -1431,14 +1450,16 @@ export class HoverProvider {
             return { is_subcommand: false, prefix_command: null };
         }
 
-        // Verify the hovered word is a valid subcommand
+        // Verify the hovered word is a valid subcommand. Subcommands
+        // are case-sensitive and stored canonical-lowercase, so compare
+        // exactly: `frame Create` is not valid Stata.
         const subcommands = this.command_db.get_subcommands(potential_prefix);
         if (!subcommands) {
             return { is_subcommand: false, prefix_command: null };
         }
 
         const is_valid_subcommand = subcommands.some(
-            sub => sub.name.toLowerCase() === hovered_word.toLowerCase()
+            sub => sub.name === hovered_word
         );
 
         if (!is_valid_subcommand) {
@@ -1549,8 +1570,9 @@ export class HoverProvider {
                     && words_after_colon.length === 1
                 ) {
                     const subcommands = this.command_db.get_subcommands(potential_prefix);
+                    // Exact match: subcommands are case-sensitive.
                     const is_valid = subcommands?.some(
-                        sub => sub.name.toLowerCase() === hovered_word.toLowerCase()
+                        sub => sub.name === hovered_word
                     );
                     if (is_valid) {
                         return { is_subcommand: true, prefix_command: potential_prefix };
@@ -1578,14 +1600,15 @@ export class HoverProvider {
             return { is_subcommand: false, prefix_command: null };
         }
 
-        // Verify the hovered word is a valid subcommand
+        // Verify the hovered word is a valid subcommand. Exact match:
+        // subcommands are case-sensitive and stored canonical-lowercase.
         const subcommands = this.command_db.get_subcommands(potential_prefix);
         if (!subcommands) {
             return { is_subcommand: false, prefix_command: null };
         }
 
         const is_valid_subcommand = subcommands.some(
-            sub => sub.name.toLowerCase() === hovered_word.toLowerCase()
+            sub => sub.name === hovered_word
         );
 
         if (!is_valid_subcommand) {
@@ -1609,13 +1632,15 @@ export class HoverProvider {
             return null;
         }
 
-        const prefix = context.prefix_command.toLowerCase();
-        const subcommand = word.toLowerCase();
+        // The context gate already validated prefix and subcommand with
+        // exact case, so both are canonical-lowercase here — compare
+        // exactly like the validation sites.
+        const prefix = context.prefix_command;
 
         // Get subcommand from command database
         const subcommands = this.command_db.get_subcommands(prefix);
         if (subcommands) {
-            const sub = subcommands.find(s => s.name.toLowerCase() === subcommand);
+            const sub = subcommands.find(s => s.name === word);
             if (sub) {
                 // Capitalize prefix name for display
                 const prefix_display = prefix.charAt(0).toUpperCase() + prefix.slice(1);

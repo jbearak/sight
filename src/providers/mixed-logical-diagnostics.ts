@@ -132,8 +132,8 @@ export class MixedLogicalOperatorAnalyzer {
             }
 
             if (my_token.type === 'COMMA') {
+                my_in_continuation = false;
                 if (my_state.paren_depth === 0) {
-                    my_in_continuation = false;
                     this.flush(my_state, my_diagnostics, my_severity, my_ignored_lines);
                     my_state = this.fresh_state();
                 } else {

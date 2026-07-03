@@ -689,4 +689,94 @@ describe('Close Brace Validation Property Tests', () => {
             );
         });
     });
+
+    /**
+     * Continuation handling: `find_code_before_on_same_line` follows a
+     * `///` continuation across the swallowed '\n' terminator (see
+     * is_swallowed_continuation_terminator), joining the physical lines
+     * into one logical line for brace placement checks.
+     *
+     * These lock the continuation-crossing contract the stricter
+     * value-checked predicate must preserve. They cannot differentiate
+     * the predicate from a value-agnostic check: the divergent state (a
+     * non-'\n' terminator directly after a CONTINUATION) is unreachable
+     * from the lexer, which is why the predicate swap is behavior-
+     * preserving (issue #281).
+     */
+    describe('Brace placement across /// continuations', () => {
+        it('does not flag OPEN_BRACE_ALONE when the condition continues via ///', () => {
+            fc.assert(
+                fc.property(arbitrary_command, (cmd1) => {
+                    const document = `if 1 > 0 ///\n{\n    ${cmd1}\n}`;
+                    const { errors } = parse_document(document);
+
+                    return !has_error_code(errors, ParseErrorCode.OPEN_BRACE_ALONE);
+                }),
+                { numRuns: 100 }
+            );
+        });
+
+        it('flags BRACE_NOT_ALONE for a close brace joined to code via ///', () => {
+            fc.assert(
+                fc.property(arbitrary_command, (cmd1) => {
+                    const document = `if 1 > 0 {\n    ${cmd1} ///\n}`;
+                    const { errors } = parse_document(document);
+
+                    return has_error_code(errors, ParseErrorCode.BRACE_NOT_ALONE);
+                }),
+                { numRuns: 100 }
+            );
+        });
+
+        it('flags CODE_AFTER_OPEN_BRACE for code joined to an open brace via ///', () => {
+            // `{ ///` joins the next physical line, so the code there is
+            // logically on the brace line and Stata silently ignores it —
+            // the same warning as the single-line `if 1 > 0 { display`.
+            fc.assert(
+                fc.property(arbitrary_command, (cmd1) => {
+                    const document = `if 1 > 0 { ///\n ${cmd1}\n}`;
+                    const { errors } = parse_document(document);
+
+                    return has_error_code(errors, ParseErrorCode.CODE_AFTER_OPEN_BRACE);
+                }),
+                { numRuns: 100 }
+            );
+        });
+
+        it('extends the CODE_AFTER_OPEN_BRACE range across a /// join to the last code token', () => {
+            // The single-line form ranges through all the offending
+            // code; the ///-joined form must do the same, not stop at
+            // the first token of the continued line.
+            fc.assert(
+                fc.property(arbitrary_command, arbitrary_command, (cmd1, cmd2) => {
+                    const document = `if 1 > 0 { ///\n ${cmd1} ${cmd2}\n}`;
+                    const { errors } = parse_document(document);
+
+                    const my_error = errors.find(
+                        e => e.code === ParseErrorCode.CODE_AFTER_OPEN_BRACE
+                    ) as { range?: { end: { line: number; character: number } } } | undefined;
+                    if (!my_error || !my_error.range) {
+                        return false;
+                    }
+
+                    const expected_end_character = ` ${cmd1} ${cmd2}`.length;
+                    return my_error.range.end.line === 1 &&
+                        my_error.range.end.character === expected_end_character;
+                }),
+                { numRuns: 100 }
+            );
+        });
+
+        it('flags BRACE_ELSE_SAME_LINE for `else` joined to a close brace via ///', () => {
+            fc.assert(
+                fc.property(arbitrary_command, (cmd1) => {
+                    const document = `if 1 > 0 {\n    ${cmd1}\n} ///\nelse {\n    ${cmd1}\n}`;
+                    const { errors } = parse_document(document);
+
+                    return has_error_code(errors, ParseErrorCode.BRACE_ELSE_SAME_LINE);
+                }),
+                { numRuns: 100 }
+            );
+        });
+    });
 });

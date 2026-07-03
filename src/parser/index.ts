@@ -24,6 +24,7 @@ import {
 } from '../types';
 import { ContextTracker } from '../context-tracker';
 import { isFileCommand } from '../utils/file-path-utils';
+import { is_swallowed_continuation_terminator } from '../utils/continuation';
 
 const PREFIX_COMMANDS = new Set(['by', 'bysort', 'quietly', 'qui', 'capture', 'cap', 'noisily', 'noi']);
 
@@ -1803,7 +1804,8 @@ export class StataParser {
   }
 
   /**
-   * Skip continuation token and its following statement terminator.
+   * Skip a continuation token and, if present, the swallowed newline
+   * terminator that follows it.
    * Returns true if a continuation was skipped, false otherwise.
    */
   private skipContinuation(): boolean {
@@ -1816,7 +1818,12 @@ export class StataParser {
       }
       
       this.advance(); // consume continuation
-      if (!this.isAtEnd() && this.check('STATEMENT_TERMINATOR')) {
+      // Only the swallowed newline is trivia; a literal terminator on
+      // the next line is a real statement end
+      if (
+        !this.isAtEnd() &&
+        is_swallowed_continuation_terminator(this.peek(), true)
+      ) {
         this.advance(); // skip newline after continuation
       }
       return true;
@@ -2071,9 +2078,16 @@ export class StataParser {
 
       // Collect specification until {
       while (!this.check('LBRACE') && !this.isAtEnd()) {
-        // Stop at statement terminator unless preceded by continuation
+        // Stop at a real statement terminator; only the swallowed '\n'
+        // of a /// continuation is skipped
         if (this.check('STATEMENT_TERMINATOR')) {
-          if (this.current > 0 && this.tokens[this.current - 1].type === 'CONTINUATION') {
+          if (
+            is_swallowed_continuation_terminator(
+              this.tokens[this.current],
+              this.current > 0 &&
+                this.tokens[this.current - 1].type === 'CONTINUATION'
+            )
+          ) {
             this.advance(); // skip newline after continuation
             continue;
           }
@@ -2550,7 +2564,8 @@ export class StataParser {
 
   // Skip trivia within a macro definition statement, bridging `///`
   // continuations onto the next physical line (skipContinuation consumes
-  // the continuation token AND the following statement terminator).
+  // the continuation token AND its swallowed newline terminator, if
+  // present).
   //
   // Stata 18 MP audit: `local x = ///` followed by `1 / 2` succeeds with
   // `_rc == 0` and x == .5, while bare `local x =` errors with invalid
@@ -2577,8 +2592,9 @@ export class StataParser {
   /**
    * Advance a lookahead offset past trivia, bridging `///` continuations the
    * same way skipMacroDefinitionTrivia does for the live cursor (a continuation
-   * also consumes the following statement terminator). Returns the offset of
-   * the next significant token (or the end-of-token offset).
+   * also consumes its swallowed newline terminator, if present).
+   * Returns the offset of the next significant token (or the
+   * end-of-token offset).
    */
   private nextSignificantOffsetForMacroDef(offset: number): number {
     while (this.current + offset < this.tokens.length) {
@@ -2586,7 +2602,10 @@ export class StataParser {
       if (token.type === 'CONTINUATION') {
         offset++;
         if (this.current + offset < this.tokens.length &&
-            this.tokens[this.current + offset].type === 'STATEMENT_TERMINATOR') {
+            is_swallowed_continuation_terminator(
+              this.tokens[this.current + offset],
+              true
+            )) {
           offset++;
         }
         continue;
@@ -3148,8 +3167,24 @@ export class StataParser {
    * Check if there are non-trivia tokens after the given position on the same line.
    * Returns the first non-trivia token if found, null otherwise.
    * Skips WHITESPACE, COMMENT_LINE, COMMENT_BLOCK, CONTINUATION tokens.
+   * A `///` continuation joins the next physical line, so "same
+   * line" means the same logical line.
    */
   find_code_after_on_same_line(start_pos: number, line: number): Token | null {
+    return this.scan_code_on_same_line(start_pos, line)?.first_token ?? null;
+  }
+
+  /**
+   * Walk the logical line starting at `start_pos` in a single pass
+   * and return its first and last non-trivia tokens, or null when the
+   * line has no code before a real terminator or EOF. A `///`
+   * continuation joins the next physical line into the same logical
+   * line. Skips WHITESPACE, COMMENT_LINE, COMMENT_BLOCK, CONTINUATION.
+   */
+  scan_code_on_same_line(
+    start_pos: number,
+    line: number
+  ): { first_token: Token; last_token: Token } | null {
     const trivia_types: TokenType[] = [
       'WHITESPACE',
       'COMMENT_LINE',
@@ -3157,17 +3192,37 @@ export class StataParser {
       'CONTINUATION',
     ];
 
+    let first_token: Token | null = null;
+    let last_token: Token | null = null;
+    let current_line = line;
+
     for (let i = start_pos; i < this.tokens.length; i++) {
       const my_token = this.tokens[i];
 
       // Stop if we've moved to a different line
-      if (my_token.range.start.line !== line) {
-        return null;
+      if (my_token.range.start.line !== current_line) {
+        break;
+      }
+
+      // The swallowed '\n' of a /// continuation joins the next
+      // physical line into this logical line
+      if (
+        is_swallowed_continuation_terminator(
+          my_token,
+          i > 0 && this.tokens[i - 1].type === 'CONTINUATION'
+        )
+      ) {
+        const next_token = this.tokens[i + 1];
+        if (!next_token) {
+          break;
+        }
+        current_line = next_token.range.start.line;
+        continue;
       }
 
       // Stop at statement terminator or EOF
       if (my_token.type === 'STATEMENT_TERMINATOR' || my_token.type === 'EOF') {
-        return null;
+        break;
       }
 
       // Skip trivia tokens
@@ -3175,17 +3230,24 @@ export class StataParser {
         continue;
       }
 
-      // Found a non-trivia token on the same line
-      return my_token;
+      if (first_token === null) {
+        first_token = my_token;
+      }
+      last_token = my_token;
     }
 
-    return null;
+    if (first_token === null || last_token === null) {
+      return null;
+    }
+    return { first_token, last_token };
   }
 
   /**
    * Check if there are non-trivia tokens before the given position on the same line.
    * Returns the last non-trivia token if found, null otherwise.
    * Skips WHITESPACE, COMMENT_LINE, COMMENT_BLOCK, CONTINUATION tokens.
+   * A `///` continuation joins the next physical line, so "same
+   * line" means the same logical line.
    */
   find_code_before_on_same_line(end_pos: number, line: number): Token | null {
     const trivia_types: TokenType[] = [
@@ -3205,8 +3267,14 @@ export class StataParser {
       if (my_token.range.start.line !== current_line) {
         // STATEMENT_TERMINATOR after continuation - skip it and check for continuation
         if (my_token.type === 'STATEMENT_TERMINATOR') {
-          // Look back for a continuation on the previous line
-          if (i > 0 && this.tokens[i - 1].type === 'CONTINUATION') {
+          // Only a swallowed '\n' right after a /// continuation is
+          // trivia; any other terminator is a real statement end.
+          if (
+            is_swallowed_continuation_terminator(
+              my_token,
+              i > 0 && this.tokens[i - 1].type === 'CONTINUATION'
+            )
+          ) {
             current_line = this.tokens[i - 1].range.start.line;
             i--; // skip the continuation too
             continue;
@@ -3317,33 +3385,14 @@ export class StataParser {
 
     // Check for code AFTER the open brace on the same line
     // This is a warning because Stata runs but silently ignores the code
-    const code_after = this.find_code_after_on_same_line(brace_index + 1, brace_line);
+    const code_after = this.scan_code_on_same_line(brace_index + 1, brace_line);
     if (code_after) {
-      // Find the last token on the same line to get the full range
-      let last_token = code_after;
-      for (let i = brace_index + 2; i < this.tokens.length; i++) {
-        const my_token = this.tokens[i];
-        if (my_token.range.start.line !== brace_line) {
-          break;
-        }
-        if (my_token.type === 'STATEMENT_TERMINATOR' || my_token.type === 'EOF') {
-          break;
-        }
-        // Skip trivia when determining the last code token
-        const trivia_types: TokenType[] = [
-          'WHITESPACE',
-          'COMMENT_LINE',
-          'COMMENT_BLOCK',
-          'CONTINUATION',
-        ];
-        if (!trivia_types.includes(my_token.type)) {
-          last_token = my_token;
-        }
-      }
-
       this.errors.push({
         message: 'code after open brace may be silently ignored',
-        range: this.makeRange(brace_token.range.start, last_token.range.end),
+        range: this.makeRange(
+          brace_token.range.start,
+          code_after.last_token.range.end
+        ),
         code: ParseErrorCode.CODE_AFTER_OPEN_BRACE,
       });
     }
