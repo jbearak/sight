@@ -3363,12 +3363,27 @@ export class StataParser {
     // This is a warning because Stata runs but silently ignores the code
     const code_after = this.find_code_after_on_same_line(brace_index + 1, brace_line);
     if (code_after) {
-      // Find the last token on the same line to get the full range
+      // Find the last token on the same logical line to get the full
+      // range, following /// joins like find_code_after_on_same_line
       let last_token = code_after;
+      let my_current_line = brace_line;
       for (let i = brace_index + 2; i < this.tokens.length; i++) {
         const my_token = this.tokens[i];
-        if (my_token.range.start.line !== brace_line) {
+        if (my_token.range.start.line !== my_current_line) {
           break;
+        }
+        if (
+          is_swallowed_continuation_terminator(
+            my_token,
+            i > 0 && this.tokens[i - 1].type === 'CONTINUATION'
+          )
+        ) {
+          const next_token = this.tokens[i + 1];
+          if (!next_token) {
+            break;
+          }
+          my_current_line = next_token.range.start.line;
+          continue;
         }
         if (my_token.type === 'STATEMENT_TERMINATOR' || my_token.type === 'EOF') {
           break;

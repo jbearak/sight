@@ -743,6 +743,30 @@ describe('Close Brace Validation Property Tests', () => {
             );
         });
 
+        it('extends the CODE_AFTER_OPEN_BRACE range across a /// join to the last code token', () => {
+            // The single-line form ranges through all the offending
+            // code; the ///-joined form must do the same, not stop at
+            // the first token of the continued line.
+            fc.assert(
+                fc.property(arbitrary_command, arbitrary_command, (cmd1, cmd2) => {
+                    const document = `if 1 > 0 { ///\n ${cmd1} ${cmd2}\n}`;
+                    const { errors } = parse_document(document);
+
+                    const my_error = errors.find(
+                        e => e.code === ParseErrorCode.CODE_AFTER_OPEN_BRACE
+                    ) as { range?: { end: { line: number; character: number } } } | undefined;
+                    if (!my_error || !my_error.range) {
+                        return false;
+                    }
+
+                    const expected_end_character = ` ${cmd1} ${cmd2}`.length;
+                    return my_error.range.end.line === 1 &&
+                        my_error.range.end.character === expected_end_character;
+                }),
+                { numRuns: 100 }
+            );
+        });
+
         it('flags BRACE_ELSE_SAME_LINE for `else` joined to a close brace via ///', () => {
             fc.assert(
                 fc.property(arbitrary_command, (cmd1) => {
