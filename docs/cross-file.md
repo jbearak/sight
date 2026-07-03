@@ -801,7 +801,10 @@ a separate best-effort recovery path (issue #184):
   it read), and an `'auto'`-mode cache hit re-applies effective
   registration when the entry was `'explicit'`-registered or its
   `'auto'` registration predates a graph change, then re-stamps
-  (`upgrade_registration_on_cache_hit`). Without that upgrade, the
+  (`upgrade_registration_on_cache_hit`). Entries whose content has
+  explicit backward directives skip the version re-check: their
+  effective registration is graph-independent, so graph churn never
+  costs them registration work. Without that upgrade, the
   indexer's explicit WD walk priming the cache would leave a
   directive-less ancestor's auto edges unregistered — and a graph edge
   added after the stamp would never reach `backward_directive_children`

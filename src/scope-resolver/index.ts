@@ -2423,7 +2423,9 @@ export class ScopeResolver {
             this.upgrade_registration_on_cache_hit(
                 actual_uri, actual_cached, options?.backward_dependencies
             );
-            // Return cached results with current content - don't mutate cache entry
+            // Return cached results with current content - don't mutate the
+            // entry's cached content/symbols (the registration stamp above
+            // is the one intentional entry mutation on this hit path)
             return {
                 content,
                 content_hash: disk_hash,
