@@ -90,6 +90,15 @@ export interface ServerOptions {
     transport: TransportType;
     quiet?: boolean;
     log_channel?: (msg: string) => void;
+    /**
+     * Test-only injection seam: when provided, this connection is used
+     * instead of creating a transport connection, so handler-level
+     * integration tests can capture the real registered LSP handlers
+     * (e.g. the onDidClose disk re-sync wiring, issue #287) and drive
+     * them without a live client process. Production entry points
+     * (cli.ts, server.ts) never set this.
+     */
+    connection?: Connection;
 }
 
 /**
@@ -229,8 +238,9 @@ export function indexing_affecting_signature(
 export async function create_server(options: ServerOptions): Promise<void> {
     const { transport, quiet, log_channel } = options;
 
-    // Create connection based on transport type
-    const connection = create_transport_connection(transport);
+    // Create connection based on transport type (tests may inject one)
+    const connection =
+        options.connection ?? create_transport_connection(transport);
 
     // Create a simple text document manager
     const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
