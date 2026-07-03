@@ -433,6 +433,17 @@ export class HoverProvider {
         let statement_start_index = 0;
         for (let i = end_index; i >= 0; i--) {
             if (tokens[i].type === 'STATEMENT_TERMINATOR') {
+                // A '\n' terminator right after a `///` continuation is
+                // trivia, not a statement boundary — scan past both.
+                if (
+                    is_swallowed_continuation_terminator(
+                        tokens[i],
+                        i > 0 && tokens[i - 1].type === 'CONTINUATION'
+                    )
+                ) {
+                    i--; // skip the continuation too
+                    continue;
+                }
                 statement_start_index = i + 1;
                 break;
             }
@@ -1443,14 +1454,16 @@ export class HoverProvider {
             return { is_subcommand: false, prefix_command: null };
         }
 
-        // Verify the hovered word is a valid subcommand
+        // Verify the hovered word is a valid subcommand. Subcommands
+        // are case-sensitive and stored canonical-lowercase, so compare
+        // exactly: `frame Create` is not valid Stata.
         const subcommands = this.command_db.get_subcommands(potential_prefix);
         if (!subcommands) {
             return { is_subcommand: false, prefix_command: null };
         }
 
         const is_valid_subcommand = subcommands.some(
-            sub => sub.name.toLowerCase() === hovered_word.toLowerCase()
+            sub => sub.name === hovered_word
         );
 
         if (!is_valid_subcommand) {
@@ -1561,8 +1574,9 @@ export class HoverProvider {
                     && words_after_colon.length === 1
                 ) {
                     const subcommands = this.command_db.get_subcommands(potential_prefix);
+                    // Exact match: subcommands are case-sensitive.
                     const is_valid = subcommands?.some(
-                        sub => sub.name.toLowerCase() === hovered_word.toLowerCase()
+                        sub => sub.name === hovered_word
                     );
                     if (is_valid) {
                         return { is_subcommand: true, prefix_command: potential_prefix };
@@ -1590,14 +1604,15 @@ export class HoverProvider {
             return { is_subcommand: false, prefix_command: null };
         }
 
-        // Verify the hovered word is a valid subcommand
+        // Verify the hovered word is a valid subcommand. Exact match:
+        // subcommands are case-sensitive and stored canonical-lowercase.
         const subcommands = this.command_db.get_subcommands(potential_prefix);
         if (!subcommands) {
             return { is_subcommand: false, prefix_command: null };
         }
 
         const is_valid_subcommand = subcommands.some(
-            sub => sub.name.toLowerCase() === hovered_word.toLowerCase()
+            sub => sub.name === hovered_word
         );
 
         if (!is_valid_subcommand) {

@@ -358,6 +358,46 @@ describe('HoverProvider - Context-Aware Behavior', () => {
             }
         });
 
+        it('should not return command hover after a top-level comma split by ///', async () => {
+            const my_content = 'regress y x, ///\n generate';
+            const my_doc = create_test_document(my_content);
+            init_tracker_from_source(context_tracker, my_content);
+
+            // cursor is on "generate" at line 1, column 2 — option
+            // position, same as the single-line `regress y x, generate`
+            const my_hover = await hover_provider.get_hover(my_doc, { line: 1, character: 2 });
+
+            expect(my_hover).toBeNull();
+        });
+
+        it('should not return subcommand hover for mis-cased `Create` across a /// continuation', async () => {
+            command_db = create_frame_command_db();
+            hover_provider = new HoverProvider(command_db, context_tracker);
+
+            const my_content = 'frame ///\nCreate myframe';
+            const my_doc = create_test_document(my_content);
+            init_tracker_from_source(context_tracker, my_content);
+
+            // cursor is on "Create" at line 1, column 2
+            const my_hover = await hover_provider.get_hover(my_doc, { line: 1, character: 2 });
+
+            expect(my_hover).toBeNull();
+        });
+
+        it('should not return subcommand hover for mis-cased `Create` subcommand (Stata is case-sensitive)', async () => {
+            command_db = create_frame_command_db();
+            hover_provider = new HoverProvider(command_db, context_tracker);
+
+            const my_content = 'frame Create myframe';
+            const my_doc = create_test_document(my_content);
+            init_tracker_from_source(context_tracker, my_content);
+
+            // cursor is on "Create" at column 8
+            const my_hover = await hover_provider.get_hover(my_doc, { line: 0, character: 8 });
+
+            expect(my_hover).toBeNull();
+        });
+
         it('should not return subcommand hover for uppercase `BY` prefix (Stata is case-sensitive)', async () => {
             command_db = create_frame_command_db();
             hover_provider = new HoverProvider(command_db, context_tracker);
@@ -426,6 +466,33 @@ describe('HoverProvider - Context-Aware Behavior', () => {
                     my_doc,
                     { line: 0, character: 8 } as Position,
                     'create'
+                );
+
+                expect(my_result).toEqual({
+                    is_subcommand: false,
+                    prefix_command: null,
+                });
+            }
+        );
+
+        it(
+            'should not detect line-fallback subcommand context for mis-cased `Create` subcommand',
+            () => {
+                command_db = create_frame_command_db();
+                hover_provider = new HoverProvider(command_db, context_tracker);
+
+                const my_content = 'frame Create mygood';
+                const my_doc = {
+                    uri: 'file:///test.do',
+                    version: 1,
+                    content: my_content,
+                    tokens: [],
+                } as unknown as DocumentState;
+
+                const my_result = (hover_provider as any).get_subcommand_context_from_line(
+                    my_doc,
+                    { line: 0, character: 8 } as Position,
+                    'Create'
                 );
 
                 expect(my_result).toEqual({

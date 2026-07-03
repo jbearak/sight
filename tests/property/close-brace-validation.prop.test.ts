@@ -695,6 +695,13 @@ describe('Close Brace Validation Property Tests', () => {
      * `///` continuation across the swallowed '\n' terminator (see
      * is_swallowed_continuation_terminator), joining the physical lines
      * into one logical line for brace placement checks.
+     *
+     * These lock the continuation-crossing contract the stricter
+     * value-checked predicate must preserve. They cannot differentiate
+     * the predicate from a value-agnostic check: the divergent state (a
+     * non-'\n' terminator directly after a CONTINUATION) is unreachable
+     * from the lexer, which is why the predicate swap is behavior-
+     * preserving (issue #281).
      */
     describe('Brace placement across /// continuations', () => {
         it('does not flag OPEN_BRACE_ALONE when the condition continues via ///', () => {
