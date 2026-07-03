@@ -984,20 +984,23 @@ export class SemanticAnalyzer {
         // These all mutate program_symbol.* and must follow first-def-wins
         // semantics to match location / additional_definitions behaviour.
         //
-        // Known limitation (outside issue #135 scope): the first-def-wins
-        // gate below also gates `extract_and_attach_signature`, which is
-        // the only code path that registers implicit locals from `syntax`
-        // into `program_scope`. For redeclared programs with *different*
-        // signatures, body #2's implicit locals are therefore not
-        // registered, and a reference to `` `B' `` in body #2 where the
-        // second body declared `syntax varlist, B(string)` will emit a
-        // false-positive "undefined local macro" diagnostic. The pattern
-        // (two `program define NAME` blocks in one file with divergent
-        // signatures) is rare in practice — dropping and redefining a
-        // program usually uses `program drop NAME` first. If this bites,
-        // the fix is to split signature extraction into "register implicit
-        // locals" (per body) and "attach signature to program_symbol"
-        // (first-def-wins only).
+        // NOTE: `extract_and_attach_signature` does NOT register implicit
+        // locals into `program_scope` — it only merges/attaches
+        // `ProgramSignature` metadata onto `program_symbol.signature` (and
+        // the node). The implicit locals from `syntax` arguments/options
+        // are registered by `analyze_syntax_node` ->
+        // `register_implicit_locals`, which runs during the UNCONDITIONAL
+        // `build_symbols_in_body` traversal above for every redeclared
+        // body, not just the first — so each body's own implicit locals
+        // (e.g. `` `b' `` from that body's own `syntax varlist, B(string)`)
+        // resolve correctly regardless of this gate.
+        //
+        // What first-def-wins DOES limit: for a redeclared program whose
+        // body #2 declares a DIFFERENT signature, `program_symbol.signature`
+        // keeps body #1's signature. Consumers reading `.signature`
+        // (program-argument completion, hover parameter display) show
+        // body #1's parameters even inside body #2 — a narrow, pre-existing
+        // signature-metadata limitation, not a diagnostics false positive.
         if (is_first_definition) {
             // Extract c_local macro names from program body
             const c_locals = this.extract_c_locals(node.body);
@@ -1005,8 +1008,9 @@ export class SemanticAnalyzer {
                 program_symbol.c_locals = c_locals;
             }
 
-            // Extract and attach signature from program body FIRST
-            // This also registers implicit locals from all syntax commands
+            // Extract and attach signature metadata from program body FIRST
+            // (implicit locals are registered per body by analyze_syntax_node
+            // during the unconditional traversal above, not here)
             this.extract_and_attach_signature(node, program_symbol, program_scope, symbols);
 
             // Extract macro-creating option patterns from program body

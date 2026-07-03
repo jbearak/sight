@@ -193,6 +193,39 @@ end
         expect(symbol_a).not.toBe(symbol_b);
         expect(symbol_a!.additional_definitions ?? []).toHaveLength(0);
         expect(symbol_b!.additional_definitions ?? []).toHaveLength(0);
+        // First read-path coverage for the identity plumbing (#270):
+        // scope_id matches the owning ScopeInfo.id and
+        // containing_program_name names the defining program.
+        expect(symbol_a!.scope_id).toBe(the_program_scopes[0].id);
+        expect(symbol_b!.scope_id).toBe(the_program_scopes[1].id);
+        expect(symbol_a!.scope_id).not.toBe(symbol_b!.scope_id);
+        expect(symbol_a!.containing_program_name).toBe('prog_a');
+        expect(symbol_b!.containing_program_name).toBe('prog_b');
+    });
+
+    it('dofile-scope locals carry scope_id 0 and no program name', () => {
+        const result = analyze_code(`local top_y 1`);
+        const flat_y = result.symbols.localMacros.get('top_y');
+        expect(flat_y).toBeDefined();
+        expect(flat_y!.scope_id).toBe(0);
+        expect(flat_y!.scope_id).toBe(result.scopes[0].id);
+        expect(flat_y!.containing_program_name).toBeUndefined();
+    });
+
+    it('redeclared body registers its own syntax implicit locals', () => {
+        // Pins the corrected process_program comment: implicit locals
+        // from `syntax` are registered per body by analyze_syntax_node,
+        // independent of the first-def-wins signature gate — body #2's
+        // own `` `b' `` must not warn.
+        const result = analyze_code(`
+program define p
+end
+program define p, rclass
+    syntax varlist, B(string)
+    display \`b'
+end
+`);
+        expect(undefined_macro_diagnostics(result, 'b')).toHaveLength(0);
     });
 });
 
