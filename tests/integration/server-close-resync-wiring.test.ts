@@ -28,9 +28,11 @@
  *      file via backward directives — including transitively, two hops
  *      away — are revalidated (diagnostics are republished for them);
  *   4. the DOCUMENT-STORE half of the should_apply guard vetoes on its
- *      own (a store entry recreated while the disk read is in flight,
+ *      own (a store entry recreated while the re-sync is held at entry,
  *      with TextDocuments still empty), and a vetoed re-sync does NOT
- *      revalidate open dependents.
+ *      revalidate open dependents. (The resolver-internal contract that
+ *      the guard is consulted AFTER the disk read is unit-tested in
+ *      tests/unit/document-store-commit-time-cross-file-effects.test.ts.)
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
@@ -625,12 +627,17 @@ describe('server onDidClose disk re-sync wiring (#287)', () => {
         const grandchild_publishes_before = published_uris
             .filter((my_uri) => my_uri === grandchild_uri).length;
 
-        // Hold the re-sync at its entry so the race is deterministic:
-        // while it is held, recreate the document-store entry (as a
-        // commit racing the close would) WITHOUT reopening the document
-        // in TextDocuments. When released, should_apply must veto on the
-        // store clause alone — TextDocuments says closed, the store says
-        // a buffer commit owns registration.
+        // Hold the re-sync at its ENTRY (before its disk read) so the
+        // race is deterministic: while it is held, recreate the
+        // document-store entry (as a commit racing the close would)
+        // WITHOUT reopening the document in TextDocuments. When
+        // released, should_apply must veto on the store clause alone —
+        // TextDocuments says closed, the store says a buffer commit owns
+        // registration. This pins the HANDLER's guard wiring; the
+        // resolver-internal ordering (guard consulted after the read, so
+        // a mid-read reopen still vetoes) is pinned by the deferred-read
+        // unit test in
+        // tests/unit/document-store-commit-time-cross-file-effects.test.ts.
         let release_gate: (() => void) | undefined;
         resync_gate = new Promise((resolve) => {
             release_gate = resolve;
