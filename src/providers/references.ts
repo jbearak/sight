@@ -218,11 +218,15 @@ export class ReferencesProvider {
                 // cursor-visible scope's own MacroSymbol) supersedes the
                 // flat slot, which may belong to a different scope. For
                 // an out-of-scope reference the flat slot is forbidden
-                // entirely — the identity is the cross-file inherited
-                // local (pooled from the indexer below) or nothing.
+                // entirely — the identity is exactly the call-line-gated
+                // inherited winner (its primary + same-scope
+                // additional_definitions) or nothing; the broad
+                // workspace pool below stays off for this mode, or a
+                // superseded include's same-name declaration would
+                // surface next to the winner (round-6 gate).
                 const local_macro = target_local_macro
                     ?? (exclude_same_file_local
-                        ? undefined
+                        ? inherited_target
                         : symbols.localMacros.get(symbol_name));
                 if (local_macro) {
                     // Loop-expanded definitions anchor at the template statement
@@ -291,19 +295,20 @@ export class ReferencesProvider {
 
         // A program-scoped local target never crosses file boundaries
         // (#271), so cross-file declaration pooling is skipped (#270).
-        // An out-of-scope cursor with NO inherited target is plain
-        // undefined — nothing legitimate to pool cross-file either.
+        // Out-of-scope cursors skip it too: their declaration set is
+        // exactly the inherited winner handled above (or nothing when
+        // plain undefined) — the ungated same-name pool would surface
+        // superseded includes' declarations (round-6 gate).
         const is_program_scoped_target = this.is_program_scoped_local_target(
             symbol_type, target_local_macro
         );
-        const undefined_out_of_scope_target =
+        const out_of_scope_local_target =
             symbol_type === 'local_macro' &&
-            exclude_same_file_local === true &&
-            inherited_target === undefined;
+            exclude_same_file_local === true;
         if (
             workspace_indexer &&
             !is_program_scoped_target &&
-            !undefined_out_of_scope_target
+            !out_of_scope_local_target
         ) {
             const ws_type: 'program' | 'local' | 'global' | 'variable' | 'scalar' | 'matrix' =
                 symbol_type === 'local_macro' ? 'local' :
@@ -1147,7 +1152,8 @@ export class ReferencesProvider {
                 // its own line's inherited winner must be the cursor's
                 // (identity-equal; undefined for plain-undefined): an
                 // occurrence before an include is a different
-                // resolution class than one after it (round-5 gate). resolve_visible_local skips
+                // resolution class than one after it (round-5 gate).
+                // resolve_visible_local skips
                 // lookup_scoped_local_macro's out-of-scope bookkeeping
                 // scan, which these comparisons never read.
                 if (symbol_type === 'local_macro') {

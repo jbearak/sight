@@ -1341,3 +1341,71 @@ describe('scoped local macros: round-5 gate regressions', () => {
         expect(value).not.toContain('Redefined');
     });
 });
+
+// Round-6 gate regression (#270): in exclude-mode with an inherited
+// winner, includeDeclaration must surface exactly the winner's
+// declaration — never a superseded earlier include's.
+describe('scoped local macros: round-6 gate regression', () => {
+    let test_temp_dir: string;
+    let indexer: WorkspaceIndexer;
+    let scope_resolver: ScopeResolver;
+    let forward_scope_resolver: ForwardScopeResolver;
+    let document_store: DocumentStore;
+
+    beforeEach(() => {
+        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-gate6-'));
+        indexer = new WorkspaceIndexer();
+        const the_dep_graph = new DependencyGraph();
+        indexer.set_dependency_graph(the_dep_graph);
+        scope_resolver = new ScopeResolver();
+        scope_resolver.set_dependency_graph(the_dep_graph);
+        forward_scope_resolver = new ForwardScopeResolver(scope_resolver, {
+            max_forward_depth: 10,
+        });
+        scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
+        document_store = new DocumentStore();
+    });
+
+    afterEach(() => {
+        try { scope_resolver?.dispose(); } catch {}
+        try { forward_scope_resolver?.dispose(); } catch {}
+        if (existsSync(test_temp_dir)) {
+            rmSync(test_temp_dir, { recursive: true, force: true });
+        }
+    });
+
+    it('references: only the last include\'s declaration is pooled for an out-of-scope name', async () => {
+        const references_provider = new ReferencesProvider(scope_resolver);
+        const a_path = join(test_temp_dir, 'a.do');
+        const b_path = join(test_temp_dir, 'b.do');
+        writeFileSync(a_path, 'local flag A\n');
+        writeFileSync(b_path, 'local flag B\n');
+        const main_path = join(test_temp_dir, 'main.do');
+        const main_content = [
+            'include "a.do"',          // 0
+            'include "b.do"',          // 1
+            'program define p',        // 2
+            '    local flag prog',     // 3
+            'end',                     // 4
+            'di "`flag\'"',            // 5
+        ].join('\n');
+        writeFileSync(main_path, main_content);
+        await indexer.initialize([test_temp_dir]);
+        const uri = URI.file(main_path).toString();
+        await document_store.open(uri, main_content, 1);
+        const character = main_content.split('\n')[5].indexOf('flag');
+        const the_locations = await references_provider.get_references(
+            document_store.get(uri)!,
+            { line: 5, character },
+            { includeDeclaration: true },
+            indexer,
+        );
+        const the_uris = the_locations.map(my_loc => my_loc.uri);
+        expect(the_uris).toContain(URI.file(b_path).toString());
+        expect(the_uris).not.toContain(URI.file(a_path).toString());
+        const main_lines = the_locations
+            .filter(my_loc => my_loc.uri === uri)
+            .map(my_loc => my_loc.range.start.line);
+        expect(main_lines).toEqual([5]);
+    });
+});
