@@ -1541,20 +1541,41 @@ export async function create_server(options: ServerOptions): Promise<void> {
                     documents.get(e.document.uri) === undefined) {
                     document_settings.delete(e.document.uri);
                 }
-                await scope_resolver.resync_backward_directive_dependencies_from_disk(
-                    e.document.uri,
-                    scope_resolver_config_for(my_settings),
-                    () => {
-                        if (documents.get(e.document.uri) !== undefined) {
-                            return false; // reopened — buffer commit owns it
+                const my_applied = await scope_resolver
+                    .resync_backward_directive_dependencies_from_disk(
+                        e.document.uri,
+                        scope_resolver_config_for(my_settings),
+                        () => {
+                            if (documents.get(e.document.uri) !== undefined) {
+                                // Reopened — buffer commit owns registration.
+                                return false;
+                            }
+                            try {
+                                return document_store.get(e.document.uri) ===
+                                    undefined;
+                            } catch {
+                                return false; // store disposed — do not mutate
+                            }
                         }
-                        try {
-                            return document_store.get(e.document.uri) === undefined;
-                        } catch {
-                            return false; // store disposed — do not mutate
-                        }
+                    );
+                // A close-cancelled validation never fans out an interface
+                // change, and the watched-files path only revalidates
+                // forward callers — so open files inheriting THROUGH the
+                // closed file would keep stale diagnostics until another
+                // trigger. Revalidate them when the re-sync applied.
+                if (my_applied) {
+                    const my_backward_children = scope_resolver
+                        .get_transitive_backward_directive_children(
+                            e.document.uri
+                        );
+                    if (my_backward_children.size > 0) {
+                        schedule_caller_revalidation(
+                            my_backward_children,
+                            e.document.uri,
+                            my_settings
+                        );
                     }
-                );
+                }
             })().catch(() => {
                 // Fire-and-forget: a failed re-sync must never surface as
                 // an unhandled rejection; edges converge on the next parse.

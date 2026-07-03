@@ -3353,12 +3353,15 @@ export class ScopeResolver {
      *   the synchronous registration; return false to skip (e.g. the
      *   document was reopened while the read was in flight, so the
      *   buffer-based commit-time registration must win).
+     * @returns true when registration was applied, false when skipped
+     *   (read error or should_apply veto) — callers use this to decide
+     *   whether dependents need revalidation.
      */
     async resync_backward_directive_dependencies_from_disk(
         child_uri: string,
         config: Partial<ScopeResolverConfig> = {},
         should_apply?: () => boolean
-    ): Promise<void> {
+    ): Promise<boolean> {
         let raw_directives: Directive[] = [];
         try {
             const file_exists = await this.content_provider.exists(child_uri);
@@ -3370,14 +3373,15 @@ export class ScopeResolver {
                 ).directives;
             }
         } catch {
-            return;
+            return false;
         }
         if (should_apply && !should_apply()) {
-            return;
+            return false;
         }
         this.apply_backward_directive_registration(
             child_uri, raw_directives, config
         );
+        return true;
     }
 
     /**

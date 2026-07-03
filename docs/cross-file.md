@@ -774,8 +774,9 @@ file's forward closure is identical across distinct callers given the same input
 The resolver keeps a live map of backward-directive relationships
 (`parent → children`) that drives transitive diagnostics revalidation, plus a
 buffer-directives overlay in the workspace indexer that makes unsaved
-`@lsp-done-by`/`@lsp-included-by` edits visible to find-references. Both are
-updated **only at commit time** (issue #184):
+`@lsp-done-by`/`@lsp-included-by` edits visible to find-references. Parse-time
+effects are staged and applied **only at commit time**; close-time re-sync is
+a separate best-effort recovery path (issue #184):
 
 - While a document parses, its directives and the scope-resolver config in
   force are **staged** (`StagedCrossFileEffects`), not applied. The

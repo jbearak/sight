@@ -399,9 +399,11 @@ describe('ScopeResolver disk re-sync on close (issue #184)', () => {
             child_uri,
             `// @lsp-done-by: "${new_parent_path}"\ndisplay 1\n`
         );
-        await scope_resolver.resync_backward_directive_dependencies_from_disk(
-            child_uri
-        );
+        const my_applied =
+            await scope_resolver.resync_backward_directive_dependencies_from_disk(
+                child_uri
+            );
+        expect(my_applied).toBe(true);
 
         expect(
             scope_resolver.get_backward_directive_children(new_parent_uri)
@@ -437,9 +439,11 @@ describe('ScopeResolver disk re-sync on close (issue #184)', () => {
         ).toBe(true);
 
         // child_uri was never in content_by_uri, so exists() is false.
-        await scope_resolver.resync_backward_directive_dependencies_from_disk(
-            child_uri
-        );
+        const my_applied =
+            await scope_resolver.resync_backward_directive_dependencies_from_disk(
+                child_uri
+            );
+        expect(my_applied).toBe(true);
         expect(
             scope_resolver.get_backward_directive_children(parent_uri)
                 .has(child_uri)
@@ -470,11 +474,13 @@ describe('ScopeResolver disk re-sync on close (issue #184)', () => {
             `// @lsp-done-by: "${buffer_parent_path}"\ndisplay 1\n`,
             {}
         );
-        await scope_resolver.resync_backward_directive_dependencies_from_disk(
-            child_uri,
-            {},
-            () => false
-        );
+        const my_applied =
+            await scope_resolver.resync_backward_directive_dependencies_from_disk(
+                child_uri,
+                {},
+                () => false
+            );
+        expect(my_applied).toBe(false);
 
         expect(
             scope_resolver.get_backward_directive_children(buffer_parent_uri)
