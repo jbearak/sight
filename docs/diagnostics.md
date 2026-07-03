@@ -288,7 +288,7 @@ When the next statement spans several physical lines — via `///`
 continuations, or under `#delimit ;` — a standalone `sight: ignore` /
 `sight: ignore-next` covers every line the statement spans, wherever in
 the statement the flagged construct sits. A statement that opens a block
-is covered through its header line (up to and including the `{`), but
+(`{`, `mata`, or `python`) is covered through its header line only, but
 never the block body: to suppress a diagnostic inside a block, put the
 directive on the offending statement inside the block. A trailing
 `// sight: ignore` on any physical line an operator-style diagnostic

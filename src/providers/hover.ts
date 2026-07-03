@@ -42,6 +42,7 @@ import { IContextTracker } from '../context-tracker/types';
 import { LanguageContext } from '../context-tracker/types';
 import { ScopeResolver } from '../scope-resolver';
 import { format_help_link } from '../utils/help-link';
+import { is_swallowed_continuation_terminator } from '../utils/continuation';
 import type { WorkspaceIndexer } from '../indexer';
 import { build_scope_resolver_config } from '../scope-resolver';
 import { get_visible_symbols_at } from '../scope-resolver';
@@ -1359,6 +1360,17 @@ export class HoverProvider {
         let statement_start_index = 0;
         for (let i = hovered_token_index - 1; i >= 0; i--) {
             if (tokens[i].type === 'STATEMENT_TERMINATOR') {
+                // A '\n' terminator right after a `///` continuation is
+                // trivia, not a statement boundary — scan past both.
+                if (
+                    is_swallowed_continuation_terminator(
+                        tokens[i],
+                        i > 0 && tokens[i - 1].type === 'CONTINUATION'
+                    )
+                ) {
+                    i--; // skip the continuation too
+                    continue;
+                }
                 statement_start_index = i + 1;
                 break;
             }

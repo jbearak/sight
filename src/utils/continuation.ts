@@ -10,10 +10,12 @@ import { Token } from '../types';
  * WHITESPACE, so any STATEMENT_TERMINATOR seen mid-continuation there
  * is a literal `;` — always a real statement end.
  *
- * Shared by every token scan that tracks an in-continuation flag
- * (statement spans, significant-token collection, operator adjacency,
- * mixed-logical grouping, Mata setter scanning) so the rule cannot
- * drift between them.
+ * Shared by every token scan that applies this rule, so it cannot
+ * drift between them: forward scans pass an in-continuation flag they
+ * track across trivia; backward scans (brace placement, hover
+ * statement-start) pass "the immediately preceding token is a
+ * CONTINUATION", which is equivalent because the lexer emits the
+ * swallowed '\n' terminator directly after its continuation token.
  */
 export function is_swallowed_continuation_terminator(
     my_token: Token,

@@ -18,8 +18,9 @@ remain permanent aliases, so `// @lsp-ignore` still works.
 
 "The next statement" means every physical line that statement spans:
 a statement continued with `///` (or spanning lines under `#delimit ;`)
-is covered on all of its lines. A statement that opens a `{` block is
-covered through the header line only, never the block body.
+is covered on all of its lines. A statement that opens a block (`{`,
+`mata`, or `python`) is covered through the header line only, never the
+block body.
 
 ```stata
 // Suppress warning on the next line

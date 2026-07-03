@@ -470,6 +470,21 @@ describe('MixedLogicalOperatorAnalyzer Unit Tests', () => {
             expect(mixed).toHaveLength(0);
         });
 
+        it('resets continuation state at a comma inside parens (semicolon mode)', () => {
+            // `foo(x ///\n, y)` reaches the comma-inside-parens branch
+            // right after a continuation. The flag must reset there so
+            // the later real `;` terminator ends the statement and the
+            // `&` and `|` are never reported as a cross-statement mix.
+            const doc = create_document_state(
+                '#delimit ;\ngen z = foo(x ///\n, y) & w ;\ngen q = a | b ;'
+            );
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const mixed = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
+            );
+            expect(mixed).toHaveLength(0);
+        });
+
         it('does not warn for same operator across /// continuation', () => {
             const doc = create_document_state('keep if x & /// \n y & z');
             const diagnostics = analyzer.analyze(doc, default_config);

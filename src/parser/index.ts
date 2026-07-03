@@ -24,6 +24,7 @@ import {
 } from '../types';
 import { ContextTracker } from '../context-tracker';
 import { isFileCommand } from '../utils/file-path-utils';
+import { is_swallowed_continuation_terminator } from '../utils/continuation';
 
 const PREFIX_COMMANDS = new Set(['by', 'bysort', 'quietly', 'qui', 'capture', 'cap', 'noisily', 'noi']);
 
@@ -3205,8 +3206,14 @@ export class StataParser {
       if (my_token.range.start.line !== current_line) {
         // STATEMENT_TERMINATOR after continuation - skip it and check for continuation
         if (my_token.type === 'STATEMENT_TERMINATOR') {
-          // Look back for a continuation on the previous line
-          if (i > 0 && this.tokens[i - 1].type === 'CONTINUATION') {
+          // Only a swallowed '\n' right after a /// continuation is
+          // trivia; any other terminator is a real statement end.
+          if (
+            is_swallowed_continuation_terminator(
+              my_token,
+              i > 0 && this.tokens[i - 1].type === 'CONTINUATION'
+            )
+          ) {
             current_line = this.tokens[i - 1].range.start.line;
             i--; // skip the continuation too
             continue;

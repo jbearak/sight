@@ -689,4 +689,36 @@ describe('Close Brace Validation Property Tests', () => {
             );
         });
     });
+
+    /**
+     * Continuation handling: `find_code_before_on_same_line` follows a
+     * `///` continuation across the swallowed '\n' terminator (see
+     * is_swallowed_continuation_terminator), joining the physical lines
+     * into one logical line for brace placement checks.
+     */
+    describe('Brace placement across /// continuations', () => {
+        it('does not flag OPEN_BRACE_ALONE when the condition continues via ///', () => {
+            fc.assert(
+                fc.property(arbitrary_command, (cmd1) => {
+                    const document = `if 1 > 0 ///\n{\n    ${cmd1}\n}`;
+                    const { errors } = parse_document(document);
+
+                    return !has_error_code(errors, ParseErrorCode.OPEN_BRACE_ALONE);
+                }),
+                { numRuns: 20 }
+            );
+        });
+
+        it('flags BRACE_NOT_ALONE for a close brace joined to code via ///', () => {
+            fc.assert(
+                fc.property(arbitrary_command, (cmd1) => {
+                    const document = `if 1 > 0 {\n    ${cmd1} ///\n}`;
+                    const { errors } = parse_document(document);
+
+                    return has_error_code(errors, ParseErrorCode.BRACE_NOT_ALONE);
+                }),
+                { numRuns: 20 }
+            );
+        });
+    });
 });
