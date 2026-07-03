@@ -1817,7 +1817,12 @@ export class StataParser {
       }
       
       this.advance(); // consume continuation
-      if (!this.isAtEnd() && this.check('STATEMENT_TERMINATOR')) {
+      // Only the swallowed newline is trivia; a literal terminator on
+      // the next line is a real statement end
+      if (
+        !this.isAtEnd() &&
+        is_swallowed_continuation_terminator(this.peek(), true)
+      ) {
         this.advance(); // skip newline after continuation
       }
       return true;
@@ -2072,9 +2077,16 @@ export class StataParser {
 
       // Collect specification until {
       while (!this.check('LBRACE') && !this.isAtEnd()) {
-        // Stop at statement terminator unless preceded by continuation
+        // Stop at a real statement terminator; only the swallowed '\n'
+        // of a /// continuation is skipped
         if (this.check('STATEMENT_TERMINATOR')) {
-          if (this.current > 0 && this.tokens[this.current - 1].type === 'CONTINUATION') {
+          if (
+            is_swallowed_continuation_terminator(
+              this.tokens[this.current],
+              this.current > 0 &&
+                this.tokens[this.current - 1].type === 'CONTINUATION'
+            )
+          ) {
             this.advance(); // skip newline after continuation
             continue;
           }
@@ -2587,7 +2599,10 @@ export class StataParser {
       if (token.type === 'CONTINUATION') {
         offset++;
         if (this.current + offset < this.tokens.length &&
-            this.tokens[this.current + offset].type === 'STATEMENT_TERMINATOR') {
+            is_swallowed_continuation_terminator(
+              this.tokens[this.current + offset],
+              true
+            )) {
           offset++;
         }
         continue;
