@@ -797,12 +797,15 @@ a separate best-effort recovery path (issue #184):
   auto edges. Effective ⊇ raw, so ancestor reads can only add edges
   relative to the pre-#286 behavior. Registration remains a parse-path
   side effect, with one exception: each file-cache entry is stamped with
-  the mode its registration ran under, and an `'auto'`-mode cache hit on
-  an `'explicit'`-registered entry applies effective registration once
-  and re-stamps (`upgrade_registration_on_cache_hit`). Without that
-  upgrade, the indexer's explicit WD walk priming the cache would leave a
-  directive-less ancestor's auto edges unregistered for as long as the
-  content stayed unchanged. Explicit-mode hits never downgrade, and memo
+  the mode its registration ran under (plus the dependency-graph version
+  it read), and an `'auto'`-mode cache hit re-applies effective
+  registration when the entry was `'explicit'`-registered or its
+  `'auto'` registration predates a graph change, then re-stamps
+  (`upgrade_registration_on_cache_hit`). Without that upgrade, the
+  indexer's explicit WD walk priming the cache would leave a
+  directive-less ancestor's auto edges unregistered — and a graph edge
+  added after the stamp would never reach `backward_directive_children`
+  — for as long as the content stayed unchanged. Explicit-mode hits never downgrade, and memo
   serves still perform no registration (files reached only through a
   served closure re-register when the memo entry is evicted or their
   content changes).

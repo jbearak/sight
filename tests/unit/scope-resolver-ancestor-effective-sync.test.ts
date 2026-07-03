@@ -232,6 +232,37 @@ describe('issue #286 — ancestor-level effective backward-directive sync', () =
         ).toBe(true);
     });
 
+    it('auto-mode cache hit re-registers after the dependency graph gains a parent', async () => {
+        // The 'auto' stamp must fold in the dependency-graph version:
+        // an entry stamped while the graph was partial (or before a
+        // parent added its do-call) must not latch — the next auto-mode
+        // hit after a graph change re-runs effective registration
+        // (codex round-2 finding on issue #286).
+        const b_path = create_file('b.do', 'display "b"\n');
+        const a_path = create_file('a.do', 'do b.do\n');
+        const a_uri = to_uri(a_path);
+        const b_uri = to_uri(b_path);
+
+        // First auto-mode resolution parses B with NO graph parents:
+        // stamps 'auto' at the current graph version, registers nothing.
+        const c_uri = to_uri(path.join(temp_dir, 'c.do'));
+        const c_content = `// @lsp-done-by: "${b_path}"\ndisplay "c"\n`;
+        await scope_resolver.resolve(c_uri, c_content, {});
+        expect(
+            scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
+        ).toBe(false);
+
+        // The graph then gains A → B (version bump). The auto-mode scope
+        // cache key folds in the graph version, so this resolve re-walks
+        // and cache-HITS B — the hit must re-register from live graph
+        // state instead of skipping on the stale 'auto' stamp.
+        seed_auto_parent(a_uri, 'b.do');
+        await scope_resolver.resolve(c_uri, c_content, {});
+        expect(
+            scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
+        ).toBe(true);
+    });
+
     it('memo standalone-closure build registers ancestor auto parents (auto mode)', async () => {
         // Nested forward closures build through the forward-closure memo
         // (#234, on by default, gated on scan completion). The standalone
