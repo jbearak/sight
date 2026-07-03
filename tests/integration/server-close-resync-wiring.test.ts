@@ -25,8 +25,12 @@
  *      (the reopened buffer's commit owns registration), leaving the
  *      buffer-time edges intact;
  *   3. when the re-sync applies, open files that depend on the closed
- *      file via backward directives are revalidated (diagnostics are
- *      republished for them).
+ *      file via backward directives — including transitively, two hops
+ *      away — are revalidated (diagnostics are republished for them);
+ *   4. the DOCUMENT-STORE half of the should_apply guard vetoes on its
+ *      own (a store entry recreated while the disk read is in flight,
+ *      with TextDocuments still empty), and a vetoed re-sync does NOT
+ *      revalidate open dependents.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
@@ -43,6 +47,8 @@ import type {
 } from 'vscode-languageserver/node';
 import { create_server } from '../../src/server-factory';
 import { ScopeResolver } from '../../src/scope-resolver';
+import { DocumentStore } from '../../src/document-store';
+import { Logger } from '../../src/utils/logger';
 import type { ScopeResolverConfig } from '../../src/types';
 import { wait_until } from '../wait-until';
 
@@ -60,8 +66,13 @@ interface ResyncCall {
 }
 
 let captured_resolver: ScopeResolver | undefined;
+let captured_document_store: DocumentStore | undefined;
 let the_resync_calls: ResyncCall[] = [];
 let workspace_roots_seen: string[] = [];
+// When set, the spied re-sync records its call, then holds before running
+// the real method until this promise resolves — letting a test create
+// race conditions deterministically (test 4). Undefined = no hold.
+let resync_gate: Promise<void> | undefined;
 
 const original_set_dependency_graph =
     ScopeResolver.prototype.set_dependency_graph;
@@ -69,11 +80,15 @@ const original_set_workspace_roots =
     ScopeResolver.prototype.set_workspace_roots;
 const original_resync =
     ScopeResolver.prototype.resync_backward_directive_dependencies_from_disk;
+const original_set_scope_resolver =
+    DocumentStore.prototype.set_scope_resolver;
 
 function install_resolver_spies(): void {
     captured_resolver = undefined;
+    captured_document_store = undefined;
     the_resync_calls = [];
     workspace_roots_seen = [];
+    resync_gate = undefined;
     ScopeResolver.prototype.set_dependency_graph = function (
         ...args: Parameters<typeof original_set_dependency_graph>
     ) {
@@ -88,7 +103,13 @@ function install_resolver_spies(): void {
     };
     ScopeResolver.prototype.resync_backward_directive_dependencies_from_disk =
         function (...args: Parameters<typeof original_resync>) {
-            const result = original_resync.apply(this, args);
+            const gate = resync_gate;
+            const result = (async () => {
+                if (gate) {
+                    await gate;
+                }
+                return original_resync.apply(this, args);
+            })();
             the_resync_calls.push({
                 uri: args[0],
                 config: args[1],
@@ -96,6 +117,12 @@ function install_resolver_spies(): void {
             });
             return result;
         };
+    DocumentStore.prototype.set_scope_resolver = function (
+        ...args: Parameters<typeof original_set_scope_resolver>
+    ) {
+        captured_document_store = this;
+        return original_set_scope_resolver.apply(this, args);
+    };
 }
 
 function restore_resolver_spies(): void {
@@ -105,6 +132,8 @@ function restore_resolver_spies(): void {
         original_set_workspace_roots;
     ScopeResolver.prototype.resync_backward_directive_dependencies_from_disk =
         original_resync;
+    DocumentStore.prototype.set_scope_resolver =
+        original_set_scope_resolver;
 }
 
 // ---------------------------------------------------------------------------
@@ -278,6 +307,10 @@ function write_workspace_files(): void {
         path.join(tmp_dir, 'grandchild.do'),
         '// @lsp-done-by: "child.do"\ndisplay "grandchild"\n'
     );
+    fs.writeFileSync(
+        path.join(tmp_dir, 'greatgrandchild.do'),
+        '// @lsp-done-by: "grandchild.do"\ndisplay "greatgrandchild"\n'
+    );
 }
 
 function file_uri(name: string): string {
@@ -298,6 +331,27 @@ function open_document(
 const CHILD_BUFFER_TEXT =
     '// @lsp-done-by: "parent_buffer.do"\ndisplay "child"\n';
 
+/**
+ * Wait until no diagnostic publish lands for three consecutive 150ms
+ * samples (~450ms of silence, several times the 100ms debounce window),
+ * so nothing scheduled earlier is still in flight. The counter resets on
+ * every new publish, so the window is measured from the LAST publish.
+ */
+async function wait_for_publish_quiescence(): Promise<void> {
+    let stable_samples = 0;
+    let last_count = published_uris.length;
+    await wait_until(() => {
+        const current_count = published_uris.length;
+        if (current_count === last_count) {
+            stable_samples++;
+        } else {
+            stable_samples = 0;
+            last_count = current_count;
+        }
+        return stable_samples >= 3;
+    }, 'diagnostic publishes to go quiescent', WAIT_TIMEOUT_MS, 150);
+}
+
 describe('server onDidClose disk re-sync wiring (#287)', () => {
     beforeEach(() => {
         install_resolver_spies();
@@ -314,7 +368,19 @@ describe('server onDidClose disk re-sync wiring (#287)', () => {
             await active_handlers?.shutdown?.();
         } finally {
             restore_resolver_spies();
-            fs.rmSync(tmp_dir, { recursive: true, force: true });
+            // create_server({ quiet: true }) silences the process-wide
+            // Logger singleton; restore its defaults (info verbosity,
+            // console.debug fallback channel) so later tests in this
+            // process see the out-of-the-box behavior.
+            Logger.initialize({
+                verbosity: 'info',
+                channel: (message: string) => console.debug(message),
+            });
+            // Guarded so a beforeEach failure before tmp_dir is assigned
+            // reports itself instead of an rmSync TypeError.
+            if (tmp_dir) {
+                fs.rmSync(tmp_dir, { recursive: true, force: true });
+            }
         }
     });
 
@@ -421,18 +487,115 @@ describe('server onDidClose disk re-sync wiring (#287)', () => {
         ).toBe(false);
     }, TEST_TIMEOUT_MS);
 
-    it('revalidates open backward-directive dependents after the re-sync ' +
-        'applies', async () => {
+    it('revalidates open backward-directive dependents (including ' +
+        'two-hop transitive ones) after the re-sync applies', async () => {
         const child_uri = file_uri('child.do');
         const grandchild_uri = file_uri('grandchild.do');
+        const greatgrandchild_uri = file_uri('greatgrandchild.do');
         const parent_buffer_uri = file_uri('parent_buffer.do');
         const handlers = await start_test_server(
             () => GLOBAL_PUBLIC_CONFIG
         );
 
-        // Open the grandchild (depends on child.do via @lsp-done-by) and
-        // the child (buffer header disagrees with disk so the close-time
-        // re-sync APPLIES a change).
+        // Open the dependent chain (greatgrandchild -> grandchild ->
+        // child via @lsp-done-by; the two-hop greatgrandchild
+        // distinguishes the handler's TRANSITIVE dependent lookup from a
+        // direct-children one) and the child itself (buffer header
+        // disagrees with disk so the close-time re-sync APPLIES a
+        // change).
+        open_document(
+            handlers,
+            grandchild_uri,
+            fs.readFileSync(
+                path.join(tmp_dir, 'grandchild.do'), 'utf8'
+            )
+        );
+        open_document(
+            handlers,
+            greatgrandchild_uri,
+            fs.readFileSync(
+                path.join(tmp_dir, 'greatgrandchild.do'), 'utf8'
+            )
+        );
+        open_document(handlers, child_uri, CHILD_BUFFER_TEXT);
+        await wait_until(
+            () => captured_resolver!
+                .get_backward_directive_children(child_uri)
+                .has(grandchild_uri) &&
+                captured_resolver!
+                    .get_backward_directive_children(grandchild_uri)
+                    .has(greatgrandchild_uri) &&
+                captured_resolver!
+                    .get_backward_directive_children(parent_buffer_uri)
+                    .has(child_uri),
+            'all open buffers to commit their backward registrations',
+            WAIT_TIMEOUT_MS
+        );
+
+        // Barrier against a false pass: any new dependent publish after
+        // did_close below must be attributable to the CLOSE-path
+        // revalidation, not a straggler from the open-time validation
+        // cascade. Two conditions: (1) every document's initial
+        // validation cycle has published (registration above happens
+        // BEFORE the publish within the same debounced cycle, so wait
+        // for the publishes too), and (2) no publish at all for three
+        // consecutive 150ms samples (~450ms of silence, several times
+        // the 100ms debounce window), so no revalidation scheduled
+        // pre-close is still in flight.
+        await wait_until(
+            () => published_uris.includes(grandchild_uri) &&
+                published_uris.includes(greatgrandchild_uri) &&
+                published_uris.includes(child_uri),
+            'initial validation publishes for all open documents',
+            WAIT_TIMEOUT_MS
+        );
+        await wait_for_publish_quiescence();
+
+        const grandchild_publishes_before = published_uris
+            .filter((my_uri) => my_uri === grandchild_uri).length;
+        const greatgrandchild_publishes_before = published_uris
+            .filter((my_uri) => my_uri === greatgrandchild_uri).length;
+
+        handlers.did_close!({ textDocument: { uri: child_uri } });
+
+        await wait_until(
+            () => the_resync_calls.length === 1,
+            'the close handler to invoke the disk re-sync',
+            WAIT_TIMEOUT_MS
+        );
+        expect(await the_resync_calls[0].result).toBe(true);
+
+        // The applied re-sync must fan out to open dependents THROUGH the
+        // closed file: both the direct grandchild and the two-hop
+        // greatgrandchild get revalidated and republished.
+        await wait_until(
+            () => published_uris
+                .filter((my_uri) => my_uri === grandchild_uri).length >
+                grandchild_publishes_before,
+            'grandchild diagnostics republish after close re-sync',
+            WAIT_TIMEOUT_MS
+        );
+        await wait_until(
+            () => published_uris
+                .filter((my_uri) => my_uri === greatgrandchild_uri)
+                .length > greatgrandchild_publishes_before,
+            'greatgrandchild diagnostics republish after close re-sync',
+            WAIT_TIMEOUT_MS
+        );
+    }, TEST_TIMEOUT_MS);
+
+    it('vetoes via the document-store guard clause alone and does not ' +
+        'revalidate dependents on a vetoed re-sync', async () => {
+        const child_uri = file_uri('child.do');
+        const grandchild_uri = file_uri('grandchild.do');
+        const parent_disk_uri = file_uri('parent_disk.do');
+        const parent_buffer_uri = file_uri('parent_buffer.do');
+        const handlers = await start_test_server(
+            () => GLOBAL_PUBLIC_CONFIG
+        );
+
+        // An open dependent, so the vetoed branch has a live dependent it
+        // must NOT revalidate.
         open_document(
             handlers,
             grandchild_uri,
@@ -451,56 +614,61 @@ describe('server onDidClose disk re-sync wiring (#287)', () => {
             'both open buffers to commit their backward registrations',
             WAIT_TIMEOUT_MS
         );
-
-        // Barrier against a false pass: any new grandchild publish after
-        // did_close below must be attributable to the CLOSE-path
-        // revalidation, not a straggler from the open-time validation
-        // cascade. Two conditions: (1) both documents' initial validation
-        // cycles have published (registration above happens BEFORE the
-        // publish within the same debounced cycle, so wait for the
-        // publishes too), and (2) no publish at all for three consecutive
-        // 150ms samples (~450ms of silence, several times the 100ms
-        // debounce window), so no revalidation scheduled pre-close is
-        // still in flight.
         await wait_until(
             () => published_uris.includes(grandchild_uri) &&
                 published_uris.includes(child_uri),
             'initial validation publishes for both open documents',
             WAIT_TIMEOUT_MS
         );
-        let stable_samples = 0;
-        let last_count = published_uris.length;
-        await wait_until(() => {
-            const current_count = published_uris.length;
-            if (current_count === last_count) {
-                stable_samples++;
-            } else {
-                stable_samples = 0;
-                last_count = current_count;
-            }
-            return stable_samples >= 3;
-        }, 'diagnostic publishes to go quiescent', WAIT_TIMEOUT_MS, 150);
+        await wait_for_publish_quiescence();
 
         const grandchild_publishes_before = published_uris
             .filter((my_uri) => my_uri === grandchild_uri).length;
 
-        handlers.did_close!({ textDocument: { uri: child_uri } });
+        // Hold the re-sync at its entry so the race is deterministic:
+        // while it is held, recreate the document-store entry (as a
+        // commit racing the close would) WITHOUT reopening the document
+        // in TextDocuments. When released, should_apply must veto on the
+        // store clause alone — TextDocuments says closed, the store says
+        // a buffer commit owns registration.
+        let release_gate: (() => void) | undefined;
+        resync_gate = new Promise((resolve) => {
+            release_gate = resolve;
+        });
 
+        handlers.did_close!({ textDocument: { uri: child_uri } });
         await wait_until(
             () => the_resync_calls.length === 1,
             'the close handler to invoke the disk re-sync',
             WAIT_TIMEOUT_MS
         );
-        expect(await the_resync_calls[0].result).toBe(true);
-
-        // The applied re-sync must fan out to open dependents THROUGH the
-        // closed file: grandchild gets revalidated and republished.
-        await wait_until(
-            () => published_uris
-                .filter((my_uri) => my_uri === grandchild_uri).length >
-                grandchild_publishes_before,
-            'grandchild diagnostics republish after close re-sync',
-            WAIT_TIMEOUT_MS
+        await captured_document_store!.open(
+            child_uri, CHILD_BUFFER_TEXT, 3
         );
+        release_gate!();
+
+        expect(await the_resync_calls[0].result).toBe(false);
+
+        // Vetoed: buffer-time edges survive, the disk parent was never
+        // applied.
+        expect(
+            captured_resolver!
+                .get_backward_directive_children(parent_buffer_uri)
+                .has(child_uri)
+        ).toBe(true);
+        expect(
+            captured_resolver!
+                .get_backward_directive_children(parent_disk_uri)
+                .has(child_uri)
+        ).toBe(false);
+
+        // A vetoed re-sync must NOT fan out revalidation: after a settle
+        // window several times the debounce, the open dependent has no
+        // new publish.
+        await wait_for_publish_quiescence();
+        expect(
+            published_uris
+                .filter((my_uri) => my_uri === grandchild_uri).length
+        ).toBe(grandchild_publishes_before);
     }, TEST_TIMEOUT_MS);
 });
