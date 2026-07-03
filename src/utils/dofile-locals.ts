@@ -134,8 +134,9 @@ export function find_inherited_dofile_local(
 }
 
 /**
- * THE effective local-macro resolution order at a position — the one
- * rule every provider consumes (issue #270, round-9 gate):
+ * THE effective local-macro resolution order at a position, for names
+ * TRACKED in the current file's scope tree — the one rule every
+ * provider consumes (issue #270, round-9 gate):
  *   1. the positionally RESOLVED winner in [enclosing, dofile]
  *      (same-file scoped identity);
  *   2. else the cross-file INHERITED do-file local (the analyzer's
@@ -144,8 +145,12 @@ export function find_inherited_dofile_local(
  *   3. else the nearest visible scope's FORWARD identity target (a
  *      same-scope forward reference keeps navigation working; the
  *      analyzer treats it as plain undefined);
- *   4. else nothing (untracked, positional args, or out-of-scope —
- *      distinguish via lookup_scoped_local_macro where needed).
+ *   4. else nothing: tracked-but-invisible names are out-of-scope,
+ *      while UNTRACKED names (positional args, purely cross-file
+ *      names) belong to the pre-existing resolved-scope/flat
+ *      machinery — an inherited-only name is ONE frame-local whose
+ *      include-chain definitions pool like same-file redefinitions,
+ *      so the winner-only rules deliberately do not apply there.
  */
 export function resolve_effective_local(
     scopes: ScopeInfo[] | undefined,

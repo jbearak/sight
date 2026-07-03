@@ -55,6 +55,7 @@ import {
 import {
     lookup_scoped_local_macro,
     resolve_scoped_or_flat,
+    ScopedLocalLookupResult,
 } from '../utils/scoped-locals';
 import { is_cursor_in_comment, is_cursor_in_block_comment } from '../utils/comment-utils';
 import {
@@ -263,6 +264,27 @@ export class DefinitionProvider {
     }
 
     /**
+     * The resolver-free authoritative fast path (#271): a positionally
+     * RESOLVED program-scoped local's own locations (primary +
+     * same-scope additional_definitions), or null when the lookup is
+     * anything else. Shared by both definition entry points so the
+     * fast-path rule cannot drift between them.
+     */
+    private resolved_program_locations(
+        scoped: ScopedLocalLookupResult
+    ): Location[] | null {
+        if (
+            scoped.symbol?.containingScope === 'program' &&
+            !scoped.forward_only
+        ) {
+            return this.dedupe_locations(
+                this.macro_symbol_to_locations(scoped.symbol)
+            );
+        }
+        return null;
+    }
+
+    /**
      * Resolve local macro only (for MACRO_REF_LOCAL tokens and extended macro context).
      */
     private async resolve_local_macro_only(
@@ -280,13 +302,9 @@ export class DefinitionProvider {
         const scoped = position
             ? lookup_scoped_local_macro(document.scopes, position, word)
             : { symbol: undefined, forward_only: false, out_of_scope: false };
-        if (
-            scoped.symbol?.containingScope === 'program' &&
-            !scoped.forward_only
-        ) {
-            return this.locations_to_definition(this.dedupe_locations(
-                this.macro_symbol_to_locations(scoped.symbol)
-            ));
+        const fast_path_locations = this.resolved_program_locations(scoped);
+        if (fast_path_locations) {
+            return this.locations_to_definition(fast_path_locations);
         }
 
         const resolved_scope = scope_resolver
@@ -1280,13 +1298,9 @@ export class DefinitionProvider {
         const scoped = lookup_scoped_local_macro(
             document.scopes, position, word
         );
-        if (
-            scoped.symbol?.containingScope === 'program' &&
-            !scoped.forward_only
-        ) {
-            return this.locations_to_definition(this.dedupe_locations(
-                this.macro_symbol_to_locations(scoped.symbol)
-            ));
+        const fast_path_locations = this.resolved_program_locations(scoped);
+        if (fast_path_locations) {
+            return this.locations_to_definition(fast_path_locations);
         }
         const local_needs_effective =
             scoped.out_of_scope || scoped.forward_only;

@@ -554,6 +554,12 @@ export class ReferencesProvider {
                 return { exclude_same_file_local: true };
             case 'none':
                 return { exclude_same_file_local: false };
+            default: {
+                // Compiler-enforced exhaustiveness: a new
+                // classification tier must be mapped here explicitly.
+                const unhandled: never = effective.kind;
+                throw new Error(`unhandled effective kind: ${unhandled}`);
+            }
         }
     }
 
