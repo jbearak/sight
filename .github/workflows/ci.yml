@@ -52,6 +52,7 @@ jobs:
               - 'package.json'
               - 'bun.lock'
               - '.npmignore'
+              - '.gitattributes'
               - 'tsconfig*.json'
               - 'eslint.config.js'
               - '.github/workflows/ci.yml'
@@ -101,6 +102,8 @@ jobs:
         uses: ./.github/actions/setup
         with:
           node-version: "24"
+      - name: Line endings
+        run: bun run check:line-endings
       - name: Typecheck
         run: bun run typecheck
       - name: Tests

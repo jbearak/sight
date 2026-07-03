@@ -35,6 +35,7 @@
     "typecheck:scripts": "tsc -p tsconfig.scripts.json --noEmit",
     "typecheck:tests:scope-resolver": "tsc -p tsconfig.scope-resolver-tests.json",
     "typecheck": "tsc --noEmit && bun run typecheck:scripts && bun run typecheck:tests:scope-resolver && cd client && tsc --noEmit",
+    "check:line-endings": "bun scripts/check-line-endings.ts",
     "test": "bun run typecheck; bun test ./tests",
     "test:watch": "bun test --watch ./tests",
     "lint": "eslint src client/src",
