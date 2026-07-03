@@ -21,6 +21,7 @@ import {
     resolve_scoped_or_flat,
     resolve_visible_local,
 } from '../utils/scoped-locals';
+import { find_inherited_dofile_local } from '../utils/dofile-locals';
 import type { WorkspaceIndexer } from '../indexer';
 import type { IContextTracker } from '../context-tracker/types';
 import type { ScopeResolver } from '../scope-resolver';
@@ -198,6 +199,7 @@ export class ReferencesProvider {
         cursor_line?: number,
         target_local_macro?: MacroSymbol,
         exclude_same_file_local?: boolean,
+        has_inherited_target?: boolean,
     ): Location[] {
         const locations: Location[] = [];
         const seen = new Set<string>();
@@ -289,10 +291,20 @@ export class ReferencesProvider {
 
         // A program-scoped local target never crosses file boundaries
         // (#271), so cross-file declaration pooling is skipped (#270).
+        // An out-of-scope cursor with NO inherited target is plain
+        // undefined — nothing legitimate to pool cross-file either.
         const is_program_scoped_target = this.is_program_scoped_local_target(
             symbol_type, target_local_macro
         );
-        if (workspace_indexer && !is_program_scoped_target) {
+        const undefined_out_of_scope_target =
+            symbol_type === 'local_macro' &&
+            exclude_same_file_local === true &&
+            has_inherited_target !== true;
+        if (
+            workspace_indexer &&
+            !is_program_scoped_target &&
+            !undefined_out_of_scope_target
+        ) {
             const ws_type: 'program' | 'local' | 'global' | 'variable' | 'scalar' | 'matrix' =
                 symbol_type === 'local_macro' ? 'local' :
                 symbol_type === 'global_macro' ? 'global' :
@@ -479,7 +491,35 @@ export class ReferencesProvider {
             position.line,
             target.symbol,
             target.exclude_same_file_local,
+            this.has_inherited_target(
+                target, resolved_scope, identified_symbol.name,
+                position.line, document.uri
+            ),
         );
+    }
+
+    /**
+     * In exclude-same-file mode, does a cross-file INHERITED do-file
+     * local actually exist for this cursor? When it does not, the
+     * reference is plain undefined and the cross-file scan must not
+     * run — a same-named local in an include-related file's program
+     * body is a different macro, and surfacing its usages while
+     * is_cross_file_hidden_local hides its declaration would be
+     * incoherent (round-3 gate).
+     */
+    private has_inherited_target(
+        target: { symbol?: MacroSymbol; exclude_same_file_local: boolean },
+        resolved_scope: ResolvedScope | undefined,
+        symbol_name: string,
+        reference_line: number,
+        current_uri: string
+    ): boolean {
+        if (!target.exclude_same_file_local) {
+            return false;
+        }
+        return find_inherited_dofile_local(
+            resolved_scope, symbol_name, reference_line, current_uri
+        ) !== undefined;
     }
 
     /**
@@ -951,6 +991,10 @@ export class ReferencesProvider {
             position.line,
             target.symbol,
             target.exclude_same_file_local,
+            this.has_inherited_target(
+                target, resolved_scope, identified_symbol.name,
+                position.line, document.uri
+            ),
         );
     }
 
@@ -969,6 +1013,7 @@ export class ReferencesProvider {
         cursor_line?: number,
         target_local_macro?: MacroSymbol,
         exclude_same_file_local?: boolean,
+        has_inherited_target?: boolean,
     ): Promise<Location[]> {
         const search_context: ReferenceSearchContext = {
             symbol_name,
@@ -986,6 +1031,7 @@ export class ReferencesProvider {
             cursor_line,
             target_local_macro,
             exclude_same_file_local,
+            has_inherited_target,
         );
 
         // Search workspace-indexed files (Req 13.3).
@@ -1012,12 +1058,24 @@ export class ReferencesProvider {
         const restrict_to_related = symbol_type !== 'variable';
         // A program-scoped local target never crosses file boundaries
         // (#271) — restrict the scan to the current file, skipping the
-        // cross-file token scan entirely (#270).
+        // cross-file token scan entirely (#270). Same for an
+        // out-of-scope cursor with NO inherited target: the reference
+        // is plain undefined, and a same-named local in an
+        // include-related file's program body is a different macro
+        // (round-3 gate).
         const is_program_scoped_target = this.is_program_scoped_local_target(
             symbol_type, target_local_macro
         );
+        const undefined_out_of_scope_target =
+            symbol_type === 'local_macro' &&
+            exclude_same_file_local === true &&
+            has_inherited_target !== true;
         let the_related: Map<string, ReferenceScanRange>;
-        if (is_program_scoped_target || !workspace_indexer) {
+        if (
+            is_program_scoped_target ||
+            undefined_out_of_scope_target ||
+            !workspace_indexer
+        ) {
             the_related = new Map([[document.uri, {}]]);
         } else if (
             restrict_to_related &&

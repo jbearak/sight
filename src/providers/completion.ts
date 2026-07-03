@@ -40,7 +40,7 @@ import {
     collect_visible_local_macros,
     enumerate_scoped_local_macros,
 } from '../utils/scoped-locals';
-import { find_inherited_dofile_local } from '../utils/dofile-locals';
+import { collect_inherited_dofile_locals } from '../utils/dofile-locals';
 import { IContextTracker, LanguageContext } from '../context-tracker/types';
 import { CompletionPrefixCache } from '../utils/lru-cache';
 import { SymbolIndexCache } from '../utils/symbol-index-cache';
@@ -1166,7 +1166,15 @@ export class CompletionProvider {
 
                 case 'macro':
                     // Always provide macro completions (macros work in all contexts)
-                    return this.get_macro_completions(context, document, position, symbols_for_completion, out_of_scope_symbols, resolved_scope, inherited_lookup_scope);
+                    return this.get_macro_completions(
+                        context,
+                        document,
+                        position,
+                        symbols_for_completion,
+                        out_of_scope_symbols,
+                        resolved_scope,
+                        inherited_lookup_scope
+                    );
 
                 case 'variable':
                     // Suppress variable completions in embedded language contexts
@@ -1771,6 +1779,7 @@ export class CompletionProvider {
         );
 
         const the_macros = new Map<string, MacroSymbol>();
+        let the_inherited_locals: Map<string, MacroSymbol> | undefined;
         for (const [my_name, my_macro] of flat) {
             const scoped_symbol = the_visible_macros.get(my_name);
             if (scoped_symbol?.containingScope === 'program') {
@@ -1795,10 +1804,13 @@ export class CompletionProvider {
                 // scope at the cursor. A cross-file INHERITED do-file
                 // local of the same name is still genuinely defined
                 // here (the analyzer's cross-file suppression treats
-                // it as defined) — offer it; otherwise drop.
-                const inherited = find_inherited_dofile_local(
-                    resolved_scope, my_name, position.line, document.uri
+                // it as defined) — offer it; otherwise drop. The
+                // inherited map is position-invariant: build it once,
+                // lazily, instead of re-walking the chain per name.
+                the_inherited_locals ??= collect_inherited_dofile_locals(
+                    resolved_scope, position.line, document.uri
                 );
+                const inherited = the_inherited_locals.get(my_name);
                 if (inherited) {
                     the_macros.set(my_name, inherited);
                 }
@@ -1848,8 +1860,7 @@ export class CompletionProvider {
         // Ensure we are accessing the Maps correctly and handling plain objects if necessary.
         const the_macros: Map<string, MacroSymbol> = scope === 'local'
             ? this.build_local_macro_completion_map(
-                document, symbols, position,
-                inherited_lookup_scope ?? resolved_scope
+                document, symbols, position, inherited_lookup_scope
             )
             : coerce_macro_map(symbols.globalMacros);
         

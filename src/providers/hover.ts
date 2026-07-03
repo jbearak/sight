@@ -683,32 +683,42 @@ export class HoverProvider {
         workspace_indexer?: WorkspaceIndexer,
     ): SymbolMatch[] {
         // Check for out-of-scope symbol matching the reference type.
-        // A visible PROGRAM-scoped local pre-empts the out-of-scope
-        // display (#270 round-2 gate): the program's own local is the
-        // authoritative answer at this cursor, so a same-named
-        // cross-file out-of-scope entry must not hijack the hover.
         const reference_type = this.get_reference_type_from_context(document, position, word);
-        const scoped_preempts_out_of_scope =
-            reference_type === 'local_macro' &&
-            lookup_scoped_local_macro(document.scopes, position, word)
-                .symbol?.containingScope === 'program';
-        const out_of_scope_match = scoped_preempts_out_of_scope
-            ? null
-            : this.get_out_of_scope_hover(
+
+        // Local-macro references resolve through the scoped/inherited
+        // precedence FIRST (#270: a visible program-scoped local wins,
+        // an out-of-scope name falls through to the inherited do-file
+        // local — all inside get_local_macro_hover); the cross-file
+        // out-of-scope display renders only when that resolution has
+        // no answer, so it can never hijack a resolvable reference.
+        if (reference_type === 'local_macro') {
+            const local_macro_content = this.get_local_macro_hover(document, word, resolved_scope, workspace_root, position, workspace_indexer);
+            if (local_macro_content) {
+                return [{ type: 'local_macro', content: local_macro_content }];
+            }
+            const out_of_scope_only = this.get_out_of_scope_hover(
                 word, reference_type, resolved_scope, document.uri,
                 workspace_root
             );
+            return out_of_scope_only ? [out_of_scope_only] : [];
+        }
+
+        // Check for out-of-scope symbol matching the reference type
+        const out_of_scope_match = this.get_out_of_scope_hover(
+            word, reference_type, resolved_scope, document.uri, workspace_root
+        );
         if (out_of_scope_match) {
             return [out_of_scope_match];
         }
 
         const the_matches: SymbolMatch[] = [];
 
-        // When reference type is explicit (local or global macro syntax), only check that type
+        // When reference type is explicit (global macro syntax), only check that type
         // When reference type is 'other' (bare identifier), check all symbol types
 
-        // 1. Check local macros - only if reference is local macro or bare identifier
-        if (reference_type === 'local_macro' || reference_type === 'other') {
+        // 1. Check local macros - only for bare identifiers (explicit
+        //    local-macro references returned above)
+        if (reference_type === 'other') {
             const local_macro_content = this.get_local_macro_hover(document, word, resolved_scope, workspace_root, position, workspace_indexer);
             if (local_macro_content) {
                 the_matches.push({ type: 'local_macro', content: local_macro_content });

@@ -968,3 +968,131 @@ describe('scoped local macros: round-2 gate regressions', () => {
         expect(value).not.toContain('(out of scope)');
     });
 });
+
+// Round-3 gate regressions (#270): inherited-local lookups must apply
+// effective-scope precedence (last executed include wins and overrides
+// the backward chain; nearer parents beat farther ancestors), and an
+// out-of-scope cursor with NO inherited target must not surface
+// same-named program-body usages from include-related files.
+describe('scoped local macros: round-3 gate regressions', () => {
+    let test_temp_dir: string;
+    let indexer: WorkspaceIndexer;
+    let scope_resolver: ScopeResolver;
+    let forward_scope_resolver: ForwardScopeResolver;
+    let document_store: DocumentStore;
+
+    beforeEach(() => {
+        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-gate3-'));
+        indexer = new WorkspaceIndexer();
+        const the_dep_graph = new DependencyGraph();
+        indexer.set_dependency_graph(the_dep_graph);
+        scope_resolver = new ScopeResolver();
+        scope_resolver.set_dependency_graph(the_dep_graph);
+        forward_scope_resolver = new ForwardScopeResolver(scope_resolver, {
+            max_forward_depth: 10,
+        });
+        scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
+        document_store = new DocumentStore();
+    });
+
+    afterEach(() => {
+        try { scope_resolver?.dispose(); } catch {}
+        try { forward_scope_resolver?.dispose(); } catch {}
+        if (existsSync(test_temp_dir)) {
+            rmSync(test_temp_dir, { recursive: true, force: true });
+        }
+    });
+
+    async function open_file(name: string, lines: string[]) {
+        const file_path = join(test_temp_dir, name);
+        const content = lines.join('\n');
+        writeFileSync(file_path, content);
+        const uri = URI.file(file_path).toString();
+        await document_store.open(uri, content, 1);
+        return { uri, content, document_state: document_store.get(uri)! };
+    }
+
+    it('hover: the LAST executed include wins for an out-of-scope name', async () => {
+        const hover_provider = new HoverProvider(new CommandDatabase());
+        writeFileSync(join(test_temp_dir, 'a.do'), 'local flag A\n');
+        writeFileSync(join(test_temp_dir, 'b.do'), 'local flag B\n');
+        const { content, document_state } = await open_file('main.do', [
+            'include "a.do"',          // 0
+            'include "b.do"',          // 1
+            'program define p',        // 2
+            '    local flag prog',     // 3
+            'end',                     // 4
+            'di "`flag\'"',            // 5
+        ]);
+        await indexer.initialize([test_temp_dir]);
+        const character = content.split('\n')[5].indexOf('flag');
+        const hover = await hover_provider.get_hover(
+            document_state,
+            { line: 5, character },
+            undefined,
+            scope_resolver,
+        );
+        const value = (hover?.contents as { value?: string })?.value ?? '';
+        expect(value).toContain('Expansion: `B`');
+        expect(value).not.toContain('Expansion: `A`');
+    });
+
+    it('hover: the nearer included-by parent wins over the grandparent', async () => {
+        const hover_provider = new HoverProvider(new CommandDatabase());
+        writeFileSync(join(test_temp_dir, 'grandparent.do'), [
+            'local flag G',
+            'include "parent.do"',
+        ].join('\n'));
+        writeFileSync(join(test_temp_dir, 'parent.do'), [
+            'local flag P',
+            'include "child.do"',
+        ].join('\n'));
+        const { content, document_state } = await open_file('child.do', [
+            'program define foo',   // 0
+            '    local flag 9',     // 1
+            'end',                  // 2
+            'di "`flag\'"',         // 3
+        ]);
+        await indexer.initialize([test_temp_dir]);
+        const character = content.split('\n')[3].indexOf('flag');
+        const hover = await hover_provider.get_hover(
+            document_state,
+            { line: 3, character },
+            undefined,
+            scope_resolver,
+        );
+        const value = (hover?.contents as { value?: string })?.value ?? '';
+        expect(value).toContain('Expansion: `P`');
+        expect(value).not.toContain('Expansion: `G`');
+    });
+
+    it('references: no inherited target means no cross-file usages of a different macro', async () => {
+        const references_provider = new ReferencesProvider(scope_resolver);
+        writeFileSync(join(test_temp_dir, 'child.do'), [
+            'program define b',     // 0
+            '    local foo 1',      // 1
+            '    di "`foo\'"',      // 2
+            'end',                  // 3
+        ].join('\n'));
+        const { uri, content, document_state } = await open_file('main.do', [
+            'include "child.do"',   // 0
+            'program define a',     // 1
+            '    local foo 2',      // 2
+            'end',                  // 3
+            'di "`foo\'"',          // 4
+        ]);
+        await indexer.initialize([test_temp_dir]);
+        const character = content.split('\n')[4].indexOf('foo');
+        const the_locations = await references_provider.get_references(
+            document_state,
+            { line: 4, character },
+            { includeDeclaration: true },
+            indexer,
+        );
+        const the_uris = new Set(the_locations.map(my_loc => my_loc.uri));
+        expect(the_uris).toEqual(new Set([uri]));
+        expect(
+            the_locations.map(my_loc => my_loc.range.start.line)
+        ).toEqual([4]);
+    });
+});
