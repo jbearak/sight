@@ -13,6 +13,9 @@ import { DependencyGraph } from '../../src/dependency-graph';
 import { DocumentStore } from '../../src/document-store';
 import { DefinitionProvider } from '../../src/providers/definition';
 import { HoverProvider } from '../../src/providers/hover';
+import { ReferencesProvider } from '../../src/providers/references';
+import { ScopeResolver } from '../../src/scope-resolver';
+import { ForwardScopeResolver } from '../../src/forward-scope-resolver';
 import { CommandDatabase } from '../../src/command-database';
 import { Location } from 'vscode-languageserver';
 
@@ -242,5 +245,172 @@ describe('scoped local macros: hover (#270)', () => {
             { line: 2, character },
         );
         expect(hover_value(hover)).toContain('Expansion: `5`');
+    });
+});
+
+describe('scoped local macros: find-references (#270)', () => {
+    let test_temp_dir: string;
+    let indexer: WorkspaceIndexer;
+    let scope_resolver: ScopeResolver;
+    let forward_scope_resolver: ForwardScopeResolver;
+    let references_provider: ReferencesProvider;
+    let document_store: DocumentStore;
+
+    beforeEach(() => {
+        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-refs-'));
+        indexer = new WorkspaceIndexer();
+        const the_dep_graph = new DependencyGraph();
+        indexer.set_dependency_graph(the_dep_graph);
+        scope_resolver = new ScopeResolver();
+        scope_resolver.set_dependency_graph(the_dep_graph);
+        forward_scope_resolver = new ForwardScopeResolver(scope_resolver, {
+            max_forward_depth: 10,
+        });
+        scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
+        references_provider = new ReferencesProvider(scope_resolver);
+        document_store = new DocumentStore();
+    });
+
+    afterEach(() => {
+        try { scope_resolver?.dispose(); } catch {}
+        try { forward_scope_resolver?.dispose(); } catch {}
+        if (existsSync(test_temp_dir)) {
+            rmSync(test_temp_dir, { recursive: true, force: true });
+        }
+    });
+
+    async function open_file(name: string, lines: string[]) {
+        const file_path = join(test_temp_dir, name);
+        const content = lines.join('\n');
+        writeFileSync(file_path, content);
+        const uri = URI.file(file_path).toString();
+        return { uri, content, file_path };
+    }
+
+    it('references inside prog_b exclude prog_a\'s same-named local (issue repro)', async () => {
+        const { uri, content } = await open_file('a.do', [
+            'program define a',        // 0
+            '    local shared 1',      // 1
+            '    di "`shared\'"',      // 2
+            'end',                     // 3
+            'program define b',        // 4
+            '    local shared 2',      // 5
+            '    display `shared\'',   // 6
+            'end',                     // 7
+        ]);
+        await indexer.initialize([test_temp_dir]);
+        await document_store.open(uri, content, 1);
+        const character = content.split('\n')[6].indexOf('shared');
+        const the_locations = await references_provider.get_references(
+            document_store.get(uri)!,
+            { line: 6, character },
+            { includeDeclaration: true },
+            indexer,
+        );
+        const the_lines = the_locations
+            .filter(my_loc => my_loc.uri === uri)
+            .map(my_loc => my_loc.range.start.line)
+            .sort((a, b) => a - b);
+        expect(the_lines).toEqual([5, 6]);
+    });
+
+    it('do-file target excludes occurrences inside a shadowing program', async () => {
+        const { uri, content } = await open_file('a.do', [
+            'local x top',             // 0
+            'di "`x\'"',               // 1
+            'program define shadow',   // 2
+            '    local x body',        // 3
+            '    di "`x\'"',           // 4
+            'end',                     // 5
+            'program define open_p',   // 6
+            '    di "`x\'"',           // 7 (permissive: sees do-file x)
+            'end',                     // 8
+        ]);
+        await indexer.initialize([test_temp_dir]);
+        await document_store.open(uri, content, 1);
+        const character = content.split('\n')[1].indexOf('x');
+        const the_locations = await references_provider.get_references(
+            document_store.get(uri)!,
+            { line: 1, character },
+            { includeDeclaration: true },
+            indexer,
+        );
+        const the_lines = the_locations
+            .filter(my_loc => my_loc.uri === uri)
+            .map(my_loc => my_loc.range.start.line)
+            .sort((a, b) => a - b);
+        expect(the_lines).toEqual([0, 1, 7]);
+    });
+
+    it('top-level reference to a program-only local returns nothing', async () => {
+        const { uri, content } = await open_file('a.do', [
+            'program define prog_a',   // 0
+            '    local hidden 1',      // 1
+            'end',                     // 2
+            'di "`hidden\'"',          // 3
+        ]);
+        await indexer.initialize([test_temp_dir]);
+        await document_store.open(uri, content, 1);
+        const character = content.split('\n')[3].indexOf('hidden');
+        const the_locations = await references_provider.get_references(
+            document_store.get(uri)!,
+            { line: 3, character },
+            { includeDeclaration: true },
+            indexer,
+        );
+        expect(the_locations).toEqual([]);
+    });
+
+    it('program-scoped target skips the cross-file scan entirely', async () => {
+        await open_file('lib.do', [
+            'local helper lib',    // 0
+            'di "`helper\'"',      // 1
+        ]);
+        const { uri, content } = await open_file('main.do', [
+            'include "lib.do"',        // 0
+            'program define p',        // 1
+            '    local helper 1',      // 2
+            '    di "`helper\'"',      // 3
+            'end',                     // 4
+        ]);
+        await indexer.initialize([test_temp_dir]);
+        await document_store.open(uri, content, 1);
+        const character = content.split('\n')[3].indexOf('helper');
+        const the_locations = await references_provider.get_references(
+            document_store.get(uri)!,
+            { line: 3, character },
+            { includeDeclaration: true },
+            indexer,
+        );
+        const the_uris = new Set(the_locations.map(my_loc => my_loc.uri));
+        expect(the_uris).toEqual(new Set([uri]));
+        const the_lines = the_locations
+            .map(my_loc => my_loc.range.start.line)
+            .sort((a, b) => a - b);
+        expect(the_lines).toEqual([2, 3]);
+    });
+
+    it('do-file target keeps the include-chain scan (regression guard)', async () => {
+        const lib = await open_file('lib.do', [
+            'local helper lib',    // 0
+            'di "`helper\'"',      // 1
+        ]);
+        const { uri, content } = await open_file('main.do', [
+            'include "lib.do"',        // 0
+            'local helper main',       // 1
+            'di "`helper\'"',          // 2
+        ]);
+        await indexer.initialize([test_temp_dir]);
+        await document_store.open(uri, content, 1);
+        const character = content.split('\n')[2].indexOf('helper');
+        const the_locations = await references_provider.get_references(
+            document_store.get(uri)!,
+            { line: 2, character },
+            { includeDeclaration: true },
+            indexer,
+        );
+        const the_uris = new Set(the_locations.map(my_loc => my_loc.uri));
+        expect(the_uris.has(uri)).toBe(true);
+        expect(the_uris.has(lib.uri)).toBe(true);
     });
 });

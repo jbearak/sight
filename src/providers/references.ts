@@ -13,9 +13,10 @@ import {
     CancellationToken,
 } from 'vscode-languageserver';
 import { DocumentState } from '../document-store';
-import { LanguageContext, Token, ContextRange } from '../types';
+import { LanguageContext, MacroSymbol, Token, ContextRange } from '../types';
 import { get_line_text } from '../utils/line-utils';
 import { is_cross_file_hidden_local } from '../utils/dofile-locals';
+import { lookup_scoped_local_macro } from '../utils/scoped-locals';
 import type { WorkspaceIndexer } from '../indexer';
 import type { IContextTracker } from '../context-tracker/types';
 import type { ScopeResolver } from '../scope-resolver';
@@ -191,6 +192,7 @@ export class ReferencesProvider {
         workspace_indexer?: WorkspaceIndexer,
         resolved_scope?: ResolvedScope,
         cursor_line?: number,
+        target_local_macro?: MacroSymbol,
     ): Location[] {
         const locations: Location[] = [];
         const seen = new Set<string>();
@@ -205,7 +207,11 @@ export class ReferencesProvider {
         const symbols = document.symbols;
         switch (symbol_type) {
             case 'local_macro': {
-                const local_macro = symbols.localMacros.get(symbol_name);
+                // Scope-aware (#270): the resolved target symbol (the
+                // cursor-visible scope's own MacroSymbol) supersedes the
+                // flat slot, which may belong to a different scope.
+                const local_macro =
+                    target_local_macro ?? symbols.localMacros.get(symbol_name);
                 if (local_macro) {
                     // Loop-expanded definitions anchor at the template statement
                     // (`local x_`i'`), whose text does not contain the concrete
@@ -271,7 +277,12 @@ export class ReferencesProvider {
             }
         }
 
-        if (workspace_indexer) {
+        // A program-scoped local target never crosses file boundaries
+        // (#271), so cross-file declaration pooling is skipped (#270).
+        const is_program_scoped_target =
+            symbol_type === 'local_macro' &&
+            target_local_macro?.containingScope === 'program';
+        if (workspace_indexer && !is_program_scoped_target) {
             const ws_type: 'program' | 'local' | 'global' | 'variable' | 'scalar' | 'matrix' =
                 symbol_type === 'local_macro' ? 'local' :
                 symbol_type === 'global_macro' ? 'global' :
@@ -428,6 +439,14 @@ export class ReferencesProvider {
             return [];
         }
 
+        // Scope-aware local-macro target resolution (#270).
+        const target = this.resolve_local_reference_target(
+            document, position, identified_symbol
+        );
+        if (target.blocked) {
+            return [];
+        }
+
         // Resolve the scope once here (cached by ScopeResolver) so
         // find_definitions can apply the call-site filter to declarations
         // pooled from the workspace indexer. See issue #129.
@@ -451,7 +470,34 @@ export class ReferencesProvider {
             cancellation_token,
             resolved_scope,
             position.line,
+            target.symbol,
         );
+    }
+
+    /**
+     * Scope-aware target resolution for local-macro find-references
+     * (#270). `blocked: true` = the name exists only in scopes not
+     * visible from the cursor (a sibling program's local) — no
+     * legitimate target, matching hover/definition's empty result.
+     * `symbol: undefined, blocked: false` = the scoped model has no
+     * opinion (empty scopes, cross-file inherited name, positional
+     * arg); existing name-based scanning proceeds unchanged.
+     */
+    private resolve_local_reference_target(
+        document: DocumentState,
+        position: Position,
+        identified_symbol: IdentifiedSymbol
+    ): { symbol?: MacroSymbol; blocked: boolean } {
+        if (identified_symbol.type !== 'local_macro') {
+            return { blocked: false };
+        }
+        const scoped = lookup_scoped_local_macro(
+            document.scopes, position, identified_symbol.name
+        );
+        if (scoped.out_of_scope) {
+            return { blocked: true };
+        }
+        return { symbol: scoped.symbol, blocked: false };
     }
 
     /**
@@ -668,7 +714,16 @@ export class ReferencesProvider {
         ) {
             return { name: word, type: 'global_macro', range };
         }
-        const local_macro = document.symbols.localMacros.get(word);
+        // Scope-aware (#270): resolve against the scope that textually
+        // contains the cursor, so a losing-flat-slot program local
+        // still matches its own declaration range.
+        const scoped_decl = lookup_scoped_local_macro(
+            document.scopes, range.start, word
+        );
+        const local_macro = scoped_decl.symbol
+            ?? (scoped_decl.out_of_scope
+                ? undefined
+                : document.symbols.localMacros.get(word));
         if (
             local_macro
             && this.position_hits_symbol_definition(range.start, local_macro)
@@ -842,6 +897,14 @@ export class ReferencesProvider {
             return [];
         }
 
+        // Scope-aware local-macro target resolution (#270).
+        const target = this.resolve_local_reference_target(
+            document, position, identified_symbol
+        );
+        if (target.blocked) {
+            return [];
+        }
+
         // Resolve the scope once so find_definitions can apply the
         // call-site filter to non-variable declarations pooled from the
         // workspace indexer. See issue #129.
@@ -865,6 +928,7 @@ export class ReferencesProvider {
             cancellation_token,
             resolved_scope,
             position.line,
+            target.symbol,
         );
     }
 
@@ -881,6 +945,7 @@ export class ReferencesProvider {
         cancellation_token?: CancellationToken,
         resolved_scope?: ResolvedScope,
         cursor_line?: number,
+        target_local_macro?: MacroSymbol,
     ): Promise<Location[]> {
         const search_context: ReferenceSearchContext = {
             symbol_name,
@@ -896,6 +961,7 @@ export class ReferencesProvider {
             workspace_indexer,
             resolved_scope,
             cursor_line,
+            target_local_macro,
         );
 
         // Search workspace-indexed files (Req 13.3).
@@ -920,8 +986,14 @@ export class ReferencesProvider {
         // understands `include_only`.
         // See docs/find-references.md for the rationale behind this three-tier model.
         const restrict_to_related = symbol_type !== 'variable';
+        // A program-scoped local target never crosses file boundaries
+        // (#271) — restrict the scan to the current file, skipping the
+        // cross-file token scan entirely (#270).
+        const is_program_scoped_target =
+            symbol_type === 'local_macro' &&
+            target_local_macro?.containingScope === 'program';
         let the_related: Map<string, ReferenceScanRange>;
-        if (!workspace_indexer) {
+        if (is_program_scoped_target || !workspace_indexer) {
             the_related = new Map([[document.uri, {}]]);
         } else if (
             restrict_to_related &&
@@ -982,6 +1054,21 @@ export class ReferencesProvider {
             const doc_range = the_related.get(document.uri);
             for (const my_match of matches) {
                 if (doc_range && !line_within_scan_range(my_match.range.start.line, doc_range)) {
+                    continue;
+                }
+                // Scope-filter (#270): a same-file name match may
+                // lexically belong to a DIFFERENT same-named local
+                // (shadowing) — keep only occurrences whose own
+                // position resolves to the exact target symbol.
+                if (
+                    symbol_type === 'local_macro' &&
+                    target_local_macro !== undefined &&
+                    lookup_scoped_local_macro(
+                        document.scopes,
+                        my_match.range.start,
+                        symbol_name
+                    ).symbol !== target_local_macro
+                ) {
                     continue;
                 }
                 locations.push({ uri: my_match.uri, range: my_match.range });
