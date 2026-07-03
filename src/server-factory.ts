@@ -1510,7 +1510,9 @@ export async function create_server(options: ServerOptions): Promise<void> {
             // would otherwise leave pre-save edges until the file's next
             // parse. Guarded so a quick close→reopen's buffer-based
             // commit-time registration is never clobbered by this slower
-            // disk read.
+            // disk read. Uses global_settings (not per-document settings):
+            // document_settings for this URI was deleted above, and only
+            // the backward_dependencies mode affects this path.
             void scope_resolver.resync_backward_directive_dependencies_from_disk(
                 e.document.uri,
                 scope_resolver_config_for(global_settings),

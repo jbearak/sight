@@ -769,6 +769,42 @@ on; it is enforced by the memo correctness gate
 (`tests/integration/forward-closure-memo-gate.test.ts`), which checks that a
 file's forward closure is identical across distinct callers given the same inputs.
 
+## Backward-Directive Registration Timing (Transactional Side Effects)
+
+The resolver keeps a live map of backward-directive relationships
+(`parent → children`) that drives transitive diagnostics revalidation, plus a
+buffer-directives overlay in the workspace indexer that makes unsaved
+`@lsp-done-by`/`@lsp-included-by` edits visible to find-references. Both are
+updated **only at commit time** (issue #184):
+
+- While a document parses, its directives and the scope-resolver config in
+  force are **staged** (`StagedCrossFileEffects`), not applied. The
+  working-directory probe the parse runs (`resolve()` with
+  `register_dependencies: false`) never registers the file's own edges;
+  ancestor files read from disk during the walk still register *their own*
+  directives (disk-derived, correct regardless of this parse's fate).
+- `commit_state` applies the staged effects synchronously, after its
+  disposed/closed-generation/version guards pass. A parse discarded by a
+  racing `close()` (or by `dispose()`) therefore never mutates shared
+  cross-file state — no stale edge is added, and no valid edge is dropped by
+  the discarded parse's clear-then-register.
+- Commit-time registration uses **effective** directives — explicit
+  directives plus parents auto-synthesized from the dependency graph —
+  computed at apply time against live graph state. This also covers files
+  with their own `@lsp-cd` (which never run the probe) uniformly.
+- On document close, the server re-syncs the closed file's edges from its
+  **on-disk** content (best-effort), so a header change saved just before
+  closing converges even though the racing reparse was discarded. The re-sync
+  skips applying if the document was reopened while the disk read was in
+  flight; a read error keeps the existing edges, a missing file clears them.
+- Parses that fail before directive parsing (lexer/parser error or timeout)
+  stage nothing: a committed error state keeps the previous registrations on
+  purpose, so a transiently broken buffer does not wipe cross-file edges.
+
+See `tests/unit/document-store-commit-time-cross-file-effects.test.ts` for
+the race scenarios this guarantees (stale-add, valid-edge-drop across an
+A→B→C chain, dispose-during-parse, probe cache interaction, disk re-sync).
+
 ## Configuration
 
 Cross-file resolution is configured via `sight.toml` in your project root.

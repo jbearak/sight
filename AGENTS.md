@@ -275,7 +275,11 @@ separate from connection wiring for testability). Contains DEFAULT_SETTINGS for 
 **Document Store** (`src/document-store.ts`): Manages open document state.
 Stores tokens, AST, symbols, diagnostics, context ranges, and line offsets.
 Includes LRU eviction and `wait_for_update(uri)` to avoid race conditions between
-`didChange` processing and requests.
+`didChange` processing and requests. Cross-file directive side effects
+(backward-directive registration + indexer overlay) are transactional (#184):
+staged during the parse and applied only after `commit_state`'s guards pass,
+with a non-registering working-directory probe and a disk re-sync on close.
+See docs/cross-file.md "Backward-Directive Registration Timing".
 
 **Debounce Manager** (`src/utils/debounce-manager.ts`): Batches rapid document
 changes with backpressure handling and metrics.
