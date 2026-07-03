@@ -409,16 +409,16 @@ export class SymbolProvider {
             }
         }
 
-        // 3. Add local macros - nest under containing program or add as
-        //    top-level. Enumerate per scope (#270): the flat view keeps
-        //    one representative per name, dropping same-named locals
-        //    declared in other program scopes from the outline. Each
-        //    local nests under its OWNING scope's container — the
-        //    authoritative ownership already in hand — rather than
-        //    re-deriving containment geometrically (a location anchored
-        //    outside its scope's body, e.g. a directive-declared
-        //    do-file local on a line inside a program range, must not
-        //    change owners).
+        // 3. Add local macros - nest under containing program or add
+        //    as top-level. ENUMERATE per scope (#270): the flat view
+        //    keeps one representative per name, dropping same-named
+        //    locals declared in other program scopes from the
+        //    outline. PLACE by range containment (round-8): the
+        //    DocumentSymbol tree is an LSP text-structure view, so
+        //    program-owned locals use their owning body's container
+        //    (exact for redeclared bodies) and do-file-owned locals
+        //    nest geometrically — a top-level entry ranged inside a
+        //    program container would overlap a sibling on the wire.
         const nest_local_symbol = (
             my_local_symbol: DocumentSymbol,
             container: ProgramInfo | undefined,

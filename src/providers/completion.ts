@@ -1780,15 +1780,23 @@ export class CompletionProvider {
 
         const the_macros = new Map<string, MacroSymbol>();
         let the_inherited_locals: Map<string, MacroSymbol> | undefined;
+        const get_inherited = (my_name: string): MacroSymbol | undefined => {
+            // Position-invariant: build the map once, lazily, instead
+            // of re-walking the chain per name.
+            the_inherited_locals ??= collect_inherited_dofile_locals(
+                resolved_scope, position.line, document.uri
+            );
+            return the_inherited_locals.get(my_name);
+        };
         for (const [my_name, my_macro] of flat) {
-            const scoped_symbol = the_visible_macros.get(my_name);
-            if (scoped_symbol?.containingScope === 'program') {
-                // A visible program-scoped local wins outright — even
-                // over a cross-file merged representative (#271: the
-                // program's own local shadows everything at the
-                // cursor, and a same-named local elsewhere is a
-                // different macro).
-                the_macros.set(my_name, scoped_symbol);
+            const resolved_symbol = the_visible_macros.resolved.get(my_name);
+            if (resolved_symbol?.containingScope === 'program') {
+                // A positionally resolved program-scoped local wins
+                // outright — even over a cross-file merged
+                // representative (#271: the program's own local
+                // shadows everything at the cursor, and a same-named
+                // local elsewhere is a different macro).
+                the_macros.set(my_name, resolved_symbol);
                 continue;
             }
             if (
@@ -1799,20 +1807,28 @@ export class CompletionProvider {
                 the_macros.set(my_name, my_macro);
                 continue;
             }
-            if (scoped_symbol === undefined) {
-                // Tracked in this file but in no visible scope: out of
-                // scope at the cursor. A cross-file INHERITED do-file
-                // local of the same name is still genuinely defined
-                // here (the analyzer's cross-file suppression treats
-                // it as defined) — offer it; otherwise drop. The
-                // inherited map is position-invariant: build it once,
-                // lazily, instead of re-walking the chain per name.
-                the_inherited_locals ??= collect_inherited_dofile_locals(
-                    resolved_scope, position.line, document.uri
-                );
-                const inherited = the_inherited_locals.get(my_name);
+            if (resolved_symbol === undefined) {
+                // No positionally resolved same-file winner (out of
+                // scope, or a not-yet-defined forward local). A
+                // cross-file INHERITED do-file local is genuinely
+                // defined here (the analyzer's cross-file suppression
+                // treats it as defined) and outranks the forward
+                // identity target (round-9 gate) — offer it;
+                // otherwise the forward symbol (which the downstream
+                // definition-line filter drops as future-defined) or,
+                // for a forward DO-FILE local, the flat/merged entry;
+                // else drop.
+                const inherited = get_inherited(my_name);
+                const forward_symbol =
+                    the_visible_macros.forward.get(my_name);
                 if (inherited) {
                     the_macros.set(my_name, inherited);
+                } else if (
+                    forward_symbol?.containingScope === 'program'
+                ) {
+                    the_macros.set(my_name, forward_symbol);
+                } else if (forward_symbol) {
+                    the_macros.set(my_name, my_macro);
                 }
                 continue;
             }

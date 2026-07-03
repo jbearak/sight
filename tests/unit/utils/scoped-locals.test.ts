@@ -85,16 +85,18 @@ end
         const doc = create_document_state(source);
         const position = find_position_of(source, "display `x'")!;
         const the_macros = collect_visible_local_macros(doc.scopes, position);
-        expect(the_macros.get('x')?.value).toBe('body');
-        expect(the_macros.get('x')?.containingScope).toBe('program');
+        expect(the_macros.resolved.get('x')?.value).toBe('body');
+        expect(the_macros.resolved.get('x')?.containingScope).toBe('program');
     });
 
     it('includes do-file locals not shadowed by the program', () => {
         const doc = create_document_state(SIBLING_PROGRAMS);
         const position = find_position_of(SIBLING_PROGRAMS, "display `shared'")!;
         const the_macros = collect_visible_local_macros(doc.scopes, position);
-        expect(the_macros.get('top_only')).toBeDefined();
-        expect(the_macros.get('shared')?.value).toBe('2');
+        // top_only is declared AFTER the cursor in the fixture, so it
+        // is visible only as a forward identity target.
+        expect(the_macros.forward.get('top_only')).toBeDefined();
+        expect(the_macros.resolved.get('shared')?.value).toBe('2');
     });
 
     it('never includes sibling-program locals', () => {
@@ -109,7 +111,8 @@ end
         const doc = create_document_state(source);
         const position = find_position_of(source, "display `only_a'")!;
         const the_macros = collect_visible_local_macros(doc.scopes, position);
-        expect(the_macros.has('only_a')).toBe(false);
+        expect(the_macros.resolved.has('only_a')).toBe(false);
+        expect(the_macros.forward.has('only_a')).toBe(false);
     });
 });
 
@@ -118,7 +121,9 @@ describe('lookup_scoped_local_macro', () => {
         const result = lookup_scoped_local_macro(
             [], { line: 0, character: 0 }, 'x'
         );
-        expect(result).toEqual({ symbol: undefined, out_of_scope: false });
+        expect(result).toEqual({
+            symbol: undefined, forward_only: false, out_of_scope: false,
+        });
     });
 
     it('resolves the enclosing program symbol over the flat winner', () => {
@@ -150,7 +155,9 @@ describe('lookup_scoped_local_macro', () => {
         const doc = create_document_state(SIBLING_PROGRAMS);
         const position = find_position_of(SIBLING_PROGRAMS, "display `shared'")!;
         const result = lookup_scoped_local_macro(doc.scopes, position, 'ghost');
-        expect(result).toEqual({ symbol: undefined, out_of_scope: false });
+        expect(result).toEqual({
+            symbol: undefined, forward_only: false, out_of_scope: false,
+        });
     });
 
     it('no opinion on positional argument names', () => {
@@ -162,7 +169,9 @@ end
         const doc = create_document_state(source);
         const position = find_position_of(source, "display `1'")!;
         const result = lookup_scoped_local_macro(doc.scopes, position, '1');
-        expect(result).toEqual({ symbol: undefined, out_of_scope: false });
+        expect(result).toEqual({
+            symbol: undefined, forward_only: false, out_of_scope: false,
+        });
     });
 
     it('redeclared bodies resolve to their own body symbol', () => {
@@ -252,6 +261,7 @@ end
         const position = find_position_of(source, 'di "`x')!;
         const result = lookup_scoped_local_macro(doc.scopes, position, 'x');
         expect(result.symbol?.value).toBe('body');
+        expect(result.forward_only).toBe(true);
         expect(result.out_of_scope).toBe(false);
     });
 
@@ -259,6 +269,7 @@ end
         const doc = create_document_state(FORWARD_SHADOW);
         const position = find_position_of(FORWARD_SHADOW, 'di "`x')!;
         const the_macros = collect_visible_local_macros(doc.scopes, position);
-        expect(the_macros.get('x')?.value).toBe('top');
+        expect(the_macros.resolved.get('x')?.value).toBe('top');
+        expect(the_macros.forward.has('x')).toBe(false);
     });
 });

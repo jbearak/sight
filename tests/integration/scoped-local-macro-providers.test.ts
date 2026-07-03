@@ -513,19 +513,23 @@ describe('scoped local macros: completion (#270)', () => {
 
     it('does not offer program-only locals at top level', async () => {
         const { document_state } = await open_document([
-            'program define prog_a',   // 0
-            '    local hidden 1',      // 1
-            'end',                     // 2
-            'di "`h',                  // 3
+            'local top_ok 1',          // 0
+            'program define prog_a',   // 1
+            '    local hidden 1',      // 2
+            'end',                     // 3
+            'di "`',                   // 4
         ]);
         const the_completions = await completion_provider.get_completions(
             document_state,
-            { line: 3, character: 6 },
+            { line: 4, character: 5 },
             '`',
         );
-        expect(
-            the_completions.map(my_item => my_item.label)
-        ).not.toContain('hidden');
+        const the_labels = the_completions.map(my_item => my_item.label);
+        // Positive baseline: the bare-signature top-level surface is
+        // alive (a broken empty list would make the exclusion below
+        // pass vacuously).
+        expect(the_labels).toContain('top_ok');
+        expect(the_labels).not.toContain('hidden');
     });
 });
 
@@ -1458,5 +1462,172 @@ describe('scoped local macros: round-8 gate regression', () => {
             my_sym => my_sym.detail === 'Local Macro'
         );
         expect(the_top_level_locals).toEqual([]);
+    });
+});
+
+// Round-9 gate regressions (#270): a cross-file INHERITED do-file
+// local outranks a same-scope FORWARD identity target — the analyzer's
+// cross-file suppression treats the pre-definition reference as
+// defined via the inherited symbol.
+describe('scoped local macros: round-9 gate regressions', () => {
+    let test_temp_dir: string;
+    let indexer: WorkspaceIndexer;
+    let scope_resolver: ScopeResolver;
+    let forward_scope_resolver: ForwardScopeResolver;
+    let document_store: DocumentStore;
+
+    beforeEach(() => {
+        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-gate9-'));
+        indexer = new WorkspaceIndexer();
+        const the_dep_graph = new DependencyGraph();
+        indexer.set_dependency_graph(the_dep_graph);
+        scope_resolver = new ScopeResolver();
+        scope_resolver.set_dependency_graph(the_dep_graph);
+        forward_scope_resolver = new ForwardScopeResolver(scope_resolver, {
+            max_forward_depth: 10,
+        });
+        scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
+        document_store = new DocumentStore();
+    });
+
+    afterEach(() => {
+        try { scope_resolver?.dispose(); } catch {}
+        try { forward_scope_resolver?.dispose(); } catch {}
+        if (existsSync(test_temp_dir)) {
+            rmSync(test_temp_dir, { recursive: true, force: true });
+        }
+    });
+
+    async function open_file(name: string, lines: string[]) {
+        const file_path = join(test_temp_dir, name);
+        const content = lines.join('\n');
+        writeFileSync(file_path, content);
+        const uri = URI.file(file_path).toString();
+        await document_store.open(uri, content, 1);
+        return { uri, content, document_state: document_store.get(uri)! };
+    }
+
+    const FORWARD_VS_INHERITED = [
+        'include "lib.do"',     // 0
+        'program define p',     // 1
+        '    display "`x\'"',   // 2 — before the program-local def
+        '    local x body',     // 3
+        '    display "`x\'"',   // 4 — after: the program local
+        'end',                  // 5
+    ];
+
+    it('hover: inherited do-file local outranks the not-yet-defined program local', async () => {
+        const hover_provider = new HoverProvider(new CommandDatabase());
+        writeFileSync(join(test_temp_dir, 'lib.do'), 'local x lib\n');
+        const { content, document_state } =
+            await open_file('main.do', FORWARD_VS_INHERITED);
+        await indexer.initialize([test_temp_dir]);
+        const character = content.split('\n')[2].indexOf('x\'');
+        const hover = await hover_provider.get_hover(
+            document_state,
+            { line: 2, character },
+            undefined,
+            scope_resolver,
+        );
+        const value = (hover?.contents as { value?: string })?.value ?? '';
+        expect(value).toContain('Expansion: `lib`');
+        expect(value).not.toContain('Expansion: `body`');
+    });
+
+    it('definition: pre-definition reference resolves to the inherited declaration', async () => {
+        const definition_provider = new DefinitionProvider();
+        const lib_path = join(test_temp_dir, 'lib.do');
+        writeFileSync(lib_path, 'local x lib\n');
+        const { uri, content, document_state } =
+            await open_file('main.do', FORWARD_VS_INHERITED);
+        await indexer.initialize([test_temp_dir]);
+        const character = content.split('\n')[2].indexOf('x\'');
+        const result = await definition_provider.get_definition(
+            document_state,
+            { line: 2, character },
+            undefined,
+            undefined,
+            scope_resolver,
+            indexer,
+            undefined,
+        );
+        const the_locations = as_locations(result);
+        expect(new Set(the_locations.map(my_loc => my_loc.uri)))
+            .toEqual(new Set([URI.file(lib_path).toString()]));
+        expect(
+            the_locations.some(my_loc => my_loc.uri === uri)
+        ).toBe(false);
+    });
+
+    it('references: pre-definition reference groups with the inherited local, not the program\'s', async () => {
+        const references_provider = new ReferencesProvider(scope_resolver);
+        const lib_path = join(test_temp_dir, 'lib.do');
+        writeFileSync(lib_path, 'local x lib\n');
+        const { uri, content, document_state } =
+            await open_file('main.do', FORWARD_VS_INHERITED);
+        await indexer.initialize([test_temp_dir]);
+        const character = content.split('\n')[2].indexOf('x\'');
+        const the_locations = await references_provider.get_references(
+            document_state,
+            { line: 2, character },
+            { includeDeclaration: true },
+            indexer,
+        );
+        const main_lines = the_locations
+            .filter(my_loc => my_loc.uri === uri)
+            .map(my_loc => my_loc.range.start.line);
+        expect(main_lines).toEqual([2]);
+        expect(
+            the_locations.some(
+                my_loc => my_loc.uri === URI.file(lib_path).toString()
+            )
+        ).toBe(true);
+    });
+
+    it('references: post-definition reference stays with the program local', async () => {
+        const references_provider = new ReferencesProvider(scope_resolver);
+        writeFileSync(join(test_temp_dir, 'lib.do'), 'local x lib\n');
+        const { uri, content, document_state } =
+            await open_file('main.do', FORWARD_VS_INHERITED);
+        await indexer.initialize([test_temp_dir]);
+        const character = content.split('\n')[4].indexOf('x\'');
+        const the_locations = await references_provider.get_references(
+            document_state,
+            { line: 4, character },
+            { includeDeclaration: true },
+            indexer,
+        );
+        const the_uris = new Set(the_locations.map(my_loc => my_loc.uri));
+        expect(the_uris).toEqual(new Set([uri]));
+        const main_lines = the_locations
+            .filter(my_loc => my_loc.uri === uri)
+            .map(my_loc => my_loc.range.start.line)
+            .sort((a, b) => a - b);
+        expect(main_lines).toEqual([3, 4]);
+    });
+
+    it('completion: inherited do-file local offered before the program-local definition', async () => {
+        const completion_provider =
+            new CompletionProvider(new CommandDatabase());
+        writeFileSync(join(test_temp_dir, 'lib.do'), 'local x lib\n');
+        const { document_state } = await open_file('main.do', [
+            'include "lib.do"',     // 0
+            'program define p',     // 1
+            '    di "`',            // 2 — before the program-local def
+            '    local x body',     // 3
+            'end',                  // 4
+        ]);
+        await indexer.initialize([test_temp_dir]);
+        const the_completions = await completion_provider.get_completions(
+            document_state,
+            { line: 2, character: 9 },
+            '`',
+            scope_resolver,
+        );
+        const the_item = the_completions.find(
+            my_item => my_item.label === 'x'
+        );
+        expect(the_item).toBeDefined();
+        expect(the_item!.documentation).toBe('Value: lib');
     });
 });

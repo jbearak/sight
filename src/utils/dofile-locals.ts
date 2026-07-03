@@ -19,8 +19,11 @@ import {
     ProgramSymbol,
     ResolvedScope,
     ScalarSymbol,
+    ScopeInfo,
     VariableSymbol,
 } from '../types';
+import { Position } from './scope-position';
+import { resolve_visible_local } from './scoped-locals';
 
 export function is_dofile_local(
     symbol: Pick<MacroSymbol, 'containingScope'>
@@ -128,6 +131,36 @@ export function find_inherited_dofile_local(
     return collect_inherited_dofile_locals(
         resolved_scope, reference_line, current_uri
     ).get(name);
+}
+
+/**
+ * THE effective local-macro resolution order at a position — the one
+ * rule every provider consumes (issue #270, round-9 gate):
+ *   1. the positionally RESOLVED winner in [enclosing, dofile]
+ *      (same-file scoped identity);
+ *   2. else the cross-file INHERITED do-file local (the analyzer's
+ *      cross-file suppression treats the reference as defined via it,
+ *      so it outranks a not-yet-defined same-scope local);
+ *   3. else the nearest visible scope's FORWARD identity target (a
+ *      same-scope forward reference keeps navigation working; the
+ *      analyzer treats it as plain undefined);
+ *   4. else nothing (untracked, positional args, or out-of-scope —
+ *      distinguish via lookup_scoped_local_macro where needed).
+ */
+export function resolve_effective_local(
+    scopes: ScopeInfo[] | undefined,
+    position: Position,
+    name: string,
+    resolved_scope: ResolvedScope | undefined,
+    current_uri: string
+): MacroSymbol | undefined {
+    const visible = resolve_visible_local(scopes, position, name);
+    if (visible.resolved) {
+        return visible.resolved;
+    }
+    return find_inherited_dofile_local(
+        resolved_scope, name, position.line, current_uri
+    ) ?? visible.forward;
 }
 
 /**

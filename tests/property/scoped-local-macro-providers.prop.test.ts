@@ -25,37 +25,50 @@ function as_locations(
 }
 
 // Two sibling programs both defining `name`, an optional do-file
-// definition, and a reference inside the second program.
+// definition BEFORE the programs (so the shadowing axis is live: the
+// do-file symbol is positionally resolved at the reference and must
+// still lose to the program's own resolved local), and a reference
+// inside the second program after its own definition.
 function build_source(
     prog_a: string,
     prog_b: string,
     name: string,
     with_dofile_def: boolean
 ): { source: string; reference_line: number; own_def_line: number } {
-    const the_lines = [
-        `program define ${prog_a}`,        // 0
-        `    local ${name} sibling_val`,   // 1
-        'end',                             // 2
-        `program define ${prog_b}`,        // 3
-        `    local ${name} own_val`,       // 4
-        `    display \`${name}'`,          // 5
-        'end',                             // 6
-    ];
-    if (with_dofile_def) {
-        the_lines.push(`local ${name} dofile_val`); // 7
-    }
+    const the_lines = with_dofile_def
+        ? [`local ${name} dofile_val`]
+        : [];
+    const offset = the_lines.length;
+    the_lines.push(
+        `program define ${prog_a}`,        // offset + 0
+        `    local ${name} sibling_val`,   // offset + 1
+        'end',                             // offset + 2
+        `program define ${prog_b}`,        // offset + 3
+        `    local ${name} own_val`,       // offset + 4
+        `    display \`${name}'`,          // offset + 5
+        'end',                             // offset + 6
+    );
     return {
         source: the_lines.join('\n'),
-        reference_line: 5,
-        own_def_line: 4,
+        reference_line: offset + 5,
+        own_def_line: offset + 4,
     };
 }
 
+// Statement-position keywords would mis-parse when interpolated into
+// `program define <name>` / `local <name>` / `display \`<name>'` —
+// exclude them so a counterexample is never a malformed fixture.
+const STATEMENT_KEYWORDS = new Set([
+    'program', 'define', 'end', 'local', 'global', 'di', 'display',
+]);
+
 const arbitrary_scenario = fc.record({
-    the_names: fc.uniqueArray(arbitrary_non_reserved_identifier(), {
-        minLength: 3,
-        maxLength: 3,
-    }),
+    the_names: fc.uniqueArray(
+        arbitrary_non_reserved_identifier().filter(
+            my_name => !STATEMENT_KEYWORDS.has(my_name)
+        ),
+        { minLength: 3, maxLength: 3 }
+    ),
     with_dofile_def: fc.boolean(),
 });
 
@@ -109,19 +122,21 @@ describe('scoped local-macro provider invariants (#270)', () => {
         await fc.assert(
             fc.asyncProperty(arbitrary_scenario, async (my_scenario) => {
                 const [prog_a, prog_b, name] = my_scenario.the_names;
-                const { source } = build_source(
+                const { source, own_def_line } = build_source(
                     prog_a, prog_b, name, my_scenario.with_dofile_def
                 );
                 // Complete right after a backtick appended inside
-                // prog_b's body (before `end`).
+                // prog_b's body (after its own definition, before
+                // `end`).
+                const insert_line = own_def_line + 1;
                 const the_lines = source.split('\n');
-                the_lines.splice(6, 0, '    di "`');
+                the_lines.splice(insert_line, 0, '    di "`');
                 const patched = the_lines.join('\n');
                 const document_state = create_document_state(patched);
                 const the_completions =
                     await completion_provider.get_completions(
                         document_state,
-                        { line: 6, character: 9 },
+                        { line: insert_line, character: 9 },
                         '`',
                     );
                 const the_item = the_completions.find(

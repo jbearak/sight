@@ -1009,8 +1009,11 @@ export class HoverProvider {
         // Scope-aware same-file resolution first (#270).
         const scoped = position
             ? lookup_scoped_local_macro(document.scopes, position, word)
-            : { symbol: undefined, out_of_scope: false };
-        if (scoped.symbol?.containingScope === 'program') {
+            : { symbol: undefined, forward_only: false, out_of_scope: false };
+        if (
+            scoped.symbol?.containingScope === 'program' &&
+            !scoped.forward_only
+        ) {
             // Program locals never cross files (#271) — the visible
             // program-scoped symbol is unconditionally the answer, and
             // it fixes the case where an unrelated same-named local
@@ -1024,33 +1027,50 @@ export class HoverProvider {
                 undefined,
             );
         }
-        if (scoped.out_of_scope) {
-            // The name exists same-file only in scopes not visible
-            // from here, so the flat slot is forbidden — but a
-            // cross-file INHERITED do-file local is genuinely defined
-            // at this position (the analyzer's cross-file suppression
-            // treats it as defined), so consult include-inherited
-            // sources before giving up (#270 round-2 gate).
+        if (scoped.out_of_scope || scoped.forward_only) {
+            // No positionally resolved same-file winner. A cross-file
+            // INHERITED do-file local is genuinely defined at this
+            // position (the analyzer's cross-file suppression treats
+            // it as defined), so it outranks a not-yet-defined
+            // same-scope forward local (round-9 gate) and is the only
+            // candidate for an out-of-scope name (round-2 gate). The
+            // workspace indexer is withheld: its footer keeps
+            // same-file hits, so the very sibling or forward
+            // program-local would be presented as a "redefinition" of
+            // the inherited macro (round-5 gate).
             const inherited = position
                 ? find_inherited_dofile_local(
                     resolved_scope, word, position.line, document.uri
                 )
                 : undefined;
-            // The workspace indexer is withheld: its footer keeps
-            // same-file hits, so the very sibling program-local that
-            // made the name out-of-scope would be presented as a
-            // "redefinition" of the inherited macro (round-5 gate).
-            return inherited
-                ? this.render_local_macro_hover(
+            if (inherited) {
+                return this.render_local_macro_hover(
                     document, inherited, word, workspace_root,
                     undefined,
-                )
-                : null;
+                );
+            }
+            if (
+                scoped.forward_only &&
+                scoped.symbol?.containingScope === 'program'
+            ) {
+                // Forward identity target: navigation-friendly hover
+                // for a same-scope reference before its definition.
+                return this.render_local_macro_hover(
+                    document, scoped.symbol, word, workspace_root,
+                    undefined,
+                );
+            }
+            if (scoped.out_of_scope) {
+                return null;
+            }
+            // Do-file forward: fall through to the resolved-scope /
+            // flat paths, which own do-file-level precedence.
         }
 
         // Do-file-scoped or no scoped opinion: unchanged — the
-        // resolved scope / flat fallback also apply execution-order
-        // precedence that document.scopes cannot see.
+        // resolved scope / flat fallback also apply CROSS-FILE
+        // execution-order precedence that document.scopes (a
+        // same-file-only structure) cannot see.
         const local_macro_symbols = this.safe_visible_symbols(resolved_scope, position);
         if (local_macro_symbols) {
             const local_macro = local_macro_symbols.localMacros.get(word);

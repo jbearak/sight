@@ -19,9 +19,11 @@ import { is_cross_file_hidden_local } from '../utils/dofile-locals';
 import {
     lookup_scoped_local_macro,
     resolve_scoped_or_flat,
-    resolve_visible_local,
 } from '../utils/scoped-locals';
-import { find_inherited_dofile_local } from '../utils/dofile-locals';
+import {
+    find_inherited_dofile_local,
+    resolve_effective_local,
+} from '../utils/dofile-locals';
 import type { WorkspaceIndexer } from '../indexer';
 import type { IContextTracker } from '../context-tracker/types';
 import type { ScopeResolver } from '../scope-resolver';
@@ -467,11 +469,6 @@ export class ReferencesProvider {
             return [];
         }
 
-        // Scope-aware local-macro target resolution (#270).
-        const target = this.resolve_local_reference_target(
-            document, position, identified_symbol
-        );
-
         // Resolve the scope once here (cached by ScopeResolver) so
         // find_definitions can apply the call-site filter to declarations
         // pooled from the workspace indexer. See issue #129.
@@ -485,6 +482,11 @@ export class ReferencesProvider {
             )
             : undefined;
 
+        // Scope-aware local-macro target resolution (#270).
+        const target = this.resolve_local_reference_target(
+            document, position, identified_symbol, resolved_scope
+        );
+
         return this.collect_references(
             document,
             identified_symbol.name,
@@ -495,67 +497,74 @@ export class ReferencesProvider {
             cancellation_token,
             resolved_scope,
             position.line,
-            target.symbol,
+            target.target_local_macro,
             target.exclude_same_file_local,
-            this.inherited_target_symbol(
-                target, resolved_scope, identified_symbol.name,
-                position.line, document.uri
-            ),
-        );
-    }
-
-    /**
-     * In exclude-same-file mode, does a cross-file INHERITED do-file
-     * local actually exist for this cursor? When it does not, the
-     * reference is plain undefined and the cross-file scan must not
-     * run — a same-named local in an include-related file's program
-     * body is a different macro, and surfacing its usages while
-     * is_cross_file_hidden_local hides its declaration would be
-     * incoherent (round-3 gate).
-     */
-    private inherited_target_symbol(
-        target: { symbol?: MacroSymbol; exclude_same_file_local: boolean },
-        resolved_scope: ResolvedScope | undefined,
-        symbol_name: string,
-        reference_line: number,
-        current_uri: string
-    ): MacroSymbol | undefined {
-        if (!target.exclude_same_file_local) {
-            return undefined;
-        }
-        return find_inherited_dofile_local(
-            resolved_scope, symbol_name, reference_line, current_uri
+            target.inherited_target,
         );
     }
 
     /**
      * Scope-aware target resolution for local-macro find-references
-     * (#270). `exclude_same_file_local: true` = the name exists
-     * same-file only in scopes not visible from the cursor (a sibling
-     * program's local): the flat slot must not be pooled and same-file
-     * occurrences count only when they resolve to no same-file symbol
-     * themselves — the reference's identity is then the cross-file
-     * INHERITED do-file local (or plain undefined), matching the
-     * analyzer's cross-file suppression (round-2 gate).
-     * `symbol: undefined, exclude_same_file_local: false` = the scoped
-     * model has no opinion (empty scopes, cross-file inherited name,
-     * positional arg); existing name-based scanning proceeds unchanged.
+     * (#270), applying the effective order (see
+     * resolve_effective_local): a positionally RESOLVED same-file
+     * symbol is the target; else the cross-file INHERITED do-file
+     * local is the winner (`exclude_same_file_local` + 
+     * `inherited_target`: the flat slot must not be pooled,
+     * declarations come from the winner, and same-file occurrences
+     * count only when their own effective resolution is the winner);
+     * else a same-scope FORWARD identity target behaves like a
+     * resolved one (round-9 gate); else, for an out-of-scope name
+     * with no inherited winner, the reference is plain undefined
+     * (`exclude_same_file_local` alone: current-file-only,
+     * same-resolution-class occurrences). All fields undefined/false
+     * = the scoped model has no opinion (empty scopes, cross-file
+     * name, positional arg); existing name-based scanning proceeds
+     * unchanged.
      */
     private resolve_local_reference_target(
         document: DocumentState,
         position: Position,
-        identified_symbol: IdentifiedSymbol
-    ): { symbol?: MacroSymbol; exclude_same_file_local: boolean } {
+        identified_symbol: IdentifiedSymbol,
+        resolved_scope: ResolvedScope | undefined
+    ): {
+        target_local_macro?: MacroSymbol;
+        exclude_same_file_local: boolean;
+        inherited_target?: MacroSymbol;
+    } {
         if (identified_symbol.type !== 'local_macro') {
             return { exclude_same_file_local: false };
         }
         const scoped = lookup_scoped_local_macro(
             document.scopes, position, identified_symbol.name
         );
-        return {
-            symbol: scoped.symbol,
-            exclude_same_file_local: scoped.out_of_scope,
-        };
+        if (scoped.symbol && !scoped.forward_only) {
+            return {
+                target_local_macro: scoped.symbol,
+                exclude_same_file_local: false,
+            };
+        }
+        if (scoped.out_of_scope || scoped.forward_only) {
+            const inherited = find_inherited_dofile_local(
+                resolved_scope,
+                identified_symbol.name,
+                position.line,
+                document.uri
+            );
+            if (inherited) {
+                return {
+                    exclude_same_file_local: true,
+                    inherited_target: inherited,
+                };
+            }
+            if (scoped.forward_only) {
+                return {
+                    target_local_macro: scoped.symbol,
+                    exclude_same_file_local: false,
+                };
+            }
+            return { exclude_same_file_local: true };
+        }
+        return { exclude_same_file_local: false };
     }
 
     /**
@@ -967,11 +976,6 @@ export class ReferencesProvider {
             return [];
         }
 
-        // Scope-aware local-macro target resolution (#270).
-        const target = this.resolve_local_reference_target(
-            document, position, identified_symbol
-        );
-
         // Resolve the scope once so find_definitions can apply the
         // call-site filter to non-variable declarations pooled from the
         // workspace indexer. See issue #129.
@@ -985,6 +989,11 @@ export class ReferencesProvider {
             )
             : undefined;
 
+        // Scope-aware local-macro target resolution (#270).
+        const target = this.resolve_local_reference_target(
+            document, position, identified_symbol, resolved_scope
+        );
+
         return this.collect_references(
             document,
             identified_symbol.name,
@@ -995,12 +1004,9 @@ export class ReferencesProvider {
             cancellation_token,
             resolved_scope,
             position.line,
-            target.symbol,
+            target.target_local_macro,
             target.exclude_same_file_local,
-            this.inherited_target_symbol(
-                target, resolved_scope, identified_symbol.name,
-                position.line, document.uri
-            ),
+            target.inherited_target,
         );
     }
 
@@ -1147,45 +1153,26 @@ export class ReferencesProvider {
                 }
                 // Scope-filter (#270): a same-file name match may
                 // lexically belong to a DIFFERENT same-named local
-                // (shadowing) — keep only occurrences whose own
-                // position resolves to the exact target symbol. For an
-                // out-of-scope reference (exclude_same_file_local) an
-                // occurrence must resolve to no same-file symbol AND
-                // its own line's inherited winner must be the cursor's
-                // (identity-equal; undefined for plain-undefined): an
-                // occurrence before an include is a different
-                // resolution class than one after it (round-5 gate).
-                // resolve_visible_local skips
-                // lookup_scoped_local_macro's out-of-scope bookkeeping
-                // scan, which these comparisons never read.
-                if (symbol_type === 'local_macro') {
-                    if (
-                        target_local_macro !== undefined &&
-                        resolve_visible_local(
-                            document.scopes,
-                            my_match.range.start,
-                            symbol_name
-                        ) !== target_local_macro
-                    ) {
-                        continue;
-                    }
-                    if (
-                        target_local_macro === undefined &&
-                        exclude_same_file_local === true &&
-                        (resolve_visible_local(
-                            document.scopes,
-                            my_match.range.start,
-                            symbol_name
-                        ) !== undefined ||
-                            find_inherited_dofile_local(
-                                resolved_scope,
-                                symbol_name,
-                                my_match.range.start.line,
-                                document.uri
-                            ) !== inherited_target)
-                    ) {
-                        continue;
-                    }
+                // (shadowing, inheritance, or forward order) — keep
+                // only occurrences whose own EFFECTIVE resolution
+                // (resolved -> inherited -> forward, the same order
+                // every provider uses; round-9 gate) is
+                // identity-equal to the cursor's effective target
+                // (undefined matching undefined for the
+                // plain-undefined class; round-5 gate).
+                if (
+                    symbol_type === 'local_macro' &&
+                    (target_local_macro !== undefined ||
+                        exclude_same_file_local === true) &&
+                    resolve_effective_local(
+                        document.scopes,
+                        my_match.range.start,
+                        symbol_name,
+                        resolved_scope,
+                        document.uri
+                    ) !== (target_local_macro ?? inherited_target)
+                ) {
+                    continue;
                 }
                 locations.push({ uri: my_match.uri, range: my_match.range });
             }

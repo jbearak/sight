@@ -122,70 +122,83 @@ export function get_visible_local_scopes(
     return assemble_visible_scopes(enclosing_scope, scopes[0]);
 }
 
+export interface VisibleLocalResolution {
+    /** Positionally RESOLVED winner in the visibility list — already
+     * defined at `position` in the nearest visible scope. */
+    resolved?: MacroSymbol;
+    /** The nearest visible scope's not-yet-defined symbol (a
+     * same-scope FORWARD reference's identity target). Consumers must
+     * rank this BELOW a cross-file inherited do-file local (see
+     * find_inherited_dofile_local): the analyzer's cross-file
+     * suppression treats such references as defined via the inherited
+     * symbol, so the forward identity applies only when nothing else
+     * resolves. */
+    forward?: MacroSymbol;
+}
+
 /**
- * The visible symbol for `name` at `position`, or undefined. Two
- * passes over the visibility list: first the scopes whose symbol has
- * already been defined at `position` (matching the analyzer's
+ * The visible symbols for `name` at `position`. One pass over the
+ * visibility list: the first scope whose symbol has already been
+ * defined at `position` yields `resolved` (matching the analyzer's
  * resolution — a not-yet-defined program local does not shadow an
- * already-defined do-file local); then, when nothing resolves
- * positionally, the nearest visible scope that defines the name at
- * all (a same-scope FORWARD reference keeps its identity target so
- * navigation still works — the analyzer treats it as plain
- * undefined, not out-of-scope). No out-of-scope bookkeeping — use
- * `lookup_scoped_local_macro` when that distinction matters.
+ * already-defined do-file local); the nearest visible scope defining
+ * the name only later yields `forward`. No out-of-scope bookkeeping —
+ * use `lookup_scoped_local_macro` when that distinction matters.
  */
 export function resolve_visible_local(
     scopes: ScopeInfo[] | undefined,
     position: Position,
     name: string
-): MacroSymbol | undefined {
-    const the_visible_scopes = get_visible_local_scopes(scopes, position);
-    let forward_fallback: MacroSymbol | undefined;
-    for (const my_scope of the_visible_scopes) {
+): VisibleLocalResolution {
+    const out: VisibleLocalResolution = {};
+    for (const my_scope of get_visible_local_scopes(scopes, position)) {
         const my_symbol = my_scope.localMacros.get(name);
         if (!my_symbol) {
             continue;
         }
         if (macro_resolves_at_position(my_symbol, position)) {
-            return my_symbol;
+            out.resolved = my_symbol;
+            return out;
         }
-        forward_fallback = forward_fallback ?? my_symbol;
+        out.forward = out.forward ?? my_symbol;
     }
-    return forward_fallback;
+    return out;
+}
+
+export interface VisibleLocalMacroMaps {
+    /** Per name: the positionally resolved winner. */
+    resolved: Map<string, MacroSymbol>;
+    /** Per name with NO resolved winner: the nearest visible scope's
+     * forward symbol — same below-inherited ranking caveat as
+     * `VisibleLocalResolution.forward`. */
+    forward: Map<string, MacroSymbol>;
 }
 
 /**
- * All local macros visible at `position`. Per name, the first
- * visible scope whose symbol has already been defined at `position`
- * wins; a name defined only later (forward) still appears via its
- * nearest visible scope — the SAME resolved-first-then-forward-
- * fallback policy as `resolve_visible_local`, encoded map-wise here
- * for enumeration. Keep the two in lockstep.
+ * All local macros visible at `position`, split into resolved and
+ * forward-only maps — the SAME policy as `resolve_visible_local`,
+ * encoded map-wise for enumeration. Keep the two in lockstep.
  */
 export function collect_visible_local_macros(
     scopes: ScopeInfo[] | undefined,
     position: Position
-): Map<string, MacroSymbol> {
-    const out = new Map<string, MacroSymbol>();
-    const the_fallbacks = new Map<string, MacroSymbol>();
+): VisibleLocalMacroMaps {
+    const resolved = new Map<string, MacroSymbol>();
+    const forward = new Map<string, MacroSymbol>();
     for (const my_scope of get_visible_local_scopes(scopes, position)) {
         for (const [my_name, my_symbol] of my_scope.localMacros) {
-            if (out.has(my_name)) {
+            if (resolved.has(my_name)) {
                 continue;
             }
             if (macro_resolves_at_position(my_symbol, position)) {
-                out.set(my_name, my_symbol);
-            } else if (!the_fallbacks.has(my_name)) {
-                the_fallbacks.set(my_name, my_symbol);
+                resolved.set(my_name, my_symbol);
+                forward.delete(my_name);
+            } else if (!forward.has(my_name)) {
+                forward.set(my_name, my_symbol);
             }
         }
     }
-    for (const [my_name, my_symbol] of the_fallbacks) {
-        if (!out.has(my_name)) {
-            out.set(my_name, my_symbol);
-        }
-    }
-    return out;
+    return { resolved, forward };
 }
 
 /**
@@ -215,9 +228,16 @@ export function enumerate_scoped_local_macros(
 
 export interface ScopedLocalLookupResult {
     /** THE symbol when a visible scope defines the name (exclusive
-     * shadowing among resolved definitions; see
-     * `resolve_visible_local` for the forward-reference fallback). */
+     * shadowing among resolved definitions; the forward identity
+     * target when nothing resolves positionally — see
+     * `forward_only`). */
     symbol: MacroSymbol | undefined;
+    /** True when `symbol` is a not-yet-defined forward identity
+     * target rather than a positionally resolved winner. Consumers
+     * must rank such a symbol BELOW a cross-file inherited do-file
+     * local (the analyzer's cross-file suppression treats the
+     * reference as defined via the inherited symbol). */
+    forward_only: boolean;
     /** True when `name` is registered ONLY in scopes not visible from
      * `position` (e.g. a sibling program's body). Callers must not
      * substitute the flat view's representative — it may be that very
@@ -239,18 +259,33 @@ export function lookup_scoped_local_macro(
     name: string
 ): ScopedLocalLookupResult {
     if (scopes === undefined || scopes.length === 0) {
-        return { symbol: undefined, out_of_scope: false };
+        return { symbol: undefined, forward_only: false, out_of_scope: false };
     }
-    const visible_symbol = resolve_visible_local(scopes, position, name);
-    if (visible_symbol) {
-        return { symbol: visible_symbol, out_of_scope: false };
+    const visible = resolve_visible_local(scopes, position, name);
+    if (visible.resolved) {
+        return {
+            symbol: visible.resolved,
+            forward_only: false,
+            out_of_scope: false,
+        };
+    }
+    if (visible.forward) {
+        return {
+            symbol: visible.forward,
+            forward_only: true,
+            out_of_scope: false,
+        };
     }
     for (const my_scope of scopes) {
         if (my_scope.localMacros.has(name)) {
-            return { symbol: undefined, out_of_scope: true };
+            return {
+                symbol: undefined,
+                forward_only: false,
+                out_of_scope: true,
+            };
         }
     }
-    return { symbol: undefined, out_of_scope: false };
+    return { symbol: undefined, forward_only: false, out_of_scope: false };
 }
 
 /**
