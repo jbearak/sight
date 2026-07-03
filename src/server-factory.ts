@@ -1479,6 +1479,10 @@ export async function create_server(options: ServerOptions): Promise<void> {
 
     // Document close handler
     documents.onDidClose((e) => {
+        // Captured before the delete below so the disk re-sync can use the
+        // URI-scoped config (a scoped backwardDependencies override must not
+        // be re-synced under the global mode).
+        const closed_document_settings = document_settings.get(e.document.uri);
         document_settings.delete(e.document.uri);
         document_store.close(e.document.uri);
         debounce_manager.on_close(e.document.uri);
@@ -1508,22 +1512,40 @@ export async function create_server(options: ServerOptions): Promise<void> {
             // (issue #184): a reparse racing this close is discarded by
             // commit_state, so a header change saved just before closing
             // would otherwise leave pre-save edges until the file's next
-            // parse. Guarded so a quick close→reopen's buffer-based
-            // commit-time registration is never clobbered by this slower
-            // disk read. Uses global_settings (not per-document settings):
-            // document_settings for this URI was deleted above, and only
-            // the backward_dependencies mode affects this path.
-            void scope_resolver.resync_backward_directive_dependencies_from_disk(
-                e.document.uri,
-                scope_resolver_config_for(global_settings),
-                () => {
+            // parse. Guarded so a quick close→reopen's registration is
+            // owned by the reopened buffer's commit, never this slower
+            // disk read: the guard checks BOTH TextDocuments (repopulated
+            // synchronously on reopen, before the debounced open() commits
+            // — and the content provider prefers open buffers, so a
+            // mid-read reopen could otherwise apply uncommitted buffer
+            // content) and the document store. A reopen-then-reclose while
+            // the read is in flight can still apply transient buffer
+            // content, but the re-close fires its own re-sync, which
+            // converges to disk.
+            void (async () => {
+                let my_settings = global_settings;
+                if (closed_document_settings) {
                     try {
-                        return document_store.get(e.document.uri) === undefined;
+                        my_settings = await closed_document_settings;
                     } catch {
-                        return false; // store disposed — do not mutate
+                        // Fall back to global settings on a rejected fetch.
                     }
                 }
-            );
+                await scope_resolver.resync_backward_directive_dependencies_from_disk(
+                    e.document.uri,
+                    scope_resolver_config_for(my_settings),
+                    () => {
+                        if (documents.get(e.document.uri) !== undefined) {
+                            return false; // reopened — buffer commit owns it
+                        }
+                        try {
+                            return document_store.get(e.document.uri) === undefined;
+                        } catch {
+                            return false; // store disposed — do not mutate
+                        }
+                    }
+                );
+            })();
         }
         // On close, the buffer's in-memory edges/symbols are discarded, so
         // callees that inherited from this file must re-resolve against its
