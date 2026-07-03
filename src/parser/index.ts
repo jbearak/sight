@@ -3164,6 +3164,8 @@ export class StataParser {
    * Check if there are non-trivia tokens after the given position on the same line.
    * Returns the first non-trivia token if found, null otherwise.
    * Skips WHITESPACE, COMMENT_LINE, COMMENT_BLOCK, CONTINUATION tokens.
+   * A `///` continuation joins the next physical line, so "same
+   * line" means the same logical line.
    */
   find_code_after_on_same_line(start_pos: number, line: number): Token | null {
     const trivia_types: TokenType[] = [
@@ -3173,12 +3175,30 @@ export class StataParser {
       'CONTINUATION',
     ];
 
+    let current_line = line;
+
     for (let i = start_pos; i < this.tokens.length; i++) {
       const my_token = this.tokens[i];
 
       // Stop if we've moved to a different line
-      if (my_token.range.start.line !== line) {
+      if (my_token.range.start.line !== current_line) {
         return null;
+      }
+
+      // The swallowed '\n' of a /// continuation joins the next
+      // physical line into this logical line
+      if (
+        is_swallowed_continuation_terminator(
+          my_token,
+          i > 0 && this.tokens[i - 1].type === 'CONTINUATION'
+        )
+      ) {
+        const next_token = this.tokens[i + 1];
+        if (!next_token) {
+          return null;
+        }
+        current_line = next_token.range.start.line;
+        continue;
       }
 
       // Stop at statement terminator or EOF
@@ -3202,6 +3222,8 @@ export class StataParser {
    * Check if there are non-trivia tokens before the given position on the same line.
    * Returns the last non-trivia token if found, null otherwise.
    * Skips WHITESPACE, COMMENT_LINE, COMMENT_BLOCK, CONTINUATION tokens.
+   * A `///` continuation joins the next physical line, so "same
+   * line" means the same logical line.
    */
   find_code_before_on_same_line(end_pos: number, line: number): Token | null {
     const trivia_types: TokenType[] = [

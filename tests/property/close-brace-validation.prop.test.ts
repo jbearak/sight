@@ -727,5 +727,32 @@ describe('Close Brace Validation Property Tests', () => {
                 { numRuns: 100 }
             );
         });
+
+        it('flags CODE_AFTER_OPEN_BRACE for code joined to an open brace via ///', () => {
+            // `{ ///` joins the next physical line, so the code there is
+            // logically on the brace line and Stata silently ignores it —
+            // the same warning as the single-line `if 1 > 0 { display`.
+            fc.assert(
+                fc.property(arbitrary_command, (cmd1) => {
+                    const document = `if 1 > 0 { ///\n ${cmd1}\n}`;
+                    const { errors } = parse_document(document);
+
+                    return has_error_code(errors, ParseErrorCode.CODE_AFTER_OPEN_BRACE);
+                }),
+                { numRuns: 100 }
+            );
+        });
+
+        it('flags BRACE_ELSE_SAME_LINE for `else` joined to a close brace via ///', () => {
+            fc.assert(
+                fc.property(arbitrary_command, (cmd1) => {
+                    const document = `if 1 > 0 {\n    ${cmd1}\n} ///\nelse {\n    ${cmd1}\n}`;
+                    const { errors } = parse_document(document);
+
+                    return has_error_code(errors, ParseErrorCode.BRACE_ELSE_SAME_LINE);
+                }),
+                { numRuns: 100 }
+            );
+        });
     });
 });
