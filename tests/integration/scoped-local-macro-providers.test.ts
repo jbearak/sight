@@ -1374,7 +1374,7 @@ describe('scoped local macros: round-6 gate regression', () => {
         }
     });
 
-    it('references: only the last include\'s declaration is pooled for an out-of-scope name', async () => {
+    it('references: only the winner declaration is pooled', async () => {
         const references_provider = new ReferencesProvider(scope_resolver);
         const a_path = join(test_temp_dir, 'a.do');
         const b_path = join(test_temp_dir, 'b.do');

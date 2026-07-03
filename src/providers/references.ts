@@ -218,7 +218,7 @@ export class ReferencesProvider {
                 // cursor-visible scope's own MacroSymbol) supersedes the
                 // flat slot, which may belong to a different scope. For
                 // an out-of-scope reference the flat slot is forbidden
-                // entirely — the identity is exactly the call-line-gated
+                // entirely — the identity is the call-line-gated
                 // inherited winner (its primary + same-scope
                 // additional_definitions) or nothing; the broad
                 // workspace pool below stays off for this mode, or a
