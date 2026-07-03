@@ -926,9 +926,9 @@ export class DefinitionProvider {
         // Scope-aware (#270): resolve the declaration against the scope
         // that textually contains it, so a losing-flat-slot program
         // local still matches its own declaration range. Safe for
-        // do-file-scoped symbols too — a declaration-range hit is a pure
-        // text question, and the do-file symbol here is object-identical
-        // to the flat entry.
+        // do-file-scoped symbols too — a declaration-range hit is a
+        // pure text question, and the do-file symbol here is
+        // object-identical to the flat entry.
         const local_macro = resolve_scoped_or_flat(
             document.scopes, position, word, document.symbols.localMacros
         );
@@ -1308,9 +1308,10 @@ export class DefinitionProvider {
 
         const { word } = word_info;
 
-        // Scope-aware same-file resolution first (#270): a program-scoped
-        // visible local is authoritative (never crosses files, #271); an
-        // out-of-scope name must not fall back to the flat slot below.
+        // Scope-aware same-file resolution first (#270): a
+        // program-scoped visible local is authoritative (never
+        // crosses files, #271); an out-of-scope name must not fall
+        // back to the flat slot below.
         const scoped = this.resolve_scoped_local_definition(
             document, word, position
         );
@@ -1404,7 +1405,8 @@ export class DefinitionProvider {
             ? undefined
             : document.symbols.localMacros.get(word);
 
-        // Collect cross-file workspace-indexer definitions (both kinds).
+        // Collect cross-file workspace-indexer definitions (both
+        // kinds).
         // Barred for out-of-scope names: their only legitimate local
         // identity is the call-line-gated inherited winner handled
         // above; the indexer pooling has no execution-order gate and

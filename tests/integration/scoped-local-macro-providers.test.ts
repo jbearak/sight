@@ -1374,7 +1374,7 @@ describe('scoped local macros: round-6 gate regression', () => {
         }
     });
 
-    it('references: only the winner declaration is pooled', async () => {
+    it('references: out-of-scope pooling is winner-only', async () => {
         const references_provider = new ReferencesProvider(scope_resolver);
         const a_path = join(test_temp_dir, 'a.do');
         const b_path = join(test_temp_dir, 'b.do');
@@ -1407,5 +1407,56 @@ describe('scoped local macros: round-6 gate regression', () => {
             .filter(my_loc => my_loc.uri === uri)
             .map(my_loc => my_loc.range.start.line);
         expect(main_lines).toEqual([5]);
+    });
+});
+
+// Round-8 gate regression (#270): outline PLACEMENT is geometric (the
+// DocumentSymbol tree is a range-containment view — a top-level entry
+// ranged inside a program container would overlap a sibling on the
+// wire), while ENUMERATION stays ownership-based.
+describe('scoped local macros: round-8 gate regression', () => {
+    let test_temp_dir: string;
+    let document_store: DocumentStore;
+
+    beforeEach(() => {
+        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-gate8-'));
+        document_store = new DocumentStore();
+    });
+
+    afterEach(() => {
+        if (existsSync(test_temp_dir)) {
+            rmSync(test_temp_dir, { recursive: true, force: true });
+        }
+    });
+
+    it('a directive-declared do-file local inside a program body nests geometrically', async () => {
+        const symbol_provider = new SymbolProvider();
+        const file_path = join(test_temp_dir, 'a.do');
+        const content = [
+            'program define p',        // 0
+            '    // @lsp-local ghost', // 1 — do-file-owned, ranged in p
+            '    local x 1',           // 2
+            'end',                     // 3
+        ].join('\n');
+        writeFileSync(file_path, content);
+        const uri = URI.file(file_path).toString();
+        await document_store.open(uri, content, 1);
+        const the_symbols = symbol_provider.get_document_symbols(
+            document_store.get(uri)!
+        );
+        const program_node = the_symbols.find(
+            my_sym => my_sym.name === 'p' && my_sym.detail === 'Program'
+        );
+        const the_children = (program_node?.children ?? []).map(
+            my_child => my_child.name
+        );
+        expect(the_children).toContain("`ghost'");
+        expect(the_children).toContain("`x'");
+        // Wire-shape invariant: no top-level local sits inside the
+        // program container's range.
+        const the_top_level_locals = the_symbols.filter(
+            my_sym => my_sym.detail === 'Local Macro'
+        );
+        expect(the_top_level_locals).toEqual([]);
     });
 });

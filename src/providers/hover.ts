@@ -1048,8 +1048,8 @@ export class HoverProvider {
                 : null;
         }
 
-        // Do-file-scoped or no scoped opinion: unchanged — the resolved
-        // scope / flat fallback also apply cross-file execution-order
+        // Do-file-scoped or no scoped opinion: unchanged — the
+        // resolved scope / flat fallback also apply execution-order
         // precedence that document.scopes cannot see.
         const local_macro_symbols = this.safe_visible_symbols(resolved_scope, position);
         if (local_macro_symbols) {

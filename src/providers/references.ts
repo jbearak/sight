@@ -215,7 +215,8 @@ export class ReferencesProvider {
         switch (symbol_type) {
             case 'local_macro': {
                 // Scope-aware (#270): the resolved target symbol (the
-                // cursor-visible scope's own MacroSymbol) supersedes the
+                // cursor-visible scope's own MacroSymbol) supersedes
+                // the
                 // flat slot, which may belong to a different scope. For
                 // an out-of-scope reference the flat slot is forbidden
                 // entirely — the identity is the call-line-gated
@@ -1062,7 +1063,8 @@ export class ReferencesProvider {
         // See docs/find-references.md for the rationale behind this three-tier model.
         const restrict_to_related = symbol_type !== 'variable';
         // A program-scoped local target never crosses file boundaries
-        // (#271) — restrict the scan to the current file, skipping the
+        // (#271) — restrict the scan to the current file, skipping
+        // the
         // cross-file token scan entirely (#270). Same for an
         // out-of-scope cursor with NO inherited target: the reference
         // is plain undefined, and a same-named local in an

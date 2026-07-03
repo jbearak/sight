@@ -459,20 +459,26 @@ export class SymbolProvider {
                     if (my_macro.sourceUri !== document.uri) {
                         continue;
                     }
-                    const my_local_symbol =
-                        make_local_symbol(my_name, my_macro);
-                    if (my_scope.type === 'program') {
-                        // Geometric fallback only for degenerate
-                        // program scopes with no registered container.
-                        nest_local_symbol(
-                            my_local_symbol,
-                            my_container,
-                            my_macro.location.range.start
-                        );
-                    } else {
-                        // Do-file-owned: top-level by ownership.
-                        symbols.push(my_local_symbol);
-                    }
+                    // ENUMERATION is by owning scope (one entry per
+                    // scope — nothing lost to the flat slot), but
+                    // PLACEMENT is a range-containment question: the
+                    // DocumentSymbol tree is an LSP text-structure
+                    // view, and a top-level entry whose range sits
+                    // inside a program container would overlap a
+                    // sibling on the wire. Program-owned locals use
+                    // their owning body's container (exact for
+                    // redeclared bodies; geometric fallback only for
+                    // degenerate container-less scopes); do-file-owned
+                    // locals nest geometrically (e.g. a directive-
+                    // declared do-file local written inside a program
+                    // body renders under that program).
+                    nest_local_symbol(
+                        make_local_symbol(my_name, my_macro),
+                        my_scope.type === 'program'
+                            ? my_container
+                            : undefined,
+                        my_macro.location.range.start
+                    );
                 }
             }
         } else {
