@@ -15,12 +15,12 @@ import {
 import { DocumentState } from '../document-store';
 import { LanguageContext, MacroSymbol, Token, ContextRange } from '../types';
 import { get_line_text } from '../utils/line-utils';
-import { is_cross_file_hidden_local } from '../utils/dofile-locals';
-import { resolve_scoped_or_flat } from '../utils/scoped-locals';
 import {
     classify_effective_local,
+    is_cross_file_hidden_local,
     resolve_effective_local,
 } from '../utils/dofile-locals';
+import { resolve_scoped_or_flat } from '../utils/scoped-locals';
 import type { WorkspaceIndexer } from '../indexer';
 import type { IContextTracker } from '../context-tracker/types';
 import type { ScopeResolver } from '../scope-resolver';

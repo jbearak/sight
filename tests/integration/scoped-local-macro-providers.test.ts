@@ -19,7 +19,7 @@ import { ForwardScopeResolver } from '../../src/forward-scope-resolver';
 import { CommandDatabase } from '../../src/command-database';
 import { CompletionProvider } from '../../src/providers/completion';
 import { SymbolProvider } from '../../src/providers/symbols';
-import { Location } from 'vscode-languageserver';
+import { as_locations } from '../property/helpers/document-utils';
 
 const SIBLING_LINES = [
     'program define prog_a',   // 0
@@ -31,31 +31,65 @@ const SIBLING_LINES = [
     'end',                     // 6
 ];
 
-function as_locations(
-    result: Location | Location[] | null
-): Location[] {
-    if (!result) return [];
-    return Array.isArray(result) ? result : [result];
+
+interface ScopedTestHarness {
+    test_temp_dir: string;
+    indexer: WorkspaceIndexer;
+    scope_resolver: ScopeResolver;
+    forward_scope_resolver: ForwardScopeResolver;
+    document_store: DocumentStore;
+    dispose(): void;
+}
+
+/**
+ * One fully-wired pipeline per test: temp workspace, indexer +
+ * dependency graph, scope/forward resolvers, document store, and a
+ * single dispose. Shared by every describe block so the wiring and
+ * teardown cannot drift between the per-round regression suites
+ * (blocks that don't need the resolver simply don't use it).
+ */
+function create_scoped_test_harness(prefix: string): ScopedTestHarness {
+    const test_temp_dir = mkdtempSync(join(tmpdir(), prefix));
+    const indexer = new WorkspaceIndexer();
+    const the_dep_graph = new DependencyGraph();
+    indexer.set_dependency_graph(the_dep_graph);
+    const scope_resolver = new ScopeResolver();
+    scope_resolver.set_dependency_graph(the_dep_graph);
+    const forward_scope_resolver = new ForwardScopeResolver(scope_resolver, {
+        max_forward_depth: 10,
+    });
+    scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
+    return {
+        test_temp_dir,
+        indexer,
+        scope_resolver,
+        forward_scope_resolver,
+        document_store: new DocumentStore(),
+        dispose(): void {
+            try { scope_resolver.dispose(); } catch { /* disposed */ }
+            try { forward_scope_resolver.dispose(); } catch { /* disposed */ }
+            if (existsSync(test_temp_dir)) {
+                rmSync(test_temp_dir, { recursive: true, force: true });
+            }
+        },
+    };
 }
 
 describe('scoped local macros: go-to-definition (#270)', () => {
+    let harness: ScopedTestHarness;
     let test_temp_dir: string;
     let indexer: WorkspaceIndexer;
     let provider: DefinitionProvider;
     let document_store: DocumentStore;
 
     beforeEach(() => {
-        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-def-'));
-        indexer = new WorkspaceIndexer();
-        indexer.set_dependency_graph(new DependencyGraph());
+        harness = create_scoped_test_harness('scoped-def-');
+        ({ test_temp_dir, indexer, document_store } = harness);
         provider = new DefinitionProvider();
-        document_store = new DocumentStore();
     });
 
     afterEach(() => {
-        if (existsSync(test_temp_dir)) {
-            rmSync(test_temp_dir, { recursive: true, force: true });
-        }
+        harness.dispose();
     });
 
     async function open_document(lines: string[]) {
@@ -153,20 +187,19 @@ describe('scoped local macros: go-to-definition (#270)', () => {
 });
 
 describe('scoped local macros: hover (#270)', () => {
+    let harness: ScopedTestHarness;
     let test_temp_dir: string;
     let hover_provider: HoverProvider;
     let document_store: DocumentStore;
 
     beforeEach(() => {
-        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-hover-'));
+        harness = create_scoped_test_harness('scoped-hover-');
+        ({ test_temp_dir, document_store } = harness);
         hover_provider = new HoverProvider(new CommandDatabase());
-        document_store = new DocumentStore();
     });
 
     afterEach(() => {
-        if (existsSync(test_temp_dir)) {
-            rmSync(test_temp_dir, { recursive: true, force: true });
-        }
+        harness.dispose();
     });
 
     async function open_document(lines: string[]) {
@@ -251,6 +284,7 @@ describe('scoped local macros: hover (#270)', () => {
 });
 
 describe('scoped local macros: find-references (#270)', () => {
+    let harness: ScopedTestHarness;
     let test_temp_dir: string;
     let indexer: WorkspaceIndexer;
     let scope_resolver: ScopeResolver;
@@ -259,26 +293,16 @@ describe('scoped local macros: find-references (#270)', () => {
     let document_store: DocumentStore;
 
     beforeEach(() => {
-        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-refs-'));
-        indexer = new WorkspaceIndexer();
-        const the_dep_graph = new DependencyGraph();
-        indexer.set_dependency_graph(the_dep_graph);
-        scope_resolver = new ScopeResolver();
-        scope_resolver.set_dependency_graph(the_dep_graph);
-        forward_scope_resolver = new ForwardScopeResolver(scope_resolver, {
-            max_forward_depth: 10,
-        });
-        scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
+        harness = create_scoped_test_harness('scoped-refs-');
+        ({
+            test_temp_dir, indexer, scope_resolver,
+            forward_scope_resolver, document_store,
+        } = harness);
         references_provider = new ReferencesProvider(scope_resolver);
-        document_store = new DocumentStore();
     });
 
     afterEach(() => {
-        try { scope_resolver?.dispose(); } catch {}
-        try { forward_scope_resolver?.dispose(); } catch {}
-        if (existsSync(test_temp_dir)) {
-            rmSync(test_temp_dir, { recursive: true, force: true });
-        }
+        harness.dispose();
     });
 
     async function open_file(name: string, lines: string[]) {
@@ -427,20 +451,19 @@ describe('scoped local macros: find-references (#270)', () => {
 });
 
 describe('scoped local macros: completion (#270)', () => {
+    let harness: ScopedTestHarness;
     let test_temp_dir: string;
     let completion_provider: CompletionProvider;
     let document_store: DocumentStore;
 
     beforeEach(() => {
-        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-comp-'));
+        harness = create_scoped_test_harness('scoped-comp-');
+        ({ test_temp_dir, document_store } = harness);
         completion_provider = new CompletionProvider(new CommandDatabase());
-        document_store = new DocumentStore();
     });
 
     afterEach(() => {
-        if (existsSync(test_temp_dir)) {
-            rmSync(test_temp_dir, { recursive: true, force: true });
-        }
+        harness.dispose();
     });
 
     async function open_document(lines: string[]) {
@@ -534,20 +557,19 @@ describe('scoped local macros: completion (#270)', () => {
 });
 
 describe('scoped local macros: document symbols / workspace search (#270)', () => {
+    let harness: ScopedTestHarness;
     let test_temp_dir: string;
     let symbol_provider: SymbolProvider;
     let document_store: DocumentStore;
 
     beforeEach(() => {
-        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-syms-'));
+        harness = create_scoped_test_harness('scoped-syms-');
+        ({ test_temp_dir, document_store } = harness);
         symbol_provider = new SymbolProvider();
-        document_store = new DocumentStore();
     });
 
     afterEach(() => {
-        if (existsSync(test_temp_dir)) {
-            rmSync(test_temp_dir, { recursive: true, force: true });
-        }
+        harness.dispose();
     });
 
     async function open_document(lines: string[]) {
@@ -586,23 +608,20 @@ describe('scoped local macros: document symbols / workspace search (#270)', () =
 });
 
 describe('scoped local macros: definition ignores cross-file hits for program locals (#270)', () => {
+    let harness: ScopedTestHarness;
     let test_temp_dir: string;
     let indexer: WorkspaceIndexer;
     let provider: DefinitionProvider;
     let document_store: DocumentStore;
 
     beforeEach(() => {
-        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-def-xfile-'));
-        indexer = new WorkspaceIndexer();
-        indexer.set_dependency_graph(new DependencyGraph());
+        harness = create_scoped_test_harness('scoped-def-xfile-');
+        ({ test_temp_dir, indexer, document_store } = harness);
         provider = new DefinitionProvider();
-        document_store = new DocumentStore();
     });
 
     afterEach(() => {
-        if (existsSync(test_temp_dir)) {
-            rmSync(test_temp_dir, { recursive: true, force: true });
-        }
+        harness.dispose();
     });
 
     it('program-scoped target returns only its own declaration', async () => {
@@ -642,18 +661,17 @@ describe('scoped local macros: definition ignores cross-file hits for program lo
 
 // Round-1 gate regressions (#270 review findings).
 describe('scoped local macros: round-1 gate regressions', () => {
+    let harness: ScopedTestHarness;
     let test_temp_dir: string;
     let document_store: DocumentStore;
 
     beforeEach(() => {
-        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-gate-'));
-        document_store = new DocumentStore();
+        harness = create_scoped_test_harness('scoped-gate-');
+        ({ test_temp_dir, document_store } = harness);
     });
 
     afterEach(() => {
-        if (existsSync(test_temp_dir)) {
-            rmSync(test_temp_dir, { recursive: true, force: true });
-        }
+        harness.dispose();
     });
 
     async function open_file(name: string, lines: string[]) {
@@ -797,6 +815,7 @@ describe('scoped local macros: round-1 gate regressions', () => {
 // cross-file suppression treats it as defined), and a visible
 // program-scoped local must pre-empt the out-of-scope hover display.
 describe('scoped local macros: round-2 gate regressions', () => {
+    let harness: ScopedTestHarness;
     let test_temp_dir: string;
     let indexer: WorkspaceIndexer;
     let scope_resolver: ScopeResolver;
@@ -804,25 +823,15 @@ describe('scoped local macros: round-2 gate regressions', () => {
     let document_store: DocumentStore;
 
     beforeEach(() => {
-        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-gate2-'));
-        indexer = new WorkspaceIndexer();
-        const the_dep_graph = new DependencyGraph();
-        indexer.set_dependency_graph(the_dep_graph);
-        scope_resolver = new ScopeResolver();
-        scope_resolver.set_dependency_graph(the_dep_graph);
-        forward_scope_resolver = new ForwardScopeResolver(scope_resolver, {
-            max_forward_depth: 10,
-        });
-        scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
-        document_store = new DocumentStore();
+        harness = create_scoped_test_harness('scoped-gate2-');
+        ({
+            test_temp_dir, indexer, scope_resolver,
+            forward_scope_resolver, document_store,
+        } = harness);
     });
 
     afterEach(() => {
-        try { scope_resolver?.dispose(); } catch {}
-        try { forward_scope_resolver?.dispose(); } catch {}
-        if (existsSync(test_temp_dir)) {
-            rmSync(test_temp_dir, { recursive: true, force: true });
-        }
+        harness.dispose();
     });
 
     async function open_file(name: string, lines: string[]) {
@@ -979,6 +988,7 @@ describe('scoped local macros: round-2 gate regressions', () => {
 // out-of-scope cursor with NO inherited target must not surface
 // same-named program-body usages from include-related files.
 describe('scoped local macros: round-3 gate regressions', () => {
+    let harness: ScopedTestHarness;
     let test_temp_dir: string;
     let indexer: WorkspaceIndexer;
     let scope_resolver: ScopeResolver;
@@ -986,25 +996,15 @@ describe('scoped local macros: round-3 gate regressions', () => {
     let document_store: DocumentStore;
 
     beforeEach(() => {
-        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-gate3-'));
-        indexer = new WorkspaceIndexer();
-        const the_dep_graph = new DependencyGraph();
-        indexer.set_dependency_graph(the_dep_graph);
-        scope_resolver = new ScopeResolver();
-        scope_resolver.set_dependency_graph(the_dep_graph);
-        forward_scope_resolver = new ForwardScopeResolver(scope_resolver, {
-            max_forward_depth: 10,
-        });
-        scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
-        document_store = new DocumentStore();
+        harness = create_scoped_test_harness('scoped-gate3-');
+        ({
+            test_temp_dir, indexer, scope_resolver,
+            forward_scope_resolver, document_store,
+        } = harness);
     });
 
     afterEach(() => {
-        try { scope_resolver?.dispose(); } catch {}
-        try { forward_scope_resolver?.dispose(); } catch {}
-        if (existsSync(test_temp_dir)) {
-            rmSync(test_temp_dir, { recursive: true, force: true });
-        }
+        harness.dispose();
     });
 
     async function open_file(name: string, lines: string[]) {
@@ -1106,6 +1106,7 @@ describe('scoped local macros: round-3 gate regressions', () => {
 // pooling, no not-yet-executed includes), and backward inheritance must
 // follow the EFFECTIVE call type, not the written directive type.
 describe('scoped local macros: round-4 gate regressions', () => {
+    let harness: ScopedTestHarness;
     let test_temp_dir: string;
     let indexer: WorkspaceIndexer;
     let scope_resolver: ScopeResolver;
@@ -1113,25 +1114,15 @@ describe('scoped local macros: round-4 gate regressions', () => {
     let document_store: DocumentStore;
 
     beforeEach(() => {
-        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-gate4-'));
-        indexer = new WorkspaceIndexer();
-        const the_dep_graph = new DependencyGraph();
-        indexer.set_dependency_graph(the_dep_graph);
-        scope_resolver = new ScopeResolver();
-        scope_resolver.set_dependency_graph(the_dep_graph);
-        forward_scope_resolver = new ForwardScopeResolver(scope_resolver, {
-            max_forward_depth: 10,
-        });
-        scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
-        document_store = new DocumentStore();
+        harness = create_scoped_test_harness('scoped-gate4-');
+        ({
+            test_temp_dir, indexer, scope_resolver,
+            forward_scope_resolver, document_store,
+        } = harness);
     });
 
     afterEach(() => {
-        try { scope_resolver?.dispose(); } catch {}
-        try { forward_scope_resolver?.dispose(); } catch {}
-        if (existsSync(test_temp_dir)) {
-            rmSync(test_temp_dir, { recursive: true, force: true });
-        }
+        harness.dispose();
     });
 
     async function open_file(name: string, lines: string[]) {
@@ -1229,6 +1220,7 @@ describe('scoped local macros: round-4 gate regressions', () => {
 // a different resolution class), and the inherited hover footer must
 // not present the out-of-scope sibling program-local as a redefinition.
 describe('scoped local macros: round-5 gate regressions', () => {
+    let harness: ScopedTestHarness;
     let test_temp_dir: string;
     let indexer: WorkspaceIndexer;
     let scope_resolver: ScopeResolver;
@@ -1236,25 +1228,15 @@ describe('scoped local macros: round-5 gate regressions', () => {
     let document_store: DocumentStore;
 
     beforeEach(() => {
-        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-gate5-'));
-        indexer = new WorkspaceIndexer();
-        const the_dep_graph = new DependencyGraph();
-        indexer.set_dependency_graph(the_dep_graph);
-        scope_resolver = new ScopeResolver();
-        scope_resolver.set_dependency_graph(the_dep_graph);
-        forward_scope_resolver = new ForwardScopeResolver(scope_resolver, {
-            max_forward_depth: 10,
-        });
-        scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
-        document_store = new DocumentStore();
+        harness = create_scoped_test_harness('scoped-gate5-');
+        ({
+            test_temp_dir, indexer, scope_resolver,
+            forward_scope_resolver, document_store,
+        } = harness);
     });
 
     afterEach(() => {
-        try { scope_resolver?.dispose(); } catch {}
-        try { forward_scope_resolver?.dispose(); } catch {}
-        if (existsSync(test_temp_dir)) {
-            rmSync(test_temp_dir, { recursive: true, force: true });
-        }
+        harness.dispose();
     });
 
     async function open_file(name: string, lines: string[]) {
@@ -1350,6 +1332,7 @@ describe('scoped local macros: round-5 gate regressions', () => {
 // winner, includeDeclaration must surface exactly the winner's
 // declaration — never a superseded earlier include's.
 describe('scoped local macros: round-6 gate regression', () => {
+    let harness: ScopedTestHarness;
     let test_temp_dir: string;
     let indexer: WorkspaceIndexer;
     let scope_resolver: ScopeResolver;
@@ -1357,25 +1340,15 @@ describe('scoped local macros: round-6 gate regression', () => {
     let document_store: DocumentStore;
 
     beforeEach(() => {
-        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-gate6-'));
-        indexer = new WorkspaceIndexer();
-        const the_dep_graph = new DependencyGraph();
-        indexer.set_dependency_graph(the_dep_graph);
-        scope_resolver = new ScopeResolver();
-        scope_resolver.set_dependency_graph(the_dep_graph);
-        forward_scope_resolver = new ForwardScopeResolver(scope_resolver, {
-            max_forward_depth: 10,
-        });
-        scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
-        document_store = new DocumentStore();
+        harness = create_scoped_test_harness('scoped-gate6-');
+        ({
+            test_temp_dir, indexer, scope_resolver,
+            forward_scope_resolver, document_store,
+        } = harness);
     });
 
     afterEach(() => {
-        try { scope_resolver?.dispose(); } catch {}
-        try { forward_scope_resolver?.dispose(); } catch {}
-        if (existsSync(test_temp_dir)) {
-            rmSync(test_temp_dir, { recursive: true, force: true });
-        }
+        harness.dispose();
     });
 
     it('references: out-of-scope pooling is winner-only', async () => {
@@ -1419,18 +1392,17 @@ describe('scoped local macros: round-6 gate regression', () => {
 // ranged inside a program container would overlap a sibling on the
 // wire), while ENUMERATION stays ownership-based.
 describe('scoped local macros: round-8 gate regression', () => {
+    let harness: ScopedTestHarness;
     let test_temp_dir: string;
     let document_store: DocumentStore;
 
     beforeEach(() => {
-        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-gate8-'));
-        document_store = new DocumentStore();
+        harness = create_scoped_test_harness('scoped-gate8-');
+        ({ test_temp_dir, document_store } = harness);
     });
 
     afterEach(() => {
-        if (existsSync(test_temp_dir)) {
-            rmSync(test_temp_dir, { recursive: true, force: true });
-        }
+        harness.dispose();
     });
 
     it('a directive-declared do-file local inside a program body nests geometrically', async () => {
@@ -1470,6 +1442,7 @@ describe('scoped local macros: round-8 gate regression', () => {
 // cross-file suppression treats the pre-definition reference as
 // defined via the inherited symbol.
 describe('scoped local macros: round-9 gate regressions', () => {
+    let harness: ScopedTestHarness;
     let test_temp_dir: string;
     let indexer: WorkspaceIndexer;
     let scope_resolver: ScopeResolver;
@@ -1477,25 +1450,15 @@ describe('scoped local macros: round-9 gate regressions', () => {
     let document_store: DocumentStore;
 
     beforeEach(() => {
-        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-gate9-'));
-        indexer = new WorkspaceIndexer();
-        const the_dep_graph = new DependencyGraph();
-        indexer.set_dependency_graph(the_dep_graph);
-        scope_resolver = new ScopeResolver();
-        scope_resolver.set_dependency_graph(the_dep_graph);
-        forward_scope_resolver = new ForwardScopeResolver(scope_resolver, {
-            max_forward_depth: 10,
-        });
-        scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
-        document_store = new DocumentStore();
+        harness = create_scoped_test_harness('scoped-gate9-');
+        ({
+            test_temp_dir, indexer, scope_resolver,
+            forward_scope_resolver, document_store,
+        } = harness);
     });
 
     afterEach(() => {
-        try { scope_resolver?.dispose(); } catch {}
-        try { forward_scope_resolver?.dispose(); } catch {}
-        if (existsSync(test_temp_dir)) {
-            rmSync(test_temp_dir, { recursive: true, force: true });
-        }
+        harness.dispose();
     });
 
     async function open_file(name: string, lines: string[]) {
@@ -1637,6 +1600,7 @@ describe('scoped local macros: round-9 gate regressions', () => {
 // must return only the last include's declaration, not pool every
 // prior include.
 describe('scoped local macros: round-10 gate regression', () => {
+    let harness: ScopedTestHarness;
     let test_temp_dir: string;
     let indexer: WorkspaceIndexer;
     let scope_resolver: ScopeResolver;
@@ -1644,25 +1608,15 @@ describe('scoped local macros: round-10 gate regression', () => {
     let document_store: DocumentStore;
 
     beforeEach(() => {
-        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-gate10-'));
-        indexer = new WorkspaceIndexer();
-        const the_dep_graph = new DependencyGraph();
-        indexer.set_dependency_graph(the_dep_graph);
-        scope_resolver = new ScopeResolver();
-        scope_resolver.set_dependency_graph(the_dep_graph);
-        forward_scope_resolver = new ForwardScopeResolver(scope_resolver, {
-            max_forward_depth: 10,
-        });
-        scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
-        document_store = new DocumentStore();
+        harness = create_scoped_test_harness('scoped-gate10-');
+        ({
+            test_temp_dir, indexer, scope_resolver,
+            forward_scope_resolver, document_store,
+        } = harness);
     });
 
     afterEach(() => {
-        try { scope_resolver?.dispose(); } catch {}
-        try { forward_scope_resolver?.dispose(); } catch {}
-        if (existsSync(test_temp_dir)) {
-            rmSync(test_temp_dir, { recursive: true, force: true });
-        }
+        harness.dispose();
     });
 
     it('definition: forward do-file local defers to the single inherited winner', async () => {
@@ -1729,18 +1683,17 @@ describe('scoped local macros: round-10 gate regression', () => {
 // preserve delimiter intent — an explicit local reference whose local
 // resolution is rejected must not fall through to the GLOBAL namespace.
 describe('scoped local macros: round-13 gate regression', () => {
+    let harness: ScopedTestHarness;
     let test_temp_dir: string;
     let document_store: DocumentStore;
 
     beforeEach(() => {
-        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-gate13-'));
-        document_store = new DocumentStore();
+        harness = create_scoped_test_harness('scoped-gate13-');
+        ({ test_temp_dir, document_store } = harness);
     });
 
     afterEach(() => {
-        if (existsSync(test_temp_dir)) {
-            rmSync(test_temp_dir, { recursive: true, force: true });
-        }
+        harness.dispose();
     });
 
     const MATA_LINES = [

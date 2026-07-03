@@ -14,15 +14,11 @@ import { HoverProvider } from '../../src/providers/hover';
 import { CompletionProvider } from '../../src/providers/completion';
 import { CommandDatabase } from '../../src/commands';
 import { arbitrary_non_reserved_identifier } from './generators';
-import { create_document_state } from './helpers/document-utils';
-import { Location } from 'vscode-languageserver';
+import {
+    as_locations,
+    create_document_state,
+} from './helpers/document-utils';
 
-function as_locations(
-    result: Location | Location[] | null
-): Location[] {
-    if (!result) return [];
-    return Array.isArray(result) ? result : [result];
-}
 
 // Two sibling programs both defining `name`, an optional do-file
 // definition BEFORE the programs (so the shadowing axis is live: the
