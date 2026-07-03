@@ -1804,7 +1804,8 @@ export class StataParser {
   }
 
   /**
-   * Skip continuation token and its following statement terminator.
+   * Skip a continuation token and, if present, the swallowed newline
+   * terminator that follows it.
    * Returns true if a continuation was skipped, false otherwise.
    */
   private skipContinuation(): boolean {
@@ -2563,7 +2564,8 @@ export class StataParser {
 
   // Skip trivia within a macro definition statement, bridging `///`
   // continuations onto the next physical line (skipContinuation consumes
-  // the continuation token AND the following statement terminator).
+  // the continuation token AND its swallowed newline terminator, if
+  // present).
   //
   // Stata 18 MP audit: `local x = ///` followed by `1 / 2` succeeds with
   // `_rc == 0` and x == .5, while bare `local x =` errors with invalid
@@ -2590,8 +2592,9 @@ export class StataParser {
   /**
    * Advance a lookahead offset past trivia, bridging `///` continuations the
    * same way skipMacroDefinitionTrivia does for the live cursor (a continuation
-   * also consumes the following statement terminator). Returns the offset of
-   * the next significant token (or the end-of-token offset).
+   * also consumes its swallowed newline terminator, if present).
+   * Returns the offset of the next significant token (or the
+   * end-of-token offset).
    */
   private nextSignificantOffsetForMacroDef(offset: number): number {
     while (this.current + offset < this.tokens.length) {
