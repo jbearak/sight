@@ -23,7 +23,7 @@ import {
     VariableSymbol,
 } from '../types';
 import { Position } from './scope-position';
-import { resolve_visible_local } from './scoped-locals';
+import { lookup_scoped_local_macro } from './scoped-locals';
 
 export function is_dofile_local(
     symbol: Pick<MacroSymbol, 'containingScope'>
@@ -154,13 +154,51 @@ export function resolve_effective_local(
     resolved_scope: ResolvedScope | undefined,
     current_uri: string
 ): MacroSymbol | undefined {
-    const visible = resolve_visible_local(scopes, position, name);
-    if (visible.resolved) {
-        return visible.resolved;
+    return classify_effective_local(
+        scopes, position, name, resolved_scope, current_uri
+    ).symbol;
+}
+
+export interface EffectiveLocalClassification {
+    /** Which tier of the effective order won (see
+     * resolve_effective_local): 'out_of_scope' = tracked same-file
+     * but invisible with no inherited winner; 'none' = untracked
+     * (positional args, names foreign to this file). */
+    kind: 'resolved' | 'inherited' | 'forward' | 'out_of_scope' | 'none';
+    symbol?: MacroSymbol;
+}
+
+/**
+ * The effective order with its winning tier exposed, for providers
+ * whose handling differs per tier (references' target modes,
+ * definition's fast path / fallbacks). THE single arm mapping —
+ * bespoke per-provider re-derivations of this order are how the
+ * round-9/10 gate bugs happened.
+ */
+export function classify_effective_local(
+    scopes: ScopeInfo[] | undefined,
+    position: Position,
+    name: string,
+    resolved_scope: ResolvedScope | undefined,
+    current_uri: string
+): EffectiveLocalClassification {
+    const scoped = lookup_scoped_local_macro(scopes, position, name);
+    if (scoped.symbol && !scoped.forward_only) {
+        return { kind: 'resolved', symbol: scoped.symbol };
     }
-    return find_inherited_dofile_local(
-        resolved_scope, name, position.line, current_uri
-    ) ?? visible.forward;
+    if (scoped.out_of_scope || scoped.forward_only) {
+        const inherited = find_inherited_dofile_local(
+            resolved_scope, name, position.line, current_uri
+        );
+        if (inherited) {
+            return { kind: 'inherited', symbol: inherited };
+        }
+        if (scoped.forward_only) {
+            return { kind: 'forward', symbol: scoped.symbol };
+        }
+        return { kind: 'out_of_scope' };
+    }
+    return { kind: 'none' };
 }
 
 /**

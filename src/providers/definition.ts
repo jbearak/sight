@@ -49,7 +49,7 @@ import { URI } from 'vscode-uri';
 import { resolve_path_rich, resolve_forward_call_rich } from '../utils/file-path-utils';
 import { get_line_text } from '../utils/line-utils';
 import {
-    find_inherited_dofile_local,
+    classify_effective_local,
     is_cross_file_hidden_local,
 } from '../utils/dofile-locals';
 import {
@@ -263,55 +263,6 @@ export class DefinitionProvider {
     }
 
     /**
-     * Scope-aware classification for local-macro definition lookups
-     * (#270). Return values:
-     * - `null`: the scoped model has no opinion (scopes empty, name
-     *   untracked in this file, or the visible symbol is do-file
-     *   scoped — publish_flat_local guarantees a do-file definition
-     *   always owns the flat slot when one exists, and the existing
-     *   resolved-scope/flat code also handles cross-file
-     *   execution-order shadowing that document.scopes cannot see).
-     *   Callers must run the pre-existing code unchanged.
-     * - `kind: 'authoritative'`: a positionally RESOLVED
-     *   program-scoped local — its own primary + same-scope
-     *   additional_definitions only. Program locals never cross file
-     *   boundaries (#271), so cross-file same-name hits are NOT
-     *   merged in — consistent with find-references skipping the
-     *   cross-file scan for program-scoped targets.
-     * - `kind: 'needs_inherited'`: the same-file answer defers to the
-     *   cross-file INHERITED do-file local when one exists (the
-     *   analyzer's cross-file suppression treats the reference as
-     *   defined via it, round-9 gate). `fallback_locations` carries a
-     *   same-scope FORWARD identity target's locations (used only
-     *   when no inherited winner exists); null for an out-of-scope
-     *   name, whose only candidate is the inherited winner.
-     */
-    private resolve_scoped_local_definition(
-        document: DocumentState,
-        word: string,
-        position: Position
-    ):
-        | { kind: 'authoritative'; locations: Location[] }
-        | { kind: 'needs_inherited'; fallback_locations: Location[] | null }
-        | null {
-        const scoped = lookup_scoped_local_macro(
-            document.scopes, position, word
-        );
-        if (scoped.out_of_scope) {
-            return { kind: 'needs_inherited', fallback_locations: null };
-        }
-        if (!scoped.symbol || scoped.symbol.containingScope !== 'program') {
-            return null;
-        }
-        const the_locations = this.dedupe_locations(
-            this.macro_symbol_to_locations(scoped.symbol)
-        );
-        return scoped.forward_only
-            ? { kind: 'needs_inherited', fallback_locations: the_locations }
-            : { kind: 'authoritative', locations: the_locations };
-    }
-
-    /**
      * Resolve local macro only (for MACRO_REF_LOCAL tokens and extended macro context).
      */
     private async resolve_local_macro_only(
@@ -323,12 +274,19 @@ export class DefinitionProvider {
         cancellation_token?: CancellationToken,
         position?: Position
     ): Promise<Definition | null> {
-        // Scope-aware same-file resolution first (#270).
+        // Scope-aware same-file resolution first (#270): a
+        // positionally RESOLVED program-scoped local is authoritative
+        // without touching the resolver (#271 fast path).
         const scoped = position
-            ? this.resolve_scoped_local_definition(document, word, position)
-            : null;
-        if (scoped?.kind === 'authoritative') {
-            return this.locations_to_definition(scoped.locations);
+            ? lookup_scoped_local_macro(document.scopes, position, word)
+            : { symbol: undefined, forward_only: false, out_of_scope: false };
+        if (
+            scoped.symbol?.containingScope === 'program' &&
+            !scoped.forward_only
+        ) {
+            return this.locations_to_definition(this.dedupe_locations(
+                this.macro_symbol_to_locations(scoped.symbol)
+            ));
         }
 
         const resolved_scope = scope_resolver
@@ -340,25 +298,22 @@ export class DefinitionProvider {
             )
             : undefined;
 
-        if (scoped?.kind === 'needs_inherited') {
-            // The cross-file INHERITED do-file local outranks a
-            // same-scope forward identity target (round-9 gate) and
-            // is the only candidate for an out-of-scope name (round-4
-            // gate): ungated chain walks and workspace pooling would
-            // navigate to superseded or not-yet-executed include
-            // declarations.
-            const inherited = position
-                ? find_inherited_dofile_local(
-                    resolved_scope, word, position.line, document.uri
-                )
-                : undefined;
-            if (inherited) {
-                return this.locations_to_definition(
-                    this.macro_symbol_to_locations(inherited)
-                );
-            }
-            return scoped.fallback_locations
-                ? this.locations_to_definition(scoped.fallback_locations)
+        if (position && (scoped.out_of_scope || scoped.forward_only)) {
+            // THE effective order (classify_effective_local): the
+            // inherited winner outranks a forward identity target of
+            // EITHER scope kind (round-9/10 gates); an out-of-scope
+            // name with no winner resolves to nothing — ungated chain
+            // walks and workspace pooling would navigate to
+            // superseded or not-yet-executed include declarations
+            // (round-4 gate).
+            const effective = classify_effective_local(
+                document.scopes, position, word, resolved_scope,
+                document.uri
+            );
+            return effective.symbol
+                ? this.locations_to_definition(this.dedupe_locations(
+                    this.macro_symbol_to_locations(effective.symbol)
+                ))
                 : null;
         }
 
@@ -1318,17 +1273,23 @@ export class DefinitionProvider {
         const { word } = word_info;
 
         // Scope-aware same-file resolution first (#270): a
-        // positionally resolved program-scoped local is authoritative
+        // positionally RESOLVED program-scoped local is authoritative
         // (never crosses files, #271); an out-of-scope or
         // forward-only name must not fall back to the flat slot
         // below.
-        const scoped = this.resolve_scoped_local_definition(
-            document, word, position
+        const scoped = lookup_scoped_local_macro(
+            document.scopes, position, word
         );
-        if (scoped?.kind === 'authoritative') {
-            return this.locations_to_definition(scoped.locations);
+        if (
+            scoped.symbol?.containingScope === 'program' &&
+            !scoped.forward_only
+        ) {
+            return this.locations_to_definition(this.dedupe_locations(
+                this.macro_symbol_to_locations(scoped.symbol)
+            ));
         }
-        const local_needs_inherited = scoped?.kind === 'needs_inherited';
+        const local_needs_effective =
+            scoped.out_of_scope || scoped.forward_only;
 
         // Try scope resolver first if available
         if (scope_resolver) {
@@ -1340,25 +1301,24 @@ export class DefinitionProvider {
                 cancellation_token
             );
 
-            if (scoped?.kind === 'needs_inherited') {
-                // The cross-file INHERITED do-file local outranks a
-                // same-scope forward identity target (round-9 gate)
-                // and is the only candidate for an out-of-scope name
-                // (round-4 gate) — or nothing for the LOCAL branch
-                // (globals below are a separate namespace and stay
-                // unaffected). Ungated chain walks would navigate to
-                // superseded or not-yet-executed include declarations.
-                const inherited = find_inherited_dofile_local(
-                    resolved_scope, word, position.line, document.uri
+            if (local_needs_effective) {
+                // THE effective order (classify_effective_local): the
+                // inherited winner outranks a forward identity target
+                // of EITHER scope kind (round-9/10 gates); an
+                // out-of-scope name with no winner yields nothing for
+                // the LOCAL branch (globals below are a separate
+                // namespace and stay unaffected).
+                const effective = classify_effective_local(
+                    document.scopes, position, word, resolved_scope,
+                    document.uri
                 );
-                if (inherited) {
+                if (effective.symbol) {
                     return this.locations_to_definition(
-                        this.macro_symbol_to_locations(inherited)
-                    );
-                }
-                if (scoped.fallback_locations) {
-                    return this.locations_to_definition(
-                        scoped.fallback_locations
+                        this.dedupe_locations(
+                            this.macro_symbol_to_locations(
+                                effective.symbol
+                            )
+                        )
                     );
                 }
             } else {
@@ -1415,16 +1375,18 @@ export class DefinitionProvider {
         // unknowable: a forward identity target still navigates
         // (pre-round-9 parity for resolver-less setups); an
         // out-of-scope name yields nothing for the local namespace.
-        if (local_needs_inherited && !scope_resolver &&
-            scoped.fallback_locations) {
-            return this.locations_to_definition(scoped.fallback_locations);
+        if (local_needs_effective && !scope_resolver &&
+            scoped.forward_only && scoped.symbol) {
+            return this.locations_to_definition(this.dedupe_locations(
+                this.macro_symbol_to_locations(scoped.symbol)
+            ));
         }
 
         // Only check macros, not programs or other Stata symbols
         // 1. Check local macros (skipped when the name is tracked in
         //    this file but out of scope or forward-only at the cursor
         //    — the flat slot may point at that very symbol, #270)
-        const local_macro = local_needs_inherited
+        const local_macro = local_needs_effective
             ? undefined
             : document.symbols.localMacros.get(word);
 
@@ -1435,7 +1397,7 @@ export class DefinitionProvider {
         // winner handled above; the indexer pooling has no
         // execution-order gate and would surface not-yet-inherited
         // declarations (round-4 gate).
-        const cross_local_locs = local_needs_inherited
+        const cross_local_locs = local_needs_effective
             ? []
             : this.collect_workspace_definition_locations(
                 document.uri,

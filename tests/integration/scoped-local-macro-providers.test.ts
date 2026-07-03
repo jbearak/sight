@@ -1631,3 +1631,96 @@ describe('scoped local macros: round-9 gate regressions', () => {
         expect(the_item!.documentation).toBe('Value: lib');
     });
 });
+
+// Round-10 gate regression (#270): a FORWARD do-file local (defined
+// after the cursor) also defers to the inherited winner — definition
+// must return only the last include's declaration, not pool every
+// prior include.
+describe('scoped local macros: round-10 gate regression', () => {
+    let test_temp_dir: string;
+    let indexer: WorkspaceIndexer;
+    let scope_resolver: ScopeResolver;
+    let forward_scope_resolver: ForwardScopeResolver;
+    let document_store: DocumentStore;
+
+    beforeEach(() => {
+        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-gate10-'));
+        indexer = new WorkspaceIndexer();
+        const the_dep_graph = new DependencyGraph();
+        indexer.set_dependency_graph(the_dep_graph);
+        scope_resolver = new ScopeResolver();
+        scope_resolver.set_dependency_graph(the_dep_graph);
+        forward_scope_resolver = new ForwardScopeResolver(scope_resolver, {
+            max_forward_depth: 10,
+        });
+        scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
+        document_store = new DocumentStore();
+    });
+
+    afterEach(() => {
+        try { scope_resolver?.dispose(); } catch {}
+        try { forward_scope_resolver?.dispose(); } catch {}
+        if (existsSync(test_temp_dir)) {
+            rmSync(test_temp_dir, { recursive: true, force: true });
+        }
+    });
+
+    it('definition: forward do-file local defers to the single inherited winner', async () => {
+        const definition_provider = new DefinitionProvider();
+        const a_path = join(test_temp_dir, 'a.do');
+        const b_path = join(test_temp_dir, 'b.do');
+        writeFileSync(a_path, 'local x A\n');
+        writeFileSync(b_path, 'local x B\n');
+        const main_path = join(test_temp_dir, 'main.do');
+        const main_content = [
+            'include "a.do"',   // 0
+            'include "b.do"',   // 1
+            'di "`x\'"',        // 2 — before the same-file def
+            'local x own',      // 3
+        ].join('\n');
+        writeFileSync(main_path, main_content);
+        await indexer.initialize([test_temp_dir]);
+        const uri = URI.file(main_path).toString();
+        await document_store.open(uri, main_content, 1);
+        const character = main_content.split('\n')[2].indexOf('x\'');
+        const result = await definition_provider.get_definition(
+            document_store.get(uri)!,
+            { line: 2, character },
+            undefined,
+            undefined,
+            scope_resolver,
+            indexer,
+            undefined,
+        );
+        const the_locations = as_locations(result);
+        expect(new Set(the_locations.map(my_loc => my_loc.uri)))
+            .toEqual(new Set([URI.file(b_path).toString()]));
+    });
+
+    it('definition: forward do-file local with no includes keeps identity navigation', async () => {
+        const definition_provider = new DefinitionProvider();
+        const main_path = join(test_temp_dir, 'main.do');
+        const main_content = [
+            'di "`x\'"',        // 0 — before the def
+            'local x own',      // 1
+        ].join('\n');
+        writeFileSync(main_path, main_content);
+        await indexer.initialize([test_temp_dir]);
+        const uri = URI.file(main_path).toString();
+        await document_store.open(uri, main_content, 1);
+        const character = main_content.split('\n')[0].indexOf('x\'');
+        const result = await definition_provider.get_definition(
+            document_store.get(uri)!,
+            { line: 0, character },
+            undefined,
+            undefined,
+            scope_resolver,
+            indexer,
+            undefined,
+        );
+        const the_lines = as_locations(result)
+            .filter(my_loc => my_loc.uri === uri)
+            .map(my_loc => my_loc.range.start.line);
+        expect(the_lines).toEqual([1]);
+    });
+});

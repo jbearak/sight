@@ -16,12 +16,9 @@ import { DocumentState } from '../document-store';
 import { LanguageContext, MacroSymbol, Token, ContextRange } from '../types';
 import { get_line_text } from '../utils/line-utils';
 import { is_cross_file_hidden_local } from '../utils/dofile-locals';
+import { resolve_scoped_or_flat } from '../utils/scoped-locals';
 import {
-    lookup_scoped_local_macro,
-    resolve_scoped_or_flat,
-} from '../utils/scoped-locals';
-import {
-    find_inherited_dofile_local,
+    classify_effective_local,
     resolve_effective_local,
 } from '../utils/dofile-locals';
 import type { WorkspaceIndexer } from '../indexer';
@@ -534,37 +531,30 @@ export class ReferencesProvider {
         if (identified_symbol.type !== 'local_macro') {
             return { exclude_same_file_local: false };
         }
-        const scoped = lookup_scoped_local_macro(
-            document.scopes, position, identified_symbol.name
+        const effective = classify_effective_local(
+            document.scopes,
+            position,
+            identified_symbol.name,
+            resolved_scope,
+            document.uri
         );
-        if (scoped.symbol && !scoped.forward_only) {
-            return {
-                target_local_macro: scoped.symbol,
-                exclude_same_file_local: false,
-            };
-        }
-        if (scoped.out_of_scope || scoped.forward_only) {
-            const inherited = find_inherited_dofile_local(
-                resolved_scope,
-                identified_symbol.name,
-                position.line,
-                document.uri
-            );
-            if (inherited) {
+        switch (effective.kind) {
+            case 'resolved':
+            case 'forward':
                 return {
-                    exclude_same_file_local: true,
-                    inherited_target: inherited,
-                };
-            }
-            if (scoped.forward_only) {
-                return {
-                    target_local_macro: scoped.symbol,
+                    target_local_macro: effective.symbol,
                     exclude_same_file_local: false,
                 };
-            }
-            return { exclude_same_file_local: true };
+            case 'inherited':
+                return {
+                    exclude_same_file_local: true,
+                    inherited_target: effective.symbol,
+                };
+            case 'out_of_scope':
+                return { exclude_same_file_local: true };
+            case 'none':
+                return { exclude_same_file_local: false };
         }
-        return { exclude_same_file_local: false };
     }
 
     /**
