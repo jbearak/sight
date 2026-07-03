@@ -795,6 +795,43 @@ export interface ScopeResolverConfig {
   };
 }
 
+/**
+ * Options controlling ScopeResolver.resolve()'s side effects, distinct from
+ * ScopeResolverConfig (which controls resolution behavior/limits). Intended
+ * to grow additional fields (e.g. issue #208 standalone-mode inputs).
+ */
+export interface ResolveOptions {
+  /**
+   * When false, skip registering file_uri's OWN backward-directive
+   * dependency edges as a side effect of this call. Ancestor-level
+   * registration performed inside get_parsed_file is unaffected.
+   *
+   * Passing false transfers registration ownership to the caller. The only
+   * intended such caller is DocumentStore's working-directory probe
+   * (issue #184): every accepted parse applies effective registration
+   * synchronously in commit_state, so a probe-populated scope-cache entry
+   * always corresponds to content that either committed (registration
+   * applied) or was discarded on close (not registering is the intent).
+   * Deliberately NOT part of generate_cache_key.
+   *
+   * Default: true.
+   */
+  register_dependencies?: boolean;
+}
+
+/**
+ * Cross-file side effects discovered while parsing a document, staged for
+ * application only after DocumentStore.commit_state's guards accept the
+ * parse (issue #184). Both fields are pure functions of the parsed content
+ * snapshot; effective-directive computation (raw + auto-synthesized parents)
+ * is deliberately deferred to apply time so it reads live DependencyGraph
+ * state rather than a snapshot from when parsing started.
+ */
+export interface StagedCrossFileEffects {
+  raw_backward_directives: Directive[];
+  scope_resolver_config: Partial<ScopeResolverConfig>;
+}
+
 export interface ScopeCacheEntry {
   resolved_scope: ResolvedScope;
   content_hash: string;

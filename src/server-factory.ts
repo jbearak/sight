@@ -1504,6 +1504,24 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 preserve_forward_call_relationships: true,
                 preserve_backward_directive_dependencies: true,
             });
+            // Converge the preserved backward-directive map to DISK state
+            // (issue #184): a reparse racing this close is discarded by
+            // commit_state, so a header change saved just before closing
+            // would otherwise leave pre-save edges until the file's next
+            // parse. Guarded so a quick close→reopen's buffer-based
+            // commit-time registration is never clobbered by this slower
+            // disk read.
+            void scope_resolver.resync_backward_directive_dependencies_from_disk(
+                e.document.uri,
+                scope_resolver_config_for(global_settings),
+                () => {
+                    try {
+                        return document_store.get(e.document.uri) === undefined;
+                    } catch {
+                        return false; // store disposed — do not mutate
+                    }
+                }
+            );
         }
         // On close, the buffer's in-memory edges/symbols are discarded, so
         // callees that inherited from this file must re-resolve against its

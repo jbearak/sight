@@ -11,6 +11,7 @@ import {
   ParseError,
   ScopeResolverConfig,
   ScopeInfo,
+  StagedCrossFileEffects,
 } from './types';
 import { undefined_symbol_data_fields } from './utils/undefined-symbol-diagnostic';
 import { diagnostic_code_description_fields } from './utils/diagnostic-code-description';
@@ -66,6 +67,19 @@ export interface DocumentState {
 
   // Lines suppressed by @lsp-ignore / @lsp-ignore-next directives
   ignored_lines: Set<number>;
+}
+
+/**
+ * Result of create_document_state: the parsed state plus any cross-file
+ * side effects staged for commit-time application (issue #184). Effects are
+ * undefined when the parse failed before directive parsing (lexer/parser
+ * error or timeout) — a committed error state keeps the previous
+ * registrations on purpose (a transiently broken buffer must not wipe
+ * cross-file edges).
+ */
+export interface ParseOutcome {
+  state: DocumentState;
+  staged_effects: StagedCrossFileEffects | undefined;
 }
 
 export class DocumentStore {
@@ -132,9 +146,15 @@ export class DocumentStore {
       for (const my_state of this.documents.values()) {
         try {
           const directive_result = directive_parser.parse(my_state.content, my_state.uri);
-          this.scope_resolver.sync_backward_directive_dependencies(
+          // Same effective (raw + auto-synthesized) registration as the
+          // commit-time path. In normal server startup the DependencyGraph
+          // is attached after this runs, so auto-synthesis only matters for
+          // late resolver swaps; using the canonical method keeps warm-sync
+          // and commit-time registration computed identically.
+          this.scope_resolver.apply_backward_directive_registration(
             my_state.uri,
-            directive_result.directives
+            directive_result.directives,
+            this.scope_resolver_config
           );
         } catch {
           // Ignore directive parsing errors during warm-sync
@@ -228,14 +248,14 @@ export class DocumentStore {
         return;
       }
       this.evict_if_needed(content.length);
-      const state = await this.create_document_state(
+      const outcome = await this.create_document_state(
         uri,
         content,
         version,
         workspace_symbols,
         scope_resolver_config
       );
-      this.commit_state(uri, state, generation);
+      this.commit_state(uri, outcome, generation);
     };
 
     const promise = operation();
@@ -325,14 +345,14 @@ export class DocumentStore {
       }
 
       // Create new state with fresh parse
-      const new_state = await this.create_document_state(
+      const new_outcome = await this.create_document_state(
         uri,
         new_content,
         version,
         workspace_symbols,
         scope_resolver_config
       );
-      this.commit_state(uri, new_state, generation);
+      this.commit_state(uri, new_outcome, generation);
     };
 
     const promise = operation();
@@ -390,19 +410,32 @@ export class DocumentStore {
   }
 
   /**
-   * Commit a document state, guarded by generation counter.
+   * Commit a parse outcome, guarded by generation counter.
    * Discards stale updates if the document was closed after
    * this update started, or if a newer update has already
    * committed. (Req 16.2)
+   *
+   * Cross-file side effects staged during the parse are applied here,
+   * only after every guard passes, and synchronously with the state
+   * write — no await separates the guards from the application, so a
+   * close() can never interleave (issue #184). A discarded parse
+   * therefore never touches shared ScopeResolver/indexer state.
+   *
+   * @returns true if the outcome was committed, false if discarded.
    */
   private commit_state(
     uri: string,
-    state: DocumentState,
+    outcome: ParseOutcome,
     generation: number
-  ): void {
+  ): boolean {
+    // A parse that was already past the operation closure's disposed
+    // check must not mutate shared resolver/indexer state mid-shutdown.
+    if (this.disposed) {
+      return false;
+    }
     const closed_gen = this.closed_generations.get(uri);
     if (closed_gen !== undefined && generation <= closed_gen) {
-      return; // Discard stale update (document closed)
+      return false; // Discard stale update (document closed)
     }
     // Operation generations increment per call, not per document
     // version. A later-started older-version update can therefore
@@ -411,24 +444,52 @@ export class DocumentStore {
     // are allowed for same-version reparses such as scope config
     // changes and error-state recovery.
     const existing = this.documents.get(uri);
-    if (existing && existing.version > state.version) {
-      return;
+    if (existing && existing.version > outcome.state.version) {
+      return false;
     }
 
     // Discard if a newer update has already committed (Req 16.2)
     const current_gen = this.committed_generations.get(uri) ?? 0;
     if (
       generation < current_gen &&
-      (!existing || existing.version >= state.version)
+      (!existing || existing.version >= outcome.state.version)
     ) {
-      return; // A newer update has already committed
+      return false; // A newer update has already committed
     }
-    this.documents.set(uri, state);
+    this.documents.set(uri, outcome.state);
     this.committed_generations.set(
       uri,
       Math.max(current_gen, generation)
     );
     this.touch_access(uri);
+    if (outcome.staged_effects) {
+      this.apply_staged_cross_file_effects(uri, outcome.staged_effects);
+    }
+    return true;
+  }
+
+  /**
+   * Apply cross-file side effects staged during create_document_state.
+   * Called only from commit_state's accept path (issue #184): the
+   * ScopeResolver backward-directive map and the indexer overlay are
+   * updated together, from the same staged directives, exactly once per
+   * committed parse. Effective-directive computation happens here, at
+   * apply time, against live DependencyGraph state.
+   */
+  private apply_staged_cross_file_effects(
+    uri: string,
+    staged: StagedCrossFileEffects
+  ): void {
+    if (this.scope_resolver) {
+      this.scope_resolver.apply_backward_directive_registration(
+        uri,
+        staged.raw_backward_directives,
+        staged.scope_resolver_config
+      );
+    }
+    if (this.on_backward_directives_parsed) {
+      this.on_backward_directives_parsed(uri, staged.raw_backward_directives);
+    }
   }
 
   /**
@@ -630,7 +691,7 @@ export class DocumentStore {
     version: number,
     workspace_symbols?: SymbolTable,
     scope_resolver_config?: Partial<ScopeResolverConfig>
-  ): Promise<DocumentState> {
+  ): Promise<ParseOutcome> {
     const start_time = Date.now();
     this.metrics.parse_count++;
 
@@ -646,13 +707,16 @@ export class DocumentStore {
 
     if (!lex_result.success || lex_result.timed_out) {
       // Return minimal state on timeout/error
-      return this.create_error_state(
-        uri,
-        content,
-        version,
-        lex_result.error || 'Lexer timeout',
-        lex_result.result?.line_offsets
-      );
+      return {
+        state: this.create_error_state(
+          uri,
+          content,
+          version,
+          lex_result.error || 'Lexer timeout',
+          lex_result.result?.line_offsets
+        ),
+        staged_effects: undefined,
+      };
     }
 
     // Initialize context tracker using lexer tokens (no re-scan)
@@ -669,41 +733,36 @@ export class DocumentStore {
     );
 
     if (!parse_result.success || parse_result.timed_out) {
-      return this.create_error_state(
-        uri,
-        content,
-        version,
-        parse_result.error || 'Parser timeout',
-        lex_result.result!.line_offsets
-      );
+      return {
+        state: this.create_error_state(
+          uri,
+          content,
+          version,
+          parse_result.error || 'Parser timeout',
+          lex_result.result!.line_offsets
+        ),
+        staged_effects: undefined,
+      };
     }
 
-    // Parse directives to get working_directory and check for backward directives.
-    //
-    // KNOWN LIMITATION (tracked in https://github.com/jbearak/sight/issues/184):
-    // these cross-file side effects are applied during the parse, before
-    // commit_state decides whether the parse is accepted. Per-URI serialization
-    // makes a stale out-of-order *update* hit the read-time version guard before
-    // this runs, but a `close()` racing an in-flight parse is not serialized, so
-    // a parse finishing after close can briefly leave a stale backward-directive
-    // relationship until the next reparse/reindex. The full fix is to stage these
-    // side effects and apply them only after commit_state's guards pass (issue
-    // #184); it is deferred because the correct rollback requires a transactional
-    // refactor (including a non-registering resolve() probe), not a coarse clear.
+    // Parse directives to get working_directory and check for backward
+    // directives. Cross-file side effects (backward-directive registration
+    // and the indexer overlay callback) are STAGED here and applied only by
+    // commit_state after its guards pass (issue #184) — a parse discarded by
+    // a racing close() therefore never mutates shared cross-file state. The
+    // working-directory probe below is non-registering for the same reason.
     const directive_parser = new DirectiveParser();
     let resolved_working_directory: string | undefined;
+    let staged_effects: StagedCrossFileEffects | undefined;
+    const effective_scope_resolver_config =
+      scope_resolver_config ?? this.scope_resolver_config;
     try {
       const directive_result = directive_parser.parse(content, uri, lex_result.result!.tokens);
+      staged_effects = {
+        raw_backward_directives: directive_result.directives,
+        scope_resolver_config: effective_scope_resolver_config,
+      };
 
-      if (this.scope_resolver) {
-        this.scope_resolver.sync_backward_directive_dependencies(
-          uri,
-          directive_result.directives
-        );
-      }
-      if (this.on_backward_directives_parsed) {
-        this.on_backward_directives_parsed(uri, directive_result.directives);
-      }
       if (directive_result.working_directory) {
         // File has its own working directory directive
         resolved_working_directory = this.resolve_working_directory(
@@ -714,12 +773,12 @@ export class DocumentStore {
         // File has no own working directory. Try to inherit one from parent
         // files via ScopeResolver, including auto-discovered parents.
         try {
-          const effective_scope_resolver_config =
-            scope_resolver_config ?? this.scope_resolver_config;
           const scope_result = await this.scope_resolver.resolve(
             uri,
             content,
-            effective_scope_resolver_config
+            effective_scope_resolver_config,
+            undefined,
+            { register_dependencies: false }
           );
           if (scope_result.inherited_working_directory) {
             resolved_working_directory = scope_result.inherited_working_directory;
@@ -749,41 +808,46 @@ export class DocumentStore {
     this.metrics.parse_total_ms += elapsed_ms;
 
     if (!analyze_result.success || analyze_result.timed_out) {
-      // Return partial state with AST but no analysis
+      // Return partial state with AST but no analysis. Directive parsing
+      // already succeeded, so staged effects still apply on commit
+      // (matches the pre-staging behavior of this path).
       return {
-        uri,
-        version,
-        content,
-        tokens: lex_result.result!.tokens,
-        ast: parse_result.result!.ast,
-        symbols: {
-          programs: new Map(),
-          localMacros: new Map(),
-          globalMacros: new Map(),
-          variables: new Map(),
-          scalars: new Map(),
-          matrices: new Map(),
-        },
-        scopes: [],
-        diagnostics: [
-          {
-            severity: DiagnosticSeverity.Warning,
-            message: analyze_result.error || 'Analyzer timeout',
-            range: {
-              start: { line: 0, character: 0 },
-              end: { line: 0, character: 0 },
-            },
-            source: 'sight',
+        state: {
+          uri,
+          version,
+          content,
+          tokens: lex_result.result!.tokens,
+          ast: parse_result.result!.ast,
+          symbols: {
+            programs: new Map(),
+            localMacros: new Map(),
+            globalMacros: new Map(),
+            variables: new Map(),
+            scalars: new Map(),
+            matrices: new Map(),
           },
-        ],
-        context_ranges,
-        context_tracker: my_context_tracker,
-        line_offsets: lex_result.result!.line_offsets,
-        forward_calls: [],
-        token_line_index: this.build_token_line_index(
-          lex_result.result!.tokens
-        ),
-        ignored_lines: new Set<number>(),
+          scopes: [],
+          diagnostics: [
+            {
+              severity: DiagnosticSeverity.Warning,
+              message: analyze_result.error || 'Analyzer timeout',
+              range: {
+                start: { line: 0, character: 0 },
+                end: { line: 0, character: 0 },
+              },
+              source: 'sight',
+            },
+          ],
+          context_ranges,
+          context_tracker: my_context_tracker,
+          line_offsets: lex_result.result!.line_offsets,
+          forward_calls: [],
+          token_line_index: this.build_token_line_index(
+            lex_result.result!.tokens
+          ),
+          ignored_lines: new Set<number>(),
+        },
+        staged_effects,
       };
     }
 
@@ -850,23 +914,26 @@ export class DocumentStore {
     }
 
     return {
-      uri,
-      version,
-      content,
-      tokens: lex_result.result!.tokens,
-      ast: parse_result.result!.ast,
-      symbols: analyze_result.result!.symbols,
-      scopes: analyze_result.result!.scopes,
-      diagnostics,
-      context_ranges,
-      context_tracker: my_context_tracker,
-      line_offsets: lex_result.result!.line_offsets,
-      forward_calls: all_forward_calls,
-      working_directory: resolved_working_directory,
-      token_line_index: this.build_token_line_index(
-        lex_result.result!.tokens
-      ),
-      ignored_lines: analyze_result.result!.ignored_lines,
+      state: {
+        uri,
+        version,
+        content,
+        tokens: lex_result.result!.tokens,
+        ast: parse_result.result!.ast,
+        symbols: analyze_result.result!.symbols,
+        scopes: analyze_result.result!.scopes,
+        diagnostics,
+        context_ranges,
+        context_tracker: my_context_tracker,
+        line_offsets: lex_result.result!.line_offsets,
+        forward_calls: all_forward_calls,
+        working_directory: resolved_working_directory,
+        token_line_index: this.build_token_line_index(
+          lex_result.result!.tokens
+        ),
+        ignored_lines: analyze_result.result!.ignored_lines,
+      },
+      staged_effects,
     };
   }
 
