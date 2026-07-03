@@ -1524,12 +1524,22 @@ export async function create_server(options: ServerOptions): Promise<void> {
             // converges to disk.
             void (async () => {
                 let my_settings = global_settings;
-                if (closed_document_settings) {
-                    try {
-                        my_settings = await closed_document_settings;
-                    } catch {
-                        // Fall back to global settings on a rejected fetch.
-                    }
+                try {
+                    // In configuration-capable clients global_settings does
+                    // not track scoped client config, and the cache can miss
+                    // (closed before the debounced validation ever fetched
+                    // settings, or cleared by a config refresh) — so fetch
+                    // scoped settings fresh when there is no captured entry.
+                    my_settings = await (closed_document_settings ??
+                        get_document_settings(e.document.uri));
+                } catch {
+                    // Fall back to global settings on a rejected fetch.
+                }
+                // get_document_settings caches its result; don't let
+                // entries for closed documents accumulate.
+                if (closed_document_settings === undefined &&
+                    documents.get(e.document.uri) === undefined) {
+                    document_settings.delete(e.document.uri);
                 }
                 await scope_resolver.resync_backward_directive_dependencies_from_disk(
                     e.document.uri,
@@ -1545,7 +1555,10 @@ export async function create_server(options: ServerOptions): Promise<void> {
                         }
                     }
                 );
-            })();
+            })().catch(() => {
+                // Fire-and-forget: a failed re-sync must never surface as
+                // an unhandled rejection; edges converge on the next parse.
+            });
         }
         // On close, the buffer's in-memory edges/symbols are discarded, so
         // callees that inherited from this file must re-resolve against its
