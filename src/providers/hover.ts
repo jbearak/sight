@@ -1036,10 +1036,14 @@ export class HoverProvider {
                     resolved_scope, word, position.line, document.uri
                 )
                 : undefined;
+            // The workspace indexer is withheld: its footer keeps
+            // same-file hits, so the very sibling program-local that
+            // made the name out-of-scope would be presented as a
+            // "redefinition" of the inherited macro (round-5 gate).
             return inherited
                 ? this.render_local_macro_hover(
                     document, inherited, word, workspace_root,
-                    workspace_indexer,
+                    undefined,
                 )
                 : null;
         }

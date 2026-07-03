@@ -1219,3 +1219,125 @@ describe('scoped local macros: round-4 gate regressions', () => {
         expect(value).toContain('Expansion: `P`');
     });
 });
+
+// Round-5 gate regressions (#270): exclude-mode occurrences must share
+// the cursor's per-line inherited identity (pre-include occurrences are
+// a different resolution class), and the inherited hover footer must
+// not present the out-of-scope sibling program-local as a redefinition.
+describe('scoped local macros: round-5 gate regressions', () => {
+    let test_temp_dir: string;
+    let indexer: WorkspaceIndexer;
+    let scope_resolver: ScopeResolver;
+    let forward_scope_resolver: ForwardScopeResolver;
+    let document_store: DocumentStore;
+
+    beforeEach(() => {
+        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-gate5-'));
+        indexer = new WorkspaceIndexer();
+        const the_dep_graph = new DependencyGraph();
+        indexer.set_dependency_graph(the_dep_graph);
+        scope_resolver = new ScopeResolver();
+        scope_resolver.set_dependency_graph(the_dep_graph);
+        forward_scope_resolver = new ForwardScopeResolver(scope_resolver, {
+            max_forward_depth: 10,
+        });
+        scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
+        document_store = new DocumentStore();
+    });
+
+    afterEach(() => {
+        try { scope_resolver?.dispose(); } catch {}
+        try { forward_scope_resolver?.dispose(); } catch {}
+        if (existsSync(test_temp_dir)) {
+            rmSync(test_temp_dir, { recursive: true, force: true });
+        }
+    });
+
+    async function open_file(name: string, lines: string[]) {
+        const file_path = join(test_temp_dir, name);
+        const content = lines.join('\n');
+        writeFileSync(file_path, content);
+        const uri = URI.file(file_path).toString();
+        await document_store.open(uri, content, 1);
+        return { uri, content, document_state: document_store.get(uri)! };
+    }
+
+    const PRE_POST_INCLUDE_LINES = [
+        'program define a',     // 0
+        '    local x own',      // 1
+        'end',                  // 2
+        'di "`x\'"',            // 3 — before the include: plain undefined
+        'include "lib.do"',     // 4
+        'di "`x\'"',            // 5 — after the include: lib's x
+    ];
+
+    it('references: a pre-include occurrence is not grouped with post-include references', async () => {
+        const references_provider = new ReferencesProvider(scope_resolver);
+        writeFileSync(join(test_temp_dir, 'lib.do'), 'local x lib\n');
+        const { uri, content, document_state } =
+            await open_file('main.do', PRE_POST_INCLUDE_LINES);
+        await indexer.initialize([test_temp_dir]);
+        const character = content.split('\n')[5].indexOf('x\'');
+        const the_locations = await references_provider.get_references(
+            document_state,
+            { line: 5, character },
+            { includeDeclaration: true },
+            indexer,
+        );
+        const the_lines = the_locations
+            .filter(my_loc => my_loc.uri === uri)
+            .map(my_loc => my_loc.range.start.line);
+        expect(the_lines).toContain(5);
+        expect(the_lines).not.toContain(3);
+        expect(the_lines).not.toContain(1);
+    });
+
+    it('references: a plain-undefined cursor excludes post-include occurrences', async () => {
+        const references_provider = new ReferencesProvider(scope_resolver);
+        writeFileSync(join(test_temp_dir, 'lib.do'), 'local x lib\n');
+        const { uri, content, document_state } =
+            await open_file('main.do', PRE_POST_INCLUDE_LINES);
+        await indexer.initialize([test_temp_dir]);
+        const character = content.split('\n')[3].indexOf('x\'');
+        const the_locations = await references_provider.get_references(
+            document_state,
+            { line: 3, character },
+            { includeDeclaration: true },
+            indexer,
+        );
+        const the_lines = the_locations
+            .filter(my_loc => my_loc.uri === uri)
+            .map(my_loc => my_loc.range.start.line);
+        expect(the_lines).toContain(3);
+        expect(the_lines).not.toContain(5);
+    });
+
+    it('hover: inherited footer never cites the out-of-scope sibling program-local', async () => {
+        const hover_provider = new HoverProvider(new CommandDatabase());
+        writeFileSync(join(test_temp_dir, 'parent.do'), [
+            'local flag P',
+            'include "child.do"',
+        ].join('\n'));
+        const { content, document_state } = await open_file('child.do', [
+            'program define foo',   // 0
+            '    local flag 9',     // 1
+            'end',                  // 2
+            'di "`flag\'"',         // 3
+        ]);
+        await indexer.initialize([test_temp_dir]);
+        const character = content.split('\n')[3].indexOf('flag');
+        const hover = await hover_provider.get_hover(
+            document_state,
+            { line: 3, character },
+            undefined,
+            scope_resolver,
+            undefined,
+            undefined,
+            test_temp_dir,
+            indexer,
+        );
+        const value = (hover?.contents as { value?: string })?.value ?? '';
+        expect(value).toContain('Expansion: `P`');
+        expect(value).not.toContain('Redefined');
+    });
+});

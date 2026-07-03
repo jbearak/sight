@@ -199,7 +199,7 @@ export class ReferencesProvider {
         cursor_line?: number,
         target_local_macro?: MacroSymbol,
         exclude_same_file_local?: boolean,
-        has_inherited_target?: boolean,
+        inherited_target?: MacroSymbol,
     ): Location[] {
         const locations: Location[] = [];
         const seen = new Set<string>();
@@ -299,7 +299,7 @@ export class ReferencesProvider {
         const undefined_out_of_scope_target =
             symbol_type === 'local_macro' &&
             exclude_same_file_local === true &&
-            has_inherited_target !== true;
+            inherited_target === undefined;
         if (
             workspace_indexer &&
             !is_program_scoped_target &&
@@ -491,7 +491,7 @@ export class ReferencesProvider {
             position.line,
             target.symbol,
             target.exclude_same_file_local,
-            this.has_inherited_target(
+            this.inherited_target_symbol(
                 target, resolved_scope, identified_symbol.name,
                 position.line, document.uri
             ),
@@ -507,19 +507,19 @@ export class ReferencesProvider {
      * is_cross_file_hidden_local hides its declaration would be
      * incoherent (round-3 gate).
      */
-    private has_inherited_target(
+    private inherited_target_symbol(
         target: { symbol?: MacroSymbol; exclude_same_file_local: boolean },
         resolved_scope: ResolvedScope | undefined,
         symbol_name: string,
         reference_line: number,
         current_uri: string
-    ): boolean {
+    ): MacroSymbol | undefined {
         if (!target.exclude_same_file_local) {
-            return false;
+            return undefined;
         }
         return find_inherited_dofile_local(
             resolved_scope, symbol_name, reference_line, current_uri
-        ) !== undefined;
+        );
     }
 
     /**
@@ -991,7 +991,7 @@ export class ReferencesProvider {
             position.line,
             target.symbol,
             target.exclude_same_file_local,
-            this.has_inherited_target(
+            this.inherited_target_symbol(
                 target, resolved_scope, identified_symbol.name,
                 position.line, document.uri
             ),
@@ -1013,7 +1013,7 @@ export class ReferencesProvider {
         cursor_line?: number,
         target_local_macro?: MacroSymbol,
         exclude_same_file_local?: boolean,
-        has_inherited_target?: boolean,
+        inherited_target?: MacroSymbol,
     ): Promise<Location[]> {
         const search_context: ReferenceSearchContext = {
             symbol_name,
@@ -1031,7 +1031,7 @@ export class ReferencesProvider {
             cursor_line,
             target_local_macro,
             exclude_same_file_local,
-            has_inherited_target,
+            inherited_target,
         );
 
         // Search workspace-indexed files (Req 13.3).
@@ -1069,7 +1069,7 @@ export class ReferencesProvider {
         const undefined_out_of_scope_target =
             symbol_type === 'local_macro' &&
             exclude_same_file_local === true &&
-            has_inherited_target !== true;
+            inherited_target === undefined;
         let the_related: Map<string, ReferenceScanRange>;
         if (
             is_program_scoped_target ||
@@ -1142,11 +1142,12 @@ export class ReferencesProvider {
                 // lexically belong to a DIFFERENT same-named local
                 // (shadowing) — keep only occurrences whose own
                 // position resolves to the exact target symbol. For an
-                // out-of-scope reference (exclude_same_file_local) the
-                // shared identity is "resolves to no same-file symbol"
-                // (the cross-file inherited local, or plain undefined),
-                // so occurrences that resolve to some same-file local
-                // are excluded instead. resolve_visible_local skips
+                // out-of-scope reference (exclude_same_file_local) an
+                // occurrence must resolve to no same-file symbol AND
+                // its own line's inherited winner must be the cursor's
+                // (identity-equal; undefined for plain-undefined): an
+                // occurrence before an include is a different
+                // resolution class than one after it (round-5 gate). resolve_visible_local skips
                 // lookup_scoped_local_macro's out-of-scope bookkeeping
                 // scan, which these comparisons never read.
                 if (symbol_type === 'local_macro') {
@@ -1163,11 +1164,17 @@ export class ReferencesProvider {
                     if (
                         target_local_macro === undefined &&
                         exclude_same_file_local === true &&
-                        resolve_visible_local(
+                        (resolve_visible_local(
                             document.scopes,
                             my_match.range.start,
                             symbol_name
-                        ) !== undefined
+                        ) !== undefined ||
+                            find_inherited_dofile_local(
+                                resolved_scope,
+                                symbol_name,
+                                my_match.range.start.line,
+                                document.uri
+                            ) !== inherited_target)
                     ) {
                         continue;
                     }
