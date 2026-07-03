@@ -160,6 +160,8 @@ interface ForwardScopeResolverInterface {
         token?: import('vscode-languageserver').CancellationToken,
         config?: {
             max_forward_depth?: number;
+            /** See ForwardScopeConfig.backward_dependencies (issue #286). */
+            backward_dependencies?: 'auto' | 'explicit';
             diagnostics?: {
                 max_depth?: 'error' | 'warning' | 'information' | 'off';
             };
@@ -1104,6 +1106,12 @@ export class ScopeResolver {
                 token,
                 {
                     max_forward_depth: my_config.max_forward_depth,
+                    // Thread the resolution's backward mode so callee reads
+                    // register ancestor edges under the same semantics
+                    // (issue #286); ?? 'auto' mirrors
+                    // get_effective_backward_directives.
+                    backward_dependencies:
+                        my_config.backward_dependencies ?? 'auto',
                     diagnostics: {
                         max_depth: my_config.diagnostics?.max_depth,
                     },
@@ -1355,6 +1363,10 @@ export class ScopeResolver {
             token,
             {
                 max_forward_depth: remaining_depth,
+                // Thread the resolution's backward mode for ancestor-edge
+                // registration during callee reads (issue #286).
+                backward_dependencies:
+                    config.backward_dependencies ?? 'auto',
                 // Thread the depth-diagnostic severity/off setting so a
                 // parent's forward truncations honor `max_depth` too (#209).
                 diagnostics: { max_depth: config.diagnostics?.max_depth },
@@ -1495,7 +1507,15 @@ export class ScopeResolver {
                 my_parent_result = await this.get_parsed_file(
                     my_parent_uri,
                     my_real_path,
-                    { request_cache }
+                    {
+                        request_cache,
+                        // Thread the walk's mode so the ancestor-level
+                        // registration inside get_parsed_file matches the
+                        // resolution semantics (issue #286). ?? 'auto'
+                        // mirrors get_effective_backward_directives.
+                        backward_dependencies:
+                            config.backward_dependencies ?? 'auto',
+                    }
                 );
             } catch (error) {
                 my_parent_result = { error: String(error) };
@@ -1696,7 +1716,15 @@ export class ScopeResolver {
             const my_parent_result = await this.get_parsed_file(
                 my_parent_uri,
                 my_real_fs_path,
-                { working_directory: discovered_wd, request_cache }  // Pass discovered working directory
+                {
+                    working_directory: discovered_wd,  // Pass discovered working directory
+                    request_cache,
+                    // Thread the chain's mode for the ancestor-level
+                    // registration (issue #286); ?? 'auto' mirrors
+                    // get_effective_backward_directives.
+                    backward_dependencies:
+                        config.backward_dependencies ?? 'auto',
+                }
             );
 
             // Check for cancellation after file read
@@ -2207,11 +2235,22 @@ export class ScopeResolver {
      * @param options - Optional settings
      * @param options.skip_disk_if_cached - If true, return cached entry without disk read (cache-first mode)
      * @param options.working_directory - Inherited working directory for path resolution in nested files
+     * @param options.backward_dependencies - The resolution's effective
+     *   backward-dependencies mode (issue #286). Governs ONLY the
+     *   registration side effect on the parse path: 'auto' uses the
+     *   effective variant (auto-synthesizes DependencyGraph parents when
+     *   the file has no explicit directives), 'explicit' registers raw
+     *   directives only. Defaults to 'explicit' (the raw pre-#286
+     *   behavior) so untracked callers can never synthesize edges from a
+     *   mode they did not opt into. Callers inside a resolution must
+     *   thread the chain's mode (normalized with ?? 'auto', matching
+     *   get_effective_backward_directives). Deliberately NOT part of any
+     *   cache key: parsed content is mode-independent.
      */
     async get_parsed_file(
         uri: string,
         fs_path: string,
-        options?: { skip_disk_if_cached?: boolean; working_directory?: string; request_cache?: RequestCache }
+        options?: { skip_disk_if_cached?: boolean; working_directory?: string; request_cache?: RequestCache; backward_dependencies?: 'auto' | 'explicit' }
     ): Promise<ParsedFileResult> {
         // Use request cache if available to avoid duplicate reads/parses in same request
         if (options?.request_cache) {
@@ -2237,7 +2276,7 @@ export class ScopeResolver {
     private async _get_parsed_file_impl(
         uri: string,
         fs_path: string,
-        options?: { skip_disk_if_cached?: boolean; working_directory?: string; request_cache?: RequestCache }
+        options?: { skip_disk_if_cached?: boolean; working_directory?: string; request_cache?: RequestCache; backward_dependencies?: 'auto' | 'explicit' }
     ): Promise<ParsedFileResult> {
         const inherited_wd = options?.working_directory;
         const cache_key = this.make_file_cache_key(uri, inherited_wd);
@@ -2412,14 +2451,19 @@ export class ScopeResolver {
             // Register backward directive dependencies from cached file
             // This ensures transitive dependents are discoverable even when
             // intermediate files are only read from disk (not opened in editor).
-            // Intentionally the RAW variant (no auto-synthesis), unlike the
-            // commit-time effective registration in DocumentStore (issue #184):
-            // computing effective directives here would need the resolution's
-            // backward_dependencies mode threaded through get_parsed_file.
-            // Known consequence: for a file with auto-discovered parents that
-            // is also read as an ancestor, this clear-then-register drops its
-            // auto edges until its next commit — pre-existing behavior.
-            this.sync_backward_directive_dependencies(actual_uri, parse_result.directives);
+            // Uses the EFFECTIVE variant under the resolution's threaded
+            // backward_dependencies mode (issue #286): in 'auto' mode a file
+            // with no explicit directives keeps (or gains) its DependencyGraph
+            // parents instead of having them wiped by this clear-then-register,
+            // matching the commit-time effective registration in DocumentStore
+            // (issue #184). An unthreaded call defaults to 'explicit', which
+            // registers raw directives only — identical to the pre-#286 raw
+            // sync, so this can only ADD edges relative to that behavior.
+            this.apply_backward_directive_registration(
+                actual_uri,
+                parse_result.directives,
+                { backward_dependencies: options?.backward_dependencies ?? 'explicit' }
+            );
 
             // Register forward call relationships from cached file
             // This ensures callee_to_callers map includes relationships from cached files,
