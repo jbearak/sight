@@ -1636,13 +1636,15 @@ export class HoverProvider {
             return null;
         }
 
-        const prefix = context.prefix_command.toLowerCase();
-        const subcommand = word.toLowerCase();
+        // The context gate already validated prefix and subcommand with
+        // exact case, so both are canonical-lowercase here — compare
+        // exactly like the validation sites.
+        const prefix = context.prefix_command;
 
         // Get subcommand from command database
         const subcommands = this.command_db.get_subcommands(prefix);
         if (subcommands) {
-            const sub = subcommands.find(s => s.name.toLowerCase() === subcommand);
+            const sub = subcommands.find(s => s.name === word);
             if (sub) {
                 // Capitalize prefix name for display
                 const prefix_display = prefix.charAt(0).toUpperCase() + prefix.slice(1);
