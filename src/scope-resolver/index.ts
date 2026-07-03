@@ -182,7 +182,14 @@ export class ScopeResolver {
     private parser: StataParser;
     private analyzer: SemanticAnalyzer;
     // Cache key is "uri|working_directory" (or just "uri" if no working directory)
-    private file_cache: Map<string, { content: string; content_hash: string; mtimeMs?: number; size?: number; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; cd_commands: CdCommand[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; diagnostics: DirectiveDiagnostic[] }>;
+    // registered_backward_mode: the backward_dependencies mode the entry's
+    // last parse-path registration ran under (issue #286). Undefined for
+    // entries written by parse_file (root-file parses, which register via
+    // resolve()/commit instead). Lets cache HITS upgrade an
+    // 'explicit'-registered entry to effective registration when first
+    // read by an 'auto'-mode resolution — see
+    // upgrade_registration_on_cache_hit.
+    private file_cache: Map<string, { content: string; content_hash: string; mtimeMs?: number; size?: number; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; cd_commands: CdCommand[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; diagnostics: DirectiveDiagnostic[]; registered_backward_mode?: 'auto' | 'explicit' }>;
     private scope_cache: Map<string, ScopeCacheEntry>;
     // Secondary index: uri -> Set<cache_keys> for O(1) scope cache invalidation by URI
     private uri_to_cache_keys: Map<string, Set<string>>;
@@ -2288,6 +2295,9 @@ export class ScopeResolver {
         if (options?.skip_disk_if_cached && cached) {
             this.log(`[get_parsed_file] file_cache HIT for ${cache_key} (skip_disk_if_cached)`);
             this.cache_metrics.file.hits++;
+            this.upgrade_registration_on_cache_hit(
+                uri, cached, options?.backward_dependencies
+            );
             return {
                 content: cached.content,
                 content_hash: cached.content_hash,
@@ -2315,6 +2325,9 @@ export class ScopeResolver {
                 cached.size !== undefined && cached.size === size) {
                 this.cache_metrics.file.hits++;
                 this.log(`[get_parsed_file] File cache HIT for ${uri} (mtime match, skipped read)`);
+                this.upgrade_registration_on_cache_hit(
+                    uri, cached, options?.backward_dependencies
+                );
                 return {
                     content: cached.content,
                     content_hash: cached.content_hash,
@@ -2354,6 +2367,11 @@ export class ScopeResolver {
                             fallback_cached.size !== undefined && fallback_cached.size === fallback_size) {
                             this.cache_metrics.file.hits++;
                             this.log(`[get_parsed_file] File cache HIT for ${fallback_uri} (mtime match, skipped read)`);
+                            this.upgrade_registration_on_cache_hit(
+                                fallback_uri,
+                                fallback_cached,
+                                options?.backward_dependencies
+                            );
                             return {
                                 content: fallback_cached.content,
                                 content_hash: fallback_cached.content_hash,
@@ -2400,6 +2418,9 @@ export class ScopeResolver {
         if (actual_cached && actual_cached.content_hash === disk_hash) {
             this.cache_metrics.file.hits++;
             this.log(`[get_parsed_file] File cache HIT for ${actual_uri} (hash match)`);
+            this.upgrade_registration_on_cache_hit(
+                actual_uri, actual_cached, options?.backward_dependencies
+            );
             // Return cached results with current content - don't mutate cache entry
             return {
                 content,
@@ -2446,6 +2467,11 @@ export class ScopeResolver {
                 working_directory: parse_result.working_directory,
                 working_directory_directive: parse_result.working_directory_directive,
                 diagnostics: parse_result.diagnostics,
+                // Stamp the mode the registration below runs under, so
+                // later cache hits can upgrade an 'explicit'-registered
+                // entry (issue #286).
+                registered_backward_mode:
+                    options?.backward_dependencies ?? 'explicit',
             });
 
             // Register backward directive dependencies from cached file
@@ -3382,6 +3408,39 @@ export class ScopeResolver {
             );
         const normalized = this.normalize_directives(effective_directives, []);
         this.apply_normalized_backward_directives(child_uri, normalized);
+    }
+
+    /**
+     * Registration upgrade on file-cache hit (issue #286). Hit paths do
+     * not re-parse, so an entry whose last parse-path registration ran
+     * under 'explicit' — e.g. primed by the indexer's forced-'explicit'
+     * working-directory walk — would leave a directive-less file's
+     * dependency-graph parents unregistered for as long as 'auto'-mode
+     * resolutions keep hitting the cache (until the content changes).
+     * When an 'auto'-mode read hits such an entry, apply effective
+     * registration once and stamp the entry so repeat hits are free.
+     * Effective ⊇ raw, so upgrading can only add edges. Explicit-mode
+     * hits never downgrade: for them hit paths stay side-effect-free,
+     * as before.
+     */
+    private upgrade_registration_on_cache_hit(
+        uri: string,
+        cached: {
+            directives: Directive[];
+            registered_backward_mode?: 'auto' | 'explicit';
+        },
+        requested_mode: 'auto' | 'explicit' | undefined
+    ): void {
+        if (requested_mode !== 'auto') {
+            return;
+        }
+        if (cached.registered_backward_mode === 'auto') {
+            return;
+        }
+        this.apply_backward_directive_registration(uri, cached.directives, {
+            backward_dependencies: 'auto',
+        });
+        cached.registered_backward_mode = 'auto';
     }
 
     /**

@@ -196,6 +196,66 @@ describe('issue #286 — ancestor-level effective backward-directive sync', () =
         ).toBe(false);
     });
 
+    it('auto-mode cache hit upgrades registration primed by the explicit WD walk', async () => {
+        // The indexer's forced-'explicit' WD walk can be the FIRST read of a
+        // directive-less ancestor: it parses + caches the file and registers
+        // nothing (correct for explicit mode). A later auto-mode resolution
+        // then cache-HITS that entry — and hit paths do not re-parse — so
+        // without the registration-upgrade-on-hit the auto edge would stay
+        // missing until the ancestor's content changed (review finding on
+        // issue #286: mixed explicit/auto workspaces, library files never
+        // opened directly).
+        const b_path = create_file('b.do', 'display "b"\n');
+        const a_path = create_file('a.do', 'do b.do\n');
+        const a_uri = to_uri(a_path);
+        const b_uri = to_uri(b_path);
+        seed_auto_parent(a_uri, 'b.do');
+
+        const c_uri = to_uri(path.join(temp_dir, 'c.do'));
+        const c_content = `// @lsp-done-by: "${b_path}"\ndisplay "c"\n`;
+        const the_directives = new DirectiveParser()
+            .parse(c_content, c_uri).directives;
+        await scope_resolver.resolve_inherited_working_directory(
+            the_directives,
+            c_uri
+        );
+        // The explicit walk itself must not register auto edges...
+        expect(
+            scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
+        ).toBe(false);
+
+        // ...but the subsequent auto-mode resolution that HITS the
+        // walk-primed cache entry must upgrade the registration.
+        await scope_resolver.resolve(c_uri, c_content, {});
+        expect(
+            scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
+        ).toBe(true);
+    });
+
+    it('memo standalone-closure build registers ancestor auto parents (auto mode)', async () => {
+        // Nested forward closures build through the forward-closure memo
+        // (#234, on by default, gated on scan completion). The standalone
+        // build threads the initiating resolution's mode, so a
+        // directive-less file read during the build keeps its
+        // dependency-graph parents registered.
+        dependency_graph.mark_scan_complete();
+        const d_path = create_file('d.do', 'display "d"\n');
+        const a_path = create_file('a.do', 'do d.do\n');
+        const b_path = create_file('b.do', `do "${d_path}"\n`);
+        const a_uri = to_uri(a_path);
+        const d_uri = to_uri(d_path);
+        seed_auto_parent(a_uri, 'd.do');
+
+        // C's forward call to B makes B's own forward calls a NESTED
+        // closure (depth >= 1), which is where the memo hooks.
+        const c_uri = to_uri(path.join(temp_dir, 'c.do'));
+        await scope_resolver.resolve(c_uri, `do "${b_path}"\n`, {});
+
+        expect(
+            scope_resolver.get_backward_directive_children(a_uri).has(d_uri)
+        ).toBe(true);
+    });
+
     it('resolve_inherited_working_directory (indexer walk) never auto-registers ancestor graph parents', async () => {
         // The indexer's WD walk forces backward_dependencies: 'explicit' to
         // stay deterministic during a partial scan; the ancestor sync must
