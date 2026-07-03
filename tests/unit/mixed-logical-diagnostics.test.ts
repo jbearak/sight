@@ -470,11 +470,13 @@ describe('MixedLogicalOperatorAnalyzer Unit Tests', () => {
             expect(mixed).toHaveLength(0);
         });
 
-        it('resets continuation state at a comma inside parens (semicolon mode)', () => {
+        it('keeps statements separate when a comma inside parens follows a /// (semicolon mode)', () => {
             // `foo(x ///\n, y)` reaches the comma-inside-parens branch
-            // right after a continuation. The flag must reset there so
-            // the later real `;` terminator ends the statement and the
-            // `&` and `|` are never reported as a cross-statement mix.
+            // right after a continuation. The reset there is hygiene —
+            // a `;` terminator's value is never '\n', so the stale flag
+            // cannot change output today. This locks the statement
+            // separation in case the swallowed-terminator value guard
+            // is ever weakened.
             const doc = create_document_state(
                 '#delimit ;\ngen z = foo(x ///\n, y) & w ;\ngen q = a | b ;'
             );

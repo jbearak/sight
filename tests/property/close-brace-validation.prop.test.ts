@@ -705,7 +705,7 @@ describe('Close Brace Validation Property Tests', () => {
 
                     return !has_error_code(errors, ParseErrorCode.OPEN_BRACE_ALONE);
                 }),
-                { numRuns: 20 }
+                { numRuns: 100 }
             );
         });
 
@@ -717,7 +717,7 @@ describe('Close Brace Validation Property Tests', () => {
 
                     return has_error_code(errors, ParseErrorCode.BRACE_NOT_ALONE);
                 }),
-                { numRuns: 20 }
+                { numRuns: 100 }
             );
         });
     });
