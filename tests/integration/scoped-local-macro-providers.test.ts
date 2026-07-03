@@ -17,6 +17,7 @@ import { ReferencesProvider } from '../../src/providers/references';
 import { ScopeResolver } from '../../src/scope-resolver';
 import { ForwardScopeResolver } from '../../src/forward-scope-resolver';
 import { CommandDatabase } from '../../src/command-database';
+import { CompletionProvider } from '../../src/providers/completion';
 import { Location } from 'vscode-languageserver';
 
 const SIBLING_LINES = [
@@ -412,5 +413,108 @@ describe('scoped local macros: find-references (#270)', () => {
         const the_uris = new Set(the_locations.map(my_loc => my_loc.uri));
         expect(the_uris.has(uri)).toBe(true);
         expect(the_uris.has(lib.uri)).toBe(true);
+    });
+});
+
+describe('scoped local macros: completion (#270)', () => {
+    let test_temp_dir: string;
+    let completion_provider: CompletionProvider;
+    let document_store: DocumentStore;
+
+    beforeEach(() => {
+        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-comp-'));
+        completion_provider = new CompletionProvider(new CommandDatabase());
+        document_store = new DocumentStore();
+    });
+
+    afterEach(() => {
+        if (existsSync(test_temp_dir)) {
+            rmSync(test_temp_dir, { recursive: true, force: true });
+        }
+    });
+
+    async function open_document(lines: string[]) {
+        const file_path = join(test_temp_dir, 'a.do');
+        const content = lines.join('\n');
+        writeFileSync(file_path, content);
+        const uri = URI.file(file_path).toString();
+        await document_store.open(uri, content, 1);
+        await document_store.wait_for_update(uri);
+        return { uri, content, document_state: document_store.get(uri)! };
+    }
+
+    it('offers prog_b\'s local even when prog_a\'s owns the flat slot (lost-completion regression)', async () => {
+        const { document_state } = await open_document([
+            'program define prog_a',   // 0
+            '    local shared 1',      // 1
+            'end',                     // 2
+            'program define prog_b',   // 3
+            '    local shared 2',      // 4
+            '    di "`s',              // 5 — cursor after the prefix
+            'end',                     // 6
+        ]);
+        const the_completions = await completion_provider.get_completions(
+            document_state,
+            { line: 5, character: 10 },
+            '`',
+        );
+        const the_shared = the_completions.find(
+            my_item => my_item.label === 'shared'
+        );
+        expect(the_shared).toBeDefined();
+        expect(the_shared!.documentation).toBe('Value: 2');
+    });
+
+    it('does not offer a sibling program\'s local', async () => {
+        const { document_state } = await open_document([
+            'program define prog_a',   // 0
+            '    local only_a 1',      // 1
+            'end',                     // 2
+            'program define prog_b',   // 3
+            '    di "`o',              // 4
+            'end',                     // 5
+        ]);
+        const the_completions = await completion_provider.get_completions(
+            document_state,
+            { line: 4, character: 10 },
+            '`',
+        );
+        expect(
+            the_completions.map(my_item => my_item.label)
+        ).not.toContain('only_a');
+    });
+
+    it('offers do-file locals inside a program (permissive)', async () => {
+        const { document_state } = await open_document([
+            'local top_x 5',       // 0
+            'program define p',    // 1
+            '    di "`t',          // 2
+            'end',                 // 3
+        ]);
+        const the_completions = await completion_provider.get_completions(
+            document_state,
+            { line: 2, character: 10 },
+            '`',
+        );
+        expect(
+            the_completions.map(my_item => my_item.label)
+        ).toContain('top_x');
+    });
+
+    it('does not offer program-only locals at top level', async () => {
+        const { document_state } = await open_document([
+            'program define prog_a',   // 0
+            '    local hidden 1',      // 1
+            'end',                     // 2
+            'di "`h',                  // 3
+        ]);
+        const the_completions = await completion_provider.get_completions(
+            document_state,
+            { line: 3, character: 6 },
+            '`',
+        );
+        expect(
+            the_completions.map(my_item => my_item.label)
+        ).not.toContain('hidden');
     });
 });

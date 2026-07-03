@@ -36,6 +36,7 @@ import {
     ScopeInfo,
 } from '../types';
 import { program_body_start_line } from '../utils/scope-position';
+import { lookup_scoped_local_macro } from '../utils/scoped-locals';
 import { IContextTracker, LanguageContext } from '../context-tracker/types';
 import { CompletionPrefixCache } from '../utils/lru-cache';
 import { SymbolIndexCache } from '../utils/symbol-index-cache';
@@ -1697,6 +1698,69 @@ export class CompletionProvider {
      * @param resolved_scope - Optional resolved scope for cross-file symbols
      * @returns Array of completion items filtered by prefix and sorted alphabetically
      */
+    /**
+     * Local-macro completion source (issue #270). A PROGRAM-scoped
+     * local visible at the cursor comes from its OWNING scope's own
+     * map — the flat one-per-name view otherwise drops it whenever a
+     * same-named local in a different scope holds the slot. A
+     * do-file-scoped name keeps the flat/merged entry UNCHANGED: that
+     * view already reflects cross-file execution-order shadowing
+     * (e.g. a later `include` redefinition) that document.scopes — a
+     * same-file-only structure — cannot see. A name registered only
+     * in scopes not visible from the cursor is dropped entirely,
+     * matching hover/definition/references.
+     */
+    private build_local_macro_completion_map(
+        document: DocumentState,
+        symbols: SymbolTable,
+        position: Position
+    ): Map<string, MacroSymbol> {
+        const localMacros = symbols.localMacros;
+        const flat: Map<string, MacroSymbol> =
+            localMacros instanceof Map
+                ? localMacros
+                : (localMacros && typeof localMacros === 'object'
+                    ? new Map(Object.entries(localMacros))
+                    : new Map());
+
+        const the_scopes = document.scopes;
+        if (!the_scopes || the_scopes.length === 0) {
+            return flat;
+        }
+
+        const the_scoped_names = new Set<string>();
+        for (const my_scope of the_scopes) {
+            for (const my_name of my_scope.localMacros.keys()) {
+                the_scoped_names.add(my_name);
+            }
+        }
+
+        const the_macros = new Map<string, MacroSymbol>();
+        for (const [my_name, my_macro] of flat) {
+            if (
+                my_macro.sourceUri !== document.uri ||
+                !the_scoped_names.has(my_name)
+            ) {
+                // Cross-file / workspace or untracked entry: unchanged.
+                the_macros.set(my_name, my_macro);
+                continue;
+            }
+            const scoped = lookup_scoped_local_macro(
+                the_scopes, position, my_name
+            );
+            if (scoped.out_of_scope) {
+                continue;
+            }
+            the_macros.set(
+                my_name,
+                scoped.symbol?.containingScope === 'program'
+                    ? scoped.symbol
+                    : my_macro
+            );
+        }
+        return the_macros;
+    }
+
     private get_macro_completions(
         context: MacroCompletionContext,
         document: DocumentState,
@@ -1733,14 +1797,9 @@ export class CompletionProvider {
         // Ensure we are accessing the Maps correctly and handling plain objects if necessary.
         let the_macros: Map<string, MacroSymbol>;
         if (scope === 'local') {
-            const localMacros = symbols.localMacros;
-            if (localMacros instanceof Map) {
-                the_macros = localMacros;
-            } else if (localMacros && typeof localMacros === 'object') {
-                the_macros = new Map(Object.entries(localMacros));
-            } else {
-                the_macros = new Map();
-            }
+            the_macros = this.build_local_macro_completion_map(
+                document, symbols, position
+            );
         } else {
             const globalMacros = symbols.globalMacros;
             if (globalMacros instanceof Map) {
