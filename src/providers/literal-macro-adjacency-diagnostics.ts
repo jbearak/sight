@@ -8,7 +8,12 @@ import {
     LOGICAL_OPERATORS,
     collect_significant_tokens,
     is_adjacent,
+    is_diagnostic_range_ignored,
 } from './diagnostic-token-stream';
+import {
+    CONTROL_FLOW_EXPRESSION_KEYWORDS,
+    is_bare_expression_command_at,
+} from './command-position';
 
 /**
  * Macro reference token types.
@@ -19,12 +24,26 @@ const MACRO_REF_TYPES: Set<string> = new Set([
 ]);
 
 /**
- * Keywords that introduce a boolean condition (exact case; Stata is
- * case-sensitive). A literal that is the leading operand of one of these is
- * suspicious, where a number-macro concatenation is a footgun even with no
- * comparison operator adjacent to the pair.
+ * Keywords/commands that introduce a boolean condition: `if`/`while`
+ * anywhere (CONTROL_FLOW_EXPRESSION_KEYWORDS), plus bare-expression
+ * commands like `assert` in command position only (see
+ * command-position.ts). A literal that is the leading operand of one of
+ * these is suspicious, where a number-macro concatenation is a footgun
+ * even with no comparison operator adjacent to the pair.
  */
-const CONDITION_KEYWORDS: Set<string> = new Set(['if', 'while']);
+function is_condition_introducer(
+    the_significant: Token[],
+    index: number
+): boolean {
+    const my_token = the_significant[index];
+    if (my_token === undefined || my_token.type !== 'WORD') {
+        return false;
+    }
+    if (CONTROL_FLOW_EXPRESSION_KEYWORDS.has(my_token.value)) {
+        return true;
+    }
+    return is_bare_expression_command_at(the_significant, index);
+}
 
 /**
  * Grouping-open token types skipped when scanning backward for the operator
@@ -112,18 +131,20 @@ function is_expression_operator(my_token: Token | undefined): boolean {
 function governing_before(
     the_significant: Token[],
     index: number
-): { token: Token | undefined; group_opens: number } {
+): { token: Token | undefined; index: number; group_opens: number } {
     let my_group_opens = 0;
     for (let my_i = index - 1; my_i >= 0; my_i--) {
         const my_token = the_significant[my_i];
         if (GROUP_OPEN_TYPES.has(my_token.type)) {
-            const my_before_paren =
-                my_i - 1 >= 0 ? the_significant[my_i - 1] : undefined;
-            if (is_call_opener(my_before_paren, my_token)) {
+            const my_before_paren_index = my_i - 1;
+            if (
+                is_call_opener(the_significant, my_before_paren_index, my_token)
+            ) {
                 // Function-call / subscript opener: the operand is an
                 // argument, not a wrapped operand. Stop at the callee.
                 return {
-                    token: my_before_paren,
+                    token: the_significant[my_before_paren_index],
+                    index: my_before_paren_index,
                     group_opens: my_group_opens,
                 };
             }
@@ -136,9 +157,9 @@ function governing_before(
         ) {
             continue;
         }
-        return { token: my_token, group_opens: my_group_opens };
+        return { token: my_token, index: my_i, group_opens: my_group_opens };
     }
-    return { token: undefined, group_opens: my_group_opens };
+    return { token: undefined, index: -1, group_opens: my_group_opens };
 }
 
 /**
@@ -149,12 +170,19 @@ function governing_before(
  * `strlen(1`x')` is a call, but `assert (1`b')` / `display (1`b')` are commands
  * with a grouped expression, where Stata's own disambiguator is the space. A
  * call opener is a non-keyword WORD (callee name) or a preceding call/subscript
- * result (`)`/`]`). `if`/`while` before the paren is a condition, not a call.
+ * result (`)`/`]`). A condition introducer before the paren is not a
+ * call: `if`/`while` anywhere, or a bare-expression command such as
+ * `assert` in command position — `assert(1`b')` at statement start is
+ * the command with a grouped expression, while `display assert(1`b')`
+ * stays a call.
  */
 function is_call_opener(
-    my_token: Token | undefined,
+    the_significant: Token[],
+    token_index: number,
     my_paren: Token
 ): boolean {
+    const my_token =
+        token_index >= 0 ? the_significant[token_index] : undefined;
     if (my_token === undefined) {
         return false;
     }
@@ -165,7 +193,8 @@ function is_call_opener(
         return true;
     }
     return (
-        my_token.type === 'WORD' && !CONDITION_KEYWORDS.has(my_token.value)
+        my_token.type === 'WORD' &&
+        !is_condition_introducer(the_significant, token_index)
     );
 }
 
@@ -257,7 +286,8 @@ export class LiteralMacroAdjacencyAnalyzer {
             // such an operator governs it before or after — looking past
             // grouping parentheses and unary prefixes, so `if (1`b')` and
             // `a == -1`b'` read the same as their bare forms — or when the
-            // literal is the leading operand of an `if`/`while` condition.
+            // literal is the leading operand of an `if`/`while` condition
+            // or of a bare-expression command such as `assert`.
             const before = governing_before(the_significant, i - 1);
             const governor_after = governing_after(
                 the_significant,
@@ -267,20 +297,21 @@ export class LiteralMacroAdjacencyAnalyzer {
 
             const operator_before = is_expression_operator(before.token);
             const operator_after = is_expression_operator(governor_after);
-            const leads_condition =
-                before.token !== undefined &&
-                before.token.type === 'WORD' &&
-                CONDITION_KEYWORDS.has(before.token.value);
+            const leads_condition = is_condition_introducer(
+                the_significant,
+                before.index
+            );
 
+            const my_range = Range.create(
+                my_literal.range.start,
+                my_macro.range.end
+            );
             if (
                 (operator_before || operator_after || leads_condition) &&
-                !my_ignored_lines.has(my_literal.range.start.line)
+                !is_diagnostic_range_ignored(my_range, my_ignored_lines)
             ) {
                 the_diagnostics.push({
-                    range: Range.create(
-                        my_literal.range.start,
-                        my_macro.range.end
-                    ),
+                    range: my_range,
                     message:
                         'Literal adjacent to macro reference in an ' +
                         'expression. Stata concatenates these during macro ' +

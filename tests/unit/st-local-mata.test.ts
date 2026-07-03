@@ -140,6 +140,17 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(undefined_macros(src)).toEqual([]);
     });
 
+    it('a ; on the line after a /// ends the inline setter (semicolon mode)', () => {
+        // The newline after `///` lexes as WHITESPACE under `#delimit ;`,
+        // so the `;` on the next line is a REAL terminator: the inline
+        // `mata:` statement ends before the setter receives its name
+        // argument, and no local must be registered.
+        const src =
+            '#delimit ;\nmata: st_local( ///\n;\n"foo", "1") ;\ndisplay `foo\' ;';
+        expect(analyze(src).symbols.localMacros.has('foo')).toBe(false);
+        expect(undefined_macros(src)).toContain('foo');
+    });
+
     it('a reference within the same inline mata unit is not yet defined', () => {
         // `;` is a Mata operator here (one inline statement). Stata expands
         // the line before the Mata code runs, so `foo` is undefined at the

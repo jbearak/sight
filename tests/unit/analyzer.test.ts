@@ -642,6 +642,66 @@ display \`bare_directive_macro'
             expect(undefined_diags.some(d => d.message.includes('bare_directive_macro'))).toBe(true);
         });
 
+        it('should suppress with @lsp-ignore-next across a /// continuation', () => {
+            const result = analyze(`
+// @lsp-ignore-next
+local x = 1 + ///
+    \`undefined_macro'
+`, { undefined_macro_enabled: true });
+
+            const undefined_diags = result.diagnostics.filter(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            );
+            expect(undefined_diags.length).toBe(0);
+        });
+
+        it('@lsp-ignore-next covers a { block header but not the body', () => {
+            const result = analyze(`
+// @lsp-ignore-next
+if \`header_macro' == 1 {
+    display \`body_macro'
+}
+`, { undefined_macro_enabled: true });
+
+            const undefined_diags = result.diagnostics.filter(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            );
+            expect(undefined_diags.some(d => d.message.includes('header_macro'))).toBe(false);
+            expect(undefined_diags.some(d => d.message.includes('body_macro'))).toBe(true);
+        });
+
+        it('@lsp-ignore-next does not leak past a ; after a /// (semicolon mode)', () => {
+            const result = analyze(`
+#delimit ;
+// @lsp-ignore-next
+local x = \`alpha_macro' ///
+;
+display \`bravo_macro' ;
+`, { undefined_macro_enabled: true });
+
+            const undefined_diags = result.diagnostics.filter(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            );
+            expect(undefined_diags.some(d => d.message.includes('alpha_macro'))).toBe(false);
+            expect(undefined_diags.some(d => d.message.includes('bravo_macro'))).toBe(true);
+        });
+
+        it('@lsp-ignore-next spans a multi-line #delimit ; statement', () => {
+            const result = analyze(`
+#delimit ;
+// @lsp-ignore-next
+local x = 1 +
+    \`undefined_macro' ;
+display \`unignored_macro' ;
+`, { undefined_macro_enabled: true });
+
+            const undefined_diags = result.diagnostics.filter(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            );
+            expect(undefined_diags.some(d => d.message.includes('undefined_macro'))).toBe(false);
+            expect(undefined_diags.some(d => d.message.includes('unignored_macro'))).toBe(true);
+        });
+
         it('should declare variables with @lsp-variables', () => {
             const result = analyze(`
 // @lsp-variables age income status

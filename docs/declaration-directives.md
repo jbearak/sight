@@ -16,6 +16,11 @@ and declaration directives may also appear as trailing `//` comments;
 Block comments (`/* ... */`) do not carry directives. The older `@lsp-` forms
 remain permanent aliases, so `// @lsp-ignore` still works.
 
+"The next statement" means every physical line that statement spans:
+a statement continued with `///` (or spanning lines under `#delimit ;`)
+is covered on all of its lines. A statement that opens a `{` block is
+covered through the header line only, never the block body.
+
 ```stata
 // Suppress warning on the next line
 // sight: ignore-next

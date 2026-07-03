@@ -109,6 +109,50 @@ describe('LiteralMacroAdjacencyAnalyzer Unit Tests', () => {
         });
     });
 
+    describe('Bare-expression commands (#268 item 3)', () => {
+        it("detects a bare assert condition: assert 1`b'", () => {
+            expect(found("assert 1`b'")).toHaveLength(1);
+        });
+        it("detects an adjacent-paren assert (command, not call): assert(1`b') == 10", () => {
+            expect(found("assert(1`b') == 10")).toHaveLength(1);
+        });
+        it("detects a parenthesized bare assert condition: assert (1`b')", () => {
+            expect(found("assert (1`b')")).toHaveLength(1);
+        });
+        it("detects assert after a prefix command: capture assert 1`b'", () => {
+            expect(found("capture assert 1`b'")).toHaveLength(1);
+        });
+        it("detects assert after an abbreviated prefix: cap assert 1`b'", () => {
+            expect(found("cap assert 1`b'")).toHaveLength(1);
+        });
+        it("detects assert after a prefix with colon: quietly: assert 1`b'", () => {
+            expect(found("quietly: assert 1`b'")).toHaveLength(1);
+        });
+        it("detects assert after stacked prefixes: cap noi assert 1`b'", () => {
+            expect(found("cap noi assert 1`b'")).toHaveLength(1);
+        });
+        it("detects assert on a later statement: display x\\nassert 1`b'", () => {
+            expect(found("display x\nassert 1`b'")).toHaveLength(1);
+        });
+        it("does not flag wrong-case Assert (Stata is case-sensitive)", () => {
+            expect(found("Assert 1`b'")).toHaveLength(0);
+        });
+        it("does not flag assert as a subscript target: gen y = assert[1`b']", () => {
+            expect(found("gen y = assert[1`b']")).toHaveLength(0);
+        });
+        it("does not flag assert as a callee: display assert(1`b')", () => {
+            expect(found("display assert(1`b')")).toHaveLength(0);
+        });
+        it("does not treat a mid-statement assert word as a command: list assert 1`b'", () => {
+            // `assert` here is (unusually) a variable name in a varlist,
+            // not the command; command-position detection must not fire.
+            expect(found("list assert 1`b'")).toHaveLength(0);
+        });
+        it("treats statements independently: cap assert 1`b'\\ngen y = assert[2`c']", () => {
+            expect(found("cap assert 1`b'\ngen y = assert[2`c']")).toHaveLength(1);
+        });
+    });
+
     describe('Non-detection (false-positive guards)', () => {
         it("does not flag varname-macro: generate x`i' = 1", () => {
             expect(found("generate x`i' = 1")).toHaveLength(0);

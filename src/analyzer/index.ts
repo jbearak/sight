@@ -47,6 +47,8 @@ import {
     has_ignore_directive,
     has_ignore_next_directive,
 } from '../utils/directives';
+import { next_statement_line_span } from '../utils/statement-span';
+import { is_swallowed_continuation_terminator } from '../utils/continuation';
 
 // Diagnostic interface for semantic errors
 export interface SemanticDiagnostic {
@@ -521,17 +523,24 @@ export class SemanticAnalyzer {
             .filter(name => name.length > 0 && is_valid_identifier(name));
     }
 
+    /**
+     * Suppress diagnostics on every physical line the next logical
+     * statement spans — not just its first line — so `@lsp-ignore-next`
+     * covers `///`-continued statements and multi-line `#delimit ;`
+     * statements (issue #268 item 2). A `{` block header is covered up
+     * to the opener; the block body is not.
+     */
     private ignore_next_non_trivia_line(tokens: Token[], directive_index: number): void {
-        for (let j = directive_index + 1; j < tokens.length; j++) {
-            const next_token = tokens[j];
-            if (next_token.type !== 'WHITESPACE' &&
-                next_token.type !== 'COMMENT_LINE' &&
-                next_token.type !== 'COMMENT_BLOCK' &&
-                next_token.type !== 'CONTINUATION' &&
-                next_token.type !== 'STATEMENT_TERMINATOR') {
-                this.config.ignored_lines.add(next_token.range.start.line);
-                break;
-            }
+        const my_span = next_statement_line_span(tokens, directive_index);
+        if (!my_span) {
+            return;
+        }
+        for (
+            let my_line = my_span.start_line;
+            my_line <= my_span.end_line;
+            my_line++
+        ) {
+            this.config.ignored_lines.add(my_line);
         }
     }
 
@@ -713,6 +722,19 @@ export class SemanticAnalyzer {
         }
     }
 
+    /**
+     * AST-trivia fallback for comment directives. Ignore directives here
+     * add only the following node's FIRST line, by design: a control-flow
+     * node's range spans its whole block body, so marking the full range
+     * would over-suppress everything inside the block. Every production
+     * caller of analyze() passes tokens, making the token path
+     * (extract_comment_directives_from_tokens ->
+     * ignore_next_non_trivia_line) authoritative with full statement-span
+     * suppression; this narrower single-line contribution is a redundant
+     * subset when tokens are present, never a source of over-suppression.
+     * If a caller ever stops passing tokens, `@lsp-ignore-next` regresses
+     * to single-line suppression for that caller — keep tokens flowing.
+     */
     private parse_directive(trivia: TriviaNode, following_node: StataNode): void {
         const content = trivia.content.trim();
 
@@ -3822,8 +3844,11 @@ export class SemanticAnalyzer {
                     continue;
                 }
                 if (
-                    token.type === 'STATEMENT_TERMINATOR' &&
-                    (after_continuation || skip_terminators)
+                    is_swallowed_continuation_terminator(
+                        token,
+                        after_continuation
+                    ) ||
+                    (token.type === 'STATEMENT_TERMINATOR' && skip_terminators)
                 ) {
                     after_continuation = false;
                     j++;
@@ -4617,7 +4642,8 @@ export class SemanticAnalyzer {
      * Is the STATEMENT_TERMINATOR at `index` a `///` line continuation
      * (rather than a real end of statement)? True when the previous
      * significant token — skipping whitespace and comments — is a
-     * CONTINUATION.
+     * CONTINUATION, and the terminator is the newline the `///`
+     * swallows (a `;` under `#delimit ;` is always a real end).
      */
     private is_continuation_terminator_at(
         tokens: Token[],
@@ -4627,7 +4653,10 @@ export class SemanticAnalyzer {
         while (j >= 0 && MATA_TRIVIA_TOKENS.has(tokens[j].type)) {
             j--;
         }
-        return j >= 0 && tokens[j].type === 'CONTINUATION';
+        return is_swallowed_continuation_terminator(
+            tokens[index],
+            j >= 0 && tokens[j].type === 'CONTINUATION'
+        );
     }
 
     /**
