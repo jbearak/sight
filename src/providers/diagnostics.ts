@@ -18,6 +18,7 @@ import {
 import {
     find_enclosing_scope,
 } from '../utils/scope-position';
+import { get_visible_local_scopes } from '../utils/scoped-locals';
 import {
     ScopeResolver,
     get_visible_forward_call_sites,
@@ -1061,25 +1062,14 @@ export class DiagnosticsProvider {
         // Locals resolve the forward hint scope-aware: the flat view's
         // slot prefers a do-file definition, which may be an unrelated
         // later redefinition rather than the same-scope definition the
-        // user should be pointed at. Mirror lookup_local_macro's
-        // visibility (own scope + do-file scope) and pick the nearest
-        // definition after the reference across both. Falls back to the
-        // flat read when no scopes were provided (partial states).
+        // user should be pointed at. get_visible_local_scopes mirrors
+        // lookup_local_macro's visibility (own scope + do-file scope,
+        // body_only per #273); pick the nearest definition after the
+        // reference across both. Falls back to the flat read when no
+        // scopes were provided (partial states).
         if (reference_kind === 'local' && scopes.length > 0) {
-            // body_only: a reference on a program's header/end line
-            // expands in the enclosing frame, so the hint must never
-            // name a body local (issue #273).
-            const enclosing_scope = find_enclosing_scope(
-                scopes,
-                reference_position,
-                { body_only: true }
-            );
             const the_visible_scopes =
-                enclosing_scope.type !== 'dofile' &&
-                scopes[0] !== undefined &&
-                scopes[0] !== enclosing_scope
-                    ? [enclosing_scope, scopes[0]]
-                    : [enclosing_scope];
+                get_visible_local_scopes(scopes, reference_position);
             let nearest_forward_line: number | null = null;
             for (const my_scope of the_visible_scopes) {
                 const my_symbol = my_scope.localMacros.get(symbol_name);
