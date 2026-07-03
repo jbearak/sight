@@ -13,9 +13,14 @@ import {
     CancellationToken,
 } from 'vscode-languageserver';
 import { DocumentState } from '../document-store';
-import { LanguageContext, Token, ContextRange } from '../types';
+import { LanguageContext, MacroSymbol, Token, ContextRange } from '../types';
 import { get_line_text } from '../utils/line-utils';
-import { is_cross_file_hidden_local } from '../utils/dofile-locals';
+import {
+    classify_effective_local,
+    is_cross_file_hidden_local,
+    resolve_effective_local,
+} from '../utils/dofile-locals';
+import { resolve_scoped_or_flat } from '../utils/scoped-locals';
 import type { WorkspaceIndexer } from '../indexer';
 import type { IContextTracker } from '../context-tracker/types';
 import type { ScopeResolver } from '../scope-resolver';
@@ -191,6 +196,9 @@ export class ReferencesProvider {
         workspace_indexer?: WorkspaceIndexer,
         resolved_scope?: ResolvedScope,
         cursor_line?: number,
+        target_local_macro?: MacroSymbol,
+        exclude_same_file_local?: boolean,
+        inherited_target?: MacroSymbol,
     ): Location[] {
         const locations: Location[] = [];
         const seen = new Set<string>();
@@ -205,7 +213,21 @@ export class ReferencesProvider {
         const symbols = document.symbols;
         switch (symbol_type) {
             case 'local_macro': {
-                const local_macro = symbols.localMacros.get(symbol_name);
+                // Scope-aware (#270): the resolved target symbol (the
+                // cursor-visible scope's own MacroSymbol) supersedes
+                // the
+                // flat slot, which may belong to a different scope. For
+                // an out-of-scope reference the flat slot is forbidden
+                // entirely — the identity is the call-line-gated
+                // inherited winner (its primary + same-scope
+                // additional_definitions) or nothing; the broad
+                // workspace pool below stays off for this mode, or a
+                // superseded include's same-name declaration would
+                // surface next to the winner (round-6 gate).
+                const local_macro = target_local_macro
+                    ?? (exclude_same_file_local
+                        ? inherited_target
+                        : symbols.localMacros.get(symbol_name));
                 if (local_macro) {
                     // Loop-expanded definitions anchor at the template statement
                     // (`local x_`i'`), whose text does not contain the concrete
@@ -271,7 +293,23 @@ export class ReferencesProvider {
             }
         }
 
-        if (workspace_indexer) {
+        // A program-scoped local target never crosses file boundaries
+        // (#271), so cross-file declaration pooling is skipped (#270).
+        // Out-of-scope cursors skip it too: their declaration set is
+        // exactly the inherited winner handled above (or nothing when
+        // plain undefined) — the ungated same-name pool would surface
+        // superseded includes' declarations (round-6 gate).
+        const is_program_scoped_target = this.is_program_scoped_local_target(
+            symbol_type, target_local_macro
+        );
+        const out_of_scope_local_target =
+            symbol_type === 'local_macro' &&
+            exclude_same_file_local === true;
+        if (
+            workspace_indexer &&
+            !is_program_scoped_target &&
+            !out_of_scope_local_target
+        ) {
             const ws_type: 'program' | 'local' | 'global' | 'variable' | 'scalar' | 'matrix' =
                 symbol_type === 'local_macro' ? 'local' :
                 symbol_type === 'global_macro' ? 'global' :
@@ -441,6 +479,11 @@ export class ReferencesProvider {
             )
             : undefined;
 
+        // Scope-aware local-macro target resolution (#270).
+        const target = this.resolve_local_reference_target(
+            document, position, identified_symbol, resolved_scope
+        );
+
         return this.collect_references(
             document,
             identified_symbol.name,
@@ -451,7 +494,88 @@ export class ReferencesProvider {
             cancellation_token,
             resolved_scope,
             position.line,
+            target.target_local_macro,
+            target.exclude_same_file_local,
+            target.inherited_target,
         );
+    }
+
+    /**
+     * Scope-aware target resolution for local-macro find-references
+     * (#270), applying the effective order (see
+     * resolve_effective_local): a positionally RESOLVED same-file
+     * symbol is the target; else the cross-file INHERITED do-file
+     * local is the winner (`exclude_same_file_local` + 
+     * `inherited_target`: the flat slot must not be pooled,
+     * declarations come from the winner, and same-file occurrences
+     * count only when their own effective resolution is the winner);
+     * else a same-scope FORWARD identity target behaves like a
+     * resolved one (round-9 gate); else, for an out-of-scope name
+     * with no inherited winner, the reference is plain undefined
+     * (`exclude_same_file_local` alone: current-file-only,
+     * same-resolution-class occurrences). All fields undefined/false
+     * = the scoped model has no opinion (empty scopes, cross-file
+     * name, positional arg); existing name-based scanning proceeds
+     * unchanged.
+     */
+    private resolve_local_reference_target(
+        document: DocumentState,
+        position: Position,
+        identified_symbol: IdentifiedSymbol,
+        resolved_scope: ResolvedScope | undefined
+    ): {
+        target_local_macro?: MacroSymbol;
+        exclude_same_file_local: boolean;
+        inherited_target?: MacroSymbol;
+    } {
+        if (identified_symbol.type !== 'local_macro') {
+            return { exclude_same_file_local: false };
+        }
+        const effective = classify_effective_local(
+            document.scopes,
+            position,
+            identified_symbol.name,
+            resolved_scope,
+            document.uri
+        );
+        switch (effective.kind) {
+            case 'resolved':
+            case 'forward':
+                return {
+                    target_local_macro: effective.symbol,
+                    exclude_same_file_local: false,
+                };
+            case 'inherited':
+                return {
+                    exclude_same_file_local: true,
+                    inherited_target: effective.symbol,
+                };
+            case 'out_of_scope':
+                return { exclude_same_file_local: true };
+            case 'none':
+                return { exclude_same_file_local: false };
+            default: {
+                // Compiler-enforced exhaustiveness: a new
+                // classification tier must be mapped here explicitly.
+                const unhandled: never = effective.kind;
+                throw new Error(`unhandled effective kind: ${unhandled}`);
+            }
+        }
+    }
+
+    /**
+     * True when the resolved find-references target is a program-scoped
+     * local. Such a target never crosses file boundaries (#271), so
+     * both declaration pooling and the token scan stay current-file
+     * only. Shared by find_definitions and collect_references so the
+     * two gates cannot drift (#270).
+     */
+    private is_program_scoped_local_target(
+        symbol_type: string,
+        target_local_macro?: MacroSymbol
+    ): boolean {
+        return symbol_type === 'local_macro' &&
+            target_local_macro?.containingScope === 'program';
     }
 
     /**
@@ -668,7 +792,13 @@ export class ReferencesProvider {
         ) {
             return { name: word, type: 'global_macro', range };
         }
-        const local_macro = document.symbols.localMacros.get(word);
+        // Scope-aware (#270): resolve against the scope that textually
+        // contains the cursor, so a losing-flat-slot program local
+        // still matches its own declaration range.
+        const local_macro = resolve_scoped_or_flat(
+            document.scopes, range.start, word,
+            document.symbols.localMacros
+        );
         if (
             local_macro
             && this.position_hits_symbol_definition(range.start, local_macro)
@@ -855,6 +985,11 @@ export class ReferencesProvider {
             )
             : undefined;
 
+        // Scope-aware local-macro target resolution (#270).
+        const target = this.resolve_local_reference_target(
+            document, position, identified_symbol, resolved_scope
+        );
+
         return this.collect_references(
             document,
             identified_symbol.name,
@@ -865,6 +1000,9 @@ export class ReferencesProvider {
             cancellation_token,
             resolved_scope,
             position.line,
+            target.target_local_macro,
+            target.exclude_same_file_local,
+            target.inherited_target,
         );
     }
 
@@ -881,6 +1019,9 @@ export class ReferencesProvider {
         cancellation_token?: CancellationToken,
         resolved_scope?: ResolvedScope,
         cursor_line?: number,
+        target_local_macro?: MacroSymbol,
+        exclude_same_file_local?: boolean,
+        inherited_target?: MacroSymbol,
     ): Promise<Location[]> {
         const search_context: ReferenceSearchContext = {
             symbol_name,
@@ -896,6 +1037,9 @@ export class ReferencesProvider {
             workspace_indexer,
             resolved_scope,
             cursor_line,
+            target_local_macro,
+            exclude_same_file_local,
+            inherited_target,
         );
 
         // Search workspace-indexed files (Req 13.3).
@@ -920,8 +1064,27 @@ export class ReferencesProvider {
         // understands `include_only`.
         // See docs/find-references.md for the rationale behind this three-tier model.
         const restrict_to_related = symbol_type !== 'variable';
+        // A program-scoped local target never crosses file boundaries
+        // (#271) — restrict the scan to the current file, skipping
+        // the
+        // cross-file token scan entirely (#270). Same for an
+        // out-of-scope cursor with NO inherited target: the reference
+        // is plain undefined, and a same-named local in an
+        // include-related file's program body is a different macro
+        // (round-3 gate).
+        const is_program_scoped_target = this.is_program_scoped_local_target(
+            symbol_type, target_local_macro
+        );
+        const undefined_out_of_scope_target =
+            symbol_type === 'local_macro' &&
+            exclude_same_file_local === true &&
+            inherited_target === undefined;
         let the_related: Map<string, ReferenceScanRange>;
-        if (!workspace_indexer) {
+        if (
+            is_program_scoped_target ||
+            undefined_out_of_scope_target ||
+            !workspace_indexer
+        ) {
             the_related = new Map([[document.uri, {}]]);
         } else if (
             restrict_to_related &&
@@ -982,6 +1145,29 @@ export class ReferencesProvider {
             const doc_range = the_related.get(document.uri);
             for (const my_match of matches) {
                 if (doc_range && !line_within_scan_range(my_match.range.start.line, doc_range)) {
+                    continue;
+                }
+                // Scope-filter (#270): a same-file name match may
+                // lexically belong to a DIFFERENT same-named local
+                // (shadowing, inheritance, or forward order) — keep
+                // only occurrences whose own EFFECTIVE resolution
+                // (resolved -> inherited -> forward, the same order
+                // every provider uses; round-9 gate) is
+                // identity-equal to the cursor's effective target
+                // (undefined matching undefined for the
+                // plain-undefined class; round-5 gate).
+                if (
+                    symbol_type === 'local_macro' &&
+                    (target_local_macro !== undefined ||
+                        exclude_same_file_local === true) &&
+                    resolve_effective_local(
+                        document.scopes,
+                        my_match.range.start,
+                        symbol_name,
+                        resolved_scope,
+                        document.uri
+                    ) !== (target_local_macro ?? inherited_target)
+                ) {
                     continue;
                 }
                 locations.push({ uri: my_match.uri, range: my_match.range });

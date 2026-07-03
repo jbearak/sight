@@ -36,6 +36,11 @@ import {
     ScopeInfo,
 } from '../types';
 import { program_body_start_line } from '../utils/scope-position';
+import {
+    collect_visible_local_macros,
+    enumerate_scoped_local_macros,
+} from '../utils/scoped-locals';
+import { collect_inherited_dofile_locals } from '../utils/dofile-locals';
 import { IContextTracker, LanguageContext } from '../context-tracker/types';
 import { CompletionPrefixCache } from '../utils/lru-cache';
 import { SymbolIndexCache } from '../utils/symbol-index-cache';
@@ -73,6 +78,24 @@ import { format_help_link } from '../utils/help-link';
 const DIRECTIVE_PATH_CONTEXT_PATTERN = new RegExp(
     `^\\s*(${DIRECTIVE_BODY_PREFIX_PATTERN}[a-zA-Z-]+)\\s*:?\\s*(.*)$`
 );
+
+/**
+ * Defensive SymbolTable-map coercion: production always passes Maps,
+ * but unit tests may pass plain objects (or partial stubs with the
+ * field missing). Shared by the local- and global-macro completion
+ * sources so the coercion contract lives in one place.
+ */
+function coerce_macro_map(
+    value: Map<string, MacroSymbol> | Record<string, MacroSymbol> | undefined
+): Map<string, MacroSymbol> {
+    if (value instanceof Map) {
+        return value;
+    }
+    if (value && typeof value === 'object') {
+        return new Map(Object.entries(value));
+    }
+    return new Map();
+}
 
 /**
  * Map ForwardCallSite.effective_type to directive_type for ranking.
@@ -1007,6 +1030,12 @@ export class CompletionProvider {
 
             // === ASYNC PHASE: Scope resolution (only if needed) ===
             let resolved_scope: ResolvedScope | undefined;
+            // The resolved scope whenever the resolver ran at all —
+            // unlike `resolved_scope` (scope-resolved mode only), this
+            // also carries forward-include data in global mode, needed
+            // for the inherited-local lookup in
+            // build_local_macro_completion_map (#270 round-2 gate).
+            let inherited_lookup_scope: ResolvedScope | undefined;
             let symbols_for_completion: SymbolTable = document.symbols;
 
             if (scope_resolver) {
@@ -1017,6 +1046,7 @@ export class CompletionProvider {
                     resolve_config,
                     cancellation_token
                 );
+                inherited_lookup_scope = temp_scope;
                 const has_directives = temp_scope.has_directives;
                 const has_auto_parents = temp_scope.has_auto_parents;
                 const visible_forward_overlay =
@@ -1105,7 +1135,8 @@ export class CompletionProvider {
                         position,
                         symbols_for_completion,
                         out_of_scope_symbols,
-                        resolved_scope
+                        resolved_scope,
+                        inherited_lookup_scope
                     );
                     the_completions.push(...macro_completions);
                     return the_completions;
@@ -1135,7 +1166,15 @@ export class CompletionProvider {
 
                 case 'macro':
                     // Always provide macro completions (macros work in all contexts)
-                    return this.get_macro_completions(context, document, position, symbols_for_completion, out_of_scope_symbols, resolved_scope);
+                    return this.get_macro_completions(
+                        context,
+                        document,
+                        position,
+                        symbols_for_completion,
+                        out_of_scope_symbols,
+                        resolved_scope,
+                        inherited_lookup_scope
+                    );
 
                 case 'variable':
                     // Suppress variable completions in embedded language contexts
@@ -1697,13 +1736,117 @@ export class CompletionProvider {
      * @param resolved_scope - Optional resolved scope for cross-file symbols
      * @returns Array of completion items filtered by prefix and sorted alphabetically
      */
+    /**
+     * Local-macro completion source (issue #270). A PROGRAM-scoped
+     * local visible at the cursor comes from its OWNING scope's own
+     * map — the flat one-per-name view otherwise drops it whenever a
+     * same-named local in a different scope holds the slot. A
+     * do-file-scoped name keeps the flat/merged entry UNCHANGED: that
+     * view already reflects cross-file execution-order shadowing
+     * (e.g. a later `include` redefinition) that document.scopes — a
+     * same-file-only structure — cannot see. A name registered only
+     * in scopes not visible from the cursor resolves to a cross-file
+     * INHERITED do-file local when one exists (matching the
+     * analyzer's cross-file suppression), else is dropped — matching
+     * hover/definition/references.
+     */
+    private build_local_macro_completion_map(
+        document: DocumentState,
+        symbols: SymbolTable,
+        position: Position,
+        resolved_scope?: ResolvedScope
+    ): Map<string, MacroSymbol> {
+        const flat = coerce_macro_map(symbols.localMacros);
+
+        const the_scopes = document.scopes;
+        if (!the_scopes || the_scopes.length === 0) {
+            return flat;
+        }
+
+        // Names tracked ANYWHERE in this file (visible or not) — what
+        // disambiguates "untracked, keep the merged entry" from
+        // "tracked but out of scope at the cursor" below. Derived from
+        // the shared enumerator so the membership rule cannot drift
+        // from the outline/workspace-search enumeration.
+        const the_scoped_names = new Set(
+            enumerate_scoped_local_macros(the_scopes, flat)
+                .map(([my_name]) => my_name)
+        );
+        // Position-invariant across the loop below: resolve the
+        // enclosing scope once, not per candidate name.
+        const the_visible_macros = collect_visible_local_macros(
+            the_scopes, position
+        );
+
+        const the_macros = new Map<string, MacroSymbol>();
+        let the_inherited_locals: Map<string, MacroSymbol> | undefined;
+        const get_inherited = (my_name: string): MacroSymbol | undefined => {
+            // Position-invariant: build the map once, lazily, instead
+            // of re-walking the chain per name.
+            the_inherited_locals ??= collect_inherited_dofile_locals(
+                resolved_scope, position.line, document.uri
+            );
+            return the_inherited_locals.get(my_name);
+        };
+        for (const [my_name, my_macro] of flat) {
+            const resolved_symbol = the_visible_macros.resolved.get(my_name);
+            if (resolved_symbol?.containingScope === 'program') {
+                // A positionally resolved program-scoped local wins
+                // outright — even over a cross-file merged
+                // representative (#271: the program's own local
+                // shadows everything at the cursor, and a same-named
+                // local elsewhere is a different macro).
+                the_macros.set(my_name, resolved_symbol);
+                continue;
+            }
+            if (
+                my_macro.sourceUri !== document.uri ||
+                !the_scoped_names.has(my_name)
+            ) {
+                // Cross-file / workspace or untracked entry: unchanged.
+                the_macros.set(my_name, my_macro);
+                continue;
+            }
+            if (resolved_symbol === undefined) {
+                // No positionally resolved same-file winner (out of
+                // scope, or a not-yet-defined forward local). A
+                // cross-file INHERITED do-file local is genuinely
+                // defined here (the analyzer's cross-file suppression
+                // treats it as defined) and outranks the forward
+                // identity target (round-9 gate) — offer it;
+                // otherwise the forward symbol (which the downstream
+                // definition-line filter drops as future-defined) or,
+                // for a forward DO-FILE local, the flat/merged entry;
+                // else drop.
+                const inherited = get_inherited(my_name);
+                const forward_symbol =
+                    the_visible_macros.forward.get(my_name);
+                if (inherited) {
+                    the_macros.set(my_name, inherited);
+                } else if (
+                    forward_symbol?.containingScope === 'program'
+                ) {
+                    the_macros.set(my_name, forward_symbol);
+                } else if (forward_symbol) {
+                    the_macros.set(my_name, my_macro);
+                }
+                continue;
+            }
+            // Do-file-scoped: keep the flat/merged entry, which already
+            // reflects cross-file execution-order shadowing.
+            the_macros.set(my_name, my_macro);
+        }
+        return the_macros;
+    }
+
     private get_macro_completions(
         context: MacroCompletionContext,
         document: DocumentState,
         position: Position,
         symbols: SymbolTable,
         out_of_scope: SymbolTable,
-        resolved_scope?: ResolvedScope
+        resolved_scope?: ResolvedScope,
+        inherited_lookup_scope?: ResolvedScope
     ): CompletionItem[] {
         // Use context.form to determine scope and delimiter behavior
         const scope = context.scope;
@@ -1731,26 +1874,11 @@ export class CompletionProvider {
         // CRITICAL FIX: Ensure 'symbols' actually has content and is a valid SymbolTable.
         // In unit tests, partial or mock objects might be passed.
         // Ensure we are accessing the Maps correctly and handling plain objects if necessary.
-        let the_macros: Map<string, MacroSymbol>;
-        if (scope === 'local') {
-            const localMacros = symbols.localMacros;
-            if (localMacros instanceof Map) {
-                the_macros = localMacros;
-            } else if (localMacros && typeof localMacros === 'object') {
-                the_macros = new Map(Object.entries(localMacros));
-            } else {
-                the_macros = new Map();
-            }
-        } else {
-            const globalMacros = symbols.globalMacros;
-            if (globalMacros instanceof Map) {
-                the_macros = globalMacros;
-            } else if (globalMacros && typeof globalMacros === 'object') {
-                the_macros = new Map(Object.entries(globalMacros));
-            } else {
-                the_macros = new Map();
-            }
-        }
+        const the_macros: Map<string, MacroSymbol> = scope === 'local'
+            ? this.build_local_macro_completion_map(
+                document, symbols, position, inherited_lookup_scope
+            )
+            : coerce_macro_map(symbols.globalMacros);
         
         // Build lowercase index for faster prefix matching
         // This avoids calling toLowerCase() for each symbol in the loop
@@ -1827,7 +1955,18 @@ export class CompletionProvider {
             // For local macro completions, respect program scoping.
             // - If cursor is inside a program: include locals defined in that program + locals defined at file scope.
             // - If cursor is outside any program: exclude locals defined inside programs.
-            if (scope === 'local' && document.ast) {
+            // Degenerate-state fallback ONLY (#270): with scopes
+            // present, build_local_macro_completion_map already applied
+            // the authoritative ScopeInfo-based visibility; re-running
+            // this AST walk would just risk boundary disagreements
+            // (///-continued headers) and spurious matches for
+            // cross-file entries whose positions belong to other files.
+            if (
+                scope === 'local' &&
+                document.ast &&
+                (document.scopes === undefined ||
+                    document.scopes.length === 0)
+            ) {
                 const macro_pos = macro.location?.range?.start;
                 if (macro_pos) {
                     const containing_program = this.find_program_containing_position(

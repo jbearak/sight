@@ -11,7 +11,7 @@ import { ContextTracker } from '../../../src/context-tracker';
 import { Token, TriviaNode } from '../../../src/types';
 import { undefined_symbol_data_fields } from '../../../src/utils/undefined-symbol-diagnostic';
 import { Position, Range } from 'vscode-languageserver-textdocument';
-import { DiagnosticSeverity } from 'vscode-languageserver';
+import { DiagnosticSeverity, Location } from 'vscode-languageserver';
 
 // Counter for generating unique URIs to avoid cache collisions
 let document_counter = 0;
@@ -288,4 +288,17 @@ export function find_all_positions_of(my_source: string, my_search: string): Pos
   }
 
   return my_positions;
+}
+/**
+ * Normalize an LSP Definition result (Location | Location[] | null)
+ * into a flat array for assertions. Shared by the scoped-local-macro
+ * integration and property suites.
+ */
+export function as_locations(
+  my_result: Location | Location[] | null
+): Location[] {
+  if (!my_result) {
+    return [];
+  }
+  return Array.isArray(my_result) ? my_result : [my_result];
 }

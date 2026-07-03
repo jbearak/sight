@@ -53,7 +53,11 @@ import {
 } from '../utils/token-utils';
 import { is_cursor_in_comment } from '../utils/comment-utils';
 import { is_cursor_in_string_literal } from '../utils/string-literal-utils';
-import { is_cross_file_hidden_local } from '../utils/dofile-locals';
+import {
+    find_inherited_dofile_local,
+    is_cross_file_hidden_local,
+} from '../utils/dofile-locals';
+import { lookup_scoped_local_macro } from '../utils/scoped-locals';
 
 const MARKDOWN_TEXT_ESCAPE_PATTERN =
     /([\\`*_{}\[\]()#+\-.!|])/g;
@@ -330,14 +334,25 @@ export class HoverProvider {
 
         // In embedded language context, only check for macros (suppress other Stata-specific hover)
         if (my_context !== LanguageContext.STATA) {
-            // Macros work in all contexts - check local and global macros only
-            const local_macro_content = this.get_local_macro_hover(document, word, resolved_scope, workspace_root, position, workspace_indexer);
-            if (local_macro_content) {
-                return { contents: local_macro_content, range };
+            // Macros work in all contexts — but preserve the
+            // reference's delimiter intent (#270 round-13 gate):
+            // `` `x' `` is an explicit LOCAL reference and $x an
+            // explicit GLOBAL one, so a rejected lookup in one
+            // namespace must not fall through to the other. Bare
+            // words keep the local-then-global order.
+            const embedded_reference_type =
+                this.get_reference_type_from_context(document, position, word);
+            if (embedded_reference_type !== 'global_macro') {
+                const local_macro_content = this.get_local_macro_hover(document, word, resolved_scope, workspace_root, position, workspace_indexer);
+                if (local_macro_content) {
+                    return { contents: local_macro_content, range };
+                }
             }
-            const global_macro_content = this.get_global_macro_hover(document, word, workspace_symbols, resolved_scope, workspace_root, position, workspace_indexer);
-            if (global_macro_content) {
-                return { contents: global_macro_content, range };
+            if (embedded_reference_type !== 'local_macro') {
+                const global_macro_content = this.get_global_macro_hover(document, word, workspace_symbols, resolved_scope, workspace_root, position, workspace_indexer);
+                if (global_macro_content) {
+                    return { contents: global_macro_content, range };
+                }
             }
             return null;
         }
@@ -678,8 +693,31 @@ export class HoverProvider {
         workspace_root?: string,
         workspace_indexer?: WorkspaceIndexer,
     ): SymbolMatch[] {
-        // Check for out-of-scope symbol matching the reference type
+        // Check for out-of-scope symbol matching the reference type.
         const reference_type = this.get_reference_type_from_context(document, position, word);
+
+        // Local-macro references resolve through the scoped/inherited
+        // precedence FIRST (#270: a visible program-scoped local wins,
+        // an out-of-scope name falls through to the inherited do-file
+        // local — all inside get_local_macro_hover); the cross-file
+        // out-of-scope display renders only when that resolution has
+        // no answer, so it can never hijack a resolvable reference.
+        if (reference_type === 'local_macro') {
+            const local_macro_content = this.get_local_macro_hover(
+                document, word, resolved_scope, workspace_root,
+                position, workspace_indexer
+            );
+            if (local_macro_content) {
+                return [{ type: 'local_macro', content: local_macro_content }];
+            }
+            const out_of_scope_only = this.get_out_of_scope_hover(
+                word, reference_type, resolved_scope, document.uri,
+                workspace_root
+            );
+            return out_of_scope_only ? [out_of_scope_only] : [];
+        }
+
+        // Check for out-of-scope symbol matching the reference type
         const out_of_scope_match = this.get_out_of_scope_hover(
             word, reference_type, resolved_scope, document.uri, workspace_root
         );
@@ -689,11 +727,12 @@ export class HoverProvider {
 
         const the_matches: SymbolMatch[] = [];
 
-        // When reference type is explicit (local or global macro syntax), only check that type
+        // Explicit global-macro syntax checks only that type;
         // When reference type is 'other' (bare identifier), check all symbol types
 
-        // 1. Check local macros - only if reference is local macro or bare identifier
-        if (reference_type === 'local_macro' || reference_type === 'other') {
+        // 1. Check local macros - only for bare identifiers (explicit
+        //    local-macro references returned above)
+        if (reference_type === 'other') {
             const local_macro_content = this.get_local_macro_hover(document, word, resolved_scope, workspace_root, position, workspace_indexer);
             if (local_macro_content) {
                 the_matches.push({ type: 'local_macro', content: local_macro_content });
@@ -978,64 +1017,127 @@ export class HoverProvider {
         position?: Position,
         workspace_indexer?: WorkspaceIndexer,
     ): MarkupContent | null {
-        // Check resolved scope first if available
+        // Scope-aware same-file resolution first (#270).
+        const scoped = position
+            ? lookup_scoped_local_macro(document.scopes, position, word)
+            : { symbol: undefined, forward_only: false, out_of_scope: false };
+        if (
+            scoped.symbol?.containingScope === 'program' &&
+            !scoped.forward_only
+        ) {
+            // Program locals never cross files (#271) — the visible
+            // program-scoped symbol is unconditionally the answer, and
+            // it fixes the case where an unrelated same-named local
+            // elsewhere in the file holds the flat slot. The workspace
+            // indexer is deliberately withheld: the redefinition
+            // footer must not pool cross-file same-name locals for a
+            // symbol whose identity never crosses files (matching
+            // definition/references skipping their cross-file scans).
+            return this.render_local_macro_hover(
+                document, scoped.symbol, word, workspace_root,
+                undefined,
+            );
+        }
+        if (scoped.out_of_scope || scoped.forward_only) {
+            // No positionally resolved same-file winner. A cross-file
+            // INHERITED do-file local is genuinely defined at this
+            // position (the analyzer's cross-file suppression treats
+            // it as defined), so it outranks a not-yet-defined
+            // same-scope forward local (round-9 gate) and is the only
+            // candidate for an out-of-scope name (round-2 gate). The
+            // workspace indexer is withheld: its footer keeps
+            // same-file hits, so the very sibling or forward
+            // program-local would be presented as a "redefinition" of
+            // the inherited macro (round-5 gate).
+            const inherited = position
+                ? find_inherited_dofile_local(
+                    resolved_scope, word, position.line, document.uri
+                )
+                : undefined;
+            if (inherited) {
+                return this.render_local_macro_hover(
+                    document, inherited, word, workspace_root,
+                    undefined,
+                );
+            }
+            if (
+                scoped.forward_only &&
+                scoped.symbol?.containingScope === 'program'
+            ) {
+                // Forward identity target: navigation-friendly hover
+                // for a same-scope reference before its definition.
+                return this.render_local_macro_hover(
+                    document, scoped.symbol, word, workspace_root,
+                    undefined,
+                );
+            }
+            if (scoped.out_of_scope) {
+                return null;
+            }
+            // Do-file forward: fall through to the resolved-scope /
+            // flat paths, which own do-file-level precedence.
+        }
+
+        // Do-file-scoped or no scoped opinion: unchanged — the
+        // resolved scope / flat fallback also apply CROSS-FILE
+        // execution-order precedence that document.scopes (a
+        // same-file-only structure) cannot see.
         const local_macro_symbols = this.safe_visible_symbols(resolved_scope, position);
         if (local_macro_symbols) {
             const local_macro = local_macro_symbols.localMacros.get(word);
             if (local_macro) {
-                const source_link = this.format_source_link(local_macro.sourceUri, document.uri, workspace_root);
-                const line_info = this.macro_definition_line_info(local_macro);
-                const source_info = source_link
-                    ? `\n\nSource: ${source_link}${line_info}`
-                    : `\n\nDefined at: this file${line_info}`;
-                // Use inline code for short values, code block for multi-line
-                const expansion_text = local_macro.value
-                    ? (local_macro.value.includes('\n')
-                        ? `\n\nExpansion:\n\`\`\`\n${local_macro.value}\n\`\`\``
-                        : `\n\nExpansion: \`${local_macro.value}\``)
-                    : '';
-                const the_combined_extras = this.collect_workspace_additional_definitions(
-                    word, 'local', local_macro, workspace_indexer, document.uri,
+                return this.render_local_macro_hover(
+                    document, local_macro, word, workspace_root,
+                    workspace_indexer,
                 );
-                const footer = this.format_redefinition_footer(
-                    local_macro.location?.uri ?? local_macro.sourceUri,
-                    the_combined_extras,
-                );
-                return {
-                    kind: MarkupKind.Markdown,
-                    value: `**Local Macro:** \`${word}\`${source_info}${expansion_text}${footer}`,
-                };
             }
         }
 
         // Fallback to document symbols
         const local_macro = document.symbols.localMacros.get(word);
         if (local_macro) {
-            const source_link = this.format_source_link(local_macro.sourceUri, document.uri, workspace_root);
-            const line_info = this.macro_definition_line_info(local_macro);
-            const source_info = source_link
-                ? `\n\nSource: ${source_link}${line_info}`
-                : `\n\nDefined at: this file${line_info}`;
-            // Use inline code for short values, code block for multi-line
-            const expansion_text = local_macro.value
-                ? (local_macro.value.includes('\n')
-                    ? `\n\nExpansion:\n\`\`\`\n${local_macro.value}\n\`\`\``
-                    : `\n\nExpansion: \`${local_macro.value}\``)
-                : '';
-            const the_combined_extras = this.collect_workspace_additional_definitions(
-                word, 'local', local_macro, workspace_indexer, document.uri,
+            return this.render_local_macro_hover(
+                document, local_macro, word, workspace_root,
+                workspace_indexer,
             );
-            const footer = this.format_redefinition_footer(
-                local_macro.location?.uri ?? local_macro.sourceUri,
-                the_combined_extras,
-            );
-            return {
-                kind: MarkupKind.Markdown,
-                value: `**Local Macro:** \`${word}\`${source_info}${expansion_text}${footer}`,
-            };
         }
 
         return null;
+    }
+
+    /**
+     * Render the hover markdown for a resolved local-macro symbol
+     * (shared by the scoped, resolved-scope, and flat lookups above).
+     */
+    private render_local_macro_hover(
+        document: DocumentState,
+        local_macro: MacroSymbol,
+        word: string,
+        workspace_root?: string,
+        workspace_indexer?: WorkspaceIndexer,
+    ): MarkupContent {
+        const source_link = this.format_source_link(local_macro.sourceUri, document.uri, workspace_root);
+        const line_info = this.macro_definition_line_info(local_macro);
+        const source_info = source_link
+            ? `\n\nSource: ${source_link}${line_info}`
+            : `\n\nDefined at: this file${line_info}`;
+        // Use inline code for short values, code block for multi-line
+        const expansion_text = local_macro.value
+            ? (local_macro.value.includes('\n')
+                ? `\n\nExpansion:\n\`\`\`\n${local_macro.value}\n\`\`\``
+                : `\n\nExpansion: \`${local_macro.value}\``)
+            : '';
+        const the_combined_extras = this.collect_workspace_additional_definitions(
+            word, 'local', local_macro, workspace_indexer, document.uri,
+        );
+        const footer = this.format_redefinition_footer(
+            local_macro.location?.uri ?? local_macro.sourceUri,
+            the_combined_extras,
+        );
+        return {
+            kind: MarkupKind.Markdown,
+            value: `**Local Macro:** \`${word}\`${source_info}${expansion_text}${footer}`,
+        };
     }
 
     /**

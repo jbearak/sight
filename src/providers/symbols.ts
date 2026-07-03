@@ -12,12 +12,14 @@ import {
 import { Position, Range } from 'vscode-languageserver-textdocument';
 import { DocumentState } from '../document-store';
 import {
+    MacroSymbol,
     StataNode,
     EmbeddedLanguageBlockNode,
     WorkspaceSymbolMatch,
     WorkspaceSymbolSource,
 } from '../types';
 import { get_line_text, get_line_count } from '../utils/line-utils';
+import { enumerate_scoped_local_macros } from '../utils/scoped-locals';
 import { extract_sections, RawSection } from './section-detector';
 import * as path from 'path';
 
@@ -333,36 +335,65 @@ export class SymbolProvider {
         // Store program info for containment checking
         const program_infos = new Map<string, ProgramInfo>();
 
-        for (const [_name, program] of document.symbols.programs) {
-            // Defensive: only include programs defined in this document.
-            // (Prevents accidental cross-file contamination if symbols are ever merged.)
-            if (program.sourceUri !== document.uri) {
-                continue;
-            }
-
-            // Prefer AST ranges if available for accuracy
-            const my_program_range = this.get_program_range(document, program.name)
-                || program.location.range;
-
-            // Prefer selecting just the identifier for better UX in outline views.
-            const my_program_selection_range =
-                this.get_program_name_range(document, program.name, my_program_range)
-                || my_program_range;
-
+        const register_program_container = (
+            container_key: string,
+            program_name: string,
+            program_range: Range
+        ): void => {
+            // Prefer selecting just the identifier for better UX in
+            // outline views.
+            const my_selection_range =
+                this.get_program_name_range(
+                    document, program_name, program_range
+                ) || program_range;
             const my_program_symbol: DocumentSymbol = {
-                name: program.name,
+                name: program_name,
                 kind: SymbolKind.Function,
-                range: my_program_range,
-                selectionRange: my_program_selection_range,
+                range: program_range,
+                selectionRange: my_selection_range,
                 detail: 'Program',
                 children: [],
             };
-
             symbols.push(my_program_symbol);
-            program_infos.set(program.name, {
+            program_infos.set(container_key, {
                 symbol: my_program_symbol,
-                range: my_program_range,
+                range: program_range,
             });
+        };
+
+        // One container per program BODY (#270): the flat programs map
+        // holds one entry per name, so a redeclared program's second
+        // body would have no container and its locals would float to
+        // the top level. Program ScopeInfos carry each body's exact
+        // range; fall back to the flat map for degenerate states
+        // without scopes.
+        const the_program_scopes = (document.scopes ?? []).filter(
+            my_scope => my_scope.type === 'program' && my_scope.program_name
+        );
+        if (the_program_scopes.length > 0) {
+            for (const my_scope of the_program_scopes) {
+                register_program_container(
+                    `${my_scope.program_name}#${my_scope.id}`,
+                    my_scope.program_name!,
+                    my_scope.range
+                );
+            }
+        } else {
+            for (const [_name, program] of document.symbols.programs) {
+                // Defensive: only include programs defined in this document.
+                // (Prevents accidental cross-file contamination if symbols are ever merged.)
+                if (program.sourceUri !== document.uri) {
+                    continue;
+                }
+
+                // Prefer AST ranges if available for accuracy
+                const my_program_range =
+                    this.get_program_range(document, program.name)
+                    || program.location.range;
+                register_program_container(
+                    program.name, program.name, my_program_range
+                );
+            }
         }
 
         // 2. Add global macros (defined in this file) - always top-level
@@ -378,33 +409,90 @@ export class SymbolProvider {
             }
         }
 
-        // 3. Add local macros - nest under containing program or add as top-level
-        for (const [name, macro] of document.symbols.localMacros) {
-            if (macro.sourceUri === document.uri) {
-                const my_local_symbol: DocumentSymbol = {
-                    name: `\`${name}'`,
-                    kind: SymbolKind.Variable,
-                    range: macro.location.range,
-                    selectionRange: macro.location.range,
-                    detail: 'Local Macro',
-                };
-
-                // Check if this local macro is inside any program
-                const my_containing_program = find_containing_program(
-                    macro.location.range.start,
-                    program_infos
+        // 3. Add local macros - nest under containing program or add
+        //    as top-level. ENUMERATE per scope (#270): the flat view
+        //    keeps one representative per name, dropping same-named
+        //    locals declared in other program scopes from the
+        //    outline. PLACE by range containment (round-8): the
+        //    DocumentSymbol tree is an LSP text-structure view, so
+        //    program-owned locals use their owning body's container
+        //    (exact for redeclared bodies) and do-file-owned locals
+        //    nest geometrically — a top-level entry ranged inside a
+        //    program container would overlap a sibling on the wire.
+        const nest_local_symbol = (
+            my_local_symbol: DocumentSymbol,
+            container: ProgramInfo | undefined,
+            declaration_position: Position
+        ): void => {
+            const my_containing_program = container?.symbol
+                ?? find_containing_program(
+                    declaration_position, program_infos
                 );
-
-                if (my_containing_program) {
-                    // Add as child of the containing program
-                    if (!my_containing_program.children) {
-                        my_containing_program.children = [];
-                    }
-                    my_containing_program.children.push(my_local_symbol);
-                } else {
-                    // Add as top-level symbol
-                    symbols.push(my_local_symbol);
+            if (my_containing_program) {
+                if (!my_containing_program.children) {
+                    my_containing_program.children = [];
                 }
+                my_containing_program.children.push(my_local_symbol);
+            } else {
+                symbols.push(my_local_symbol);
+            }
+        };
+        const make_local_symbol = (
+            name: string,
+            macro: MacroSymbol
+        ): DocumentSymbol => ({
+            name: `\`${name}'`,
+            kind: SymbolKind.Variable,
+            range: macro.location.range,
+            selectionRange: macro.location.range,
+            detail: 'Local Macro',
+        });
+        if ((document.scopes ?? []).length > 0) {
+            for (const my_scope of document.scopes!) {
+                const my_container = my_scope.type === 'program' &&
+                    my_scope.program_name
+                    ? program_infos.get(
+                        `${my_scope.program_name}#${my_scope.id}`
+                    )
+                    : undefined;
+                for (const [my_name, my_macro] of my_scope.localMacros) {
+                    if (my_macro.sourceUri !== document.uri) {
+                        continue;
+                    }
+                    // ENUMERATION is by owning scope (one entry per
+                    // scope — nothing lost to the flat slot), but
+                    // PLACEMENT is a range-containment question: the
+                    // DocumentSymbol tree is an LSP text-structure
+                    // view, and a top-level entry whose range sits
+                    // inside a program container would overlap a
+                    // sibling on the wire. Program-owned locals use
+                    // their owning body's container (exact for
+                    // redeclared bodies; geometric fallback only for
+                    // degenerate container-less scopes); do-file-owned
+                    // locals nest geometrically (e.g. a directive-
+                    // declared do-file local written inside a program
+                    // body renders under that program).
+                    nest_local_symbol(
+                        make_local_symbol(my_name, my_macro),
+                        my_scope.type === 'program'
+                            ? my_container
+                            : undefined,
+                        my_macro.location.range.start
+                    );
+                }
+            }
+        } else {
+            // Degenerate no-scopes fallback: flat view + geometric
+            // containment, matching the pre-#270 behavior.
+            for (const [name, macro] of document.symbols.localMacros) {
+                if (macro.sourceUri !== document.uri) {
+                    continue;
+                }
+                nest_local_symbol(
+                    make_local_symbol(name, macro),
+                    undefined,
+                    macro.location.range.start
+                );
             }
         }
 
@@ -726,8 +814,11 @@ export class SymbolProvider {
                 }
             }
 
-            // Local macros
-            for (const [my_name, my_macro] of document.symbols.localMacros) {
+            // Local macros — per scope (#270), same rationale as the
+            // document outline above.
+            for (const [my_name, my_macro] of enumerate_scoped_local_macros(
+                document.scopes, document.symbols.localMacros
+            )) {
                 if (my_name.toLowerCase().includes(lower_query)) {
                     symbols.push({
                         name: `\`${my_name}'`,
