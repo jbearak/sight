@@ -334,14 +334,25 @@ export class HoverProvider {
 
         // In embedded language context, only check for macros (suppress other Stata-specific hover)
         if (my_context !== LanguageContext.STATA) {
-            // Macros work in all contexts - check local and global macros only
-            const local_macro_content = this.get_local_macro_hover(document, word, resolved_scope, workspace_root, position, workspace_indexer);
-            if (local_macro_content) {
-                return { contents: local_macro_content, range };
+            // Macros work in all contexts — but preserve the
+            // reference's delimiter intent (#270 round-13 gate):
+            // `` `x' `` is an explicit LOCAL reference and $x an
+            // explicit GLOBAL one, so a rejected lookup in one
+            // namespace must not fall through to the other. Bare
+            // words keep the local-then-global order.
+            const embedded_reference_type =
+                this.get_reference_type_from_context(document, position, word);
+            if (embedded_reference_type !== 'global_macro') {
+                const local_macro_content = this.get_local_macro_hover(document, word, resolved_scope, workspace_root, position, workspace_indexer);
+                if (local_macro_content) {
+                    return { contents: local_macro_content, range };
+                }
             }
-            const global_macro_content = this.get_global_macro_hover(document, word, workspace_symbols, resolved_scope, workspace_root, position, workspace_indexer);
-            if (global_macro_content) {
-                return { contents: global_macro_content, range };
+            if (embedded_reference_type !== 'local_macro') {
+                const global_macro_content = this.get_global_macro_hover(document, word, workspace_symbols, resolved_scope, workspace_root, position, workspace_indexer);
+                if (global_macro_content) {
+                    return { contents: global_macro_content, range };
+                }
             }
             return null;
         }

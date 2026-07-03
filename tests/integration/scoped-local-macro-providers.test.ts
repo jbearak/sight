@@ -1724,3 +1724,86 @@ describe('scoped local macros: round-10 gate regression', () => {
         expect(the_lines).toEqual([1]);
     });
 });
+
+// Round-13 gate regression (#270): embedded-language macro paths must
+// preserve delimiter intent — an explicit local reference whose local
+// resolution is rejected must not fall through to the GLOBAL namespace.
+describe('scoped local macros: round-13 gate regression', () => {
+    let test_temp_dir: string;
+    let document_store: DocumentStore;
+
+    beforeEach(() => {
+        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-gate13-'));
+        document_store = new DocumentStore();
+    });
+
+    afterEach(() => {
+        if (existsSync(test_temp_dir)) {
+            rmSync(test_temp_dir, { recursive: true, force: true });
+        }
+    });
+
+    const MATA_LINES = [
+        'global x 42',           // 0
+        'program define sibling',// 1
+        '    local x 7',         // 2
+        'end',                   // 3
+        'mata:',                 // 4
+        'y = `x\'',              // 5 — explicit LOCAL ref, out of scope
+        'end',                   // 6
+    ];
+
+    async function open_document() {
+        const file_path = join(test_temp_dir, 'a.do');
+        const content = MATA_LINES.join('\n');
+        writeFileSync(file_path, content);
+        const uri = URI.file(file_path).toString();
+        await document_store.open(uri, content, 1);
+        return { uri, content, document_state: document_store.get(uri)! };
+    }
+
+    it('hover: an out-of-scope local ref in Mata never shows the global', async () => {
+        const hover_provider = new HoverProvider(new CommandDatabase());
+        const { content, document_state } = await open_document();
+        const character = content.split('\n')[5].indexOf('x\'');
+        const hover = await hover_provider.get_hover(
+            document_state,
+            { line: 5, character },
+        );
+        const value = (hover?.contents as { value?: string })?.value ?? '';
+        expect(value).not.toContain('Global Macro');
+        expect(value).not.toContain('42');
+    });
+
+    it('definition: an out-of-scope local ref in Mata never jumps to the global', async () => {
+        const definition_provider = new DefinitionProvider();
+        const { content, document_state } = await open_document();
+        const character = content.split('\n')[5].indexOf('x\'');
+        const result = await definition_provider.get_definition(
+            document_state,
+            { line: 5, character },
+        );
+        expect(as_locations(result)).toEqual([]);
+    });
+
+    it('hover: an explicit GLOBAL ref in Mata still resolves', async () => {
+        const hover_provider = new HoverProvider(new CommandDatabase());
+        const file_path = join(test_temp_dir, 'b.do');
+        const content = [
+            'global x 42',   // 0
+            'mata:',         // 1
+            'y = $x',        // 2
+            'end',           // 3
+        ].join('\n');
+        writeFileSync(file_path, content);
+        const uri = URI.file(file_path).toString();
+        await document_store.open(uri, content, 1);
+        const character = content.split('\n')[2].indexOf('x');
+        const hover = await hover_provider.get_hover(
+            document_store.get(uri)!,
+            { line: 2, character },
+        );
+        const value = (hover?.contents as { value?: string })?.value ?? '';
+        expect(value).toContain('Global Macro');
+    });
+});

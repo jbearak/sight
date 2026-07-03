@@ -1290,14 +1290,28 @@ export class DefinitionProvider {
 
         const { word } = word_info;
 
+        // Preserve the reference's delimiter intent (#270 round-13
+        // gate): `` `x' `` is an explicit LOCAL reference and $x/${x}
+        // an explicit GLOBAL one — a rejected lookup in one namespace
+        // must not fall through to the other. Bare words keep the
+        // pre-existing local-then-global order.
+        const looks_like_local = this.reference_looks_like_macro(
+            document, position, word_info.range.start.character, 'local'
+        );
+        const looks_like_global = this.reference_looks_like_macro(
+            document, position, word_info.range.start.character, 'global'
+        );
+        const allow_local = !looks_like_global;
+        const allow_global = !looks_like_local;
+
         // Scope-aware same-file resolution first (#270): a
         // positionally RESOLVED program-scoped local is authoritative
         // (never crosses files, #271); an out-of-scope or
         // forward-only name must not fall back to the flat slot
         // below.
-        const scoped = lookup_scoped_local_macro(
-            document.scopes, position, word
-        );
+        const scoped = allow_local
+            ? lookup_scoped_local_macro(document.scopes, position, word)
+            : { symbol: undefined, forward_only: false, out_of_scope: false };
         const fast_path_locations = this.resolved_program_locations(scoped);
         if (fast_path_locations) {
             return this.locations_to_definition(fast_path_locations);
@@ -1320,8 +1334,7 @@ export class DefinitionProvider {
                 // inherited winner outranks a forward identity target
                 // of EITHER scope kind (round-9/10 gates); an
                 // out-of-scope name with no winner yields nothing for
-                // the LOCAL branch (globals below are a separate
-                // namespace and stay unaffected).
+                // the LOCAL branch.
                 const effective = classify_effective_local(
                     document.scopes, position, word, resolved_scope,
                     document.uri
@@ -1335,7 +1348,7 @@ export class DefinitionProvider {
                         )
                     );
                 }
-            } else {
+            } else if (allow_local) {
                 const local_locs = this.collect_local_macro_scope_locations(
                     resolved_scope,
                     word,
@@ -1347,8 +1360,12 @@ export class DefinitionProvider {
                 }
             }
 
-            // Check global macros — do/run/include all propagate globals
-            const global_macro = resolved_scope.symbols.globalMacros.get(word);
+            // Check global macros — do/run/include all propagate
+            // globals. Skipped for explicit local references: a
+            // rejected local must not surface the global namespace.
+            const global_macro = allow_global
+                ? resolved_scope.symbols.globalMacros.get(word)
+                : undefined;
             if (global_macro) {
                 const out: Location[] =
                     this.macro_symbol_to_locations(global_macro);
@@ -1400,7 +1417,7 @@ export class DefinitionProvider {
         // 1. Check local macros (skipped when the name is tracked in
         //    this file but out of scope or forward-only at the cursor
         //    — the flat slot may point at that very symbol, #270)
-        const local_macro = local_needs_effective
+        const local_macro = local_needs_effective || !allow_local
             ? undefined
             : document.symbols.localMacros.get(word);
 
@@ -1411,7 +1428,7 @@ export class DefinitionProvider {
         // winner handled above; the indexer pooling has no
         // execution-order gate and would surface not-yet-inherited
         // declarations (round-4 gate).
-        const cross_local_locs = local_needs_effective
+        const cross_local_locs = local_needs_effective || !allow_local
             ? []
             : this.collect_workspace_definition_locations(
                 document.uri,
@@ -1420,12 +1437,14 @@ export class DefinitionProvider {
                 workspace_indexer,
                 { include_only: true }
             );
-        const cross_global_locs = this.collect_workspace_definition_locations(
-            document.uri,
-            word,
-            'global',
-            workspace_indexer
-        );
+        const cross_global_locs = allow_global
+            ? this.collect_workspace_definition_locations(
+                document.uri,
+                word,
+                'global',
+                workspace_indexer
+            )
+            : [];
 
         if (local_macro) {
             const out: Location[] =
@@ -1440,14 +1459,16 @@ export class DefinitionProvider {
             );
         }
 
-        // 2. Check global macros
-        const global_macro =
-            document.symbols.globalMacros.get(word) ||
-            (
-                (!workspace_indexer || cross_global_locs.length > 0)
-                    ? workspace_symbols?.globalMacros.get(word)
-                    : undefined
-            );
+        // 2. Check global macros (skipped for explicit local
+        //    references — see the delimiter-intent gate above)
+        const global_macro = allow_global
+            ? (document.symbols.globalMacros.get(word) ||
+                (
+                    (!workspace_indexer || cross_global_locs.length > 0)
+                        ? workspace_symbols?.globalMacros.get(word)
+                        : undefined
+                ))
+            : undefined;
         if (global_macro) {
             const out: Location[] =
                 this.macro_symbol_to_locations(global_macro);
