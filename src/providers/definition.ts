@@ -48,7 +48,10 @@ import * as path from 'path';
 import { URI } from 'vscode-uri';
 import { resolve_path_rich, resolve_forward_call_rich } from '../utils/file-path-utils';
 import { get_line_text } from '../utils/line-utils';
-import { is_cross_file_hidden_local } from '../utils/dofile-locals';
+import {
+    find_inherited_dofile_local,
+    is_cross_file_hidden_local,
+} from '../utils/dofile-locals';
 import {
     lookup_scoped_local_macro,
     resolve_scoped_or_flat,
@@ -321,44 +324,50 @@ export class DefinitionProvider {
         if (scoped !== null && !scoped.blocked) {
             return this.locations_to_definition(scoped.locations);
         }
-        // Out-of-scope same-file (#270): the flat slot and same-file
-        // chain contributions are forbidden (they may be the very
-        // out-of-scope sibling symbol), but cross-file INHERITED
-        // definitions remain legitimate — the analyzer's cross-file
-        // suppression treats them as defined, so filter same-file
-        // hits rather than bail out entirely (round-2 gate).
-        const local_out_of_scope = scoped?.blocked === true;
 
-        // Try scope resolver first
-        if (scope_resolver) {
-            const resolve_config = build_scope_resolver_config(cross_file_config);
-            const resolved_scope = await scope_resolver.resolve(
+        const resolved_scope = scope_resolver
+            ? await scope_resolver.resolve(
                 document.uri,
                 document.content,
-                resolve_config,
+                build_scope_resolver_config(cross_file_config),
                 cancellation_token
-            );
+            )
+            : undefined;
 
-            let local_locs = this.collect_local_macro_scope_locations(
+        if (scoped?.blocked === true) {
+            // Out-of-scope same-file (#270): the identity is the
+            // cross-file INHERITED do-file local — the exact winner
+            // hover/completion/references resolve — or nothing.
+            // Ungated chain walks and workspace pooling would
+            // navigate to superseded or not-yet-executed include
+            // declarations (round-4 gate).
+            const inherited = position
+                ? find_inherited_dofile_local(
+                    resolved_scope, word, position.line, document.uri
+                )
+                : undefined;
+            return inherited
+                ? this.locations_to_definition(
+                    this.macro_symbol_to_locations(inherited)
+                )
+                : null;
+        }
+
+        // Try scope resolver first
+        if (resolved_scope) {
+            const local_locs = this.collect_local_macro_scope_locations(
                 resolved_scope,
                 word,
                 position,
                 document.uri
             );
-            if (local_out_of_scope) {
-                local_locs = local_locs.filter(
-                    my_loc => my_loc.uri !== document.uri
-                );
-            }
             if (local_locs.length > 0) {
                 return this.locations_to_definition(local_locs);
             }
         }
 
         // Check document symbols
-        const local_macro = local_out_of_scope
-            ? undefined
-            : document.symbols.localMacros.get(word);
+        const local_macro = document.symbols.localMacros.get(word);
 
         // Collect workspace-indexer cross-file definitions for the same
         // name regardless of whether the current file defines it too, so
@@ -1320,22 +1329,33 @@ export class DefinitionProvider {
                 cancellation_token
             );
 
-            // Out-of-scope same-file names still resolve to cross-file
-            // INHERITED definitions — only same-file hits are
-            // forbidden (round-2 gate; see resolve_local_macro_only).
-            let local_locs = this.collect_local_macro_scope_locations(
-                resolved_scope,
-                word,
-                position,
-                document.uri
-            );
             if (local_out_of_scope) {
-                local_locs = local_locs.filter(
-                    my_loc => my_loc.uri !== document.uri
+                // Out-of-scope same-file (#270): the identity is the
+                // cross-file INHERITED do-file local — the exact
+                // winner hover/completion/references resolve — or
+                // nothing for the LOCAL branch (globals below are a
+                // separate namespace and stay unaffected). Ungated
+                // chain walks would navigate to superseded or
+                // not-yet-executed include declarations (round-4
+                // gate; see resolve_local_macro_only).
+                const inherited = find_inherited_dofile_local(
+                    resolved_scope, word, position.line, document.uri
                 );
-            }
-            if (local_locs.length > 0) {
-                return this.locations_to_definition(local_locs);
+                if (inherited) {
+                    return this.locations_to_definition(
+                        this.macro_symbol_to_locations(inherited)
+                    );
+                }
+            } else {
+                const local_locs = this.collect_local_macro_scope_locations(
+                    resolved_scope,
+                    word,
+                    position,
+                    document.uri
+                );
+                if (local_locs.length > 0) {
+                    return this.locations_to_definition(local_locs);
+                }
             }
 
             // Check global macros — do/run/include all propagate globals
@@ -1385,17 +1405,19 @@ export class DefinitionProvider {
             : document.symbols.localMacros.get(word);
 
         // Collect cross-file workspace-indexer definitions (both kinds).
-        // Cross-file pooling stays on for out-of-scope names: only
-        // same-file candidates are forbidden there (round-2 gate); the
-        // include-chain hits are already gated by
-        // is_cross_file_hidden_local inside the collector.
-        const cross_local_locs = this.collect_workspace_definition_locations(
-            document.uri,
-            word,
-            'local',
-            workspace_indexer,
-            { include_only: true }
-        );
+        // Barred for out-of-scope names: their only legitimate local
+        // identity is the call-line-gated inherited winner handled
+        // above; the indexer pooling has no execution-order gate and
+        // would surface not-yet-inherited declarations (round-4 gate).
+        const cross_local_locs = local_out_of_scope
+            ? []
+            : this.collect_workspace_definition_locations(
+                document.uri,
+                word,
+                'local',
+                workspace_indexer,
+                { include_only: true }
+            );
         const cross_global_locs = this.collect_workspace_definition_locations(
             document.uri,
             word,

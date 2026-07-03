@@ -85,14 +85,20 @@ export function collect_inherited_dofile_locals(
             }
         }
     };
+    // No directive_type filter: inheritance is applied by EFFECTIVE
+    // call type (apply_inheritance_rules in the resolver), which can
+    // differ from the written directive type stored on the entry —
+    // e.g. `@lsp-done-by` where the parent actually uses `include`.
+    // The entry's localMacros are already inheritance-filtered, so a
+    // done-by-effective entry carries no locals and contributes
+    // nothing here; only the current file's own raw entry (chain[0])
+    // must be excluded by uri.
     const the_parents = (resolved_scope.chain ?? [])
-        .filter(
-            my_entry => my_entry.directive_type === 'included-by' &&
-                my_entry.uri !== current_uri
-        )
+        .filter(my_entry => my_entry.uri !== current_uri)
         .sort(
             (a, b) => b.depth - a.depth ||
-                a.directive_order - b.directive_order
+                a.directive_order - b.directive_order ||
+                a.sort_key.localeCompare(b.sort_key)
         );
     for (const my_entry of the_parents) {
         put_qualifying(my_entry.symbols.localMacros);

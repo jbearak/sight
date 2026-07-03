@@ -1096,3 +1096,126 @@ describe('scoped local macros: round-3 gate regressions', () => {
         ).toEqual([4]);
     });
 });
+
+// Round-4 gate regressions (#270): definition's out-of-scope path must
+// return exactly the call-line-gated inherited winner (no multi-include
+// pooling, no not-yet-executed includes), and backward inheritance must
+// follow the EFFECTIVE call type, not the written directive type.
+describe('scoped local macros: round-4 gate regressions', () => {
+    let test_temp_dir: string;
+    let indexer: WorkspaceIndexer;
+    let scope_resolver: ScopeResolver;
+    let forward_scope_resolver: ForwardScopeResolver;
+    let document_store: DocumentStore;
+
+    beforeEach(() => {
+        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-gate4-'));
+        indexer = new WorkspaceIndexer();
+        const the_dep_graph = new DependencyGraph();
+        indexer.set_dependency_graph(the_dep_graph);
+        scope_resolver = new ScopeResolver();
+        scope_resolver.set_dependency_graph(the_dep_graph);
+        forward_scope_resolver = new ForwardScopeResolver(scope_resolver, {
+            max_forward_depth: 10,
+        });
+        scope_resolver.set_forward_scope_resolver(forward_scope_resolver);
+        document_store = new DocumentStore();
+    });
+
+    afterEach(() => {
+        try { scope_resolver?.dispose(); } catch {}
+        try { forward_scope_resolver?.dispose(); } catch {}
+        if (existsSync(test_temp_dir)) {
+            rmSync(test_temp_dir, { recursive: true, force: true });
+        }
+    });
+
+    async function open_file(name: string, lines: string[]) {
+        const file_path = join(test_temp_dir, name);
+        const content = lines.join('\n');
+        writeFileSync(file_path, content);
+        const uri = URI.file(file_path).toString();
+        await document_store.open(uri, content, 1);
+        return { uri, content, document_state: document_store.get(uri)! };
+    }
+
+    it('definition: out-of-scope name resolves to the single last-include winner', async () => {
+        const definition_provider = new DefinitionProvider();
+        const a_path = join(test_temp_dir, 'a.do');
+        const b_path = join(test_temp_dir, 'b.do');
+        writeFileSync(a_path, 'local flag A\n');
+        writeFileSync(b_path, 'local flag B\n');
+        const { content, document_state } = await open_file('main.do', [
+            'include "a.do"',          // 0
+            'include "b.do"',          // 1
+            'program define p',        // 2
+            '    local flag prog',     // 3
+            'end',                     // 4
+            'di "`flag\'"',            // 5
+        ]);
+        await indexer.initialize([test_temp_dir]);
+        const character = content.split('\n')[5].indexOf('flag');
+        const result = await definition_provider.get_definition(
+            document_state,
+            { line: 5, character },
+            undefined,
+            undefined,
+            scope_resolver,
+            indexer,
+            undefined,
+        );
+        const the_locations = as_locations(result);
+        expect(new Set(the_locations.map(my_loc => my_loc.uri)))
+            .toEqual(new Set([URI.file(b_path).toString()]));
+    });
+
+    it('definition: an include AFTER the reference is not yet inherited', async () => {
+        const definition_provider = new DefinitionProvider();
+        writeFileSync(join(test_temp_dir, 'has_x.do'), 'local x lib\n');
+        const { content, document_state } = await open_file('main.do', [
+            'program define p',    // 0
+            '    di "`x\'"',       // 1 — before the include executes
+            '    local x own',     // 2 (makes p shadow later; keep simple)
+            'end',                 // 3
+            'di "`x\'"',           // 4 — still before the include
+            'include "has_x.do"',  // 5
+        ]);
+        await indexer.initialize([test_temp_dir]);
+        const character = content.split('\n')[4].indexOf('x\'');
+        const result = await definition_provider.get_definition(
+            document_state,
+            { line: 4, character },
+            undefined,
+            undefined,
+            scope_resolver,
+            indexer,
+            undefined,
+        );
+        expect(as_locations(result)).toEqual([]);
+    });
+
+    it('hover: a done-by directive whose parent actually includes inherits locals (effective type)', async () => {
+        const hover_provider = new HoverProvider(new CommandDatabase());
+        writeFileSync(join(test_temp_dir, 'parent.do'), [
+            'local flag P',
+            'include "child.do"',
+        ].join('\n'));
+        const { content, document_state } = await open_file('child.do', [
+            '// @lsp-done-by: "parent.do"',  // 0
+            'program define foo',            // 1
+            '    local flag 9',              // 2
+            'end',                           // 3
+            'di "`flag\'"',                  // 4
+        ]);
+        await indexer.initialize([test_temp_dir]);
+        const character = content.split('\n')[4].indexOf('flag');
+        const hover = await hover_provider.get_hover(
+            document_state,
+            { line: 4, character },
+            undefined,
+            scope_resolver,
+        );
+        const value = (hover?.contents as { value?: string })?.value ?? '';
+        expect(value).toContain('Expansion: `P`');
+    });
+});

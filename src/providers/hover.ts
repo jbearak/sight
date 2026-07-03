@@ -692,7 +692,10 @@ export class HoverProvider {
         // out-of-scope display renders only when that resolution has
         // no answer, so it can never hijack a resolvable reference.
         if (reference_type === 'local_macro') {
-            const local_macro_content = this.get_local_macro_hover(document, word, resolved_scope, workspace_root, position, workspace_indexer);
+            const local_macro_content = this.get_local_macro_hover(
+                document, word, resolved_scope, workspace_root,
+                position, workspace_indexer
+            );
             if (local_macro_content) {
                 return [{ type: 'local_macro', content: local_macro_content }];
             }
@@ -713,7 +716,7 @@ export class HoverProvider {
 
         const the_matches: SymbolMatch[] = [];
 
-        // When reference type is explicit (global macro syntax), only check that type
+        // Explicit global-macro syntax checks only that type;
         // When reference type is 'other' (bare identifier), check all symbol types
 
         // 1. Check local macros - only for bare identifiers (explicit
