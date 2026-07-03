@@ -49,6 +49,7 @@ import { URI } from 'vscode-uri';
 import { resolve_path_rich, resolve_forward_call_rich } from '../utils/file-path-utils';
 import { get_line_text } from '../utils/line-utils';
 import { is_cross_file_hidden_local } from '../utils/dofile-locals';
+import { lookup_scoped_local_macro } from '../utils/scoped-locals';
 import { is_cursor_in_comment, is_cursor_in_block_comment } from '../utils/comment-utils';
 import {
     BACKWARD_DIRECTIVE_KEYWORDS,
@@ -256,6 +257,50 @@ export class DefinitionProvider {
     }
 
     /**
+     * Scope-aware override for local-macro definition lookups (#270).
+     * Return values:
+     * - `null`: the scoped model has no opinion (scopes empty, name
+     *   untracked in this file, or the visible symbol is do-file
+     *   scoped — publish_flat_local guarantees a do-file definition
+     *   always owns the flat slot when one exists, and the existing
+     *   resolved-scope/flat code also handles cross-file
+     *   execution-order shadowing that document.scopes cannot see).
+     *   Callers must run the pre-existing code unchanged.
+     * - `[]`: the name IS tracked in this file but not visible from
+     *   `position` (a sibling scope's local) — exclusive shadowing,
+     *   no result; the flat slot must not substitute.
+     * - non-empty: the visible symbol is program-scoped — its own
+     *   primary + same-scope additional_definitions (#271: program
+     *   locals never cross files), merged with the workspace-indexer
+     *   include-chain hits (already gated by is_cross_file_hidden_local).
+     */
+    private resolve_scoped_local_definition(
+        document: DocumentState,
+        word: string,
+        position: Position,
+        workspace_indexer?: WorkspaceIndexer
+    ): Location[] | null {
+        const scoped = lookup_scoped_local_macro(
+            document.scopes, position, word
+        );
+        if (scoped.out_of_scope) {
+            return [];
+        }
+        if (!scoped.symbol || scoped.symbol.containingScope !== 'program') {
+            return null;
+        }
+        const out = this.macro_symbol_to_locations(scoped.symbol);
+        out.push(...this.collect_workspace_definition_locations(
+            document.uri,
+            word,
+            'local',
+            workspace_indexer,
+            { include_only: true }
+        ));
+        return this.dedupe_locations(out);
+    }
+
+    /**
      * Resolve local macro only (for MACRO_REF_LOCAL tokens and extended macro context).
      */
     private async resolve_local_macro_only(
@@ -267,6 +312,18 @@ export class DefinitionProvider {
         cancellation_token?: CancellationToken,
         position?: Position
     ): Promise<Definition | null> {
+        // Scope-aware same-file resolution first (#270).
+        const scoped_locs = position
+            ? this.resolve_scoped_local_definition(
+                document, word, position, workspace_indexer
+            )
+            : null;
+        if (scoped_locs !== null) {
+            return scoped_locs.length > 0
+                ? this.locations_to_definition(scoped_locs)
+                : null;
+        }
+
         // Try scope resolver first
         if (scope_resolver) {
             const resolve_config = build_scope_resolver_config(cross_file_config);
@@ -845,7 +902,19 @@ export class DefinitionProvider {
                 this.macro_symbol_to_locations(global_macro)
             );
         }
-        const local_macro = document.symbols.localMacros.get(word);
+        // Scope-aware (#270): resolve the declaration against the scope
+        // that textually contains it, so a losing-flat-slot program
+        // local still matches its own declaration range. Safe for
+        // do-file-scoped symbols too — a declaration-range hit is a pure
+        // text question, and the do-file symbol here is object-identical
+        // to the flat entry.
+        const scoped_local = lookup_scoped_local_macro(
+            document.scopes, position, word
+        );
+        const local_macro = scoped_local.symbol
+            ?? (scoped_local.out_of_scope
+                ? undefined
+                : document.symbols.localMacros.get(word));
         if (
             local_macro
             && this.position_hits_symbol_definition(position, local_macro)
@@ -1222,6 +1291,17 @@ export class DefinitionProvider {
 
         const { word } = word_info;
 
+        // Scope-aware same-file resolution first (#270): a program-scoped
+        // visible local is authoritative (never crosses files, #271); an
+        // out-of-scope name must not fall back to the flat slot below.
+        const scoped_locs = this.resolve_scoped_local_definition(
+            document, word, position, workspace_indexer
+        );
+        if (scoped_locs !== null && scoped_locs.length > 0) {
+            return this.locations_to_definition(scoped_locs);
+        }
+        const local_out_of_scope = scoped_locs !== null;
+
         // Try scope resolver first if available
         if (scope_resolver) {
             const resolve_config = build_scope_resolver_config(cross_file_config);
@@ -1232,14 +1312,16 @@ export class DefinitionProvider {
                 cancellation_token
             );
 
-            const local_locs = this.collect_local_macro_scope_locations(
-                resolved_scope,
-                word,
-                position,
-                document.uri
-            );
-            if (local_locs.length > 0) {
-                return this.locations_to_definition(local_locs);
+            if (!local_out_of_scope) {
+                const local_locs = this.collect_local_macro_scope_locations(
+                    resolved_scope,
+                    word,
+                    position,
+                    document.uri
+                );
+                if (local_locs.length > 0) {
+                    return this.locations_to_definition(local_locs);
+                }
             }
 
             // Check global macros — do/run/include all propagate globals
@@ -1281,17 +1363,26 @@ export class DefinitionProvider {
         }
 
         // Only check macros, not programs or other Stata symbols
-        // 1. Check local macros
-        const local_macro = document.symbols.localMacros.get(word);
+        // 1. Check local macros (skipped when the name is tracked in
+        //    this file but out of scope at the cursor — the flat slot
+        //    may point at that very out-of-scope symbol, #270)
+        const local_macro = local_out_of_scope
+            ? undefined
+            : document.symbols.localMacros.get(word);
 
-        // Collect cross-file workspace-indexer definitions (both kinds)
-        const cross_local_locs = this.collect_workspace_definition_locations(
-            document.uri,
-            word,
-            'local',
-            workspace_indexer,
-            { include_only: true }
-        );
+        // Collect cross-file workspace-indexer definitions (both kinds).
+        // An out-of-scope local reference resolves to nothing at all —
+        // consistent with diagnostics, which flag it as "defined only
+        // inside program X" — so cross-file pooling is skipped too.
+        const cross_local_locs = local_out_of_scope
+            ? []
+            : this.collect_workspace_definition_locations(
+                document.uri,
+                word,
+                'local',
+                workspace_indexer,
+                { include_only: true }
+            );
         const cross_global_locs = this.collect_workspace_definition_locations(
             document.uri,
             word,

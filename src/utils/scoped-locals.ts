@@ -42,10 +42,10 @@ interface Position {
  * analyzer states); callers fall back to the flat compatibility view.
  */
 export function get_visible_local_scopes(
-    scopes: ScopeInfo[],
+    scopes: ScopeInfo[] | undefined,
     position: Position
 ): ScopeInfo[] {
-    if (scopes.length === 0) {
+    if (scopes === undefined || scopes.length === 0) {
         return [];
     }
     const enclosing_scope = find_enclosing_scope(scopes, position, {
@@ -65,7 +65,7 @@ export function get_visible_local_scopes(
  * never surfaces the do-file scope's symbol.
  */
 export function collect_visible_local_macros(
-    scopes: ScopeInfo[],
+    scopes: ScopeInfo[] | undefined,
     position: Position
 ): Map<string, MacroSymbol> {
     const out = new Map<string, MacroSymbol>();
@@ -99,11 +99,11 @@ export interface ScopedLocalLookupResult {
  * unchanged.
  */
 export function lookup_scoped_local_macro(
-    scopes: ScopeInfo[],
+    scopes: ScopeInfo[] | undefined,
     position: Position,
     name: string
 ): ScopedLocalLookupResult {
-    if (scopes.length === 0) {
+    if (scopes === undefined || scopes.length === 0) {
         return { symbol: undefined, out_of_scope: false };
     }
     for (const my_scope of get_visible_local_scopes(scopes, position)) {
