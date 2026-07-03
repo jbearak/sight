@@ -279,9 +279,9 @@ export class ReferencesProvider {
 
         // A program-scoped local target never crosses file boundaries
         // (#271), so cross-file declaration pooling is skipped (#270).
-        const is_program_scoped_target =
-            symbol_type === 'local_macro' &&
-            target_local_macro?.containingScope === 'program';
+        const is_program_scoped_target = this.is_program_scoped_local_target(
+            symbol_type, target_local_macro
+        );
         if (workspace_indexer && !is_program_scoped_target) {
             const ws_type: 'program' | 'local' | 'global' | 'variable' | 'scalar' | 'matrix' =
                 symbol_type === 'local_macro' ? 'local' :
@@ -498,6 +498,21 @@ export class ReferencesProvider {
             return { blocked: true };
         }
         return { symbol: scoped.symbol, blocked: false };
+    }
+
+    /**
+     * True when the resolved find-references target is a program-scoped
+     * local. Such a target never crosses file boundaries (#271), so
+     * both declaration pooling and the token scan stay current-file
+     * only. Shared by find_definitions and collect_references so the
+     * two gates cannot drift (#270).
+     */
+    private is_program_scoped_local_target(
+        symbol_type: string,
+        target_local_macro?: MacroSymbol
+    ): boolean {
+        return symbol_type === 'local_macro' &&
+            target_local_macro?.containingScope === 'program';
     }
 
     /**
@@ -989,9 +1004,9 @@ export class ReferencesProvider {
         // A program-scoped local target never crosses file boundaries
         // (#271) — restrict the scan to the current file, skipping the
         // cross-file token scan entirely (#270).
-        const is_program_scoped_target =
-            symbol_type === 'local_macro' &&
-            target_local_macro?.containingScope === 'program';
+        const is_program_scoped_target = this.is_program_scoped_local_target(
+            symbol_type, target_local_macro
+        );
         let the_related: Map<string, ReferenceScanRange>;
         if (is_program_scoped_target || !workspace_indexer) {
             the_related = new Map([[document.uri, {}]]);

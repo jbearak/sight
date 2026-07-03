@@ -36,7 +36,7 @@ import {
     ScopeInfo,
 } from '../types';
 import { program_body_start_line } from '../utils/scope-position';
-import { lookup_scoped_local_macro } from '../utils/scoped-locals';
+import { collect_visible_local_macros } from '../utils/scoped-locals';
 import { IContextTracker, LanguageContext } from '../context-tracker/types';
 import { CompletionPrefixCache } from '../utils/lru-cache';
 import { SymbolIndexCache } from '../utils/symbol-index-cache';
@@ -1734,6 +1734,11 @@ export class CompletionProvider {
                 the_scoped_names.add(my_name);
             }
         }
+        // Position-invariant across the loop below: resolve the
+        // enclosing scope once, not per candidate name.
+        const the_visible_macros = collect_visible_local_macros(
+            the_scopes, position
+        );
 
         const the_macros = new Map<string, MacroSymbol>();
         for (const [my_name, my_macro] of flat) {
@@ -1745,16 +1750,16 @@ export class CompletionProvider {
                 the_macros.set(my_name, my_macro);
                 continue;
             }
-            const scoped = lookup_scoped_local_macro(
-                the_scopes, position, my_name
-            );
-            if (scoped.out_of_scope) {
+            const scoped_symbol = the_visible_macros.get(my_name);
+            if (scoped_symbol === undefined) {
+                // Tracked in this file but in no visible scope: out of
+                // scope at the cursor — drop.
                 continue;
             }
             the_macros.set(
                 my_name,
-                scoped.symbol?.containingScope === 'program'
-                    ? scoped.symbol
+                scoped_symbol.containingScope === 'program'
+                    ? scoped_symbol
                     : my_macro
             );
         }

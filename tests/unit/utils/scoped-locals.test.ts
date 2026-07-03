@@ -3,6 +3,7 @@ import {
     get_visible_local_scopes,
     collect_visible_local_macros,
     lookup_scoped_local_macro,
+    enumerate_scoped_local_macros,
 } from '../../../src/utils/scoped-locals';
 import {
     create_document_state,
@@ -178,5 +179,30 @@ end
         const position = find_position_of(source, "display `x'")!;
         const result = lookup_scoped_local_macro(doc.scopes, position, 'x');
         expect(result.symbol?.value).toBe('second');
+    });
+});
+
+describe('enumerate_scoped_local_macros', () => {
+    it('yields one entry per owning scope for a shared name', () => {
+        const doc = create_document_state(SIBLING_PROGRAMS);
+        const the_entries = enumerate_scoped_local_macros(
+            doc.scopes, doc.symbols.localMacros
+        );
+        const the_shared_values = the_entries
+            .filter(([my_name]) => my_name === 'shared')
+            .map(([, my_symbol]) => my_symbol.value)
+            .sort();
+        expect(the_shared_values).toEqual(['1', '2']);
+        expect(
+            the_entries.some(([my_name]) => my_name === 'top_only')
+        ).toBe(true);
+    });
+
+    it('falls back to the flat map when scopes are empty', () => {
+        const doc = create_document_state('local x 1');
+        const the_entries = enumerate_scoped_local_macros(
+            [], doc.symbols.localMacros
+        );
+        expect(the_entries.map(([my_name]) => my_name)).toEqual(['x']);
     });
 });

@@ -71,9 +71,11 @@ describe('scoped local-macro provider invariants (#270)', () => {
                         prog_a, prog_b, name, my_scenario.with_dofile_def
                     );
                 const document_state = create_document_state(source);
+                // Anchor on the backtick: short generated names (e.g.
+                // 'a') can also occur inside the word 'display'.
                 const character = source
                     .split('\n')[reference_line]
-                    .indexOf(name);
+                    .indexOf('`') + 1;
 
                 const the_definition = await definition_provider.get_definition(
                     document_state,

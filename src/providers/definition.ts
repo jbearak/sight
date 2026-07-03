@@ -270,15 +270,17 @@ export class DefinitionProvider {
      *   `position` (a sibling scope's local) — exclusive shadowing,
      *   no result; the flat slot must not substitute.
      * - non-empty: the visible symbol is program-scoped — its own
-     *   primary + same-scope additional_definitions (#271: program
-     *   locals never cross files), merged with the workspace-indexer
-     *   include-chain hits (already gated by is_cross_file_hidden_local).
+     *   primary + same-scope additional_definitions only. Program
+     *   locals never cross file boundaries (#271), so cross-file
+     *   same-name hits are NOT merged in (a same-named local in an
+     *   included file is a different macro) — consistent with
+     *   find-references skipping the cross-file scan for
+     *   program-scoped targets.
      */
     private resolve_scoped_local_definition(
         document: DocumentState,
         word: string,
-        position: Position,
-        workspace_indexer?: WorkspaceIndexer
+        position: Position
     ): Location[] | null {
         const scoped = lookup_scoped_local_macro(
             document.scopes, position, word
@@ -289,15 +291,9 @@ export class DefinitionProvider {
         if (!scoped.symbol || scoped.symbol.containingScope !== 'program') {
             return null;
         }
-        const out = this.macro_symbol_to_locations(scoped.symbol);
-        out.push(...this.collect_workspace_definition_locations(
-            document.uri,
-            word,
-            'local',
-            workspace_indexer,
-            { include_only: true }
-        ));
-        return this.dedupe_locations(out);
+        return this.dedupe_locations(
+            this.macro_symbol_to_locations(scoped.symbol)
+        );
     }
 
     /**
@@ -314,9 +310,7 @@ export class DefinitionProvider {
     ): Promise<Definition | null> {
         // Scope-aware same-file resolution first (#270).
         const scoped_locs = position
-            ? this.resolve_scoped_local_definition(
-                document, word, position, workspace_indexer
-            )
+            ? this.resolve_scoped_local_definition(document, word, position)
             : null;
         if (scoped_locs !== null) {
             return scoped_locs.length > 0
@@ -1295,7 +1289,7 @@ export class DefinitionProvider {
         // visible local is authoritative (never crosses files, #271); an
         // out-of-scope name must not fall back to the flat slot below.
         const scoped_locs = this.resolve_scoped_local_definition(
-            document, word, position, workspace_indexer
+            document, word, position
         );
         if (scoped_locs !== null && scoped_locs.length > 0) {
             return this.locations_to_definition(scoped_locs);

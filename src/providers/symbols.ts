@@ -18,6 +18,7 @@ import {
     WorkspaceSymbolSource,
 } from '../types';
 import { get_line_text, get_line_count } from '../utils/line-utils';
+import { enumerate_scoped_local_macros } from '../utils/scoped-locals';
 import { extract_sections, RawSection } from './section-detector';
 import * as path from 'path';
 
@@ -378,8 +379,13 @@ export class SymbolProvider {
             }
         }
 
-        // 3. Add local macros - nest under containing program or add as top-level
-        for (const [name, macro] of document.symbols.localMacros) {
+        // 3. Add local macros - nest under containing program or add as
+        //    top-level. Enumerate per scope (#270): the flat view keeps
+        //    one representative per name, dropping same-named locals
+        //    declared in other program scopes from the outline.
+        for (const [name, macro] of enumerate_scoped_local_macros(
+            document.scopes, document.symbols.localMacros
+        )) {
             if (macro.sourceUri === document.uri) {
                 const my_local_symbol: DocumentSymbol = {
                     name: `\`${name}'`,
@@ -726,8 +732,11 @@ export class SymbolProvider {
                 }
             }
 
-            // Local macros
-            for (const [my_name, my_macro] of document.symbols.localMacros) {
+            // Local macros — per scope (#270), same rationale as the
+            // document outline above.
+            for (const [my_name, my_macro] of enumerate_scoped_local_macros(
+                document.scopes, document.symbols.localMacros
+            )) {
                 if (my_name.toLowerCase().includes(lower_query)) {
                     symbols.push({
                         name: `\`${my_name}'`,

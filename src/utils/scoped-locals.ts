@@ -79,6 +79,31 @@ export function collect_visible_local_macros(
     return out;
 }
 
+/**
+ * Every local-macro declaration in the file, one entry per owning
+ * scope — the flat view holds a single representative per name, which
+ * silently drops same-named locals in other scopes (issue #270).
+ * Every analyzer write path registers into a scope before publishing
+ * to the flat view, so enumerating scopes loses nothing. Falls back
+ * to the flat map when `scopes` is empty (degenerate states). Order:
+ * do-file scope first, then program scopes in registration order.
+ */
+export function enumerate_scoped_local_macros(
+    scopes: ScopeInfo[] | undefined,
+    flat_local_macros: Map<string, MacroSymbol>
+): Array<[string, MacroSymbol]> {
+    if (scopes === undefined || scopes.length === 0) {
+        return [...flat_local_macros];
+    }
+    const out: Array<[string, MacroSymbol]> = [];
+    for (const my_scope of scopes) {
+        for (const my_entry of my_scope.localMacros) {
+            out.push(my_entry);
+        }
+    }
+    return out;
+}
+
 export interface ScopedLocalLookupResult {
     /** THE symbol when a visible scope defines the name (exclusive
      * shadowing: the nearest visible scope's symbol, issue #270). */

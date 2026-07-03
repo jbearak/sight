@@ -18,6 +18,7 @@ import { ScopeResolver } from '../../src/scope-resolver';
 import { ForwardScopeResolver } from '../../src/forward-scope-resolver';
 import { CommandDatabase } from '../../src/command-database';
 import { CompletionProvider } from '../../src/providers/completion';
+import { SymbolProvider } from '../../src/providers/symbols';
 import { Location } from 'vscode-languageserver';
 
 const SIBLING_LINES = [
@@ -516,5 +517,112 @@ describe('scoped local macros: completion (#270)', () => {
         expect(
             the_completions.map(my_item => my_item.label)
         ).not.toContain('hidden');
+    });
+});
+
+describe('scoped local macros: document symbols / workspace search (#270)', () => {
+    let test_temp_dir: string;
+    let symbol_provider: SymbolProvider;
+    let document_store: DocumentStore;
+
+    beforeEach(() => {
+        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-syms-'));
+        symbol_provider = new SymbolProvider();
+        document_store = new DocumentStore();
+    });
+
+    afterEach(() => {
+        if (existsSync(test_temp_dir)) {
+            rmSync(test_temp_dir, { recursive: true, force: true });
+        }
+    });
+
+    async function open_document(lines: string[]) {
+        const file_path = join(test_temp_dir, 'a.do');
+        const content = lines.join('\n');
+        writeFileSync(file_path, content);
+        const uri = URI.file(file_path).toString();
+        await document_store.open(uri, content, 1);
+        return { uri, content, document_state: document_store.get(uri)! };
+    }
+
+    it('outline lists every scope\'s same-named local, nested correctly', async () => {
+        const { document_state } = await open_document(SIBLING_LINES);
+        const the_symbols =
+            symbol_provider.get_document_symbols(document_state);
+        const prog_a = the_symbols.find(my_sym => my_sym.name === 'prog_a');
+        const prog_b = the_symbols.find(my_sym => my_sym.name === 'prog_b');
+        expect(prog_a?.children?.map(my_child => my_child.name))
+            .toContain("`shared'");
+        expect(prog_b?.children?.map(my_child => my_child.name))
+            .toContain("`shared'");
+    });
+
+    it('workspace symbol search surfaces both same-named locals', async () => {
+        const { document_state } = await open_document(SIBLING_LINES);
+        const the_symbols = symbol_provider.get_workspace_symbols(
+            'shared',
+            [document_state],
+        );
+        const the_local_lines = the_symbols
+            .filter(my_sym => my_sym.name === "`shared'")
+            .map(my_sym => my_sym.location.range.start.line)
+            .sort((a, b) => a - b);
+        expect(the_local_lines).toEqual([1, 4]);
+    });
+});
+
+describe('scoped local macros: definition ignores cross-file hits for program locals (#270)', () => {
+    let test_temp_dir: string;
+    let indexer: WorkspaceIndexer;
+    let provider: DefinitionProvider;
+    let document_store: DocumentStore;
+
+    beforeEach(() => {
+        test_temp_dir = mkdtempSync(join(tmpdir(), 'scoped-def-xfile-'));
+        indexer = new WorkspaceIndexer();
+        indexer.set_dependency_graph(new DependencyGraph());
+        provider = new DefinitionProvider();
+        document_store = new DocumentStore();
+    });
+
+    afterEach(() => {
+        if (existsSync(test_temp_dir)) {
+            rmSync(test_temp_dir, { recursive: true, force: true });
+        }
+    });
+
+    it('program-scoped target returns only its own declaration', async () => {
+        writeFileSync(
+            join(test_temp_dir, 'lib.do'),
+            'local helper lib\n'
+        );
+        const main_path = join(test_temp_dir, 'main.do');
+        const main_content = [
+            'include "lib.do"',        // 0
+            'program define p',        // 1
+            '    local helper 1',      // 2
+            '    di "`helper\'"',      // 3
+            'end',                     // 4
+        ].join('\n');
+        writeFileSync(main_path, main_content);
+        await indexer.initialize([test_temp_dir]);
+        const uri = URI.file(main_path).toString();
+        await document_store.open(uri, main_content, 1);
+        const character = main_content.split('\n')[3].indexOf('helper');
+        const result = await provider.get_definition(
+            document_store.get(uri)!,
+            { line: 3, character },
+            undefined,
+            undefined,
+            undefined,
+            indexer,
+            undefined,
+        );
+        const the_locations = as_locations(result);
+        expect(new Set(the_locations.map(my_loc => my_loc.uri)))
+            .toEqual(new Set([uri]));
+        expect(the_locations.map(my_loc => my_loc.range.start.line))
+            .toEqual([2]);
     });
 });
