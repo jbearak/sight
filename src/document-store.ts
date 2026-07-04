@@ -489,6 +489,15 @@ export class DocumentStore {
         staged.is_standalone
       );
     }
+    // The indexer overlay deliberately receives RAW directives even for a
+    // standalone file (issue #208): it feeds get_related_uris, the
+    // find-references connectivity floor, which is raw-facts-based and
+    // standalone-independent by design (docs/cross-file.md "What
+    // standalone does not change"). The indexer's disk-side scan stores
+    // raw directives for the same file, so gating the overlay here would
+    // make an open buffer's connectivity diverge from the identical file
+    // on disk. Only the resolver registration above is effective/
+    // standalone-aware.
     if (this.on_backward_directives_parsed) {
       this.on_backward_directives_parsed(uri, staged.raw_backward_directives);
     }
