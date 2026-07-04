@@ -19,6 +19,7 @@ import { DependencyGraph } from '../../src/dependency-graph';
 import { WorkspaceIndexer } from '../../src/indexer';
 import { URI } from 'vscode-uri';
 import { make_fs_content_provider } from '../fs-content-provider';
+import type { RichResolveFs } from '../../src/utils/file-path-utils';
 
 let tmp_dir: string;
 
@@ -523,6 +524,85 @@ describe('Standalone directive (issue #208)', () => {
             expect(the_malformed).toHaveLength(1);
             expect(the_malformed[0].range.start.line).toBe(0);
             expect(the_malformed[0].message).toContain('main.do line 2');
+        });
+    });
+
+    describe('case-only attribution routing', () => {
+        it('routes by the real-cased URI when the directive path casing differs from disk', async () => {
+            // Disk has Parent.do; the child's SECOND directive types
+            // "parent.do" (case-only mismatch, simulated via an injected
+            // RichResolveFs so the test is host-regime independent).
+            // source_uri is stamped with the real-cased URI; the remap
+            // lookup must hit it via the real-path chokepoint. If it
+            // missed, the basename fallback ('Parent.do' vs the
+            // parser-cased 'parent.do' key) would also miss and the
+            // warning would land on the FIRST directive's line instead
+            // (#208 review round 3).
+            const other_path = write_file(tmp_dir, 'other.do', [
+                'global other_global "o"',
+                'do child.do',
+            ].join('\n'));
+            const parent_real_path = write_file(tmp_dir, 'Parent.do', [
+                '// a leading header comment',
+                '// sight: standalone v2',
+                'global parent_global "1"',
+                'do child.do',
+            ].join('\n'));
+            const parent_typed_path =
+                path.join(tmp_dir, 'parent.do');
+            const child_path = write_file(tmp_dir, 'child.do', [
+                `// sight: done-by: "${other_path}"`,
+                `// sight: done-by: "${parent_typed_path}"`,
+                'display $parent_global',
+            ].join('\n'));
+            const child_uri = URI.file(child_path).toString();
+            const child_content = fs.readFileSync(child_path, 'utf8');
+
+            const resolver = create_resolver_with_forward();
+            // Present the directory with ONLY the real-cased name, so the
+            // typed 'parent.do' resolves case-only to 'Parent.do'
+            // regardless of the host filesystem's case regime.
+            const the_overrides = new Map([[tmp_dir, [
+                { name: 'other.do', is_file: true },
+                { name: 'Parent.do', is_file: true },
+                { name: 'child.do', is_file: true },
+            ]]]);
+            const patched_fs: RichResolveFs = {
+                readdirSync(dir: string) {
+                    const my_norm = path.normalize(dir);
+                    for (const [my_dir, my_entries] of the_overrides) {
+                        if (path.normalize(my_dir) === my_norm) {
+                            return my_entries.map(e => ({
+                                name: e.name,
+                                isFile: () => e.is_file,
+                                isDirectory: () => !e.is_file,
+                                isSymbolicLink: () => false,
+                            }));
+                        }
+                    }
+                    return fs.readdirSync(
+                        dir, { withFileTypes: true }
+                    ) as ReturnType<RichResolveFs['readdirSync']>;
+                },
+                existsSync: (p: string) => fs.existsSync(p),
+                statSync: (p: string) => fs.statSync(p),
+            };
+            resolver.set_resolve_fs(patched_fs);
+            resolver.set_workspace_roots([tmp_dir]);
+            void parent_real_path;
+
+            const scope = await resolver.resolve(child_uri, child_content);
+
+            const the_malformed = scope.diagnostics.filter(
+                d => d.message.includes('Malformed directive') &&
+                     d.message.includes('standalone')
+            );
+            expect(the_malformed).toHaveLength(1);
+            // Routed to the SECOND directive (line 1), the one that
+            // references Parent.do — not the first-directive fallback.
+            expect(the_malformed[0].range.start.line).toBe(1);
+            expect(the_malformed[0].message)
+                .toContain('Parent.do line 2');
         });
     });
 

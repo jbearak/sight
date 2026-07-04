@@ -2952,6 +2952,23 @@ export class ScopeResolver {
             if (!parent_uri_to_directive.has(parent_uri)) {
                 parent_uri_to_directive.set(parent_uri, my_directive.range);
             }
+            // The traversal stamps source_uri with the REAL-CASED URI from
+            // compute_directive_real_path (case-only match, .do fallback),
+            // which can differ from the parser-resolved directive.path.
+            // Key the map through the same chokepoint so the exact lookup
+            // cannot miss and silently fall back to basename routing
+            // (#208 review round 3).
+            const my_real = this.compute_directive_real_path(
+                my_directive, active_file_uri
+            );
+            if (my_real.outcome_kind !== 'ambiguous') {
+                const my_real_uri = URI.file(my_real.real_path).toString();
+                if (!parent_uri_to_directive.has(my_real_uri)) {
+                    parent_uri_to_directive.set(
+                        my_real_uri, my_directive.range
+                    );
+                }
+            }
         }
 
         // Fallback to first directive range if no specific match found
