@@ -30,13 +30,14 @@ describe('issue #286 — ancestor-level effective backward-directive sync', () =
     let document_store: DocumentStore;
     let dependency_graph: DependencyGraph;
     let scope_resolver: ScopeResolver;
+    let forward_resolver: ForwardScopeResolver;
 
     beforeEach(() => {
         temp_dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sight-286-'));
         document_store = new DocumentStore();
         dependency_graph = new DependencyGraph();
         scope_resolver = new ScopeResolver(create_test_scope_resolver_logger());
-        const forward_resolver = new ForwardScopeResolver(scope_resolver);
+        forward_resolver = new ForwardScopeResolver(scope_resolver);
         scope_resolver.set_forward_scope_resolver(forward_resolver);
         scope_resolver.set_dependency_graph(dependency_graph);
         document_store.set_scope_resolver(scope_resolver);
@@ -134,6 +135,35 @@ describe('issue #286 — ancestor-level effective backward-directive sync', () =
             scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
         ).toBe(true);
     });
+
+    it(
+        'direct forward resolve defaults to auto-mode callee registration',
+        async () => {
+            const b_path = create_file('b.do', 'display "b"\n');
+            const a_path = create_file('a.do', 'do b.do\n');
+            const c_path = create_file('c.do', `do "${b_path}"\n`);
+            const a_uri = to_uri(a_path);
+            const b_uri = to_uri(b_path);
+            const c_uri = to_uri(c_path);
+            seed_auto_parent(a_uri, 'b.do');
+
+            await forward_resolver.resolve(c_uri, [{
+                type: 'do',
+                raw_path: b_path,
+                is_static: true,
+                call_site_line: 0,
+                range: {
+                    start: { line: 0, character: 0 },
+                    end: { line: 0, character: b_path.length + 5 },
+                },
+                source: 'command',
+            }]);
+
+            expect(
+                scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
+            ).toBe(true);
+        }
+    );
 
     it('auto-mode resolution registers an ancestor\'s auto parents even when never opened (effective ⊇ raw)', async () => {
         const b_path = create_file('b.do', 'display "b"\n');
@@ -262,6 +292,51 @@ describe('issue #286 — ancestor-level effective backward-directive sync', () =
             scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
         ).toBe(true);
     });
+
+    it(
+        'directive-less auto cache hit re-registers after another cache ' +
+        'variant clears it',
+        async () => {
+            // file_cache is keyed by uri|working_directory, but backward
+            // directive registration is global per URI. An explicit parse of a
+            // second cache-key variant can clear the auto-synthesized parent
+            // edge for the URI without changing the dependency-graph version;
+            // the original auto cache entry must not assume its per-entry
+            // stamp still represents the global registration map.
+            const b_path = create_file('b.do', 'display "b"\n');
+            const a_path = create_file('a.do', 'do b.do\n');
+            const a_uri = to_uri(a_path);
+            const b_uri = to_uri(b_path);
+            const wd1 = path.join(temp_dir, 'wd1');
+            const wd2 = path.join(temp_dir, 'wd2');
+            seed_auto_parent(a_uri, 'b.do');
+
+            await scope_resolver.get_parsed_file(b_uri, b_path, {
+                working_directory: wd1,
+                backward_dependencies: 'auto',
+            });
+            expect(
+                scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
+            ).toBe(true);
+
+            await scope_resolver.get_parsed_file(b_uri, b_path, {
+                working_directory: wd2,
+                backward_dependencies: 'explicit',
+            });
+            expect(
+                scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
+            ).toBe(false);
+
+            await scope_resolver.get_parsed_file(b_uri, b_path, {
+                skip_disk_if_cached: true,
+                working_directory: wd1,
+                backward_dependencies: 'auto',
+            });
+            expect(
+                scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
+            ).toBe(true);
+        }
+    );
 
     it('memo standalone-closure build registers ancestor auto parents (auto mode)', async () => {
         // Nested forward closures build through the forward-closure memo

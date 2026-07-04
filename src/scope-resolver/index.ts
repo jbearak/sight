@@ -182,16 +182,15 @@ export class ScopeResolver {
     private parser: StataParser;
     private analyzer: SemanticAnalyzer;
     // Cache key is "uri|working_directory" (or just "uri" if no working directory)
-    // registered_backward_mode / registered_graph_version: the
-    // backward_dependencies mode the entry's last parse-path registration
-    // ran under, and the DependencyGraph version it read (issue #286).
-    // Undefined for entries written by parse_file (root-file parses,
-    // which register via resolve()/commit instead). Lets cache HITS
-    // upgrade an 'explicit'-registered entry to effective registration
-    // when first read by an 'auto'-mode resolution, and re-sync an
-    // 'auto'-registered directive-less entry when the graph has changed
-    // since — see upgrade_registration_on_cache_hit.
-    private file_cache: Map<string, { content: string; content_hash: string; mtimeMs?: number; size?: number; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; cd_commands: CdCommand[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; diagnostics: DirectiveDiagnostic[]; registered_backward_mode?: 'auto' | 'explicit'; registered_graph_version?: number }>;
+    // registered_backward_mode: the backward_dependencies mode the entry's
+    // last parse-path registration ran under (issue #286). Undefined for
+    // entries written by parse_file (root-file parses, which register via
+    // resolve()/commit instead). Lets cache HITS upgrade an
+    // 'explicit'-registered entry to effective registration when first read
+    // by an 'auto'-mode resolution. Directive-less auto-mode hits re-sync
+    // idempotently because registration is global per URI, not per
+    // file_cache entry — see upgrade_registration_on_cache_hit.
+    private file_cache: Map<string, { content: string; content_hash: string; mtimeMs?: number; size?: number; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; cd_commands: CdCommand[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; diagnostics: DirectiveDiagnostic[]; registered_backward_mode?: 'auto' | 'explicit' }>;
     private scope_cache: Map<string, ScopeCacheEntry>;
     // Secondary index: uri -> Set<cache_keys> for O(1) scope cache invalidation by URI
     private uri_to_cache_keys: Map<string, Set<string>>;
@@ -2472,13 +2471,10 @@ export class ScopeResolver {
                 working_directory_directive: parse_result.working_directory_directive,
                 diagnostics: parse_result.diagnostics,
                 // Stamp the mode the registration below runs under (and
-                // the graph version it reads), so later cache hits can
-                // upgrade an 'explicit'-registered entry or re-sync a
-                // graph-stale 'auto' one (issue #286).
+                // upgrade an 'explicit'-registered entry on later
+                // auto-mode cache hits (issue #286).
                 registered_backward_mode:
                     options?.backward_dependencies ?? 'explicit',
-                registered_graph_version:
-                    this.dependency_graph?.get_version(),
             });
 
             // Register backward directive dependencies from cached file
@@ -3430,38 +3426,36 @@ export class ScopeResolver {
      * hits never downgrade: for them hit paths stay side-effect-free,
      * as before.
      *
-     * The 'auto' stamp folds in the DependencyGraph version it was
-     * registered against: auto synthesis reads live graph state, so an
-     * entry stamped while the graph was partial (or before a parent
-     * added its do-call) must not latch — the next auto-mode hit after
-     * a graph change re-syncs. Entries whose cached content has explicit
-     * directives skip the version check entirely: for them effective
-     * registration is graph-independent (explicit directives win), so
-     * repeat hits stay free of registration work.
+     * Directive-less auto-mode hits always re-sync idempotently. The
+     * file_cache may hold multiple entries for the same URI (different
+     * inherited working directories), while backward registration is one
+     * global map per URI; another cache-key variant can replace that map
+     * without changing this entry's stamp or the DependencyGraph version.
+     *
+     * Entries whose cached content has explicit directives can still use
+     * the stamp: effective registration is graph-independent for them
+     * (explicit directives win), and another same-content cache variant
+     * registers the same raw directives.
      */
     private upgrade_registration_on_cache_hit(
         uri: string,
         cached: {
             directives: Directive[];
             registered_backward_mode?: 'auto' | 'explicit';
-            registered_graph_version?: number;
         },
         requested_mode: 'auto' | 'explicit' | undefined
     ): void {
         if (requested_mode !== 'auto') {
             return;
         }
-        const current_graph_version = this.dependency_graph?.get_version();
-        if (cached.registered_backward_mode === 'auto' &&
-            (cached.directives.length > 0 ||
-             cached.registered_graph_version === current_graph_version)) {
+        if (cached.directives.length > 0 &&
+            cached.registered_backward_mode === 'auto') {
             return;
         }
         this.apply_backward_directive_registration(uri, cached.directives, {
             backward_dependencies: 'auto',
         });
         cached.registered_backward_mode = 'auto';
-        cached.registered_graph_version = current_graph_version;
     }
 
     /**

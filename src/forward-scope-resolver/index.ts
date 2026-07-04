@@ -44,8 +44,10 @@ export interface ForwardScopeConfig {
      * backward-directive registration for callees read from disk matches
      * the chain's semantics. Purely a side-effect input: it never changes
      * resolved symbols, so it is deliberately absent from the
-     * forward-closure memo key. When unset, get_parsed_file defaults to
-     * 'explicit' (raw registration, the pre-#286 behavior).
+     * forward-closure memo key. ForwardScopeResolver.resolve() normalizes
+     * an unset mode to 'auto' before reading callees; get_parsed_file
+     * itself still defaults untracked direct callers to 'explicit' (raw
+     * registration, the pre-#286 behavior).
      */
     backward_dependencies?: 'auto' | 'explicit';
     diagnostics?: {
@@ -571,7 +573,14 @@ export class ForwardScopeResolver {
         config?: Partial<ForwardScopeConfig>,
         diagnostic_owner_uri?: string,
     ): Promise<ForwardResolvedScope> {
-        const resolved_config = { ...this.default_config, ...config };
+        const resolved_config = {
+            ...this.default_config,
+            ...config,
+            backward_dependencies:
+                config?.backward_dependencies ??
+                this.default_config.backward_dependencies ??
+                'auto',
+        };
         // Check cancellation at entry
         if (token?.isCancellationRequested) {
             return { symbols: create_empty_symbol_table(), call_sites: [], diagnostics: [] };

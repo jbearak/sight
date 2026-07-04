@@ -797,18 +797,23 @@ a separate best-effort recovery path (issue #184):
   auto edges. Effective ⊇ raw, so ancestor reads can only add edges
   relative to the pre-#286 behavior. Registration remains a parse-path
   side effect, with one exception: each file-cache entry is stamped with
-  the mode its registration ran under (plus the dependency-graph version
-  it read), and an `'auto'`-mode cache hit re-applies effective
-  registration when the entry was `'explicit'`-registered or its
-  `'auto'` registration predates a graph change, then re-stamps
-  (`upgrade_registration_on_cache_hit`). Entries whose content has
-  explicit backward directives skip the version re-check: their
-  effective registration is graph-independent, so graph churn never
-  costs them registration work. Without that upgrade, the
+  the mode its registration ran under, and an `'auto'`-mode cache hit
+  re-applies effective registration and re-stamps
+  (`upgrade_registration_on_cache_hit`). Directive-less entries re-sync
+  on **every** `'auto'` hit rather than trusting the stamp: the file
+  cache can hold several entries for one URI (different inherited
+  working directories) while backward registration is one global map
+  per URI, so another cache-key variant — or an explicit-mode parse —
+  can replace the URI's registration without touching this entry's
+  stamp or the dependency-graph version. The re-sync is idempotent and
+  also picks up graph edges added after the stamp. Entries whose content
+  has explicit backward directives skip repeat work once
+  `'auto'`-stamped: their effective registration is graph-independent
+  (explicit directives win), and same-URI variants share content, so any
+  variant registers the same raw directives. Without that upgrade, the
   indexer's explicit WD walk priming the cache would leave a
-  directive-less ancestor's auto edges unregistered — and a graph edge
-  added after the stamp would never reach `backward_directive_children`
-  — for as long as the content stayed unchanged. Explicit-mode hits never downgrade, and memo
+  directive-less ancestor's auto edges unregistered for as long as the
+  content stayed unchanged. Explicit-mode hits never downgrade, and memo
   serves still perform no registration (files reached only through a
   served closure re-register when the memo entry is evicted or their
   content changes).
