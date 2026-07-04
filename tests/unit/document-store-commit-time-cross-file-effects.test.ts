@@ -18,6 +18,7 @@ import { WorkspaceIndexer } from '../../src/indexer';
 import { ScopeResolver } from '../../src/scope-resolver';
 import type { ContentProvider } from '../../src/types';
 import { URI } from 'vscode-uri';
+import { wait_until } from '../wait-until';
 
 function make_content_provider(
     content_by_uri: Map<string, string>
@@ -487,9 +488,12 @@ describe('ScopeResolver disk re-sync on close (issue #184)', () => {
                 {},
                 () => !reopened
             );
-        while (release_read === undefined) {
-            await new Promise((resolve) => setTimeout(resolve, 0));
-        }
+        await wait_until(
+            () => release_read !== undefined,
+            'the re-sync to start its deferred disk read',
+            4000,
+            0
+        );
         // ...the reopen lands while the disk read is in flight.
         reopened = true;
         release_read!(child_disk_content);
