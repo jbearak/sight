@@ -676,6 +676,15 @@ global after 2
         expect(result).toBe(1);
     });
 
+    test('infer_call_site_for_file should match lowercase with nobreak prefix', () => {
+        const parent_content = `global setup 1
+nobreak do "child.do"
+global after 2
+`;
+        const result = parser.infer_call_site_for_file(parent_content, 'child.do');
+        expect(result).toBe(1);
+    });
+
     test('infer_call_site_for_file should NOT treat bare timer as a prefix', () => {
         const parent_content = `global setup 1
 timer do "child.do"

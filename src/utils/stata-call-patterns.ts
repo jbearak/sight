@@ -16,7 +16,7 @@
 // (`timer on 1`, `timer off 1`, `timer clear`, `timer list`), not a prefix
 // command — `timer do "x.do"` is not legal syntax.
 export const CALL_PREFIX_ALTERNATIVES =
-    /qui(?:etly)?|cap(?:ture)?|noi(?:sily)?|version\s+\d+(?:\.\d+)?/.source;
+    /qui(?:etly)?|cap(?:ture)?|noi(?:sily)?|nobreak|version\s+\d+(?:\.\d+)?/.source;
 
 /**
  * Mode for {@link build_do_include_pattern}:
