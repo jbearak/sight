@@ -1055,7 +1055,15 @@ export class CompletionProvider {
                         position.line,
                     );
 
-                if (has_directives || has_auto_parents) {
+                // A standalone file (issue #208) uses Scope-Resolved mode:
+                // its chain is just itself (+ forward calls), so in-scope
+                // completions come from its own resolved scope rather than
+                // the Global-mode workspace merge. Workspace symbols still
+                // appear as out-of-scope entries via
+                // partition_symbols_for_completion, exactly as for a file
+                // with explicit directives.
+                if (has_directives || has_auto_parents ||
+                    temp_scope.is_standalone) {
                     // With directives: use reachable scope chain (precision).
                     // get_visible_symbols_at already resolves forward calls
                     // with correct precedence; re-merging visible_forward_overlay

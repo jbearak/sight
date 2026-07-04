@@ -182,6 +182,49 @@ describe('DocumentStore commit-time cross-file effects (issue #184)', () => {
         ).toBe(true);
     });
 
+    it('a standalone commit registers no backward edges; removing the marker restores them (issue #208)', async () => {
+        const parent_uri =
+            URI.file('/tmp/sight-208-auto-parent.do').toString();
+        const child_uri =
+            URI.file('/tmp/sight-208-auto-child.do').toString();
+        const content_by_uri = new Map<string, string>([
+            [parent_uri, 'do sight-208-auto-child.do\n'],
+        ]);
+        const { document_store, dependency_graph, scope_resolver } =
+            make_harness(content_by_uri);
+
+        dependency_graph.update_caller(parent_uri, [{
+            type: 'do',
+            raw_path: 'sight-208-auto-child.do',
+            is_static: true,
+            call_site_line: 0,
+            range: {
+                start: { line: 0, character: 0 },
+                end: { line: 0, character: 10 },
+            },
+            source: 'command',
+        }]);
+
+        // Committed standalone parse: staged is_standalone reaches
+        // apply_backward_directive_registration → effective directives are
+        // empty despite the auto-discoverable graph parent.
+        await document_store.open(
+            child_uri, '// sight: standalone\ndisplay 1\n', 1
+        );
+        expect(
+            scope_resolver.get_backward_directive_children(parent_uri)
+                .has(child_uri)
+        ).toBe(false);
+
+        // Removing the marker on the next committed parse re-registers the
+        // auto edge.
+        await document_store.update(child_uri, [{ text: 'display 1\n' }], 2);
+        expect(
+            scope_resolver.get_backward_directive_children(parent_uri)
+                .has(child_uri)
+        ).toBe(true);
+    });
+
     it('registers auto-discovered parents even when the file has its own working directory (probe skipped)', async () => {
         // A file with its own @lsp-cd never runs the WD probe, so before the
         // fix only the RAW parse-time sync ran and auto-discovered parents

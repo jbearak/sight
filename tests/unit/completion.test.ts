@@ -2026,7 +2026,7 @@ describe('partition_symbols_for_completion: resolved_scope out-of-scope filterin
             }],
             diagnostics: [],
             has_directives: false,
-            has_auto_parents: true,
+            has_auto_parents: true, is_standalone: false,
         };
 
         // Call the private method via bracket access.
@@ -2089,7 +2089,7 @@ describe('partition_symbols_for_completion: resolved_scope out-of-scope filterin
             }],
             diagnostics: [],
             has_directives: false,
-            has_auto_parents: true,
+            has_auto_parents: true, is_standalone: false,
         };
 
         const result = (provider as any).partition_symbols_for_completion(

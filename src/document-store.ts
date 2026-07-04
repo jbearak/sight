@@ -154,7 +154,8 @@ export class DocumentStore {
           this.scope_resolver.apply_backward_directive_registration(
             my_state.uri,
             directive_result.directives,
-            this.scope_resolver_config
+            this.scope_resolver_config,
+            directive_result.standalone !== undefined
           );
         } catch {
           // Ignore directive parsing errors during warm-sync
@@ -484,7 +485,8 @@ export class DocumentStore {
       this.scope_resolver.apply_backward_directive_registration(
         uri,
         staged.raw_backward_directives,
-        staged.scope_resolver_config
+        staged.scope_resolver_config,
+        staged.is_standalone
       );
     }
     if (this.on_backward_directives_parsed) {
@@ -761,6 +763,7 @@ export class DocumentStore {
       staged_effects = {
         raw_backward_directives: directive_result.directives,
         scope_resolver_config: effective_scope_resolver_config,
+        is_standalone: directive_result.standalone !== undefined,
       };
 
       if (directive_result.working_directory) {

@@ -367,12 +367,16 @@ export class DiagnosticsProvider {
         // (defer) rather than reading live state.
         const scan_complete_for_deferral =
             resolved_scope?.scan_complete_at_resolve_time ?? false;
+        // A standalone file (issue #208) never defers: it can never gain
+        // backward parents from the workspace scan, so there is nothing to
+        // wait for.
         const defer_undefined_diagnostics = backward_dep_mode === 'auto' &&
             this.dependency_graph &&
             !scan_complete_for_deferral &&
             resolved_scope &&
             !resolved_scope.has_directives &&
-            !resolved_scope.has_auto_parents;
+            !resolved_scope.has_auto_parents &&
+            !resolved_scope.is_standalone;
 
         for (const my_diagnostic of this.extract_semantic_diagnostics(document)) {
             // Suppress Stata-specific semantic diagnostics in embedded contexts

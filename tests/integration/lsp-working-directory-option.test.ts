@@ -257,6 +257,52 @@ display "helper"`);
             expect(result.workingDirectory).toBe(output_dir);
         });
 
+        it('should return null for a standalone child whose parent has a working directory (issue #208)', async () => {
+            // Same shape as the done-by inheritance test above, but the
+            // child is marked `sight: standalone`: inherited WD is cut, so
+            // send-to-stata gets no `cd` prepended for this file.
+            const data_dir = path.join(test_dir, 'data');
+            fs.mkdirSync(data_dir, { recursive: true });
+
+            write_file('scripts/parent.do', `// @lsp-cd: "../data"
+local myvar = 1
+do "child.do"`);
+
+            const child_path = write_file('scripts/child.do', `// sight: standalone
+// @lsp-done-by: "parent.do"
+display \`myvar'`);
+            const child_uri = URI.file(child_path).toString();
+
+            const child_content = fs.readFileSync(child_path, 'utf-8');
+            await document_store.open(child_uri, child_content, 1);
+
+            const deps = create_mock_dependencies(document_store);
+            const handler = create_get_working_directory_handler(deps);
+            const params: GetWorkingDirectoryParams = { uri: child_uri };
+            const result = await handler(params);
+
+            expect(result.workingDirectory).toBeNull();
+        });
+
+        it('should keep a standalone file\'s own working directory (issue #208)', async () => {
+            const data_dir = path.join(test_dir, 'data');
+            fs.mkdirSync(data_dir, { recursive: true });
+
+            const file_path = write_file('scripts/analysis.do', `// sight: standalone
+// @lsp-cd: "../data"
+display "hello"`);
+            const uri = URI.file(file_path).toString();
+
+            const content = fs.readFileSync(file_path, 'utf-8');
+            await document_store.open(uri, content, 1);
+
+            const deps = create_mock_dependencies(document_store);
+            const handler = create_get_working_directory_handler(deps);
+            const result = await handler({ uri });
+
+            expect(result.workingDirectory).toBe(data_dir);
+        });
+
         it('should return null when parent has no working directory', async () => {
             // Create parent.do without @lsp-cd directive
             write_file('scripts/parent.do', `local myvar = 1

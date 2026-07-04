@@ -797,7 +797,7 @@ display \`result'
                     severity: 'warning',
                 }],
                 has_directives: false,
-                has_auto_parents: false,
+                has_auto_parents: false, is_standalone: false,
             };
             const stub_resolver = make_stub_scope_resolver(resolved_scope);
             const the_diagnostics = await provider.get_diagnostics(document, DEFAULT_CONFIG, undefined, stub_resolver);
@@ -820,7 +820,7 @@ display \`result'
                     severity: 'warning',
                 }],
                 has_directives: false,
-                has_auto_parents: false,
+                has_auto_parents: false, is_standalone: false,
             };
             const stub_resolver = make_stub_scope_resolver(resolved_scope);
             const the_diagnostics = await provider.get_diagnostics(document, DEFAULT_CONFIG, undefined, stub_resolver);
@@ -842,7 +842,7 @@ display \`result'
                     severity: 'warning',
                 }],
                 has_directives: false,
-                has_auto_parents: false,
+                has_auto_parents: false, is_standalone: false,
             };
             const stub_resolver = make_stub_scope_resolver(resolved_scope);
             const the_diagnostics = await provider.get_diagnostics(document, DEFAULT_CONFIG, undefined, stub_resolver);
@@ -864,7 +864,7 @@ display \`result'
                     severity: 'warning',
                 }],
                 has_directives: false,
-                has_auto_parents: false,
+                has_auto_parents: false, is_standalone: false,
             };
             const stub_resolver = make_stub_scope_resolver(resolved_scope);
 
@@ -1041,7 +1041,7 @@ display \`result'
                 out_of_scope_symbols: [],
                 diagnostics: [],
                 has_directives: false,
-                has_auto_parents: false,
+                has_auto_parents: false, is_standalone: false,
             };
             const stub_resolver = make_stub_scope_resolver(resolved_scope);
 
@@ -1085,7 +1085,7 @@ display \`result'
                 out_of_scope_symbols: [],
                 diagnostics: [],
                 has_directives: false,
-                has_auto_parents: false,
+                has_auto_parents: false, is_standalone: false,
                 forward_call_symbols: [{
                     callee_uri: 'file:///child.do',
                     call_line: 0,
@@ -1145,7 +1145,7 @@ display \`result'
                 out_of_scope_symbols: [],
                 diagnostics: [],
                 has_directives: false,
-                has_auto_parents: false,
+                has_auto_parents: false, is_standalone: false,
             };
             const stub_resolver = make_stub_scope_resolver(resolved_scope);
 
@@ -1275,7 +1275,7 @@ display \`result'
                 }],
                 diagnostics: [],
                 has_directives: true,
-                has_auto_parents: false,
+                has_auto_parents: false, is_standalone: false,
             };
 
             const the_diagnostics = await provider.get_diagnostics(
@@ -1307,7 +1307,7 @@ display \`result'
                 out_of_scope_symbols: [],
                 diagnostics: [],
                 has_directives: false,
-                has_auto_parents: false,
+                has_auto_parents: false, is_standalone: false,
                 forward_call_symbols: [{
                     callee_uri: 'file:///child.do',
                     call_line: 0,
@@ -1361,7 +1361,7 @@ display \`result'
                 out_of_scope_symbols: [],
                 diagnostics: [],
                 has_directives: false,
-                has_auto_parents: false,
+                has_auto_parents: false, is_standalone: false,
                 forward_call_symbols: [{
                     callee_uri: 'file:///child.do',
                     call_line: 0,
@@ -1445,7 +1445,7 @@ display \`result'
                 out_of_scope_symbols: [],
                 diagnostics: [],
                 has_directives: false,
-                has_auto_parents: true,
+                has_auto_parents: true, is_standalone: false,
                 forward_call_symbols: [
                     {
                         callee_uri: 'file:///a.do',
@@ -1498,7 +1498,7 @@ display \`result'
                 out_of_scope_symbols: [],
                 diagnostics: [],
                 has_directives: false,
-                has_auto_parents: true,
+                has_auto_parents: true, is_standalone: false,
                 forward_call_symbols: [{
                     callee_uri: 'file:///b.do',
                     call_line: 1,
@@ -1568,7 +1568,7 @@ display \`result'
                 out_of_scope_symbols: [],
                 diagnostics: [],
                 has_directives: false,
-                has_auto_parents: true,
+                has_auto_parents: true, is_standalone: false,
                 forward_call_symbols: [{
                     callee_uri: 'file:///b.do',
                     call_line: 1,
@@ -1622,7 +1622,7 @@ display \`result'
                 out_of_scope_symbols: [],
                 diagnostics: [],
                 has_directives: false,
-                has_auto_parents: true,
+                has_auto_parents: true, is_standalone: false,
                 forward_call_symbols: [{
                     callee_uri: 'file:///b.do',
                     call_line: 1,
@@ -1681,7 +1681,7 @@ display \`result'
                 out_of_scope_symbols: [],
                 diagnostics: [],
                 has_directives: false,
-                has_auto_parents: true,
+                has_auto_parents: true, is_standalone: false,
                 forward_call_symbols: [{
                     callee_uri: 'file:///b.do',
                     call_line: 1,
@@ -1732,7 +1732,7 @@ display \`result'
                 out_of_scope_symbols: [],
                 diagnostics: [],
                 has_directives: false,
-                has_auto_parents: true,
+                has_auto_parents: true, is_standalone: false,
                 forward_call_symbols: [{
                     callee_uri: 'file:///b.do',
                     call_line: 0,
@@ -1789,7 +1789,7 @@ display \`result'
                 out_of_scope_symbols: [],
                 diagnostics: [],
                 has_directives: false,
-                has_auto_parents: true,
+                has_auto_parents: true, is_standalone: false,
                 forward_call_symbols: [{
                     callee_uri: 'file:///b.do',
                     call_line: 1,
@@ -1854,7 +1854,7 @@ display \`result'
                 out_of_scope_symbols: [],
                 diagnostics: [],
                 has_directives: false,
-                has_auto_parents: true,
+                has_auto_parents: true, is_standalone: false,
                 forward_call_symbols: [{
                     callee_uri: 'file:///b.do',
                     call_line: 1,
@@ -2005,7 +2005,7 @@ display \`result'
                     reason: 'inheritance_excludes_locals' as const,
                 }],
                 diagnostics: [],
-                has_directives: true, has_auto_parents: false,
+                has_directives: true, has_auto_parents: false, is_standalone: false,
             };
             
             const mock_scope_resolver = {
@@ -2053,7 +2053,7 @@ display \`result'
                     reason: 'after_call_site' as const,
                 }],
                 diagnostics: [],
-                has_directives: true, has_auto_parents: false,
+                has_directives: true, has_auto_parents: false, is_standalone: false,
             };
             
             const mock_scope_resolver = {
@@ -2101,7 +2101,7 @@ display \`result'
                     reason: 'inheritance_excludes_locals' as const,
                 }],
                 diagnostics: [],
-                has_directives: true, has_auto_parents: false,
+                has_directives: true, has_auto_parents: false, is_standalone: false,
             };
             
             const mock_scope_resolver = {
@@ -2153,7 +2153,7 @@ display \`result'
                     reason: 'after_call_site' as const,
                 }],
                 diagnostics: [],
-                has_directives: true, has_auto_parents: false,
+                has_directives: true, has_auto_parents: false, is_standalone: false,
             };
             
             const mock_scope_resolver = {
@@ -2204,7 +2204,7 @@ display \`result'
                     reason: 'after_call_site' as const,
                 }],
                 diagnostics: [],
-                has_directives: true, has_auto_parents: false,
+                has_directives: true, has_auto_parents: false, is_standalone: false,
             };
             
             const mock_scope_resolver = {
@@ -2239,7 +2239,7 @@ display \`result'
                 out_of_scope_symbols: [],
                 diagnostics: [],
                 has_directives: false,
-                has_auto_parents: false,
+                has_auto_parents: false, is_standalone: false,
                 forward_call_symbols: [{
                     callee_uri: 'file:///child.do',
                     call_line: 0,
@@ -2310,7 +2310,7 @@ display \`result'
                 }],
                 diagnostics: [],
                 has_directives: true,
-                has_auto_parents: false,
+                has_auto_parents: false, is_standalone: false,
             };
 
             const mock_scope_resolver = {
@@ -2373,7 +2373,7 @@ display \`result'
                 chain: [],
                 out_of_scope_symbols: [],
                 has_directives: false,
-                has_auto_parents: false,
+                has_auto_parents: false, is_standalone: false,
                 scan_complete_at_resolve_time: true,
                 diagnostics: [diag],
             };

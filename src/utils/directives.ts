@@ -14,6 +14,10 @@ export const DIRECTIVE_PREFIX_PATTERN = String.raw`^\s*(?://|\*)\s*${DIRECTIVE_B
 
 export const FORWARD_DIRECTIVE_KEYWORDS = 'do|run|include';
 export const BACKWARD_DIRECTIVE_KEYWORDS = 'done-by|run-by|included-by';
+// Header-only, no-argument marker that opts a file out of inherited backward
+// parent scope (issue #208). Unrelated to the forward-scope-resolver's
+// "standalone closure" memo terminology (#234).
+export const STANDALONE_DIRECTIVE_KEYWORDS = 'standalone';
 
 // Trailing call-site parameters for path-bearing directives: zero or more
 // `line=<n>` / `match="<string>"` params. A `match=` string must be non-empty

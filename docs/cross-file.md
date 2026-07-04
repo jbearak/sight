@@ -75,7 +75,9 @@ In this mode the LSP will not auto-discover parent files — you must add
 
 **Per-file opt-out:** Even in auto mode, adding an explicit backward directive
 to a file's header causes the LSP to skip auto-discovery for that file and use
-only the directives you specified.
+only the directives you specified. To opt a file out of parent inheritance
+entirely (auto-discovered *and* explicit), mark it
+[`sight: standalone`](#standalone-files).
 
 ## What the LSP Reads (Open Files vs Workspace)
 
@@ -225,6 +227,63 @@ Notes:
   preferred. The `@lsp-` forms remain permanent aliases.
 - `sight: run-by` and `sight: done-by` are functionally identical; use whichever
   matches the actual Stata command (`run` vs `do`) for semantic clarity.
+
+## Standalone Files
+
+Some files are meant to be checked in isolation: self-contained utilities,
+generated scripts called by many unrelated parents, or files in dense
+`do`/`run`/`include` graphs where inherited scope does more harm than good.
+Mark such a file with the header-only, no-argument **standalone** directive:
+
+```stata
+// sight: standalone
+```
+
+(`@lsp-standalone` is a permanent alias; a trailing colon is accepted; the
+marker must appear in the file header, like backward directives.)
+
+A standalone file's diagnostics are resolved **without any backward parent
+inheritance**:
+
+- **Auto-discovered parents are ignored.** Even when the workspace scan finds
+  callers, the file's own diagnostics treat it as having no parents (and its
+  undefined-symbol diagnostics are never deferred while the scan runs — there
+  is nothing to wait for).
+- **Explicit backward directives are ignored, with a warning.** If the header
+  also contains `sight: done-by` / `sight: run-by` / `sight: included-by`
+  lines, each ignored line gets a warning diagnostic in the standalone file
+  itself (never in other files that read it).
+- **Inherited working directory is cut.** The file keeps its own
+  `sight: working-directory` directive, if any, but never inherits one from a
+  parent. This also affects `sight/getWorkingDirectory` (Send to Stata `cd`
+  prepending).
+- **The cut applies everywhere in a chain.** When another file's resolution
+  walks a standalone file as an ancestor, the standalone file contributes its
+  *own* symbols but never conducts its ancestors' scope (or their working
+  directories) through to descendants.
+
+What standalone does **not** change:
+
+- **Forward calls from the file keep working.** Its own `do`/`run`/`include`
+  statements (and `sight: do`/`run`/`include` directives) resolve normally.
+- **What callers see.** A caller that runs the standalone file still inherits
+  the standalone file's own symbols at the call site, exactly as before.
+- **The dependency graph and find-references.** Graph edges record who calls
+  whom — raw facts about the callers — so find-references still traverses
+  connectivity involving standalone files (see
+  [Find References Across Files](#find-references-across-files)).
+- **Navigation conveniences.** Hover, go-to-definition, and completion treat a
+  standalone file like any other scope-resolved file with zero parents:
+  workspace symbols remain reachable as annotated out-of-scope entries and
+  navigation fallbacks, and never suppress diagnostics.
+
+Toggling the directive is picked up like any other header edit: caches are
+keyed by content hash, and files that inherit *through* the standalone file
+are re-resolved automatically.
+
+`sight check` honors the directive identically to the editor: the standalone
+file is validated in isolation, and the ignored-directive warnings appear in
+its report.
 
 ## Working Directory
 
@@ -757,17 +816,18 @@ map), so an earlier-sourced sibling's symbols are always visible to a later
 sibling in execution order — see
 `tests/integration/hub-heavy-sibling-visibility.test.ts`.
 
-**Interaction with a future per-file standalone opt-out.** A planned
-`sight: standalone` directive would let a file resolve its own diagnostics as
-if it had no parents (a *backward* concern). It does **not** introduce caller-dependence
-into the *forward* closure: standalone can change the file's *inherited working
-directory* and the *effective call type* it is entered under, but both are inputs
-the closure already depends on.
+**Interaction with the per-file standalone opt-out (issue #208).** The
+[`sight: standalone`](#standalone-files) directive resolves a file's own
+diagnostics as if it had no parents (a *backward* concern). It does **not**
+introduce caller-dependence into the *forward* closure: standalone changes the
+file's *inherited working directory* (cut to the file's own directive or
+none), an input the closure already depends on.
 Standalone introduces no other forward-closure variation, and never caller
-identity. This is the assumption a caller-independent forward-closure cache relies
-on; it is enforced by the memo correctness gate
+identity. This is the assumption the caller-independent forward-closure cache
+relies on; it is enforced by the memo correctness gate
 (`tests/integration/forward-closure-memo-gate.test.ts`), which checks that a
-file's forward closure is identical across distinct callers given the same inputs.
+file's forward closure is identical across distinct callers given the same
+inputs — including a standalone callee reached from two different callers.
 
 ## Backward-Directive Registration Timing (Transactional Side Effects)
 

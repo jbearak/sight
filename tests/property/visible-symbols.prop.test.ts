@@ -156,7 +156,7 @@ describe('get_visible_symbols_at equivalence with ForwardScopeResolver.get_symbo
                             out_of_scope_symbols: [],
                             diagnostics: [],
                             has_directives: false,
-                            has_auto_parents: false,
+                            has_auto_parents: false, is_standalone: false,
                             forward_call_symbols: sites,
                         } as ResolvedScope,
                         cursor_line,

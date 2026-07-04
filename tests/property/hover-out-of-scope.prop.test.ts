@@ -145,7 +145,7 @@ function create_resolved_scope_with_out_of_scope(
         symbols: create_empty_symbol_table(),
         out_of_scope_symbols,
         diagnostics: [],
-        has_directives: true, has_auto_parents: false,
+        has_directives: true, has_auto_parents: false, is_standalone: false,
     };
 }
 
@@ -197,7 +197,7 @@ function create_resolved_scope_with_in_scope(
         symbols: my_symbols,
         out_of_scope_symbols: [],
         diagnostics: [],
-        has_directives: true, has_auto_parents: false,
+        has_directives: true, has_auto_parents: false, is_standalone: false,
     };
 }
 

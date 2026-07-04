@@ -488,6 +488,92 @@ gen x = 1`;
             expect(result.diagnostics.length).toBe(0);
         });
     });
+
+    describe('Standalone Directive (issue #208)', () => {
+        const parser = new DirectiveParser();
+
+        test('parses sight: standalone and @lsp-standalone, with and without colon', () => {
+            const the_forms = [
+                '// sight: standalone',
+                '// sight: standalone:',
+                '// @lsp-standalone',
+                '// @lsp-standalone:',
+                '* sight: standalone',
+                '* @lsp-standalone',
+            ];
+            for (const my_form of the_forms) {
+                const result = parser.parse(
+                    `${my_form}\ngen x = 1`, 'file:///test.do'
+                );
+                expect(result.standalone).toBeDefined();
+                expect(result.standalone!.range.start.line).toBe(0);
+                expect(result.diagnostics.length).toBe(0);
+            }
+        });
+
+        test('is header-only: not recognized after the first code line', () => {
+            const content = 'gen x = 1\n// sight: standalone\n';
+            const result = parser.parse(content, 'file:///test.do');
+            expect(result.standalone).toBeUndefined();
+        });
+
+        test('is recognized below blank and comment lines in the header', () => {
+            const content = [
+                '// A regular comment',
+                '',
+                '// sight: standalone',
+                'gen x = 1',
+            ].join('\n');
+            const result = parser.parse(content, 'file:///test.do');
+            expect(result.standalone).toBeDefined();
+            expect(result.standalone!.range.start.line).toBe(2);
+        });
+
+        test('flags trailing arguments as malformed and does not set standalone', () => {
+            const content = '// sight: standalone "foo.do"\ngen x = 1';
+            const result = parser.parse(content, 'file:///test.do');
+            expect(result.standalone).toBeUndefined();
+            expect(result.diagnostics.length).toBe(1);
+            expect(result.diagnostics[0].message).toContain('Malformed');
+            expect(result.diagnostics[0].severity).toBe('warning');
+        });
+
+        test('does not match longer words that merely start with standalone', () => {
+            const content = '// sight: standalonex\ngen x = 1';
+            const result = parser.parse(content, 'file:///test.do');
+            expect(result.standalone).toBeUndefined();
+            expect(result.diagnostics.length).toBe(0);
+        });
+
+        test('keeps raw backward directives unfiltered and emits NO parser-level warning', () => {
+            // The "ignored directive" warning is resolver-root-emitted
+            // (ScopeResolver.resolve()), deliberately NOT a parser
+            // diagnostic: parser diagnostics ride ancestor parse results
+            // into descendants' resolutions.
+            const content = [
+                '// sight: standalone',
+                '// sight: done-by: "parent.do"',
+                'gen x = 1',
+            ].join('\n');
+            const result = parser.parse(content, 'file:///test.do');
+            expect(result.standalone).toBeDefined();
+            expect(result.directives.length).toBe(1);
+            expect(result.directives[0].type).toBe('done-by');
+            expect(result.diagnostics.length).toBe(0);
+        });
+
+        test('first standalone marker wins when repeated', () => {
+            const content = [
+                '// sight: standalone',
+                '// @lsp-standalone',
+                'gen x = 1',
+            ].join('\n');
+            const result = parser.parse(content, 'file:///test.do');
+            expect(result.standalone).toBeDefined();
+            expect(result.standalone!.range.start.line).toBe(0);
+            expect(result.diagnostics.length).toBe(0);
+        });
+    });
 });
 
 

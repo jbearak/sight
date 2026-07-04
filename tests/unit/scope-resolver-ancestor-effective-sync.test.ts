@@ -247,7 +247,8 @@ describe('issue #286 — ancestor-level effective backward-directive sync', () =
             .parse(c_content, c_uri).directives;
         await scope_resolver.resolve_inherited_working_directory(
             the_directives,
-            c_uri
+            c_uri,
+            false
         );
         // The explicit walk itself must not register auto edges...
         expect(
@@ -378,9 +379,48 @@ describe('issue #286 — ancestor-level effective backward-directive sync', () =
             .parse(c_content, c_uri).directives;
         await scope_resolver.resolve_inherited_working_directory(
             the_directives,
-            c_uri
+            c_uri,
+            false
         );
 
+        expect(
+            scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
+        ).toBe(false);
+    });
+
+    it('a standalone ancestor registers no auto edges on read (issue #208)', async () => {
+        // A --do--> B (auto edge in the graph), but B's header carries
+        // `sight: standalone`: reading B as an ancestor under 'auto' mode
+        // must NOT synthesize/register the A → B backward edge — the
+        // effective directives for a standalone file are empty.
+        const b_path = create_file('b.do',
+            '// sight: standalone\ndisplay "b on disk"\n');
+        create_file('a.do', 'do b.do\n');
+        const a_uri = to_uri(path.join(temp_dir, 'a.do'));
+        const b_uri = to_uri(b_path);
+        seed_auto_parent(a_uri, 'b.do');
+        expect(dependency_graph.get_parents(b_uri)).toHaveLength(1);
+
+        // Fresh-parse path: C's resolution reads B from disk as ancestor.
+        const c_uri = to_uri(path.join(temp_dir, 'c.do'));
+        await scope_resolver.resolve(
+            c_uri,
+            `// @lsp-done-by: "${b_path}"\ndisplay "c"\n`,
+            { backward_dependencies: 'auto' }
+        );
+        expect(
+            scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
+        ).toBe(false);
+
+        // Cache-hit-upgrade path: a second auto-mode read of B hits the
+        // file cache; upgrade_registration_on_cache_hit must also honor
+        // the standalone flag stamped on the cached entry.
+        const d_uri = to_uri(path.join(temp_dir, 'd.do'));
+        await scope_resolver.resolve(
+            d_uri,
+            `// @lsp-done-by: "${b_path}"\ndisplay "d"\n`,
+            { backward_dependencies: 'auto' }
+        );
         expect(
             scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
         ).toBe(false);

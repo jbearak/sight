@@ -32,7 +32,7 @@ const empty_scope: ResolvedScope = {
     out_of_scope_symbols: [],
     diagnostics: [],
     has_directives: false,
-    has_auto_parents: false,
+    has_auto_parents: false, is_standalone: false,
 };
 
 describe('get_visible_symbols_at', () => {
@@ -169,7 +169,7 @@ describe('get_visible_symbols_at — current-file shadowing window (call_line, c
             out_of_scope_symbols: [],
             diagnostics: [],
             has_directives: false,
-            has_auto_parents: false,
+            has_auto_parents: false, is_standalone: false,
             forward_call_symbols: [site],
         };
     };

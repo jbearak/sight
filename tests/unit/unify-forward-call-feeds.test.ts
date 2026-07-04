@@ -138,7 +138,7 @@ describe('unify-forward-call-feeds refactoring', () => {
                 out_of_scope_symbols: [],
                 diagnostics: [],
                 has_directives: false,
-                has_auto_parents: false,
+                has_auto_parents: false, is_standalone: false,
                 forward_call_symbols: [{
                     callee_uri: URI.file(callee_path).toString(),
                     call_line: 0,
@@ -229,7 +229,7 @@ describe('unify-forward-call-feeds refactoring', () => {
                 out_of_scope_symbols: [],
                 diagnostics: [],
                 has_directives: false,
-                has_auto_parents: false,
+                has_auto_parents: false, is_standalone: false,
                 forward_call_symbols: [
                     // From @lsp-do directive
                     {
@@ -298,7 +298,7 @@ describe('unify-forward-call-feeds refactoring', () => {
                 out_of_scope_symbols: [],
                 diagnostics: [],
                 has_directives: false,
-                has_auto_parents: false,
+                has_auto_parents: false, is_standalone: false,
                 forward_call_symbols: [
                     // From do command (excludes locals)
                     {
