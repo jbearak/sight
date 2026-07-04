@@ -562,6 +562,45 @@ gen x = 1`;
             expect(result.diagnostics.length).toBe(0);
         });
 
+        test('code after a leading block comment ends the header', () => {
+            // `/* c */ gen x = 1` is executable code, so the header stops
+            // there; a marker below it must be inert. Applies to backward
+            // directives too (same header boundary).
+            const content = [
+                '/* comment */ gen x = 1',
+                '// sight: standalone',
+                '// sight: done-by: "parent.do"',
+            ].join('\n');
+            const result = parser.parse(content, 'file:///test.do');
+            expect(result.standalone).toBeUndefined();
+            expect(result.directives.length).toBe(0);
+        });
+
+        test('pure block-comment lines (and trailing line comments) stay in the header', () => {
+            const content = [
+                '/* a pure block comment */',
+                '/* leading */ // trailing line comment',
+                '/* multi',
+                '   line */',
+                '// sight: standalone',
+                'gen x = 1',
+            ].join('\n');
+            const result = parser.parse(content, 'file:///test.do');
+            expect(result.standalone).toBeDefined();
+            expect(result.standalone!.range.start.line).toBe(4);
+        });
+
+        test('a marker inside a multi-line block comment is inert', () => {
+            const content = [
+                '/*',
+                '// sight: standalone',
+                '*/',
+                'gen x = 1',
+            ].join('\n');
+            const result = parser.parse(content, 'file:///test.do');
+            expect(result.standalone).toBeUndefined();
+        });
+
         test('first standalone marker wins when repeated', () => {
             const content = [
                 '// sight: standalone',

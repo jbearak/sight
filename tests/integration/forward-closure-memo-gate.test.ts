@@ -217,5 +217,17 @@ describe('issue #209/#208 — forward-closure memo gate', () => {
 
         expect(forward_surface(r1)).toEqual(forward_surface(r2));
         expect(r1.symbols.globalMacros.has('helper_g')).toBe(true);
+
+        // Teeth for the standalone gate itself (#208 review round 1: the
+        // forward-resolver path above never exercises backward cutting):
+        // resolving the hub through ScopeResolver must cut grand.do's
+        // scope despite the done-by directive.
+        const { scope: my_scope } = make_resolver();
+        const hub_scope = await my_scope.resolve(
+            hub_uri, fs.readFileSync(hub, 'utf8')
+        );
+        expect(hub_scope.is_standalone).toBe(true);
+        expect(hub_scope.symbols.globalMacros.has('grand_g')).toBe(false);
+        expect(hub_scope.symbols.globalMacros.has('hub_g')).toBe(true);
     });
 });

@@ -25,12 +25,13 @@ describe('Standalone Directive Property Tests', () => {
         minLength: 0, maxLength: 3,
     });
 
+    // Charset contains no quote or space, so no filter is needed.
     const path_gen = fc.stringOf(
         fc.constantFrom(
             ...'abcdefghijklmnopqrstuvwxyz0123456789_-./'.split('')
         ),
         { minLength: 1, maxLength: 20 }
-    ).filter(s => !s.includes('"') && !s.includes(' '));
+    );
 
     describe('Property 1: All spelling forms parse equivalently', () => {
         test('prefix x comment style x colon x whitespace all set standalone', () => {
@@ -46,8 +47,6 @@ describe('Standalone Directive Property Tests', () => {
                             'file:///test/script.do'
                         );
                         expect(result.standalone).toBeDefined();
-                        expect(result.standalone!.directive_form)
-                            .toBe('standalone');
                         expect(result.standalone!.range.start.line).toBe(0);
                         expect(result.diagnostics.length).toBe(0);
                     }

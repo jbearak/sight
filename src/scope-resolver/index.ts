@@ -135,6 +135,28 @@ type ParsedFileResult = { content: string; content_hash: string; symbols: Symbol
 type RequestCache = Map<string, Promise<ParsedFileResult>>;
 
 /**
+ * Value shape of ScopeResolver.file_cache. Kept as a named type so
+ * cache_entry_to_parsed_result can single-source the entry→result copy
+ * (a hand-copied literal once silently dropped a field on one cache-hit
+ * path only — see the working_directory_directive note from PR #278).
+ */
+type FileCacheEntry = {
+    content: string;
+    content_hash: string;
+    mtimeMs?: number;
+    size?: number;
+    symbols: SymbolTable;
+    directives: Directive[];
+    forward_calls: ForwardCall[];
+    cd_commands: CdCommand[];
+    working_directory?: string;
+    working_directory_directive?: WorkingDirectoryDirective;
+    is_standalone: boolean;
+    diagnostics: DirectiveDiagnostic[];
+    registered_backward_mode?: 'auto' | 'explicit';
+};
+
+/**
  * Interface for ForwardScopeResolver to avoid circular imports.
  * The actual ForwardScopeResolver is injected via set_forward_scope_resolver().
  */
@@ -190,7 +212,7 @@ export class ScopeResolver {
     // by an 'auto'-mode resolution. Directive-less auto-mode hits re-sync
     // idempotently because registration is global per URI, not per
     // file_cache entry — see upgrade_registration_on_cache_hit.
-    private file_cache: Map<string, { content: string; content_hash: string; mtimeMs?: number; size?: number; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; cd_commands: CdCommand[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; is_standalone: boolean; diagnostics: DirectiveDiagnostic[]; registered_backward_mode?: 'auto' | 'explicit' }>;
+    private file_cache: Map<string, FileCacheEntry>;
     private scope_cache: Map<string, ScopeCacheEntry>;
     // Secondary index: uri -> Set<cache_keys> for O(1) scope cache invalidation by URI
     private uri_to_cache_keys: Map<string, Set<string>>;
@@ -995,10 +1017,13 @@ export class ScopeResolver {
         // into a descendant's diagnostics — it appears only when the
         // standalone file itself is diagnosed.
         if (is_standalone) {
+            // Do not name my_ignored.type here: the parser folds `run-by`
+            // into `done-by`, so the stored type can differ from the text
+            // on the flagged line (#208 review round 1).
             for (const my_ignored of my_directives) {
                 the_diagnostics.push({
-                    message: `Ignored '${my_ignored.type}' directive: this ` +
-                        `file is marked 'sight: standalone', which disables ` +
+                    message: `Ignored backward directive: this file is ` +
+                        `marked 'sight: standalone', which disables ` +
                         `backward-directive inheritance.`,
                     range: my_ignored.range,
                     severity: 'warning',
@@ -1994,7 +2019,23 @@ export class ScopeResolver {
             // Apply inheritance rules based on effective call type (not just directive type)
             const inheritance_type: 'done-by' | 'included-by' = effective_call_type === 'include' ? 'included-by' : 'done-by';
 
-            diagnostics.push(...my_parent_result.diagnostics);
+            // A parent's parser-level diagnostics (malformed directive,
+            // multiple-WD warning) carry ranges in the PARENT's coordinate
+            // space. Stamp source attribution so
+            // remap_diagnostics_to_active_file relocates them onto this
+            // file's directive line with a "…: parent.do line N" note,
+            // instead of publishing them on this file at the parent's raw
+            // coordinates (#208 review round 1).
+            for (const my_parse_diag of my_parent_result.diagnostics) {
+                diagnostics.push(my_parse_diag.source ? my_parse_diag : {
+                    ...my_parse_diag,
+                    source: {
+                        source_file: parent_filename,
+                        source_line: my_parse_diag.range.start.line,
+                        original_range: my_parse_diag.range,
+                    },
+                });
+            }
 
             // Apply inheritance rules and call site filtering
             const { filtered: my_filtered_symbols, excluded_locals } = this.apply_inheritance_rules(
@@ -2188,20 +2229,54 @@ export class ScopeResolver {
         } catch (error) {
             this.warn(`ScopeResolver: Parse error for ${uri}: ${error_message(error)}`);
 
-            // Return empty results on parse failure
+            // Return empty results on parse failure — but recover the
+            // header facts (directives, standalone marker, WD directive)
+            // via the directive parser, which is independent of the
+            // lexer/parser/analyzer failure. Without this, a parse error in
+            // a `sight: standalone` file silently re-enables auto-discovered
+            // parents (and a file with explicit directives falls back to
+            // auto-discovery) — #208 review round 1.
+            const my_recovered = this.recover_header_facts(uri, content);
             const empty_symbols = create_empty_symbol_table();
             return {
                 symbols: empty_symbols,
-                directives: [],
+                directives: my_recovered.directives,
                 forward_calls: [],
                 cd_commands: [],
-                is_standalone: false,
+                working_directory_directive:
+                    my_recovered.working_directory_directive,
+                is_standalone: my_recovered.is_standalone,
                 diagnostics: [{
                     message: `Parse error in file: ${uri}`,
                     range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
                     severity: 'warning',
                 }],
             };
+        }
+    }
+
+    /**
+     * Best-effort recovery of header-only facts when the full
+     * lex/parse/analyze pipeline throws: the DirectiveParser scans only
+     * comment lines and is independent of the failure, so a broken file
+     * keeps its explicit directives, standalone marker, and own
+     * working-directory directive instead of silently falling back to
+     * auto-discovery (#208 review round 1).
+     */
+    private recover_header_facts(uri: string, content: string): {
+        directives: Directive[];
+        working_directory_directive?: WorkingDirectoryDirective;
+        is_standalone: boolean;
+    } {
+        try {
+            const my_result = this.directive_parser.parse(content, uri);
+            return {
+                directives: my_result.directives,
+                working_directory_directive: my_result.working_directory,
+                is_standalone: my_result.standalone !== undefined,
+            };
+        } catch {
+            return { directives: [], is_standalone: false };
         }
     }
 
@@ -2345,6 +2420,34 @@ export class ScopeResolver {
     }
 
     /**
+     * Build the ParsedFileResult view of a file_cache entry. The single
+     * point of copy for every cache-hit return path, so a future
+     * ParsedFileResult field cannot be silently dropped on one hit path
+     * only (that exact bug shipped once — working_directory_directive was
+     * missing from the .do-fallback hit alone; caught on PR #278).
+     * `content`/`content_hash` are parameters because the hash-match path
+     * returns the freshly read disk content rather than the entry's.
+     */
+    private cache_entry_to_parsed_result(
+        entry: FileCacheEntry,
+        content: string,
+        content_hash: string
+    ): ParsedFileResult {
+        return {
+            content,
+            content_hash,
+            symbols: entry.symbols,
+            directives: entry.directives,
+            forward_calls: entry.forward_calls,
+            cd_commands: entry.cd_commands,
+            working_directory: entry.working_directory,
+            working_directory_directive: entry.working_directory_directive,
+            is_standalone: entry.is_standalone,
+            diagnostics: entry.diagnostics,
+        };
+    }
+
+    /**
      * Internal implementation of get_parsed_file
      */
     private async _get_parsed_file_impl(
@@ -2365,18 +2468,9 @@ export class ScopeResolver {
             this.upgrade_registration_on_cache_hit(
                 uri, cached, options?.backward_dependencies
             );
-            return {
-                content: cached.content,
-                content_hash: cached.content_hash,
-                symbols: cached.symbols,
-                directives: cached.directives,
-                forward_calls: cached.forward_calls,
-                cd_commands: cached.cd_commands,
-                working_directory: cached.working_directory,
-                working_directory_directive: cached.working_directory_directive,
-                is_standalone: cached.is_standalone,
-                diagnostics: cached.diagnostics
-            };
+            return this.cache_entry_to_parsed_result(
+                cached, cached.content, cached.content_hash
+            );
         }
 
         // Optimization: check mtime and size if available BEFORE reading content
@@ -2396,18 +2490,9 @@ export class ScopeResolver {
                 this.upgrade_registration_on_cache_hit(
                     uri, cached, options?.backward_dependencies
                 );
-                return {
-                    content: cached.content,
-                    content_hash: cached.content_hash,
-                    symbols: cached.symbols,
-                    directives: cached.directives,
-                    forward_calls: cached.forward_calls,
-                    cd_commands: cached.cd_commands,
-                    working_directory: cached.working_directory,
-                    working_directory_directive: cached.working_directory_directive,
-                    is_standalone: cached.is_standalone,
-                    diagnostics: cached.diagnostics
-                };
+                return this.cache_entry_to_parsed_result(
+                    cached, cached.content, cached.content_hash
+                );
             }
         }
 
@@ -2441,25 +2526,11 @@ export class ScopeResolver {
                                 fallback_cached,
                                 options?.backward_dependencies
                             );
-                            return {
-                                content: fallback_cached.content,
-                                content_hash: fallback_cached.content_hash,
-                                symbols: fallback_cached.symbols,
-                                directives: fallback_cached.directives,
-                                forward_calls: fallback_cached.forward_calls,
-                                cd_commands: fallback_cached.cd_commands,
-                                working_directory: fallback_cached.working_directory,
-                                // Was missing from this HIT return alone
-                                // (coderabbit on PR #278): without it,
-                                // discover_working_directory cannot see a
-                                // parent's own WD directive when the parent
-                                // is served from this branch, and WD
-                                // inheritance falls through to deeper
-                                // ancestors.
-                                working_directory_directive: fallback_cached.working_directory_directive,
-                                is_standalone: fallback_cached.is_standalone,
-                                diagnostics: fallback_cached.diagnostics
-                            };
+                            return this.cache_entry_to_parsed_result(
+                                fallback_cached,
+                                fallback_cached.content,
+                                fallback_cached.content_hash
+                            );
                         }
                     }
 
@@ -2494,18 +2565,9 @@ export class ScopeResolver {
             // Return cached results with current content - don't mutate the
             // entry's cached content/symbols (the registration stamp above
             // is the one intentional entry mutation on this hit path)
-            return {
-                content,
-                content_hash: disk_hash,
-                symbols: actual_cached.symbols,
-                directives: actual_cached.directives,
-                forward_calls: actual_cached.forward_calls,
-                cd_commands: actual_cached.cd_commands,
-                working_directory: actual_cached.working_directory,
-                working_directory_directive: actual_cached.working_directory_directive,
-                is_standalone: actual_cached.is_standalone,
-                diagnostics: actual_cached.diagnostics
-            };
+            return this.cache_entry_to_parsed_result(
+                actual_cached, content, disk_hash
+            );
         } else if (actual_cached) {
             this.log(`[get_parsed_file] File cache STALE for ${actual_uri} (cached hash=${actual_cached.content_hash}, disk hash=${disk_hash})`);
             // New content observed without an invalidation event having
@@ -2577,15 +2639,22 @@ export class ScopeResolver {
 
             // Return empty results on parse failure
             const empty_symbols = create_empty_symbol_table();
+            // Recover header facts (directives, standalone, WD directive)
+            // via the directive parser — see recover_header_facts.
+            const my_recovered = this.recover_header_facts(
+                actual_uri, content
+            );
             return {
                 content,
                 content_hash: disk_hash,
                 symbols: empty_symbols,
-                directives: [],
+                directives: my_recovered.directives,
                 forward_calls: [],
                 cd_commands: [],
                 working_directory: undefined,
-                is_standalone: false,
+                working_directory_directive:
+                    my_recovered.working_directory_directive,
+                is_standalone: my_recovered.is_standalone,
                 diagnostics: [{
                     message: `Parse error in file: ${actual_uri}`,
                     range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },

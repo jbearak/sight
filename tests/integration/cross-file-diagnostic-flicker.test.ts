@@ -33,6 +33,7 @@ import { DocumentStore } from '../../src/document-store';
 import { DiagnosticsProvider } from '../../src/providers/diagnostics';
 import { ScopeResolver } from '../../src/scope-resolver';
 import { DependencyGraph } from '../../src/dependency-graph';
+import { make_fs_content_provider } from '../fs-content-provider';
 import { StataDiagnosticCode, StataLSPConfig } from '../../src/types';
 
 let tmp_dir: string;
@@ -254,26 +255,9 @@ describe('cross-file diagnostic flicker (regression for #175)', () => {
         const graph = new DependencyGraph();
         expect(graph.is_scan_complete()).toBe(false);
 
-        const scope_resolver = new ScopeResolver(undefined, {
-            read_file: async (uri: string) =>
-                fs.promises.readFile(URI.parse(uri).fsPath, 'utf8'),
-            exists: async (uri: string) => {
-                try {
-                    await fs.promises.access(URI.parse(uri).fsPath);
-                    return true;
-                } catch {
-                    return false;
-                }
-            },
-            stat: async (uri: string) => {
-                try {
-                    const stats = await fs.promises.stat(URI.parse(uri).fsPath);
-                    return { mtimeMs: stats.mtimeMs, size: stats.size };
-                } catch {
-                    return undefined;
-                }
-            },
-        });
+        const scope_resolver = new ScopeResolver(
+            undefined, make_fs_content_provider()
+        );
         scope_resolver.set_dependency_graph(graph);
 
         const diagnostics_provider = new DiagnosticsProvider(

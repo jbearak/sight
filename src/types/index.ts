@@ -669,10 +669,10 @@ export interface WorkingDirectoryDirective {
  * a caching concept.
  */
 export interface StandaloneDirective {
-  /** Which directive keyword form matched (currently always "standalone") */
-  directive_form: string;
-
-  /** Source location for diagnostics */
+  /**
+   * Source location for diagnostics. (No directive_form field: unlike the
+   * working-directory directive, `standalone` has a single keyword form.)
+   */
   range: Range;
 }
 

@@ -22,6 +22,7 @@ import { DocumentStore } from '../../src/document-store';
 import { DependencyGraph } from '../../src/dependency-graph';
 import { ScopeResolver } from '../../src/scope-resolver';
 import { ForwardScopeResolver } from '../../src/forward-scope-resolver';
+import { make_fs_content_provider } from '../fs-content-provider';
 
 describe('Standalone completion mode (issue #208)', () => {
     let tmp_root: string | null = null;
@@ -52,27 +53,9 @@ describe('Standalone completion mode (issue #208)', () => {
         indexer.set_dependency_graph(graph);
         await indexer.initialize([tmp_root]);
 
-        const scope_resolver = new ScopeResolver(undefined, {
-            read_file: async (uri: string) =>
-                fs.promises.readFile(URI.parse(uri).fsPath, 'utf8'),
-            exists: async (uri: string) => {
-                try {
-                    await fs.promises.access(URI.parse(uri).fsPath);
-                    return true;
-                } catch {
-                    return false;
-                }
-            },
-            stat: async (uri: string) => {
-                try {
-                    const stats =
-                        await fs.promises.stat(URI.parse(uri).fsPath);
-                    return { mtimeMs: stats.mtimeMs, size: stats.size };
-                } catch {
-                    return undefined;
-                }
-            },
-        });
+        const scope_resolver = new ScopeResolver(
+            undefined, make_fs_content_provider()
+        );
         scope_resolver.set_dependency_graph(graph);
         const forward_resolver = new ForwardScopeResolver(scope_resolver);
         scope_resolver.set_forward_scope_resolver(forward_resolver);

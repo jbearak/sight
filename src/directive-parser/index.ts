@@ -171,11 +171,51 @@ export class DirectiveParser {
         let standalone_directive: StandaloneDirective | undefined;
 
         // Continuation lines of multi-line comments carry no directives.
-        const block_lines = block_comment_lines(content, tokens);
+        // A single ranges computation serves both the "line leads with a
+        // block comment" test and the trailing-code scan below (avoids the
+        // extra lex block_comment_lines would add on the tokenless path).
+        const the_block_ranges = block_comment_ranges(content, tokens);
+        const leads_with_block_comment = (
+            line_index: number, line_text: string
+        ): boolean => {
+            const my_col = line_text.search(/\S/);
+            return my_col >= 0 && position_in_block_comment(
+                line_index, my_col, the_block_ranges
+            );
+        };
 
         for (let i = 0; i < line_count; i++) {
-            if (block_lines.has(i)) {
-                continue;
+            if (leads_with_block_comment(i, get_line_text(doc, i))) {
+                // The line LEADS with a block comment, but executable code
+                // may follow the comment on the same physical line
+                // (`/* c */ gen x = 1`). Such trailing code ends the
+                // header, exactly like a plain code line — otherwise a
+                // directive below it would be accepted as header content
+                // (#208 review round 1). Pure comment lines (including a
+                // trailing `//` line comment) stay inert and are skipped.
+                const my_block_line = get_line_text(doc, i);
+                let my_code_col = -1;
+                for (let c = 0; c < my_block_line.length; c++) {
+                    const my_char = my_block_line[c];
+                    if (my_char === ' ' || my_char === '\t' ||
+                        my_char === '\r') {
+                        continue;
+                    }
+                    if (!position_in_block_comment(
+                        i, c, the_block_ranges
+                    )) {
+                        my_code_col = c;
+                        break;
+                    }
+                }
+                if (my_code_col < 0) {
+                    continue;
+                }
+                const my_rest = my_block_line.slice(my_code_col);
+                if (my_rest.startsWith('//') || my_rest.startsWith('*')) {
+                    continue;
+                }
+                break;
             }
             const my_line = get_line_text(doc, i);
             const my_trimmed = my_line.trim();
@@ -237,7 +277,6 @@ export class DirectiveParser {
             if (my_standalone_match) {
                 if (!standalone_directive) {
                     standalone_directive = {
-                        directive_form: my_standalone_match[1],
                         range: {
                             start: { line: i, character: 0 },
                             end: { line: i, character: my_line.length },

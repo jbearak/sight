@@ -18,6 +18,7 @@ import { ForwardScopeResolver } from '../../src/forward-scope-resolver';
 import { DependencyGraph } from '../../src/dependency-graph';
 import { WorkspaceIndexer } from '../../src/indexer';
 import { URI } from 'vscode-uri';
+import { make_fs_content_provider } from '../fs-content-provider';
 
 let tmp_dir: string;
 
@@ -35,27 +36,7 @@ function write_file(dir: string, name: string, content: string): string {
 }
 
 function create_scope_resolver(): ScopeResolver {
-    return new ScopeResolver(undefined, {
-        read_file: async (uri: string) => {
-            return fs.promises.readFile(URI.parse(uri).fsPath, 'utf8');
-        },
-        exists: async (uri: string) => {
-            try {
-                await fs.promises.access(URI.parse(uri).fsPath);
-                return true;
-            } catch {
-                return false;
-            }
-        },
-        stat: async (uri: string) => {
-            try {
-                const stats = await fs.promises.stat(URI.parse(uri).fsPath);
-                return { mtimeMs: stats.mtimeMs, size: stats.size };
-            } catch {
-                return undefined;
-            }
-        },
-    });
+    return new ScopeResolver(undefined, make_fs_content_provider());
 }
 
 function create_resolver_with_forward(): ScopeResolver {
@@ -164,8 +145,7 @@ describe('Standalone directive (issue #208)', () => {
             expect(scope.symbols.globalMacros.has('parent_global')).toBe(false);
 
             const the_ignored_warnings = scope.diagnostics.filter(
-                d => d.message.includes('sight: standalone') &&
-                     d.message.includes('done-by')
+                d => d.message.includes('Ignored backward directive')
             );
             expect(the_ignored_warnings).toHaveLength(1);
             expect(the_ignored_warnings[0].severity).toBe('warning');
@@ -444,6 +424,79 @@ describe('Standalone directive (issue #208)', () => {
             const after = await resolver.resolve(d_uri, d_content);
             expect(after.symbols.globalMacros.has('g_global')).toBe(false);
             expect(after.symbols.globalMacros.has('c_global')).toBe(true);
+        });
+    });
+
+    describe('ancestor parser-diagnostic attribution', () => {
+        it('remaps a parent\'s malformed-standalone warning onto the child\'s directive line with attribution', async () => {
+            // parent.do has a MALFORMED standalone line (trailing content,
+            // so standalone is NOT set and parent still acts as a normal
+            // ancestor). The child inherits the parent's parser warning —
+            // it must arrive remapped to the child's own directive line
+            // with a "parent.do line N" note, never at the parent's raw
+            // coordinates (#208 review round 1).
+            const parent_path = write_file(tmp_dir, 'parent.do', [
+                '// sight: standalone v2',
+                'global parent_global "1"',
+                'do child.do',
+            ].join('\n'));
+            const child_path = write_file(tmp_dir, 'child.do', [
+                `// sight: done-by: "${parent_path}"`,
+                'display $parent_global',
+            ].join('\n'));
+            const child_uri = URI.file(child_path).toString();
+            const child_content = fs.readFileSync(child_path, 'utf8');
+
+            const resolver = create_resolver_with_forward();
+            const scope = await resolver.resolve(child_uri, child_content);
+
+            const the_malformed = scope.diagnostics.filter(
+                d => d.message.includes('Malformed directive') &&
+                     d.message.includes('standalone')
+            );
+            expect(the_malformed).toHaveLength(1);
+            // Remapped onto the child's directive line (line 0), not the
+            // parent's raw line-0 coordinates published as-is.
+            expect(the_malformed[0].range.start.line).toBe(0);
+            expect(the_malformed[0].message).toContain('parent.do line 1');
+            expect(the_malformed[0].source?.source_file).toBe('parent.do');
+        });
+    });
+
+    describe('parse-failure header-fact recovery', () => {
+        it('keeps standalone in force when the lex/parse pipeline throws', async () => {
+            write_file(tmp_dir, 'parent.do', [
+                'global my_global "hello"',
+                'do child.do',
+            ].join('\n'));
+            const child_path = write_file(tmp_dir, 'child.do', [
+                '// sight: standalone',
+                'display $my_global',
+            ].join('\n'));
+            const child_uri = URI.file(child_path).toString();
+            const child_content = fs.readFileSync(child_path, 'utf8');
+
+            const graph = await build_graph(tmp_dir);
+            const resolver = create_resolver_with_forward();
+            resolver.set_dependency_graph(graph);
+
+            // Force the AST parser to throw; the DirectiveParser is
+            // independent of that failure and must still supply the
+            // standalone marker (otherwise the file silently regains its
+            // auto-discovered parent — #208 review round 1).
+            (resolver as unknown as {
+                parser: { parse: () => never };
+            }).parser.parse = () => {
+                throw new Error('injected parse failure');
+            };
+
+            const scope = await resolver.resolve(
+                child_uri, child_content, { backward_dependencies: 'auto' }
+            );
+
+            expect(scope.is_standalone).toBe(true);
+            expect(scope.has_auto_parents).toBe(false);
+            expect(scope.symbols.globalMacros.has('my_global')).toBe(false);
         });
     });
 
