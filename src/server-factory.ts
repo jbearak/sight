@@ -90,6 +90,15 @@ export interface ServerOptions {
     transport: TransportType;
     quiet?: boolean;
     log_channel?: (msg: string) => void;
+    /**
+     * Test-only injection seam: when provided, this connection is used
+     * instead of creating a transport connection, so handler-level
+     * integration tests can capture the real registered LSP handlers
+     * (e.g. the onDidClose disk re-sync wiring, issue #287) and drive
+     * them without a live client process. Production entry points
+     * (cli.ts, server.ts) never set this.
+     */
+    connection?: Connection;
 }
 
 /**
@@ -229,8 +238,9 @@ export function indexing_affecting_signature(
 export async function create_server(options: ServerOptions): Promise<void> {
     const { transport, quiet, log_channel } = options;
 
-    // Create connection based on transport type
-    const connection = create_transport_connection(transport);
+    // Create connection based on transport type (tests may inject one)
+    const connection =
+        options.connection ?? create_transport_connection(transport);
 
     // Create a simple text document manager
     const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
@@ -1203,10 +1213,14 @@ export async function create_server(options: ServerOptions): Promise<void> {
     // Wire initialized handler
     connection.onInitialized(
         create_initialized_handler(() => {
-            // Initialize Logger - route to stderr for stdio transport, suppress if quiet
+            // Initialize Logger - route to stderr for stdio transport,
+            // suppress if quiet. With an injected connection the stdio
+            // transport flag says nothing about the host's real stdio, so
+            // never write to process.stderr in that case — route through
+            // the injected connection's console instead.
             const log_fn = quiet
                 ? () => { } // Suppress all startup messages
-                : transport === 'stdio'
+                : transport === 'stdio' && options.connection === undefined
                     ? (msg: string) => process.stderr.write(msg + '\n')
                     : log_channel || ((msg: string) => connection.console.log(msg));
 

@@ -18,6 +18,7 @@ import { WorkspaceIndexer } from '../../src/indexer';
 import { ScopeResolver } from '../../src/scope-resolver';
 import type { ContentProvider } from '../../src/types';
 import { URI } from 'vscode-uri';
+import { wait_until } from '../wait-until';
 
 function make_content_provider(
     content_by_uri: Map<string, string>
@@ -446,6 +447,62 @@ describe('ScopeResolver disk re-sync on close (issue #184)', () => {
         expect(my_applied).toBe(true);
         expect(
             scope_resolver.get_backward_directive_children(parent_uri)
+                .has(child_uri)
+        ).toBe(false);
+    });
+
+    it('consults should_apply AFTER the disk read, so a reopen landing ' +
+        'mid-read still vetoes', async () => {
+        // The docstring contract — "checked after the disk read,
+        // immediately before the synchronous registration" — is the
+        // actual protection: a guard consulted before the read would
+        // miss a reopen that lands while the read is in flight and
+        // clobber the reopened buffer's registration (#287 round-3
+        // review). Pin the ordering with a read the test releases.
+        const disk_parent_path = '/tmp/sight-184-resync-order-disk.do';
+        const disk_parent_uri = URI.file(disk_parent_path).toString();
+        const child_uri =
+            URI.file('/tmp/sight-184-resync-order-child.do').toString();
+        const child_disk_content =
+            `// @lsp-done-by: "${disk_parent_path}"\ndisplay 1\n`;
+        let release_read: ((content: string) => void) | undefined;
+        const gated_content_provider: ContentProvider = {
+            exists: async () => true,
+            read_file: (uri) => uri === child_uri
+                ? new Promise<string>((resolve) => {
+                    release_read = resolve;
+                })
+                : Promise.resolve('display 0\n'),
+            stat: async () => ({ mtimeMs: 0, size: 0 }),
+        };
+        const scope_resolver = new ScopeResolver(
+            undefined,
+            gated_content_provider
+        );
+
+        // No reopen yet when the re-sync starts...
+        let reopened = false;
+        const resync_promise = scope_resolver
+            .resync_backward_directive_dependencies_from_disk(
+                child_uri,
+                {},
+                () => !reopened
+            );
+        await wait_until(
+            () => release_read !== undefined,
+            'the re-sync to start its deferred disk read',
+            4000,
+            0
+        );
+        // ...the reopen lands while the disk read is in flight.
+        reopened = true;
+        release_read!(child_disk_content);
+
+        // A guard consulted before (or captured at) the read would have
+        // seen "no reopen" and applied the disk edges.
+        expect(await resync_promise).toBe(false);
+        expect(
+            scope_resolver.get_backward_directive_children(disk_parent_uri)
                 .has(child_uri)
         ).toBe(false);
     });
