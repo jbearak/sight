@@ -153,6 +153,33 @@ describe('Standalone directive (issue #208)', () => {
             expect(the_ignored_warnings[0].range.start.line).toBe(1);
         });
 
+        it('the warning does not name the folded directive type for run-by', async () => {
+            // The parser folds `run-by` into `done-by`; the warning must
+            // not claim a 'done-by' exists on a line that says 'run-by'
+            // (#208 review round 2 regression test).
+            const parent_path = write_file(tmp_dir, 'parent.do', [
+                'global parent_global "yes"',
+                'run child.do',
+            ].join('\n'));
+            const child_path = write_file(tmp_dir, 'child.do', [
+                '// sight: standalone',
+                `// sight: run-by: "${parent_path}"`,
+                'display $parent_global',
+            ].join('\n'));
+            const child_uri = URI.file(child_path).toString();
+            const child_content = fs.readFileSync(child_path, 'utf8');
+
+            const resolver = create_resolver_with_forward();
+            const scope = await resolver.resolve(child_uri, child_content);
+
+            const the_ignored = scope.diagnostics.filter(
+                d => d.message.includes('Ignored backward directive')
+            );
+            expect(the_ignored).toHaveLength(1);
+            expect(the_ignored[0].message).not.toContain('done-by');
+            expect(the_ignored[0].range.start.line).toBe(1);
+        });
+
         it('directive order does not matter: done-by before standalone is still ignored', async () => {
             const parent_path = write_file(tmp_dir, 'parent.do', [
                 'global parent_global "yes"',
@@ -435,7 +462,12 @@ describe('Standalone directive (issue #208)', () => {
             // it must arrive remapped to the child's own directive line
             // with a "parent.do line N" note, never at the parent's raw
             // coordinates (#208 review round 1).
+            // The malformed line sits at parent line 1 while the child's
+            // directive sits at child line 0, so the range assertion below
+            // can only pass if remapping actually moved the diagnostic
+            // (round-2 fix: same line numbers made it tautological).
             const parent_path = write_file(tmp_dir, 'parent.do', [
+                '// a leading header comment',
                 '// sight: standalone v2',
                 'global parent_global "1"',
                 'do child.do',
@@ -455,11 +487,42 @@ describe('Standalone directive (issue #208)', () => {
                      d.message.includes('standalone')
             );
             expect(the_malformed).toHaveLength(1);
-            // Remapped onto the child's directive line (line 0), not the
-            // parent's raw line-0 coordinates published as-is.
+            // Remapped onto the child's directive line (line 0), away from
+            // the parent's raw line-1 coordinates.
             expect(the_malformed[0].range.start.line).toBe(0);
-            expect(the_malformed[0].message).toContain('parent.do line 1');
+            expect(the_malformed[0].message).toContain('parent.do line 2');
             expect(the_malformed[0].source?.source_file).toBe('parent.do');
+        });
+
+        it('routes attribution by URI even when the parent shares the child\'s basename', async () => {
+            // /sub/main.do is a PARENT of /main.do. With basename-only
+            // routing the parent's warning would be mistaken for a
+            // current-file diagnostic and published at the parent's raw
+            // coordinates (#208 review round 2).
+            const parent_path = write_file(
+                tmp_dir, path.join('sub', 'main.do'), [
+                    '// a leading header comment',
+                    '// sight: standalone v2',
+                    'global parent_global "1"',
+                    'do ../main.do',
+                ].join('\n'));
+            const child_path = write_file(tmp_dir, 'main.do', [
+                `// sight: done-by: "${parent_path}"`,
+                'display $parent_global',
+            ].join('\n'));
+            const child_uri = URI.file(child_path).toString();
+            const child_content = fs.readFileSync(child_path, 'utf8');
+
+            const resolver = create_resolver_with_forward();
+            const scope = await resolver.resolve(child_uri, child_content);
+
+            const the_malformed = scope.diagnostics.filter(
+                d => d.message.includes('Malformed directive') &&
+                     d.message.includes('standalone')
+            );
+            expect(the_malformed).toHaveLength(1);
+            expect(the_malformed[0].range.start.line).toBe(0);
+            expect(the_malformed[0].message).toContain('main.do line 2');
         });
     });
 

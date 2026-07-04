@@ -193,7 +193,24 @@ export class DirectiveParser {
                 // directive below it would be accepted as header content
                 // (#208 review round 1). Pure comment lines (including a
                 // trailing `//` line comment) stay inert and are skipped.
+                //
+                // Compute the line's commented column intervals ONCE, then
+                // scan characters against them (not per-char
+                // position_in_block_comment, which walks every range per
+                // call — #208 review round 2).
                 const my_block_line = get_line_text(doc, i);
+                const the_covered: Array<[number, number]> = [];
+                for (const my_range of the_block_ranges) {
+                    if (my_range.start.line > i || my_range.end.line < i) {
+                        continue;
+                    }
+                    the_covered.push([
+                        my_range.start.line < i ? 0 : my_range.start.character,
+                        my_range.end.line > i
+                            ? my_block_line.length
+                            : my_range.end.character,
+                    ]);
+                }
                 let my_code_col = -1;
                 for (let c = 0; c < my_block_line.length; c++) {
                     const my_char = my_block_line[c];
@@ -201,12 +218,16 @@ export class DirectiveParser {
                         my_char === '\r') {
                         continue;
                     }
-                    if (!position_in_block_comment(
-                        i, c, the_block_ranges
-                    )) {
+                    const my_covering = the_covered.find(
+                        ([my_start, my_end]) => c >= my_start && c < my_end
+                    );
+                    if (my_covering === undefined) {
                         my_code_col = c;
                         break;
                     }
+                    // Jump past the covering interval instead of testing
+                    // every commented character.
+                    c = my_covering[1] - 1;
                 }
                 if (my_code_col < 0) {
                     continue;

@@ -698,8 +698,16 @@ export interface DeclarationDirective {
  * Source information for diagnostics that originate from parent files in directive chains.
  */
 export interface DiagnosticSource {
-  /** Filename where the error originated (basename only) */
+  /** Filename where the error originated (basename only, for display) */
   source_file: string;
+  /**
+   * Full URI of the originating file, when known. Used by
+   * remap_diagnostics_to_active_file to route the diagnostic to the
+   * directive referencing THAT file — basename routing alone collides
+   * when two parents share a basename, or skips remapping entirely when
+   * a parent's basename equals the active file's (#208 review round 2).
+   */
+  source_uri?: string;
   /** Line number in source file (0-indexed). Omit when call site is unknown. */
   source_line?: number;
   /** Original range in the source file */

@@ -854,8 +854,10 @@ a separate best-effort recovery path (issue #184):
   commit. An `'explicit'`-mode resolution registers raw directives only and
   never synthesizes graph parents; the indexer's working-directory walk
   forces `'explicit'` for scan-order determinism and so never registers
-  auto edges. Effective ⊇ raw, so ancestor reads can only add edges
-  relative to the pre-#286 behavior. Registration remains a parse-path
+  auto edges. Effective ⊇ raw — except for
+  [`sight: standalone`](#standalone-files) files, whose effective directives
+  are empty (issue #208) — so for non-standalone files ancestor reads can
+  only add edges relative to the pre-#286 behavior. Registration remains a parse-path
   side effect, with one exception: each file-cache entry is stamped with
   the mode its registration ran under, and an `'auto'`-mode cache hit
   re-applies effective registration and re-stamps

@@ -131,7 +131,18 @@ export function scope_resolver_config_for(
  * Cache for file parsing results within a single resolution request.
  * Ensures we only read/parse each file once per request.
  */
-type ParsedFileResult = { content: string; content_hash: string; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; cd_commands: CdCommand[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; is_standalone: boolean; diagnostics: DirectiveDiagnostic[] } | { error: string };
+type ParsedFileResult = {
+    content: string;
+    content_hash: string;
+    symbols: SymbolTable;
+    directives: Directive[];
+    forward_calls: ForwardCall[];
+    cd_commands: CdCommand[];
+    working_directory?: string;
+    working_directory_directive?: WorkingDirectoryDirective;
+    is_standalone: boolean;
+    diagnostics: DirectiveDiagnostic[];
+} | { error: string };
 type RequestCache = Map<string, Promise<ParsedFileResult>>;
 
 /**
@@ -2031,6 +2042,11 @@ export class ScopeResolver {
                     ...my_parse_diag,
                     source: {
                         source_file: parent_filename,
+                        // Full URI so remapping routes by identity, not
+                        // basename (#208 review round 2: two parents can
+                        // share a basename, or a parent's basename can
+                        // equal the active file's).
+                        source_uri: my_parent_uri,
                         source_line: my_parse_diag.range.start.line,
                         original_range: my_parse_diag.range,
                     },
@@ -2181,11 +2197,28 @@ export class ScopeResolver {
     private parse_file(
         uri: string,
         content: string
-    ): { symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; cd_commands: CdCommand[]; working_directory_directive?: WorkingDirectoryDirective; is_standalone: boolean; diagnostics: DirectiveDiagnostic[] } {
+    ): {
+        symbols: SymbolTable;
+        directives: Directive[];
+        forward_calls: ForwardCall[];
+        cd_commands: CdCommand[];
+        working_directory_directive?: WorkingDirectoryDirective;
+        is_standalone: boolean;
+        diagnostics: DirectiveDiagnostic[];
+    } {
         const content_hash = this.hash_content(content);
         const cached = this.file_cache.get(uri);
         if (cached && cached.content_hash === content_hash) {
-            return { symbols: cached.symbols, directives: cached.directives, forward_calls: cached.forward_calls, cd_commands: cached.cd_commands, working_directory_directive: cached.working_directory_directive, is_standalone: cached.is_standalone, diagnostics: cached.diagnostics };
+            return {
+                symbols: cached.symbols,
+                directives: cached.directives,
+                forward_calls: cached.forward_calls,
+                cd_commands: cached.cd_commands,
+                working_directory_directive:
+                    cached.working_directory_directive,
+                is_standalone: cached.is_standalone,
+                diagnostics: cached.diagnostics,
+            };
         }
 
         // New content observed for this URI: any forward-closure memo entry
@@ -2292,7 +2325,16 @@ export class ScopeResolver {
         uri: string,
         content: string,
         inherited_working_directory?: string
-    ): { symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; cd_commands: CdCommand[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; is_standalone: boolean; diagnostics: DirectiveDiagnostic[] } {
+    ): {
+        symbols: SymbolTable;
+        directives: Directive[];
+        forward_calls: ForwardCall[];
+        cd_commands: CdCommand[];
+        working_directory?: string;
+        working_directory_directive?: WorkingDirectoryDirective;
+        is_standalone: boolean;
+        diagnostics: DirectiveDiagnostic[];
+    } {
         const my_directive_result = this.directive_parser.parse(content, uri);
         const my_lex_result = this.lexer.tokenize(content);
         const my_parse_result = this.parser.parse(my_lex_result.tokens);
@@ -2620,7 +2662,10 @@ export class ScopeResolver {
             // matching the commit-time effective registration in DocumentStore
             // (issue #184). An unthreaded call defaults to 'explicit', which
             // registers raw directives only — identical to the pre-#286 raw
-            // sync, so this can only ADD edges relative to that behavior.
+            // sync, so this can only ADD edges relative to that behavior,
+            // with one exception: a `sight: standalone` file's effective
+            // directives are EMPTY (issue #208), so its raw done-by edges
+            // are deliberately not registered.
             this.apply_backward_directive_registration(
                 actual_uri,
                 parse_result.directives,
@@ -2894,11 +2939,18 @@ export class ScopeResolver {
 
         // Build a map from parent basename to directive range for targeted remapping
         const parent_to_directive = new Map<string, Range>();
+        // URI-keyed variant for diagnostics that carry source_uri: exact
+        // identity routing, immune to basename collisions (#208 round 2).
+        const parent_uri_to_directive = new Map<string, Range>();
         for (const my_directive of directives) {
             const parent_basename = path.basename(my_directive.path);
             // If multiple directives reference the same parent, use the first one
             if (!parent_to_directive.has(parent_basename)) {
                 parent_to_directive.set(parent_basename, my_directive.range);
+            }
+            const parent_uri = URI.file(my_directive.path).toString();
+            if (!parent_uri_to_directive.has(parent_uri)) {
+                parent_uri_to_directive.set(parent_uri, my_directive.range);
             }
         }
 
@@ -2911,8 +2963,13 @@ export class ScopeResolver {
                 return diagnostic;
             }
 
-            // Forward-call diagnostics (from current file) keep their original range
-            if (diagnostic.source.source_file === active_file_basename) {
+            // Forward-call diagnostics (from current file) keep their
+            // original range. Prefer the URI identity check when the
+            // source carries one — a PARENT whose basename happens to
+            // equal the active file's must still be remapped (#208 r2).
+            if (diagnostic.source.source_uri !== undefined
+                ? diagnostic.source.source_uri === active_file_uri
+                : diagnostic.source.source_file === active_file_basename) {
                 return diagnostic;
             }
 
@@ -2934,8 +2991,15 @@ export class ScopeResolver {
                 };
             }
 
-            // Find the specific directive that references the source file (rule b)
-            const target_range = parent_to_directive.get(diagnostic.source.source_file) ?? first_directive_range;
+            // Find the specific directive that references the source file
+            // (rule b): exact URI match first when available, then the
+            // basename map, then the first directive as a last resort.
+            const target_range =
+                (diagnostic.source.source_uri !== undefined
+                    ? parent_uri_to_directive.get(diagnostic.source.source_uri)
+                    : undefined) ??
+                parent_to_directive.get(diagnostic.source.source_file) ??
+                first_directive_range;
 
             // Update message to include source file and line info (rule c)
             const updated_message = diagnostic.message.includes(source_info)
@@ -3569,9 +3633,10 @@ export class ScopeResolver {
      * resolutions keep hitting the cache (until the content changes).
      * When an 'auto'-mode read hits such an entry, apply effective
      * registration and stamp the entry so repeat hits are free.
-     * Effective ⊇ raw, so upgrading can only add edges. Explicit-mode
-     * hits never downgrade: for them hit paths stay side-effect-free,
-     * as before.
+     * Effective ⊇ raw (except for `sight: standalone` files, whose
+     * effective directives are empty, issue #208), so upgrading can only
+     * add edges. Explicit-mode hits never downgrade: for them hit paths
+     * stay side-effect-free, as before.
      *
      * Directive-less auto-mode hits always re-sync idempotently. The
      * file_cache may hold multiple entries for the same URI (different
