@@ -641,6 +641,131 @@ describe('Standalone directive (issue #208)', () => {
             expect(scope.has_auto_parents).toBe(false);
             expect(scope.symbols.globalMacros.has('my_global')).toBe(false);
         });
+
+        it(
+            'parse-failed ancestor applies recovered standalone registration',
+            async () => {
+                const p_path = write_file(tmp_dir, 'p.do',
+                    'global p_global "p"\n');
+                const x_path = write_file(tmp_dir, 'x.do', [
+                    `// sight: done-by: "${p_path}"`,
+                    'global x_global "x"',
+                ].join('\n'));
+                const c_path = write_file(tmp_dir, 'c.do', [
+                    `// sight: done-by: "${x_path}"`,
+                    'display $x_global $p_global',
+                ].join('\n'));
+                const p_uri = URI.file(p_path).toString();
+                const x_uri = URI.file(x_path).toString();
+                const c_uri = URI.file(c_path).toString();
+                const c_content = fs.readFileSync(c_path, 'utf8');
+
+                const resolver = create_resolver_with_forward();
+                const the_p_has_x = () =>
+                    resolver.get_backward_directive_children(p_uri).has(x_uri);
+                await resolver.resolve(c_uri, c_content);
+                expect(the_p_has_x()).toBe(true);
+
+                fs.writeFileSync(x_path, [
+                    '// sight: standalone',
+                    `// sight: done-by: "${p_path}"`,
+                    'global x_global "x"',
+                ].join('\n'), 'utf8');
+                resolver.invalidate_file_cache(x_uri, {
+                    preserve_backward_directive_dependencies: true,
+                });
+                expect(the_p_has_x()).toBe(true);
+
+                (resolver as unknown as {
+                    parser: { parse: () => never };
+                }).parser.parse = () => {
+                    throw new Error('injected parse failure');
+                };
+
+                await resolver.resolve(c_uri, c_content);
+
+                expect(the_p_has_x()).toBe(false);
+            }
+        );
+
+        it(
+            'a FAILED recovery leaves existing registrations unchanged',
+            async () => {
+                // When even the DirectiveParser throws, the recovered
+                // facts are a fallback, not a statement about the header:
+                // registration must be skipped, never cleared (mirrors
+                // DocumentStore's undefined-staged-effects semantics).
+                const p_path = write_file(tmp_dir, 'p.do',
+                    'global p_global "p"\n');
+                const x_path = write_file(tmp_dir, 'x.do', [
+                    `// sight: done-by: "${p_path}"`,
+                    'global x_global "x"',
+                ].join('\n'));
+                const c_path = write_file(tmp_dir, 'c.do', [
+                    `// sight: done-by: "${x_path}"`,
+                    'display $x_global',
+                ].join('\n'));
+                const p_uri = URI.file(p_path).toString();
+                const x_uri = URI.file(x_path).toString();
+                const c_uri = URI.file(c_path).toString();
+                const c_content = fs.readFileSync(c_path, 'utf8');
+
+                const resolver = create_resolver_with_forward();
+                const the_p_has_x = () =>
+                    resolver.get_backward_directive_children(p_uri).has(x_uri);
+                await resolver.resolve(c_uri, c_content);
+                expect(the_p_has_x()).toBe(true);
+
+                fs.writeFileSync(x_path, [
+                    '// sight: standalone',
+                    `// sight: done-by: "${p_path}"`,
+                    'global x_global "x"',
+                ].join('\n'), 'utf8');
+                resolver.invalidate_file_cache(x_uri, {
+                    preserve_backward_directive_dependencies: true,
+                });
+
+                // The AST parser throws for everything; the directive
+                // parser throws ONLY for x.do, so c.do's root resolution
+                // still recovers its own directives and actually walks
+                // c -> x — recovery then fails inside x's catch branch.
+                // (A global directive-parser mock would blank c's
+                // directives too and the walk would never reach x,
+                // making the assertion vacuous.)
+                (resolver as unknown as {
+                    parser: { parse: () => never };
+                }).parser.parse = () => {
+                    throw new Error('injected parse failure');
+                };
+                const my_resolver_internals = resolver as unknown as {
+                    directive_parser: {
+                        parse: (
+                            content: string, uri: string, tokens?: unknown
+                        ) => unknown;
+                    };
+                };
+                const original_directive_parse =
+                    my_resolver_internals.directive_parser.parse.bind(
+                        my_resolver_internals.directive_parser
+                    );
+                my_resolver_internals.directive_parser.parse = (
+                    content: string, uri: string, tokens?: unknown
+                ) => {
+                    if (uri === x_uri) {
+                        throw new Error(
+                            'injected directive-parse failure'
+                        );
+                    }
+                    return original_directive_parse(content, uri, tokens);
+                };
+
+                await resolver.resolve(c_uri, c_content);
+
+                // The stale edge survives — a failed recovery must not
+                // wipe it.
+                expect(the_p_has_x()).toBe(true);
+            }
+        );
     });
 
     describe('backward-directive registration', () => {

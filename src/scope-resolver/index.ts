@@ -2300,6 +2300,13 @@ export class ScopeResolver {
         directives: Directive[];
         working_directory_directive?: WorkingDirectoryDirective;
         is_standalone: boolean;
+        /**
+         * False when the directive parse ITSELF threw: the empty facts
+         * are then a fallback, not a statement about the file's header,
+         * and must not drive registration (clearing edges on a failed
+         * recovery would be a silent wipe — bot-review follow-up).
+         */
+        recovered: boolean;
     } {
         try {
             const my_result = this.directive_parser.parse(content, uri);
@@ -2307,9 +2314,14 @@ export class ScopeResolver {
                 directives: my_result.directives,
                 working_directory_directive: my_result.working_directory,
                 is_standalone: my_result.standalone !== undefined,
+                recovered: true,
             };
         } catch {
-            return { directives: [], is_standalone: false };
+            return {
+                directives: [],
+                is_standalone: false,
+                recovered: false,
+            };
         }
     }
 
@@ -2689,6 +2701,21 @@ export class ScopeResolver {
             const my_recovered = this.recover_header_facts(
                 actual_uri, content
             );
+            // Register only when the header facts were actually
+            // recovered: a failed recovery must leave the previous
+            // registrations unchanged (mirroring DocumentStore's
+            // undefined-staged-effects semantics), never clear them.
+            if (my_recovered.recovered) {
+                this.apply_backward_directive_registration(
+                    actual_uri,
+                    my_recovered.directives,
+                    {
+                        backward_dependencies:
+                            options?.backward_dependencies ?? 'explicit',
+                    },
+                    my_recovered.is_standalone
+                );
+            }
             return {
                 content,
                 content_hash: disk_hash,
