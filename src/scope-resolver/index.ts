@@ -14,6 +14,7 @@ import {
     SymbolTable,
     ScopeChainEntry,
     ResolvedScope,
+    ResolveOptions,
     ScopeResolverConfig,
     OutOfScopeSymbol,
     ScopeCacheEntry,
@@ -159,6 +160,8 @@ interface ForwardScopeResolverInterface {
         token?: import('vscode-languageserver').CancellationToken,
         config?: {
             max_forward_depth?: number;
+            /** See ForwardScopeConfig.backward_dependencies (issue #286). */
+            backward_dependencies?: 'auto' | 'explicit';
             diagnostics?: {
                 max_depth?: 'error' | 'warning' | 'information' | 'off';
             };
@@ -179,7 +182,15 @@ export class ScopeResolver {
     private parser: StataParser;
     private analyzer: SemanticAnalyzer;
     // Cache key is "uri|working_directory" (or just "uri" if no working directory)
-    private file_cache: Map<string, { content: string; content_hash: string; mtimeMs?: number; size?: number; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; cd_commands: CdCommand[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; diagnostics: DirectiveDiagnostic[] }>;
+    // registered_backward_mode: the backward_dependencies mode the entry's
+    // last parse-path registration ran under (issue #286). Undefined for
+    // entries written by parse_file (root-file parses, which register via
+    // resolve()/commit instead). Lets cache HITS upgrade an
+    // 'explicit'-registered entry to effective registration when first read
+    // by an 'auto'-mode resolution. Directive-less auto-mode hits re-sync
+    // idempotently because registration is global per URI, not per
+    // file_cache entry — see upgrade_registration_on_cache_hit.
+    private file_cache: Map<string, { content: string; content_hash: string; mtimeMs?: number; size?: number; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; cd_commands: CdCommand[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; diagnostics: DirectiveDiagnostic[]; registered_backward_mode?: 'auto' | 'explicit' }>;
     private scope_cache: Map<string, ScopeCacheEntry>;
     // Secondary index: uri -> Set<cache_keys> for O(1) scope cache invalidation by URI
     private uri_to_cache_keys: Map<string, Set<string>>;
@@ -934,7 +945,8 @@ export class ScopeResolver {
         file_uri: string,
         file_content: string,
         config: Partial<ScopeResolverConfig> = {},
-        token?: CancellationToken
+        token?: CancellationToken,
+        options?: ResolveOptions
     ): Promise<ResolvedScope> {
         const my_config = { ...DEFAULT_CONFIG, ...config };
         const cache_key = this.generate_cache_key(file_uri, file_content, my_config);
@@ -1004,23 +1016,14 @@ export class ScopeResolver {
             the_diagnostics
         );
 
-        // Register backward directive dependencies for this file
-        // Clear old dependencies first, then register new ones.
-        // Use real-cased URIs (M3): case-only directive targets register
-        // under the on-disk URI so edits to the real file invalidate the
-        // right scope-cache entries.
-        this.clear_backward_directive_dependencies(file_uri);
-        for (const my_directive of normalized_directives) {
-            const my_real = this.compute_directive_real_path(
-                my_directive, file_uri,
+        // Register backward directive dependencies for this file, unless the
+        // caller owns registration (DocumentStore's working-directory probe
+        // passes register_dependencies: false and applies the effective
+        // registration itself at commit time, issue #184).
+        if (options?.register_dependencies ?? true) {
+            this.apply_normalized_backward_directives(
+                file_uri, normalized_directives
             );
-            // Ambiguous outcome → two or more case-insensitive matches on
-            // disk; no concrete parent can be chosen, so skip registration.
-            if (my_real.outcome_kind === 'ambiguous') {
-                continue;
-            }
-            const my_parent_uri = URI.file(my_real.real_path).toString();
-            this.register_backward_directive_dependency(file_uri, my_parent_uri);
         }
 
         // Follow directive chain and get inherited working directory
@@ -1111,6 +1114,12 @@ export class ScopeResolver {
                 token,
                 {
                     max_forward_depth: my_config.max_forward_depth,
+                    // Thread the resolution's backward mode so callee reads
+                    // register ancestor edges under the same semantics
+                    // (issue #286); ?? 'auto' mirrors
+                    // get_effective_backward_directives.
+                    backward_dependencies:
+                        my_config.backward_dependencies ?? 'auto',
                     diagnostics: {
                         max_depth: my_config.diagnostics?.max_depth,
                     },
@@ -1362,6 +1371,10 @@ export class ScopeResolver {
             token,
             {
                 max_forward_depth: remaining_depth,
+                // Thread the resolution's backward mode for ancestor-edge
+                // registration during callee reads (issue #286).
+                backward_dependencies:
+                    config.backward_dependencies ?? 'auto',
                 // Thread the depth-diagnostic severity/off setting so a
                 // parent's forward truncations honor `max_depth` too (#209).
                 diagnostics: { max_depth: config.diagnostics?.max_depth },
@@ -1502,7 +1515,15 @@ export class ScopeResolver {
                 my_parent_result = await this.get_parsed_file(
                     my_parent_uri,
                     my_real_path,
-                    { request_cache }
+                    {
+                        request_cache,
+                        // Thread the walk's mode so the ancestor-level
+                        // registration inside get_parsed_file matches the
+                        // resolution semantics (issue #286). ?? 'auto'
+                        // mirrors get_effective_backward_directives.
+                        backward_dependencies:
+                            config.backward_dependencies ?? 'auto',
+                    }
                 );
             } catch (error) {
                 my_parent_result = { error: String(error) };
@@ -1703,7 +1724,15 @@ export class ScopeResolver {
             const my_parent_result = await this.get_parsed_file(
                 my_parent_uri,
                 my_real_fs_path,
-                { working_directory: discovered_wd, request_cache }  // Pass discovered working directory
+                {
+                    working_directory: discovered_wd,  // Pass discovered working directory
+                    request_cache,
+                    // Thread the chain's mode for the ancestor-level
+                    // registration (issue #286); ?? 'auto' mirrors
+                    // get_effective_backward_directives.
+                    backward_dependencies:
+                        config.backward_dependencies ?? 'auto',
+                }
             );
 
             // Check for cancellation after file read
@@ -2214,11 +2243,22 @@ export class ScopeResolver {
      * @param options - Optional settings
      * @param options.skip_disk_if_cached - If true, return cached entry without disk read (cache-first mode)
      * @param options.working_directory - Inherited working directory for path resolution in nested files
+     * @param options.backward_dependencies - The resolution's effective
+     *   backward-dependencies mode (issue #286). Governs ONLY the
+     *   registration side effect on the parse path: 'auto' uses the
+     *   effective variant (auto-synthesizes DependencyGraph parents when
+     *   the file has no explicit directives), 'explicit' registers raw
+     *   directives only. Defaults to 'explicit' (the raw pre-#286
+     *   behavior) so untracked callers can never synthesize edges from a
+     *   mode they did not opt into. Callers inside a resolution must
+     *   thread the chain's mode (normalized with ?? 'auto', matching
+     *   get_effective_backward_directives). Deliberately NOT part of any
+     *   cache key: parsed content is mode-independent.
      */
     async get_parsed_file(
         uri: string,
         fs_path: string,
-        options?: { skip_disk_if_cached?: boolean; working_directory?: string; request_cache?: RequestCache }
+        options?: { skip_disk_if_cached?: boolean; working_directory?: string; request_cache?: RequestCache; backward_dependencies?: 'auto' | 'explicit' }
     ): Promise<ParsedFileResult> {
         // Use request cache if available to avoid duplicate reads/parses in same request
         if (options?.request_cache) {
@@ -2244,7 +2284,7 @@ export class ScopeResolver {
     private async _get_parsed_file_impl(
         uri: string,
         fs_path: string,
-        options?: { skip_disk_if_cached?: boolean; working_directory?: string; request_cache?: RequestCache }
+        options?: { skip_disk_if_cached?: boolean; working_directory?: string; request_cache?: RequestCache; backward_dependencies?: 'auto' | 'explicit' }
     ): Promise<ParsedFileResult> {
         const inherited_wd = options?.working_directory;
         const cache_key = this.make_file_cache_key(uri, inherited_wd);
@@ -2256,6 +2296,9 @@ export class ScopeResolver {
         if (options?.skip_disk_if_cached && cached) {
             this.log(`[get_parsed_file] file_cache HIT for ${cache_key} (skip_disk_if_cached)`);
             this.cache_metrics.file.hits++;
+            this.upgrade_registration_on_cache_hit(
+                uri, cached, options?.backward_dependencies
+            );
             return {
                 content: cached.content,
                 content_hash: cached.content_hash,
@@ -2283,6 +2326,9 @@ export class ScopeResolver {
                 cached.size !== undefined && cached.size === size) {
                 this.cache_metrics.file.hits++;
                 this.log(`[get_parsed_file] File cache HIT for ${uri} (mtime match, skipped read)`);
+                this.upgrade_registration_on_cache_hit(
+                    uri, cached, options?.backward_dependencies
+                );
                 return {
                     content: cached.content,
                     content_hash: cached.content_hash,
@@ -2322,6 +2368,11 @@ export class ScopeResolver {
                             fallback_cached.size !== undefined && fallback_cached.size === fallback_size) {
                             this.cache_metrics.file.hits++;
                             this.log(`[get_parsed_file] File cache HIT for ${fallback_uri} (mtime match, skipped read)`);
+                            this.upgrade_registration_on_cache_hit(
+                                fallback_uri,
+                                fallback_cached,
+                                options?.backward_dependencies
+                            );
                             return {
                                 content: fallback_cached.content,
                                 content_hash: fallback_cached.content_hash,
@@ -2368,7 +2419,12 @@ export class ScopeResolver {
         if (actual_cached && actual_cached.content_hash === disk_hash) {
             this.cache_metrics.file.hits++;
             this.log(`[get_parsed_file] File cache HIT for ${actual_uri} (hash match)`);
-            // Return cached results with current content - don't mutate cache entry
+            this.upgrade_registration_on_cache_hit(
+                actual_uri, actual_cached, options?.backward_dependencies
+            );
+            // Return cached results with current content - don't mutate the
+            // entry's cached content/symbols (the registration stamp above
+            // is the one intentional entry mutation on this hit path)
             return {
                 content,
                 content_hash: disk_hash,
@@ -2414,12 +2470,29 @@ export class ScopeResolver {
                 working_directory: parse_result.working_directory,
                 working_directory_directive: parse_result.working_directory_directive,
                 diagnostics: parse_result.diagnostics,
+                // Stamp the mode the registration below runs under (and
+                // upgrade an 'explicit'-registered entry on later
+                // auto-mode cache hits (issue #286).
+                registered_backward_mode:
+                    options?.backward_dependencies ?? 'explicit',
             });
 
             // Register backward directive dependencies from cached file
             // This ensures transitive dependents are discoverable even when
-            // intermediate files are only read from disk (not opened in editor)
-            this.sync_backward_directive_dependencies(actual_uri, parse_result.directives);
+            // intermediate files are only read from disk (not opened in editor).
+            // Uses the EFFECTIVE variant under the resolution's threaded
+            // backward_dependencies mode (issue #286): in 'auto' mode a file
+            // with no explicit directives keeps (or gains) its DependencyGraph
+            // parents instead of having them wiped by this clear-then-register,
+            // matching the commit-time effective registration in DocumentStore
+            // (issue #184). An unthreaded call defaults to 'explicit', which
+            // registers raw directives only — identical to the pre-#286 raw
+            // sync, so this can only ADD edges relative to that behavior.
+            this.apply_backward_directive_registration(
+                actual_uri,
+                parse_result.directives,
+                { backward_dependencies: options?.backward_dependencies ?? 'explicit' }
+            );
 
             // Register forward call relationships from cached file
             // This ensures callee_to_callers map includes relationships from cached files,
@@ -3314,15 +3387,139 @@ export class ScopeResolver {
     sync_backward_directive_dependencies(child_uri: string, directives: Directive[]): void {
         // Normalize directives to match resolve() behavior (handles done-by + included-by collisions)
         const normalized = this.normalize_directives(directives, []);
+        this.apply_normalized_backward_directives(child_uri, normalized);
+    }
+
+    /**
+     * Effective-directive variant of sync_backward_directive_dependencies:
+     * consults get_effective_backward_directives (auto-synthesizes parents
+     * from the DependencyGraph when the file has no explicit directives and
+     * backward_dependencies is 'auto'). Canonical entry point for
+     * DocumentStore's commit-time cross-file side-effect application
+     * (issue #184) — registers without requiring a full resolve() call, and
+     * reads live DependencyGraph state at call time.
+     */
+    apply_backward_directive_registration(
+        child_uri: string,
+        raw_directives: Directive[],
+        config: Partial<ScopeResolverConfig> = {}
+    ): void {
+        const my_config = { ...DEFAULT_CONFIG, ...config };
+        const { directives: effective_directives } =
+            this.get_effective_backward_directives(
+                child_uri, raw_directives, my_config
+            );
+        const normalized = this.normalize_directives(effective_directives, []);
+        this.apply_normalized_backward_directives(child_uri, normalized);
+    }
+
+    /**
+     * Registration upgrade on file-cache hit (issue #286). Hit paths do
+     * not re-parse, so an entry whose last parse-path registration ran
+     * under 'explicit' — e.g. primed by the indexer's forced-'explicit'
+     * working-directory walk — would leave a directive-less file's
+     * dependency-graph parents unregistered for as long as 'auto'-mode
+     * resolutions keep hitting the cache (until the content changes).
+     * When an 'auto'-mode read hits such an entry, apply effective
+     * registration and stamp the entry so repeat hits are free.
+     * Effective ⊇ raw, so upgrading can only add edges. Explicit-mode
+     * hits never downgrade: for them hit paths stay side-effect-free,
+     * as before.
+     *
+     * Directive-less auto-mode hits always re-sync idempotently. The
+     * file_cache may hold multiple entries for the same URI (different
+     * inherited working directories), while backward registration is one
+     * global map per URI; another cache-key variant can replace that map
+     * without changing this entry's stamp or the DependencyGraph version.
+     *
+     * Entries whose cached content has explicit directives can still use
+     * the stamp: effective registration is graph-independent for them
+     * (explicit directives win), and another same-content cache variant
+     * registers the same raw directives.
+     */
+    private upgrade_registration_on_cache_hit(
+        uri: string,
+        cached: {
+            directives: Directive[];
+            registered_backward_mode?: 'auto' | 'explicit';
+        },
+        requested_mode: 'auto' | 'explicit' | undefined
+    ): void {
+        if (requested_mode !== 'auto') {
+            return;
+        }
+        if (cached.directives.length > 0 &&
+            cached.registered_backward_mode === 'auto') {
+            return;
+        }
+        this.apply_backward_directive_registration(uri, cached.directives, {
+            backward_dependencies: 'auto',
+        });
+        cached.registered_backward_mode = 'auto';
+    }
+
+    /**
+     * Re-sync a file's backward-directive edges from its ON-DISK content
+     * (issue #184). Used by the server's close handler: a reparse racing a
+     * close is discarded by commit_state, so when a user saves a header
+     * change and closes immediately, nothing else re-syncs this file's
+     * child→parent edges until its next parse. Best-effort: read/parse
+     * failures keep the existing edges (can't know disk state, and wiping
+     * would reintroduce the #278 flicker); a missing file clears them.
+     *
+     * @param should_apply - checked after the disk read, immediately before
+     *   the synchronous registration; return false to skip (e.g. the
+     *   document was reopened while the read was in flight, so the
+     *   buffer-based commit-time registration must win).
+     * @returns true when registration was applied, false when skipped
+     *   (read error or should_apply veto) — callers use this to decide
+     *   whether dependents need revalidation.
+     */
+    async resync_backward_directive_dependencies_from_disk(
+        child_uri: string,
+        config: Partial<ScopeResolverConfig> = {},
+        should_apply?: () => boolean
+    ): Promise<boolean> {
+        let raw_directives: Directive[] = [];
+        try {
+            const file_exists = await this.content_provider.exists(child_uri);
+            if (file_exists) {
+                const disk_content =
+                    await this.content_provider.read_file(child_uri);
+                raw_directives = this.directive_parser.parse(
+                    disk_content, child_uri
+                ).directives;
+            }
+        } catch {
+            return false;
+        }
+        if (should_apply && !should_apply()) {
+            return false;
+        }
+        this.apply_backward_directive_registration(
+            child_uri, raw_directives, config
+        );
+        return true;
+    }
+
+    /**
+     * The single mutation point for per-child entries of
+     * backward_directive_children: clear the child's existing edges, then
+     * register one edge per normalized directive. Uses real-cased URIs (M3)
+     * so edits to the real file invalidate the right scope-cache entries
+     * even when the directive uses a different casing.
+     */
+    private apply_normalized_backward_directives(
+        child_uri: string,
+        normalized_directives: Directive[]
+    ): void {
         this.clear_backward_directive_dependencies(child_uri);
-        for (const my_directive of normalized) {
-            // Use real-cased URI (M3) so edits to the real file invalidate
-            // the right scope-cache entries even when the directive uses
-            // a different casing.
+        for (const my_directive of normalized_directives) {
             const my_real = this.compute_directive_real_path(
                 my_directive, child_uri,
             );
-            // Ambiguous outcome → no concrete parent to register.
+            // Ambiguous outcome → two or more case-insensitive matches on
+            // disk; no concrete parent can be chosen, so skip registration.
             if (my_real.outcome_kind === 'ambiguous') {
                 continue;
             }

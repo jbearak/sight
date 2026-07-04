@@ -1,0 +1,388 @@
+// Issue #286: get_parsed_file's ancestor-level backward-directive sync used
+// the RAW variant (sync_backward_directive_dependencies, no auto-synthesis).
+// Registration is clear-then-register, so a file whose
+// backward_directive_children edges came from auto-discovery (DependencyGraph
+// parents, no explicit directives) had those edges WIPED whenever it was read
+// from disk as an ancestor of another file's resolution — until its next
+// commit re-registered them. Consequence: interface-change revalidation
+// fan-out (get_transitive_backward_directive_children) silently skipped the
+// wiped file's descendants.
+//
+// The fix threads the resolution's effective backward_dependencies mode into
+// get_parsed_file and switches the ancestor sync to the effective variant
+// (apply_backward_directive_registration). Effective ⊇ raw, so the change can
+// only ADD edges; an 'explicit'-mode resolution must NOT auto-register graph
+// parents for ancestors.
+import { afterEach, beforeEach, describe, expect, it } from 'bun:test';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { URI } from 'vscode-uri';
+import { DependencyGraph } from '../../src/dependency-graph';
+import { DirectiveParser } from '../../src/directive-parser';
+import { DocumentStore } from '../../src/document-store';
+import { ForwardScopeResolver } from '../../src/forward-scope-resolver';
+import { ScopeResolver } from '../../src/scope-resolver';
+import { create_test_scope_resolver_logger } from '../test-logger';
+
+describe('issue #286 — ancestor-level effective backward-directive sync', () => {
+    let temp_dir: string;
+    let document_store: DocumentStore;
+    let dependency_graph: DependencyGraph;
+    let scope_resolver: ScopeResolver;
+    let forward_resolver: ForwardScopeResolver;
+
+    beforeEach(() => {
+        temp_dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sight-286-'));
+        document_store = new DocumentStore();
+        dependency_graph = new DependencyGraph();
+        scope_resolver = new ScopeResolver(create_test_scope_resolver_logger());
+        forward_resolver = new ForwardScopeResolver(scope_resolver);
+        scope_resolver.set_forward_scope_resolver(forward_resolver);
+        scope_resolver.set_dependency_graph(dependency_graph);
+        document_store.set_scope_resolver(scope_resolver);
+    });
+
+    afterEach(async () => {
+        await document_store.dispose();
+        fs.rmSync(temp_dir, { recursive: true, force: true });
+    });
+
+    const create_file = (name: string, content: string): string => {
+        const file_path = path.join(temp_dir, name);
+        fs.writeFileSync(file_path, content);
+        return file_path;
+    };
+    const to_uri = (file_path: string): string =>
+        URI.file(file_path).toString();
+
+    /**
+     * Seed a dependency-graph edge parent → child, as the workspace scan
+     * would after seeing `do child.do` in the parent.
+     */
+    const seed_auto_parent = (parent_uri: string, child_name: string): void => {
+        dependency_graph.update_caller(parent_uri, [{
+            type: 'do',
+            raw_path: child_name,
+            is_static: true,
+            call_site_line: 0,
+            range: {
+                start: { line: 0, character: 0 },
+                end: { line: 0, character: 10 },
+            },
+            source: 'command',
+        }]);
+    };
+
+    it('auto-discovered edges survive a backward ancestor read (regression)', async () => {
+        // A --do--> B (auto-discovered, no explicit directives in B).
+        const b_path = create_file('b.do', 'display "b on disk"\n');
+        const a_path = create_file('a.do', 'do b.do\n');
+        const a_uri = to_uri(a_path);
+        const b_uri = to_uri(b_path);
+        seed_auto_parent(a_uri, 'b.do');
+        expect(dependency_graph.get_parents(b_uri)).toHaveLength(1);
+
+        // Open B with buffer content that differs from disk (unsaved edit),
+        // so a later ancestor read of B is a file-cache STALE → full parse.
+        // Commit-time effective registration (issue #184) adds A → B.
+        await document_store.open(b_uri, 'display "b in buffer"\n', 1);
+        expect(
+            scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
+        ).toBe(true);
+
+        // Resolve C, whose chain reads B from disk as an ancestor. Before
+        // the fix, the RAW clear-then-register sync inside get_parsed_file
+        // wiped B's auto edges (B has no explicit directives).
+        const c_uri = to_uri(path.join(temp_dir, 'c.do'));
+        await scope_resolver.resolve(
+            c_uri,
+            `// @lsp-done-by: "${b_path}"\ndisplay "c"\n`,
+            {}
+        );
+
+        expect(
+            scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
+        ).toBe(true);
+        expect(
+            scope_resolver.get_backward_directive_children(b_uri).has(c_uri)
+        ).toBe(true);
+        // Fan-out consequence: revalidation from A must reach C through B.
+        const the_transitive =
+            scope_resolver.get_transitive_backward_directive_children(a_uri);
+        expect(the_transitive.has(b_uri)).toBe(true);
+        expect(the_transitive.has(c_uri)).toBe(true);
+    });
+
+    it('auto-discovered edges survive a forward callee read (regression)', async () => {
+        const b_path = create_file('b.do', 'display "b on disk"\n');
+        const a_path = create_file('a.do', 'do b.do\n');
+        const a_uri = to_uri(a_path);
+        const b_uri = to_uri(b_path);
+        seed_auto_parent(a_uri, 'b.do');
+
+        await document_store.open(b_uri, 'display "b in buffer"\n', 1);
+        expect(
+            scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
+        ).toBe(true);
+
+        // C reads B as a forward callee (do command), which goes through
+        // ForwardScopeResolver.get_callee_scope → get_parsed_file.
+        const c_uri = to_uri(path.join(temp_dir, 'c.do'));
+        await scope_resolver.resolve(c_uri, `do "${b_path}"\n`, {});
+
+        expect(
+            scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
+        ).toBe(true);
+    });
+
+    it(
+        'direct forward resolve defaults to auto-mode callee registration',
+        async () => {
+            const b_path = create_file('b.do', 'display "b"\n');
+            const a_path = create_file('a.do', 'do b.do\n');
+            const c_path = create_file('c.do', `do "${b_path}"\n`);
+            const a_uri = to_uri(a_path);
+            const b_uri = to_uri(b_path);
+            const c_uri = to_uri(c_path);
+            seed_auto_parent(a_uri, 'b.do');
+
+            await forward_resolver.resolve(c_uri, [{
+                type: 'do',
+                raw_path: b_path,
+                is_static: true,
+                call_site_line: 0,
+                range: {
+                    start: { line: 0, character: 0 },
+                    end: { line: 0, character: b_path.length + 5 },
+                },
+                source: 'command',
+            }]);
+
+            expect(
+                scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
+            ).toBe(true);
+        }
+    );
+
+    it('auto-mode resolution registers an ancestor\'s auto parents even when never opened (effective ⊇ raw)', async () => {
+        const b_path = create_file('b.do', 'display "b"\n');
+        const a_path = create_file('a.do', 'do b.do\n');
+        const a_uri = to_uri(a_path);
+        const b_uri = to_uri(b_path);
+        seed_auto_parent(a_uri, 'b.do');
+
+        const c_uri = to_uri(path.join(temp_dir, 'c.do'));
+        await scope_resolver.resolve(
+            c_uri,
+            `// @lsp-done-by: "${b_path}"\ndisplay "c"\n`,
+            {}
+        );
+
+        expect(
+            scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
+        ).toBe(true);
+    });
+
+    it('explicit-mode resolution does NOT auto-register graph parents for ancestors', async () => {
+        const b_path = create_file('b.do', 'display "b"\n');
+        const a_path = create_file('a.do', 'do b.do\n');
+        const a_uri = to_uri(a_path);
+        const b_uri = to_uri(b_path);
+        seed_auto_parent(a_uri, 'b.do');
+
+        const c_uri = to_uri(path.join(temp_dir, 'c.do'));
+        await scope_resolver.resolve(
+            c_uri,
+            `// @lsp-done-by: "${b_path}"\ndisplay "c"\n`,
+            { backward_dependencies: 'explicit' }
+        );
+
+        expect(
+            scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
+        ).toBe(false);
+        // The explicit directive in C itself still registers.
+        expect(
+            scope_resolver.get_backward_directive_children(b_uri).has(c_uri)
+        ).toBe(true);
+    });
+
+    it('explicit-mode resolution does NOT auto-register graph parents for forward callees', async () => {
+        const b_path = create_file('b.do', 'display "b"\n');
+        const a_path = create_file('a.do', 'do b.do\n');
+        const a_uri = to_uri(a_path);
+        const b_uri = to_uri(b_path);
+        seed_auto_parent(a_uri, 'b.do');
+
+        const c_uri = to_uri(path.join(temp_dir, 'c.do'));
+        await scope_resolver.resolve(
+            c_uri,
+            `do "${b_path}"\n`,
+            { backward_dependencies: 'explicit' }
+        );
+
+        expect(
+            scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
+        ).toBe(false);
+    });
+
+    it('auto-mode cache hit upgrades registration primed by the explicit WD walk', async () => {
+        // The indexer's forced-'explicit' WD walk can be the FIRST read of a
+        // directive-less ancestor: it parses + caches the file and registers
+        // nothing (correct for explicit mode). A later auto-mode resolution
+        // then cache-HITS that entry — and hit paths do not re-parse — so
+        // without the registration-upgrade-on-hit the auto edge would stay
+        // missing until the ancestor's content changed (review finding on
+        // issue #286: mixed explicit/auto workspaces, library files never
+        // opened directly).
+        const b_path = create_file('b.do', 'display "b"\n');
+        const a_path = create_file('a.do', 'do b.do\n');
+        const a_uri = to_uri(a_path);
+        const b_uri = to_uri(b_path);
+        seed_auto_parent(a_uri, 'b.do');
+
+        const c_uri = to_uri(path.join(temp_dir, 'c.do'));
+        const c_content = `// @lsp-done-by: "${b_path}"\ndisplay "c"\n`;
+        const the_directives = new DirectiveParser()
+            .parse(c_content, c_uri).directives;
+        await scope_resolver.resolve_inherited_working_directory(
+            the_directives,
+            c_uri
+        );
+        // The explicit walk itself must not register auto edges...
+        expect(
+            scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
+        ).toBe(false);
+
+        // ...but the subsequent auto-mode resolution that HITS the
+        // walk-primed cache entry must upgrade the registration.
+        await scope_resolver.resolve(c_uri, c_content, {});
+        expect(
+            scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
+        ).toBe(true);
+    });
+
+    it('auto-mode cache hit re-registers after the dependency graph gains a parent', async () => {
+        // The 'auto' stamp must fold in the dependency-graph version:
+        // an entry stamped while the graph was partial (or before a
+        // parent added its do-call) must not latch — the next auto-mode
+        // hit after a graph change re-runs effective registration
+        // (codex round-2 finding on issue #286).
+        const b_path = create_file('b.do', 'display "b"\n');
+        const a_path = create_file('a.do', 'do b.do\n');
+        const a_uri = to_uri(a_path);
+        const b_uri = to_uri(b_path);
+
+        // First auto-mode resolution parses B with NO graph parents:
+        // stamps 'auto' at the current graph version, registers nothing.
+        const c_uri = to_uri(path.join(temp_dir, 'c.do'));
+        const c_content = `// @lsp-done-by: "${b_path}"\ndisplay "c"\n`;
+        await scope_resolver.resolve(c_uri, c_content, {});
+        expect(
+            scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
+        ).toBe(false);
+
+        // The graph then gains A → B (version bump). The auto-mode scope
+        // cache key folds in the graph version, so this resolve re-walks
+        // and cache-HITS B — the hit must re-register from live graph
+        // state instead of skipping on the stale 'auto' stamp.
+        seed_auto_parent(a_uri, 'b.do');
+        await scope_resolver.resolve(c_uri, c_content, {});
+        expect(
+            scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
+        ).toBe(true);
+    });
+
+    it(
+        'directive-less auto cache hit re-registers after another cache ' +
+        'variant clears it',
+        async () => {
+            // file_cache is keyed by uri|working_directory, but backward
+            // directive registration is global per URI. An explicit parse of a
+            // second cache-key variant can clear the auto-synthesized parent
+            // edge for the URI without changing the dependency-graph version;
+            // the original auto cache entry must not assume its per-entry
+            // stamp still represents the global registration map.
+            const b_path = create_file('b.do', 'display "b"\n');
+            const a_path = create_file('a.do', 'do b.do\n');
+            const a_uri = to_uri(a_path);
+            const b_uri = to_uri(b_path);
+            const wd1 = path.join(temp_dir, 'wd1');
+            const wd2 = path.join(temp_dir, 'wd2');
+            seed_auto_parent(a_uri, 'b.do');
+
+            await scope_resolver.get_parsed_file(b_uri, b_path, {
+                working_directory: wd1,
+                backward_dependencies: 'auto',
+            });
+            expect(
+                scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
+            ).toBe(true);
+
+            await scope_resolver.get_parsed_file(b_uri, b_path, {
+                working_directory: wd2,
+                backward_dependencies: 'explicit',
+            });
+            expect(
+                scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
+            ).toBe(false);
+
+            await scope_resolver.get_parsed_file(b_uri, b_path, {
+                skip_disk_if_cached: true,
+                working_directory: wd1,
+                backward_dependencies: 'auto',
+            });
+            expect(
+                scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
+            ).toBe(true);
+        }
+    );
+
+    it('memo standalone-closure build registers ancestor auto parents (auto mode)', async () => {
+        // Nested forward closures build through the forward-closure memo
+        // (#234, on by default, gated on scan completion). The standalone
+        // build threads the initiating resolution's mode, so a
+        // directive-less file read during the build keeps its
+        // dependency-graph parents registered.
+        dependency_graph.mark_scan_complete();
+        const d_path = create_file('d.do', 'display "d"\n');
+        const a_path = create_file('a.do', 'do d.do\n');
+        const b_path = create_file('b.do', `do "${d_path}"\n`);
+        const a_uri = to_uri(a_path);
+        const d_uri = to_uri(d_path);
+        seed_auto_parent(a_uri, 'd.do');
+
+        // C's forward call to B makes B's own forward calls a NESTED
+        // closure (depth >= 1), which is where the memo hooks.
+        const c_uri = to_uri(path.join(temp_dir, 'c.do'));
+        await scope_resolver.resolve(c_uri, `do "${b_path}"\n`, {});
+
+        expect(
+            scope_resolver.get_backward_directive_children(a_uri).has(d_uri)
+        ).toBe(true);
+    });
+
+    it('resolve_inherited_working_directory (indexer walk) never auto-registers ancestor graph parents', async () => {
+        // The indexer's WD walk forces backward_dependencies: 'explicit' to
+        // stay deterministic during a partial scan; the ancestor sync must
+        // honor that and not synthesize edges from the half-built graph.
+        const b_path = create_file('b.do', 'display "b"\n');
+        const a_path = create_file('a.do', 'do b.do\n');
+        const a_uri = to_uri(a_path);
+        const b_uri = to_uri(b_path);
+        seed_auto_parent(a_uri, 'b.do');
+
+        const c_uri = to_uri(path.join(temp_dir, 'c.do'));
+        const c_content = `// @lsp-done-by: "${b_path}"\ndisplay "c"\n`;
+        const the_directives = new DirectiveParser()
+            .parse(c_content, c_uri).directives;
+        await scope_resolver.resolve_inherited_working_directory(
+            the_directives,
+            c_uri
+        );
+
+        expect(
+            scope_resolver.get_backward_directive_children(a_uri).has(b_uri)
+        ).toBe(false);
+    });
+});

@@ -22,8 +22,14 @@ import { arbitrary_non_reserved_identifier } from './generators';
 
 /**
  * Generate valid Stata identifiers (excluding reserved qualifier keywords).
+ * Also exclude EXPRESSION_KEYWORDS ('of', 'in' — see
+ * src/pretty-printer/expression-spacing.ts): the formatter adds spaces
+ * around them, so an identifier that collides with one (e.g. `of[A]` →
+ * `of [A]`) violates the bracket-spacing properties by design.
  */
-const identifier_arb = arbitrary_non_reserved_identifier();
+const identifier_arb = arbitrary_non_reserved_identifier().filter(
+    (id) => id !== 'of'
+);
 
 /**
  * Generate simple numbers.

@@ -38,6 +38,18 @@ import { clone_symbol_table } from '../scope-resolver/visible-symbols';
 
 export interface ForwardScopeConfig {
     max_forward_depth: number;
+    /**
+     * The initiating resolution's effective backward-dependencies mode
+     * (issue #286). Threaded into get_parsed_file so the ancestor-level
+     * backward-directive registration for callees read from disk matches
+     * the chain's semantics. Purely a side-effect input: it never changes
+     * resolved symbols, so it is deliberately absent from the
+     * forward-closure memo key. ForwardScopeResolver.resolve() normalizes
+     * an unset mode to 'auto' before reading callees; get_parsed_file
+     * itself still defaults untracked direct callers to 'explicit' (raw
+     * registration, the pre-#286 behavior).
+     */
+    backward_dependencies?: 'auto' | 'explicit';
     diagnostics?: {
         max_depth?: 'error' | 'warning' | 'information' | 'off';
     };
@@ -561,7 +573,14 @@ export class ForwardScopeResolver {
         config?: Partial<ForwardScopeConfig>,
         diagnostic_owner_uri?: string,
     ): Promise<ForwardResolvedScope> {
-        const resolved_config = { ...this.default_config, ...config };
+        const resolved_config = {
+            ...this.default_config,
+            ...config,
+            backward_dependencies:
+                config?.backward_dependencies ??
+                this.default_config.backward_dependencies ??
+                'auto',
+        };
         // Check cancellation at entry
         if (token?.isCancellationRequested) {
             return { symbols: create_empty_symbol_table(), call_sites: [], diagnostics: [] };
@@ -830,7 +849,12 @@ export class ForwardScopeResolver {
             }
 
             // Get callee symbols
-            const callee_result = await this.get_callee_scope(resolved_path, callee_uri, effective_call_wd);
+            const callee_result = await this.get_callee_scope(
+                resolved_path,
+                callee_uri,
+                effective_call_wd,
+                resolved_config.backward_dependencies
+            );
 
             if (decision.action === 'boundary_only') {
                 // Dedup'd do/run re-visit at the outermost resolve()
@@ -1247,6 +1271,13 @@ export class ForwardScopeResolver {
                 token,
                 {
                     max_forward_depth: resolved_config.max_forward_depth,
+                    // Thread the initiating resolution's backward mode so
+                    // callee reads during this build register edges under
+                    // the same semantics as the live walk they replace
+                    // (issue #286). Side-effect-only: not in the memo key,
+                    // and serves never register.
+                    backward_dependencies:
+                        resolved_config.backward_dependencies,
                     // Force a non-'off' truncation severity: a cap-truncated
                     // closure is shaped by the cap but the SEVERITY setting
                     // is not in the key, so under 'off' it would look
@@ -1490,6 +1521,7 @@ export class ForwardScopeResolver {
             callee_fs_path,
             callee_uri,
             working_directory,
+            resolved_config.backward_dependencies,
         );
         if ('error' in callee_result) return new Map();
 
@@ -1630,7 +1662,8 @@ export class ForwardScopeResolver {
     private async get_callee_scope(
         fs_path: string,
         uri: string,
-        working_directory?: string
+        working_directory?: string,
+        backward_dependencies?: 'auto' | 'explicit'
     ): Promise<{ symbols: SymbolTable; forward_calls: ForwardCall[]; cd_commands: CdCommand[]; working_directory?: string; content_hash?: string } | { error: string }> {
         let final_fs_path = fs_path;
         let final_uri = uri;
@@ -1656,7 +1689,7 @@ export class ForwardScopeResolver {
 
         // Only use cache-first mode for files within workspace roots
         const skip_disk_if_cached = this.is_within_workspace_roots(final_fs_path);
-        const parsed_result = await this.scope_resolver.get_parsed_file(final_uri, final_fs_path, { skip_disk_if_cached, working_directory });
+        const parsed_result = await this.scope_resolver.get_parsed_file(final_uri, final_fs_path, { skip_disk_if_cached, working_directory, backward_dependencies });
         if ('error' in parsed_result) {
             const paths_msg = paths_tried.length > 1 ? ` (tried: ${paths_tried.join(', ')})` : '';
             return { error: parsed_result.error + paths_msg };

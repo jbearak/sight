@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { DocumentState, DocumentStore } from '../../src/document-store';
+import { DocumentState, DocumentStore, ParseOutcome } from '../../src/document-store';
 import { DependencyGraph } from '../../src/dependency-graph';
 import { WorkspaceIndexer } from '../../src/indexer';
 import { ScopeResolver } from '../../src/scope-resolver';
@@ -11,14 +11,14 @@ type InspectableDocumentStore = DocumentStore & {
     generations: Map<string, number>;
     commit_state(
         uri: string,
-        state: DocumentState,
+        outcome: ParseOutcome,
         generation: number
-    ): void;
+    ): boolean;
     create_document_state(
         uri: string,
         content: string,
         version: number
-    ): Promise<DocumentState>;
+    ): Promise<ParseOutcome>;
 };
 
 describe('DocumentStore version guard', () => {
@@ -36,7 +36,11 @@ describe('DocumentStore version guard', () => {
             version: 2,
             content: 'content v2',
         };
-        store.commit_state(uri, stale_state_v2, 2);
+        store.commit_state(
+            uri,
+            { state: stale_state_v2, staged_effects: undefined },
+            2
+        );
 
         expect(store.documents.get(uri)).toBe(state_v3);
         expect(store.documents.get(uri)!.version).toBe(3);
@@ -46,7 +50,11 @@ describe('DocumentStore version guard', () => {
             ...state_v3!,
             content: 'content v3 reparse',
         };
-        store.commit_state(uri, reparse_state_v3, 3);
+        store.commit_state(
+            uri,
+            { state: reparse_state_v3, staged_effects: undefined },
+            3
+        );
 
         expect(store.documents.get(uri)).toBe(reparse_state_v3);
         expect(store.documents.get(uri)!.version).toBe(3);

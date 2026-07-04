@@ -90,6 +90,15 @@ export interface ServerOptions {
     transport: TransportType;
     quiet?: boolean;
     log_channel?: (msg: string) => void;
+    /**
+     * Test-only injection seam: when provided, this connection is used
+     * instead of creating a transport connection, so handler-level
+     * integration tests can capture the real registered LSP handlers
+     * (e.g. the onDidClose disk re-sync wiring, issue #287) and drive
+     * them without a live client process. Production entry points
+     * (cli.ts, server.ts) never set this.
+     */
+    connection?: Connection;
 }
 
 /**
@@ -193,9 +202,16 @@ export function resolve_scoped_client_settings(
 // re-scanning. `max_backward_depth` is included because the indexer's
 // inherited-WD walk (#218) uses it to key closed-file callee edges, so
 // a depth change must re-index for those edges to stay consistent with
-// the open-document path. (`backward_dependencies` is NOT needed: the
-// indexer walk forces explicit backward resolution, so it is
-// independent of the auto/explicit mode.)
+// the open-document path. (`backward_dependencies` is NOT included even
+// though, since #286, the mode steers the parse-path registration side
+// effect in get_parsed_file: a re-scan would not re-run that
+// registration anyway (the file cache is content-keyed and unaffected
+// by settings), so including it buys a costly teardown without the
+// convergence it implies. A mid-session flip instead self-heals per
+// file: explicit→auto is healed by the cache-hit registration upgrade
+// (see upgrade_registration_on_cache_hit) and each file's next
+// parse/commit; auto→explicit leaves vestigial auto edges until the
+// next parse — benign over-revalidation, never a false suppression.)
 //
 // This signature is compared on BOTH config-change paths against a
 // single shared `last_applied_indexing_signature`: the `sight.toml`
@@ -222,8 +238,9 @@ export function indexing_affecting_signature(
 export async function create_server(options: ServerOptions): Promise<void> {
     const { transport, quiet, log_channel } = options;
 
-    // Create connection based on transport type
-    const connection = create_transport_connection(transport);
+    // Create connection based on transport type (tests may inject one)
+    const connection =
+        options.connection ?? create_transport_connection(transport);
 
     // Create a simple text document manager
     const documents: TextDocuments<TextDocument> = new TextDocuments(TextDocument);
@@ -1196,10 +1213,14 @@ export async function create_server(options: ServerOptions): Promise<void> {
     // Wire initialized handler
     connection.onInitialized(
         create_initialized_handler(() => {
-            // Initialize Logger - route to stderr for stdio transport, suppress if quiet
+            // Initialize Logger - route to stderr for stdio transport,
+            // suppress if quiet. With an injected connection the stdio
+            // transport flag says nothing about the host's real stdio, so
+            // never write to process.stderr in that case — route through
+            // the injected connection's console instead.
             const log_fn = quiet
                 ? () => { } // Suppress all startup messages
-                : transport === 'stdio'
+                : transport === 'stdio' && options.connection === undefined
                     ? (msg: string) => process.stderr.write(msg + '\n')
                     : log_channel || ((msg: string) => connection.console.log(msg));
 
@@ -1479,6 +1500,10 @@ export async function create_server(options: ServerOptions): Promise<void> {
 
     // Document close handler
     documents.onDidClose((e) => {
+        // Captured before the delete below so the disk re-sync can use the
+        // URI-scoped config (a scoped backwardDependencies override must not
+        // be re-synced under the global mode).
+        const closed_document_settings = document_settings.get(e.document.uri);
         document_settings.delete(e.document.uri);
         document_store.close(e.document.uri);
         debounce_manager.on_close(e.document.uri);
@@ -1503,6 +1528,78 @@ export async function create_server(options: ServerOptions): Promise<void> {
             scope_resolver.invalidate_file_cache(e.document.uri, {
                 preserve_forward_call_relationships: true,
                 preserve_backward_directive_dependencies: true,
+            });
+            // Converge the preserved backward-directive map to DISK state
+            // (issue #184): a reparse racing this close is discarded by
+            // commit_state, so a header change saved just before closing
+            // would otherwise leave pre-save edges until the file's next
+            // parse. Guarded so a quick close→reopen's registration is
+            // owned by the reopened buffer's commit, never this slower
+            // disk read: the guard checks BOTH TextDocuments (repopulated
+            // synchronously on reopen, before the debounced open() commits
+            // — and the content provider prefers open buffers, so a
+            // mid-read reopen could otherwise apply uncommitted buffer
+            // content) and the document store. A reopen-then-reclose while
+            // the read is in flight can still apply transient buffer
+            // content, but the re-close fires its own re-sync, which
+            // converges to disk.
+            void (async () => {
+                let my_settings = global_settings;
+                try {
+                    // In configuration-capable clients global_settings does
+                    // not track scoped client config, and the cache can miss
+                    // (closed before the debounced validation ever fetched
+                    // settings, or cleared by a config refresh) — so fetch
+                    // scoped settings fresh when there is no captured entry.
+                    my_settings = await (closed_document_settings ??
+                        get_document_settings(e.document.uri));
+                } catch {
+                    // Fall back to global settings on a rejected fetch.
+                }
+                // get_document_settings caches its result; don't let
+                // entries for closed documents accumulate.
+                if (closed_document_settings === undefined &&
+                    documents.get(e.document.uri) === undefined) {
+                    document_settings.delete(e.document.uri);
+                }
+                const my_applied = await scope_resolver
+                    .resync_backward_directive_dependencies_from_disk(
+                        e.document.uri,
+                        scope_resolver_config_for(my_settings),
+                        () => {
+                            if (documents.get(e.document.uri) !== undefined) {
+                                // Reopened — buffer commit owns registration.
+                                return false;
+                            }
+                            try {
+                                return document_store.get(e.document.uri) ===
+                                    undefined;
+                            } catch {
+                                return false; // store disposed — do not mutate
+                            }
+                        }
+                    );
+                // A close-cancelled validation never fans out an interface
+                // change, and the watched-files path only revalidates
+                // forward callers — so open files inheriting THROUGH the
+                // closed file would keep stale diagnostics until another
+                // trigger. Revalidate them when the re-sync applied.
+                if (my_applied) {
+                    const my_backward_children = scope_resolver
+                        .get_transitive_backward_directive_children(
+                            e.document.uri
+                        );
+                    if (my_backward_children.size > 0) {
+                        schedule_caller_revalidation(
+                            my_backward_children,
+                            e.document.uri,
+                            my_settings
+                        );
+                    }
+                }
+            })().catch(() => {
+                // Fire-and-forget: a failed re-sync must never surface as
+                // an unhandled rejection; edges converge on the next parse.
             });
         }
         // On close, the buffer's in-memory edges/symbols are discarded, so
