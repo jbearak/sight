@@ -9,14 +9,15 @@
 
 // Stata prefix commands that can legally precede `do`, `run`, or `include`.
 // Keywords must be lowercase (Stata is case-sensitive). Written so that every
-// whitespace run is consumed by exactly one `\s+` when this fragment is wrapped
-// in `(?:(?:<prefix>)\s+)*`, avoiding nested-quantifier ReDoS (CodeQL js/redos).
+// whitespace is consumed by a single non-nested quantifier at each syntactic
+// boundary when this fragment is wrapped in `(?:(?:<prefix>)\s+)*`, avoiding
+// nested-quantifier ReDoS (CodeQL js/redos).
 //
 // Intentionally excluded: `timer` is a standalone command in Stata
 // (`timer on 1`, `timer off 1`, `timer clear`, `timer list`), not a prefix
 // command — `timer do "x.do"` is not legal syntax.
 export const CALL_PREFIX_ALTERNATIVES =
-    /qui(?:etly)?|cap(?:ture)?|noi(?:sily)?|nobreak|version\s+\d+(?:\.\d+)?/.source;
+    /qui(?:etly)?|cap(?:ture)?|noi(?:sily)?|nobreak|version\s+\d+(?:\.\d+)?\s*:/.source;
 
 /**
  * Mode for {@link build_do_include_pattern}:

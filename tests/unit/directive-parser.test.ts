@@ -685,6 +685,24 @@ global after 2
         expect(result).toBe(1);
     });
 
+    test('infer_call_site_for_file should match lowercase with version colon prefix', () => {
+        const parent_content = `global setup 1
+version 18.0: do "child.do"
+global after 2
+`;
+        const result = parser.infer_call_site_for_file(parent_content, 'child.do');
+        expect(result).toBe(1);
+    });
+
+    test('infer_call_site_for_file should NOT match invalid no-colon version prefix', () => {
+        const parent_content = `global setup 1
+version 18.0 do "child.do"
+global after 2
+`;
+        const result = parser.infer_call_site_for_file(parent_content, 'child.do');
+        expect(result).toBeUndefined();
+    });
+
     test('infer_call_site_for_file should NOT treat bare timer as a prefix', () => {
         const parent_content = `global setup 1
 timer do "child.do"
