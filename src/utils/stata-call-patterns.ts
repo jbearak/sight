@@ -8,16 +8,17 @@
  */
 
 // Stata prefix commands that can legally precede `do`, `run`, or `include`.
-// Keywords must be lowercase (Stata is case-sensitive). Written so that every
-// whitespace is consumed by a single non-nested quantifier at each syntactic
-// boundary when this fragment is wrapped in `(?:(?:<prefix>)\s+)*`, avoiding
-// nested-quantifier ReDoS (CodeQL js/redos).
+// Keywords must be lowercase (Stata is case-sensitive). Simple prefixes require
+// whitespace after the prefix; `version #:` can be adjacent to the next command.
 //
 // Intentionally excluded: `timer` is a standalone command in Stata
 // (`timer on 1`, `timer off 1`, `timer clear`, `timer list`), not a prefix
 // command — `timer do "x.do"` is not legal syntax.
 export const CALL_PREFIX_ALTERNATIVES =
-    /qui(?:etly)?|cap(?:ture)?|noi(?:sily)?|nobreak|version\s+\d+(?:\.\d+)?\s*:/.source;
+    /qui(?:etly)?|cap(?:ture)?|noi(?:sily)?|nobreak/.source;
+
+const CALL_PREFIX_WITH_SEPARATOR =
+    `(?:(?:${CALL_PREFIX_ALTERNATIVES})\\s+|version\\s+\\d+(?:\\.\\d+)?\\s*:\\s*)`;
 
 /**
  * Mode for {@link build_do_include_pattern}:
@@ -41,6 +42,6 @@ const PATH_CAPTURE_SUFFIX = '(?:"([^"]+)"|([^\\s,]+))';
 export function build_do_include_pattern(mode: DoIncludePatternMode): RegExp {
     const path_suffix = mode === 'capture' ? PATH_CAPTURE_SUFFIX : '';
     return new RegExp(
-        `^\\s*(?:(?:${CALL_PREFIX_ALTERNATIVES})\\s+)*\\s*(do|include|run)\\s+${path_suffix}`,
+        `^\\s*(?:${CALL_PREFIX_WITH_SEPARATOR})*(do|include|run)\\s+${path_suffix}`,
     );
 }

@@ -694,6 +694,24 @@ global after 2
         expect(result).toBe(1);
     });
 
+    test('infer_call_site_for_file should match version prefix with no post-colon space', () => {
+        const parent_content = `global setup 1
+version 18.0:do "child.do"
+global after 2
+`;
+        const result = parser.infer_call_site_for_file(parent_content, 'child.do');
+        expect(result).toBe(1);
+    });
+
+    test('infer_call_site_for_file should match chained nobreak prefix orderings', () => {
+        const parent_content = `global setup 1
+nobreak capture do "child.do"
+global after 2
+`;
+        const result = parser.infer_call_site_for_file(parent_content, 'child.do');
+        expect(result).toBe(1);
+    });
+
     test('infer_call_site_for_file should NOT match invalid no-colon version prefix', () => {
         const parent_content = `global setup 1
 version 18.0 do "child.do"

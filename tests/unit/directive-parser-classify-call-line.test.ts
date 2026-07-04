@@ -29,7 +29,10 @@ describe('DirectiveParser.classify_call_line', () => {
         expect(parser.classify_call_line('nobreak do "x.do"')).toBe('do');
         expect(parser.classify_call_line('nobreak include x.do')).toBe('include');
         expect(parser.classify_call_line('nobreak run "x.do"')).toBe('run');
+        expect(parser.classify_call_line('nobreak capture do "x.do"')).toBe('do');
+        expect(parser.classify_call_line('quietly nobreak do "x.do"')).toBe('do');
         expect(parser.classify_call_line('version 18.0: do "x.do"')).toBe('do');
+        expect(parser.classify_call_line('version 18.0:do "x.do"')).toBe('do');
         expect(parser.classify_call_line('version 18.0 : include x.do')).toBe('include');
     });
 
