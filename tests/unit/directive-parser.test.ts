@@ -488,6 +488,131 @@ gen x = 1`;
             expect(result.diagnostics.length).toBe(0);
         });
     });
+
+    describe('Standalone Directive (issue #208)', () => {
+        const parser = new DirectiveParser();
+
+        test('parses sight: standalone and @lsp-standalone, with and without colon', () => {
+            const the_forms = [
+                '// sight: standalone',
+                '// sight: standalone:',
+                '// @lsp-standalone',
+                '// @lsp-standalone:',
+                '* sight: standalone',
+                '* @lsp-standalone',
+            ];
+            for (const my_form of the_forms) {
+                const result = parser.parse(
+                    `${my_form}\ngen x = 1`, 'file:///test.do'
+                );
+                expect(result.standalone).toBeDefined();
+                expect(result.standalone!.range.start.line).toBe(0);
+                expect(result.diagnostics.length).toBe(0);
+            }
+        });
+
+        test('is header-only: not recognized after the first code line', () => {
+            const content = 'gen x = 1\n// sight: standalone\n';
+            const result = parser.parse(content, 'file:///test.do');
+            expect(result.standalone).toBeUndefined();
+        });
+
+        test('is recognized below blank and comment lines in the header', () => {
+            const content = [
+                '// A regular comment',
+                '',
+                '// sight: standalone',
+                'gen x = 1',
+            ].join('\n');
+            const result = parser.parse(content, 'file:///test.do');
+            expect(result.standalone).toBeDefined();
+            expect(result.standalone!.range.start.line).toBe(2);
+        });
+
+        test('flags trailing arguments as malformed and does not set standalone', () => {
+            const content = '// sight: standalone "foo.do"\ngen x = 1';
+            const result = parser.parse(content, 'file:///test.do');
+            expect(result.standalone).toBeUndefined();
+            expect(result.diagnostics.length).toBe(1);
+            expect(result.diagnostics[0].message).toContain('Malformed');
+            expect(result.diagnostics[0].severity).toBe('warning');
+        });
+
+        test('does not match longer words that merely start with standalone', () => {
+            const content = '// sight: standalonex\ngen x = 1';
+            const result = parser.parse(content, 'file:///test.do');
+            expect(result.standalone).toBeUndefined();
+            expect(result.diagnostics.length).toBe(0);
+        });
+
+        test('keeps raw backward directives unfiltered and emits NO parser-level warning', () => {
+            // The "ignored directive" warning is resolver-root-emitted
+            // (ScopeResolver.resolve()), deliberately NOT a parser
+            // diagnostic: parser diagnostics ride ancestor parse results
+            // into descendants' resolutions.
+            const content = [
+                '// sight: standalone',
+                '// sight: done-by: "parent.do"',
+                'gen x = 1',
+            ].join('\n');
+            const result = parser.parse(content, 'file:///test.do');
+            expect(result.standalone).toBeDefined();
+            expect(result.directives.length).toBe(1);
+            expect(result.directives[0].type).toBe('done-by');
+            expect(result.diagnostics.length).toBe(0);
+        });
+
+        test('code after a leading block comment ends the header', () => {
+            // `/* c */ gen x = 1` is executable code, so the header stops
+            // there; a marker below it must be inert. Applies to backward
+            // directives too (same header boundary).
+            const content = [
+                '/* comment */ gen x = 1',
+                '// sight: standalone',
+                '// sight: done-by: "parent.do"',
+            ].join('\n');
+            const result = parser.parse(content, 'file:///test.do');
+            expect(result.standalone).toBeUndefined();
+            expect(result.directives.length).toBe(0);
+        });
+
+        test('pure block-comment lines (and trailing line comments) stay in the header', () => {
+            const content = [
+                '/* a pure block comment */',
+                '/* leading */ // trailing line comment',
+                '/* multi',
+                '   line */',
+                '// sight: standalone',
+                'gen x = 1',
+            ].join('\n');
+            const result = parser.parse(content, 'file:///test.do');
+            expect(result.standalone).toBeDefined();
+            expect(result.standalone!.range.start.line).toBe(4);
+        });
+
+        test('a marker inside a multi-line block comment is inert', () => {
+            const content = [
+                '/*',
+                '// sight: standalone',
+                '*/',
+                'gen x = 1',
+            ].join('\n');
+            const result = parser.parse(content, 'file:///test.do');
+            expect(result.standalone).toBeUndefined();
+        });
+
+        test('first standalone marker wins when repeated', () => {
+            const content = [
+                '// sight: standalone',
+                '// @lsp-standalone',
+                'gen x = 1',
+            ].join('\n');
+            const result = parser.parse(content, 'file:///test.do');
+            expect(result.standalone).toBeDefined();
+            expect(result.standalone!.range.start.line).toBe(0);
+            expect(result.diagnostics.length).toBe(0);
+        });
+    });
 });
 
 

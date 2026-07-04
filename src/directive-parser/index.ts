@@ -16,6 +16,7 @@ import {
     DeclarationDirective,
     ForwardCallDirective,
     WorkingDirectoryDirective,
+    StandaloneDirective,
     Token,
 } from '../types';
 import {
@@ -35,6 +36,7 @@ import {
     FORWARD_DIRECTIVE_KEYWORDS,
     WORKING_DIR_DIRECTIVE_KEYWORDS,
     DECLARATION_DIRECTIVE_KEYWORDS,
+    STANDALONE_DIRECTIVE_KEYWORDS,
     CALL_SITE_PARAMS_FRAGMENT,
     make_directive_pattern,
     has_ignore_directive,
@@ -83,6 +85,22 @@ const FORWARD_CALL_DIRECTIVE_HEAD_PATTERN = make_directive_pattern(
 const WORKING_DIR_DIRECTIVE_PATTERN = make_directive_pattern(
     WORKING_DIR_DIRECTIVE_KEYWORDS,
     String.raw`:?\s+(?:"([^"]+)"|([^\s]+))\s*$`,
+);
+
+// Header-only, no-argument standalone marker (issue #208):
+// `// sight: standalone` / `// @lsp-standalone`, optional trailing colon.
+const STANDALONE_DIRECTIVE_PATTERN = make_directive_pattern(
+    STANDALONE_DIRECTIVE_KEYWORDS,
+    String.raw`:?\s*$`,
+);
+
+// Detects a standalone-directive head with unexpected trailing content
+// (e.g. `sight: standalone "foo.do"`) so the parser can report it as
+// malformed, mirroring BACKWARD_DIRECTIVE_HEAD_PATTERN. The `(?=:|\s|$)`
+// boundary keeps the keyword whole (it does not match `standalonex`).
+const STANDALONE_DIRECTIVE_HEAD_PATTERN = make_directive_pattern(
+    STANDALONE_DIRECTIVE_KEYWORDS,
+    String.raw`(?=:|\s|$)`,
 );
 
 const PARAM_LINE = /line=(\d+)/;
@@ -148,12 +166,77 @@ export class DirectiveParser {
         let working_directory: WorkingDirectoryDirective | undefined;
         let working_dir_count = 0;
 
+        // Track the standalone marker (issue #208); position-independent
+        // within the header, so first match wins and later ones are inert.
+        let standalone_directive: StandaloneDirective | undefined;
+
         // Continuation lines of multi-line comments carry no directives.
-        const block_lines = block_comment_lines(content, tokens);
+        // A single ranges computation serves both the "line leads with a
+        // block comment" test and the trailing-code scan below (avoids the
+        // extra lex block_comment_lines would add on the tokenless path).
+        const the_block_ranges = block_comment_ranges(content, tokens);
+        const leads_with_block_comment = (
+            line_index: number, line_text: string
+        ): boolean => {
+            const my_col = line_text.search(/\S/);
+            return my_col >= 0 && position_in_block_comment(
+                line_index, my_col, the_block_ranges
+            );
+        };
 
         for (let i = 0; i < line_count; i++) {
-            if (block_lines.has(i)) {
-                continue;
+            if (leads_with_block_comment(i, get_line_text(doc, i))) {
+                // The line LEADS with a block comment, but executable code
+                // may follow the comment on the same physical line
+                // (`/* c */ gen x = 1`). Such trailing code ends the
+                // header, exactly like a plain code line — otherwise a
+                // directive below it would be accepted as header content
+                // (#208 review round 1). Pure comment lines (including a
+                // trailing `//` line comment) stay inert and are skipped.
+                //
+                // Compute the line's commented column intervals ONCE, then
+                // scan characters against them (not per-char
+                // position_in_block_comment, which walks every range per
+                // call — #208 review round 2).
+                const my_block_line = get_line_text(doc, i);
+                const the_covered: Array<[number, number]> = [];
+                for (const my_range of the_block_ranges) {
+                    if (my_range.start.line > i || my_range.end.line < i) {
+                        continue;
+                    }
+                    the_covered.push([
+                        my_range.start.line < i ? 0 : my_range.start.character,
+                        my_range.end.line > i
+                            ? my_block_line.length
+                            : my_range.end.character,
+                    ]);
+                }
+                let my_code_col = -1;
+                for (let c = 0; c < my_block_line.length; c++) {
+                    const my_char = my_block_line[c];
+                    if (my_char === ' ' || my_char === '\t' ||
+                        my_char === '\r') {
+                        continue;
+                    }
+                    const my_covering = the_covered.find(
+                        ([my_start, my_end]) => c >= my_start && c < my_end
+                    );
+                    if (my_covering === undefined) {
+                        my_code_col = c;
+                        break;
+                    }
+                    // Jump past the covering interval instead of testing
+                    // every commented character.
+                    c = my_covering[1] - 1;
+                }
+                if (my_code_col < 0) {
+                    continue;
+                }
+                const my_rest = my_block_line.slice(my_code_col);
+                if (my_rest.startsWith('//') || my_rest.startsWith('*')) {
+                    continue;
+                }
+                break;
             }
             const my_line = get_line_text(doc, i);
             const my_trimmed = my_line.trim();
@@ -205,6 +288,35 @@ export class DirectiveParser {
                     range: my_range,
                     directive_form: my_directive_form,
                 };
+                continue;
+            }
+
+            // Standalone marker (issue #208): header-only, no argument.
+            const my_standalone_match = my_trimmed.match(
+                STANDALONE_DIRECTIVE_PATTERN
+            );
+            if (my_standalone_match) {
+                if (!standalone_directive) {
+                    standalone_directive = {
+                        range: {
+                            start: { line: i, character: 0 },
+                            end: { line: i, character: my_line.length },
+                        },
+                    };
+                }
+                continue;
+            }
+            if (STANDALONE_DIRECTIVE_HEAD_PATTERN.test(my_trimmed)) {
+                // Keyword present but trailing content followed it.
+                the_diagnostics.push({
+                    message: 'Malformed directive. Expected: ' +
+                        '// sight: standalone (no arguments)',
+                    range: {
+                        start: { line: i, character: 0 },
+                        end: { line: i, character: my_line.length },
+                    },
+                    severity: 'warning',
+                });
                 continue;
             }
 
@@ -289,6 +401,7 @@ export class DirectiveParser {
             declaration_directives: declaration_result.declarations,
             forward_calls: forward_call_result.forward_calls,
             working_directory,
+            standalone: standalone_directive,
             diagnostics: the_diagnostics,
         };
     }

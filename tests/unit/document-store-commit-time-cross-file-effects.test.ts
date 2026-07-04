@@ -16,6 +16,7 @@ import { DocumentStore } from '../../src/document-store';
 import { DependencyGraph } from '../../src/dependency-graph';
 import { WorkspaceIndexer } from '../../src/indexer';
 import { ScopeResolver } from '../../src/scope-resolver';
+import { StataParser } from '../../src/parser';
 import type { ContentProvider } from '../../src/types';
 import { URI } from 'vscode-uri';
 import { wait_until } from '../wait-until';
@@ -33,6 +34,24 @@ function make_content_provider(
                 : { mtimeMs: 0, size: content.length };
         },
     };
+}
+
+function seed_auto_parent(
+    dependency_graph: DependencyGraph,
+    parent_uri: string,
+    child_raw_path: string
+): void {
+    dependency_graph.update_caller(parent_uri, [{
+        type: 'do',
+        raw_path: child_raw_path,
+        is_static: true,
+        call_site_line: 0,
+        range: {
+            start: { line: 0, character: 0 },
+            end: { line: 0, character: 3 + child_raw_path.length },
+        },
+        source: 'command',
+    }]);
 }
 
 function make_harness(content_by_uri: Map<string, string>) {
@@ -181,6 +200,97 @@ describe('DocumentStore commit-time cross-file effects (issue #184)', () => {
                 .has(child_uri)
         ).toBe(true);
     });
+
+    it('a standalone commit registers no backward edges; removing the marker restores them (issue #208)', async () => {
+        const parent_uri =
+            URI.file('/tmp/sight-208-auto-parent.do').toString();
+        const child_uri =
+            URI.file('/tmp/sight-208-auto-child.do').toString();
+        const content_by_uri = new Map<string, string>([
+            [parent_uri, 'do sight-208-auto-child.do\n'],
+        ]);
+        const { document_store, dependency_graph, scope_resolver } =
+            make_harness(content_by_uri);
+
+        dependency_graph.update_caller(parent_uri, [{
+            type: 'do',
+            raw_path: 'sight-208-auto-child.do',
+            is_static: true,
+            call_site_line: 0,
+            range: {
+                start: { line: 0, character: 0 },
+                end: { line: 0, character: 10 },
+            },
+            source: 'command',
+        }]);
+
+        // Committed standalone parse: staged is_standalone reaches
+        // apply_backward_directive_registration → effective directives are
+        // empty despite the auto-discoverable graph parent.
+        await document_store.open(
+            child_uri, '// sight: standalone\ndisplay 1\n', 1
+        );
+        expect(
+            scope_resolver.get_backward_directive_children(parent_uri)
+                .has(child_uri)
+        ).toBe(false);
+
+        // Removing the marker on the next committed parse re-registers the
+        // auto edge.
+        await document_store.update(child_uri, [{ text: 'display 1\n' }], 2);
+        expect(
+            scope_resolver.get_backward_directive_children(parent_uri)
+                .has(child_uri)
+        ).toBe(true);
+    });
+
+    it(
+        'parser-failed commits still recover standalone auto-edge toggles',
+        async () => {
+            const parent_uri =
+                URI.file('/tmp/sight-208-failed-auto-parent.do').toString();
+            const child_raw_path = 'sight-208-failed-auto-child.do';
+            const child_uri =
+                URI.file(`/tmp/${child_raw_path}`).toString();
+            const content_by_uri = new Map<string, string>([
+                [parent_uri, `do ${child_raw_path}\n`],
+            ]);
+            const { document_store, dependency_graph, scope_resolver } =
+                make_harness(content_by_uri);
+            const the_parent_has_child = () =>
+                scope_resolver.get_backward_directive_children(parent_uri)
+                    .has(child_uri);
+
+            seed_auto_parent(dependency_graph, parent_uri, child_raw_path);
+            expect(dependency_graph.get_parents(child_uri)).toHaveLength(1);
+
+            await document_store.open(child_uri, 'display 1\n', 1);
+            expect(the_parent_has_child()).toBe(true);
+
+            const original_parse = StataParser.prototype.parse;
+            StataParser.prototype.parse = (() => {
+                throw new Error('injected parser failure');
+            }) as typeof original_parse;
+
+            try {
+                await document_store.update(
+                    child_uri,
+                    [{ text: '// sight: standalone\ndisplay 1\n' }],
+                    2
+                );
+                expect(the_parent_has_child()).toBe(false);
+
+                await document_store.update(
+                    child_uri,
+                    [{ text: 'display 1\n' }],
+                    3
+                );
+                expect(the_parent_has_child()).toBe(true);
+            } finally {
+                StataParser.prototype.parse = original_parse;
+            }
+        }
+    );
 
     it('registers auto-discovered parents even when the file has its own working directory (probe skipped)', async () => {
         // A file with its own @lsp-cd never runs the WD probe, so before the

@@ -131,8 +131,41 @@ export function scope_resolver_config_for(
  * Cache for file parsing results within a single resolution request.
  * Ensures we only read/parse each file once per request.
  */
-type ParsedFileResult = { content: string; content_hash: string; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; cd_commands: CdCommand[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; diagnostics: DirectiveDiagnostic[] } | { error: string };
+type ParsedFileResult = {
+    content: string;
+    content_hash: string;
+    symbols: SymbolTable;
+    directives: Directive[];
+    forward_calls: ForwardCall[];
+    cd_commands: CdCommand[];
+    working_directory?: string;
+    working_directory_directive?: WorkingDirectoryDirective;
+    is_standalone: boolean;
+    diagnostics: DirectiveDiagnostic[];
+} | { error: string };
 type RequestCache = Map<string, Promise<ParsedFileResult>>;
+
+/**
+ * Value shape of ScopeResolver.file_cache. Kept as a named type so
+ * cache_entry_to_parsed_result can single-source the entry→result copy
+ * (a hand-copied literal once silently dropped a field on one cache-hit
+ * path only — see the working_directory_directive note from PR #278).
+ */
+type FileCacheEntry = {
+    content: string;
+    content_hash: string;
+    mtimeMs?: number;
+    size?: number;
+    symbols: SymbolTable;
+    directives: Directive[];
+    forward_calls: ForwardCall[];
+    cd_commands: CdCommand[];
+    working_directory?: string;
+    working_directory_directive?: WorkingDirectoryDirective;
+    is_standalone: boolean;
+    diagnostics: DirectiveDiagnostic[];
+    registered_backward_mode?: 'auto' | 'explicit';
+};
 
 /**
  * Interface for ForwardScopeResolver to avoid circular imports.
@@ -190,7 +223,7 @@ export class ScopeResolver {
     // by an 'auto'-mode resolution. Directive-less auto-mode hits re-sync
     // idempotently because registration is global per URI, not per
     // file_cache entry — see upgrade_registration_on_cache_hit.
-    private file_cache: Map<string, { content: string; content_hash: string; mtimeMs?: number; size?: number; symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; cd_commands: CdCommand[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; diagnostics: DirectiveDiagnostic[]; registered_backward_mode?: 'auto' | 'explicit' }>;
+    private file_cache: Map<string, FileCacheEntry>;
     private scope_cache: Map<string, ScopeCacheEntry>;
     // Secondary index: uri -> Set<cache_keys> for O(1) scope cache invalidation by URI
     private uri_to_cache_keys: Map<string, Set<string>>;
@@ -287,17 +320,30 @@ export class ScopeResolver {
 
     /**
      * Determine the effective backward directives for a file at any recursion
-     * level. Explicit directives on the file take precedence over auto
-     * discovery, matching the root-level opt-out semantics.
+     * level. A `sight: standalone` header marker (issue #208) wins over
+     * everything: the file inherits nothing, regardless of mode or explicit
+     * directives. Otherwise explicit directives on the file take precedence
+     * over auto discovery, matching the root-level opt-out semantics.
+     *
+     * `is_standalone` is deliberately required (no default): every call site
+     * must consciously thread the file's own standalone flag, so a future
+     * call site cannot silently ignore it.
      */
     private get_effective_backward_directives(
         file_uri: string,
         parsed_directives: Directive[],
-        config: ScopeResolverConfig
+        config: ScopeResolverConfig,
+        is_standalone: boolean
     ): {
         directives: Directive[];
         used_auto_parents: boolean;
     } {
+        if (is_standalone) {
+            return {
+                directives: [],
+                used_auto_parents: false,
+            };
+        }
         const backward_mode = config.backward_dependencies ?? 'auto';
         if (backward_mode === 'explicit' || parsed_directives.length > 0) {
             return {
@@ -974,6 +1020,27 @@ export class ScopeResolver {
 
         // Track whether the current file has directives declared (regardless of resolution)
         const has_directives = my_directives.length > 0;
+        const is_standalone = my_parse_result.is_standalone;
+
+        // Standalone wins over explicit backward directives, with a warning
+        // per ignored line (issue #208). Emitted here (root path) rather than
+        // by the DirectiveParser so it never rides ancestor parse results
+        // into a descendant's diagnostics — it appears only when the
+        // standalone file itself is diagnosed.
+        if (is_standalone) {
+            // Do not name my_ignored.type here: the parser folds `run-by`
+            // into `done-by`, so the stored type can differ from the text
+            // on the flagged line (#208 review round 1).
+            for (const my_ignored of my_directives) {
+                the_diagnostics.push({
+                    message: `Ignored backward directive: this file is ` +
+                        `marked 'sight: standalone', which disables ` +
+                        `backward-directive inheritance.`,
+                    range: my_ignored.range,
+                    severity: 'warning',
+                });
+            }
+        }
 
         // Add current file to chain
         the_chain.push({
@@ -997,7 +1064,8 @@ export class ScopeResolver {
         } = this.get_effective_backward_directives(
             file_uri,
             my_directives,
-            my_config
+            my_config,
+            is_standalone
         );
 
         // Snapshot scan_complete at the SAME synchronous moment as
@@ -1049,6 +1117,7 @@ export class ScopeResolver {
                 diagnostics: [],
                 has_directives,
                 has_auto_parents,
+                is_standalone,
                 scan_complete_at_resolve_time,
             };
         }
@@ -1057,22 +1126,21 @@ export class ScopeResolver {
         const merged_symbols = this.merge_chain(the_chain);
 
         // Check if current file has its own working directory
-        // We need to parse directives again to get working_directory (parse_file doesn't return it)
-        const directive_parse_result = this.directive_parser.parse(file_content, file_uri);
+        // (parse_file forwards the header's working-directory directive).
         let own_working_directory: string | undefined;
-        if (directive_parse_result.working_directory) {
-            if (directive_parse_result.working_directory.is_workspace_relative) {
+        if (my_parse_result.working_directory_directive) {
+            if (my_parse_result.working_directory_directive.is_workspace_relative) {
                 const my_ws_root = get_workspace_root_for_uri(
                     this.workspace_roots, file_uri
                 );
                 if (my_ws_root) {
                     own_working_directory = path.normalize(path.join(
                         my_ws_root,
-                        directive_parse_result.working_directory.resolved_path
+                        my_parse_result.working_directory_directive.resolved_path
                     ));
                 }
             } else {
-                own_working_directory = directive_parse_result.working_directory.resolved_path;
+                own_working_directory = my_parse_result.working_directory_directive.resolved_path;
             }
         }
 
@@ -1150,6 +1218,7 @@ export class ScopeResolver {
             diagnostics: remapped_diagnostics,
             has_directives,
             has_auto_parents,
+            is_standalone,
             scan_complete_at_resolve_time,
             inherited_working_directory,
             forward_call_symbols,
@@ -1423,8 +1492,14 @@ export class ScopeResolver {
     async resolve_inherited_working_directory(
         directives: Directive[],
         current_uri: string,
+        is_standalone: boolean,
         config?: Partial<ScopeResolverConfig>,
     ): Promise<string | undefined> {
+        // A standalone file (issue #208) inherits no working directory,
+        // regardless of any (ignored) backward directives in its header.
+        if (is_standalone) {
+            return undefined;
+        }
         const the_backward_directives = directives.filter(
             d => d.type === 'done-by' || d.type === 'included-by',
         );
@@ -1574,12 +1649,16 @@ export class ScopeResolver {
                 return resolved_path;
             }
 
+            // A standalone parent's OWN working-directory directive (handled
+            // above) still flows to the child, but its ancestors' WD does
+            // not: the chokepoint returns [] for it (issue #208).
             const {
                 directives: effective_parent_directives,
             } = this.get_effective_backward_directives(
                 my_parent_uri,
                 my_parent_result.directives,
-                config
+                config,
+                my_parent_result.is_standalone
             );
 
             // Otherwise, recursively search deeper ancestors
@@ -1951,7 +2030,28 @@ export class ScopeResolver {
             // Apply inheritance rules based on effective call type (not just directive type)
             const inheritance_type: 'done-by' | 'included-by' = effective_call_type === 'include' ? 'included-by' : 'done-by';
 
-            diagnostics.push(...my_parent_result.diagnostics);
+            // A parent's parser-level diagnostics (malformed directive,
+            // multiple-WD warning) carry ranges in the PARENT's coordinate
+            // space. Stamp source attribution so
+            // remap_diagnostics_to_active_file relocates them onto this
+            // file's directive line with a "…: parent.do line N" note,
+            // instead of publishing them on this file at the parent's raw
+            // coordinates (#208 review round 1).
+            for (const my_parse_diag of my_parent_result.diagnostics) {
+                diagnostics.push(my_parse_diag.source ? my_parse_diag : {
+                    ...my_parse_diag,
+                    source: {
+                        source_file: parent_filename,
+                        // Full URI so remapping routes by identity, not
+                        // basename (#208 review round 2: two parents can
+                        // share a basename, or a parent's basename can
+                        // equal the active file's).
+                        source_uri: my_parent_uri,
+                        source_line: my_parse_diag.range.start.line,
+                        original_range: my_parse_diag.range,
+                    },
+                });
+            }
 
             // Apply inheritance rules and call site filtering
             const { filtered: my_filtered_symbols, excluded_locals } = this.apply_inheritance_rules(
@@ -1970,12 +2070,20 @@ export class ScopeResolver {
             // Mark as visited and recurse FIRST to get working directory from deeper ancestors
             // This ensures we have the correct working directory before resolving forward calls
             visited.add(my_parent_uri);
+            // A standalone parent (issue #208) contributes its own symbols
+            // (already parsed above) but never conducts its ancestors'
+            // scope: the chokepoint returns [] for it, so the recursion
+            // below iterates zero times and execution falls through to the
+            // unconditional chain push. Do NOT early-continue here — the
+            // parent must still land in the chain (and thus in the
+            // descendant's dependent_uris for cascade invalidation).
             const {
                 directives: effective_parent_directives,
             } = this.get_effective_backward_directives(
                 my_parent_uri,
                 my_parent_result.directives,
-                config
+                config,
+                my_parent_result.is_standalone
             );
             const normalized_parent_directives = this.normalize_directives(
                 effective_parent_directives,
@@ -2013,10 +2121,20 @@ export class ScopeResolver {
             // 1. Parent's own working directory (if it has one)
             // 2. Working directory from deeper ancestors (recursive_result)
             // 3. Working directory found at this level so far
+            //
+            // A standalone parent (issue #208) inherits no working
+            // directory: its forward calls resolve with its OWN WD or none.
+            // Without this guard, an EARLIER sibling parent's WD (held in
+            // found_working_directory) would leak into the standalone
+            // parent's forward-call resolution. found_working_directory
+            // itself is deliberately untouched — an earlier non-standalone
+            // sibling's WD must still reach the root file's inherited WD.
             const effective_working_directory =
-                my_parent_result.working_directory ??
-                recursive_result.working_directory ??
-                found_working_directory;
+                my_parent_result.is_standalone
+                    ? my_parent_result.working_directory
+                    : (my_parent_result.working_directory ??
+                       recursive_result.working_directory ??
+                       found_working_directory);
 
             // Update found_working_directory if we got one from deeper in chain
             if (!found_working_directory && recursive_result.working_directory) {
@@ -2079,11 +2197,28 @@ export class ScopeResolver {
     private parse_file(
         uri: string,
         content: string
-    ): { symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; cd_commands: CdCommand[]; diagnostics: DirectiveDiagnostic[] } {
+    ): {
+        symbols: SymbolTable;
+        directives: Directive[];
+        forward_calls: ForwardCall[];
+        cd_commands: CdCommand[];
+        working_directory_directive?: WorkingDirectoryDirective;
+        is_standalone: boolean;
+        diagnostics: DirectiveDiagnostic[];
+    } {
         const content_hash = this.hash_content(content);
         const cached = this.file_cache.get(uri);
         if (cached && cached.content_hash === content_hash) {
-            return { symbols: cached.symbols, directives: cached.directives, forward_calls: cached.forward_calls, cd_commands: cached.cd_commands, diagnostics: cached.diagnostics };
+            return {
+                symbols: cached.symbols,
+                directives: cached.directives,
+                forward_calls: cached.forward_calls,
+                cd_commands: cached.cd_commands,
+                working_directory_directive:
+                    cached.working_directory_directive,
+                is_standalone: cached.is_standalone,
+                diagnostics: cached.diagnostics,
+            };
         }
 
         // New content observed for this URI: any forward-closure memo entry
@@ -2111,6 +2246,7 @@ export class ScopeResolver {
                 cd_commands: my_parse_result.cd_commands,
                 working_directory: my_parse_result.working_directory,
                 working_directory_directive: my_parse_result.working_directory_directive,
+                is_standalone: my_parse_result.is_standalone,
                 diagnostics: my_parse_result.diagnostics,
             });
 
@@ -2119,23 +2255,72 @@ export class ScopeResolver {
                 directives: my_parse_result.directives,
                 forward_calls: my_parse_result.forward_calls,
                 cd_commands: my_parse_result.cd_commands,
+                working_directory_directive: my_parse_result.working_directory_directive,
+                is_standalone: my_parse_result.is_standalone,
                 diagnostics: my_parse_result.diagnostics,
             };
         } catch (error) {
             this.warn(`ScopeResolver: Parse error for ${uri}: ${error_message(error)}`);
 
-            // Return empty results on parse failure
+            // Return empty results on parse failure — but recover the
+            // header facts (directives, standalone marker, WD directive)
+            // via the directive parser, which is independent of the
+            // lexer/parser/analyzer failure. Without this, a parse error in
+            // a `sight: standalone` file silently re-enables auto-discovered
+            // parents (and a file with explicit directives falls back to
+            // auto-discovery) — #208 review round 1.
+            const my_recovered = this.recover_header_facts(uri, content);
             const empty_symbols = create_empty_symbol_table();
             return {
                 symbols: empty_symbols,
-                directives: [],
+                directives: my_recovered.directives,
                 forward_calls: [],
                 cd_commands: [],
+                working_directory_directive:
+                    my_recovered.working_directory_directive,
+                is_standalone: my_recovered.is_standalone,
                 diagnostics: [{
                     message: `Parse error in file: ${uri}`,
                     range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
                     severity: 'warning',
                 }],
+            };
+        }
+    }
+
+    /**
+     * Best-effort recovery of header-only facts when the full
+     * lex/parse/analyze pipeline throws: the DirectiveParser scans only
+     * comment lines and is independent of the failure, so a broken file
+     * keeps its explicit directives, standalone marker, and own
+     * working-directory directive instead of silently falling back to
+     * auto-discovery (#208 review round 1).
+     */
+    private recover_header_facts(uri: string, content: string): {
+        directives: Directive[];
+        working_directory_directive?: WorkingDirectoryDirective;
+        is_standalone: boolean;
+        /**
+         * False when the directive parse ITSELF threw: the empty facts
+         * are then a fallback, not a statement about the file's header,
+         * and must not drive registration (clearing edges on a failed
+         * recovery would be a silent wipe — bot-review follow-up).
+         */
+        recovered: boolean;
+    } {
+        try {
+            const my_result = this.directive_parser.parse(content, uri);
+            return {
+                directives: my_result.directives,
+                working_directory_directive: my_result.working_directory,
+                is_standalone: my_result.standalone !== undefined,
+                recovered: true,
+            };
+        } catch {
+            return {
+                directives: [],
+                is_standalone: false,
+                recovered: false,
             };
         }
     }
@@ -2152,7 +2337,16 @@ export class ScopeResolver {
         uri: string,
         content: string,
         inherited_working_directory?: string
-    ): { symbols: SymbolTable; directives: Directive[]; forward_calls: ForwardCall[]; cd_commands: CdCommand[]; working_directory?: string; working_directory_directive?: WorkingDirectoryDirective; diagnostics: DirectiveDiagnostic[] } {
+    ): {
+        symbols: SymbolTable;
+        directives: Directive[];
+        forward_calls: ForwardCall[];
+        cd_commands: CdCommand[];
+        working_directory?: string;
+        working_directory_directive?: WorkingDirectoryDirective;
+        is_standalone: boolean;
+        diagnostics: DirectiveDiagnostic[];
+    } {
         const my_directive_result = this.directive_parser.parse(content, uri);
         const my_lex_result = this.lexer.tokenize(content);
         const my_parse_result = this.parser.parse(my_lex_result.tokens);
@@ -2227,6 +2421,7 @@ export class ScopeResolver {
             cd_commands: my_analysis.cd_commands,
             working_directory: effective_working_directory,
             working_directory_directive: my_directive_result.working_directory,
+            is_standalone: my_directive_result.standalone !== undefined,
             diagnostics: my_directive_result.diagnostics,
         };
     }
@@ -2279,6 +2474,34 @@ export class ScopeResolver {
     }
 
     /**
+     * Build the ParsedFileResult view of a file_cache entry. The single
+     * point of copy for every cache-hit return path, so a future
+     * ParsedFileResult field cannot be silently dropped on one hit path
+     * only (that exact bug shipped once — working_directory_directive was
+     * missing from the .do-fallback hit alone; caught on PR #278).
+     * `content`/`content_hash` are parameters because the hash-match path
+     * returns the freshly read disk content rather than the entry's.
+     */
+    private cache_entry_to_parsed_result(
+        entry: FileCacheEntry,
+        content: string,
+        content_hash: string
+    ): ParsedFileResult {
+        return {
+            content,
+            content_hash,
+            symbols: entry.symbols,
+            directives: entry.directives,
+            forward_calls: entry.forward_calls,
+            cd_commands: entry.cd_commands,
+            working_directory: entry.working_directory,
+            working_directory_directive: entry.working_directory_directive,
+            is_standalone: entry.is_standalone,
+            diagnostics: entry.diagnostics,
+        };
+    }
+
+    /**
      * Internal implementation of get_parsed_file
      */
     private async _get_parsed_file_impl(
@@ -2299,17 +2522,9 @@ export class ScopeResolver {
             this.upgrade_registration_on_cache_hit(
                 uri, cached, options?.backward_dependencies
             );
-            return {
-                content: cached.content,
-                content_hash: cached.content_hash,
-                symbols: cached.symbols,
-                directives: cached.directives,
-                forward_calls: cached.forward_calls,
-                cd_commands: cached.cd_commands,
-                working_directory: cached.working_directory,
-                working_directory_directive: cached.working_directory_directive,
-                diagnostics: cached.diagnostics
-            };
+            return this.cache_entry_to_parsed_result(
+                cached, cached.content, cached.content_hash
+            );
         }
 
         // Optimization: check mtime and size if available BEFORE reading content
@@ -2329,17 +2544,9 @@ export class ScopeResolver {
                 this.upgrade_registration_on_cache_hit(
                     uri, cached, options?.backward_dependencies
                 );
-                return {
-                    content: cached.content,
-                    content_hash: cached.content_hash,
-                    symbols: cached.symbols,
-                    directives: cached.directives,
-                    forward_calls: cached.forward_calls,
-                    cd_commands: cached.cd_commands,
-                    working_directory: cached.working_directory,
-                    working_directory_directive: cached.working_directory_directive,
-                    diagnostics: cached.diagnostics
-                };
+                return this.cache_entry_to_parsed_result(
+                    cached, cached.content, cached.content_hash
+                );
             }
         }
 
@@ -2373,24 +2580,11 @@ export class ScopeResolver {
                                 fallback_cached,
                                 options?.backward_dependencies
                             );
-                            return {
-                                content: fallback_cached.content,
-                                content_hash: fallback_cached.content_hash,
-                                symbols: fallback_cached.symbols,
-                                directives: fallback_cached.directives,
-                                forward_calls: fallback_cached.forward_calls,
-                                cd_commands: fallback_cached.cd_commands,
-                                working_directory: fallback_cached.working_directory,
-                                // Was missing from this HIT return alone
-                                // (coderabbit on PR #278): without it,
-                                // discover_working_directory cannot see a
-                                // parent's own WD directive when the parent
-                                // is served from this branch, and WD
-                                // inheritance falls through to deeper
-                                // ancestors.
-                                working_directory_directive: fallback_cached.working_directory_directive,
-                                diagnostics: fallback_cached.diagnostics
-                            };
+                            return this.cache_entry_to_parsed_result(
+                                fallback_cached,
+                                fallback_cached.content,
+                                fallback_cached.content_hash
+                            );
                         }
                     }
 
@@ -2425,17 +2619,9 @@ export class ScopeResolver {
             // Return cached results with current content - don't mutate the
             // entry's cached content/symbols (the registration stamp above
             // is the one intentional entry mutation on this hit path)
-            return {
-                content,
-                content_hash: disk_hash,
-                symbols: actual_cached.symbols,
-                directives: actual_cached.directives,
-                forward_calls: actual_cached.forward_calls,
-                cd_commands: actual_cached.cd_commands,
-                working_directory: actual_cached.working_directory,
-                working_directory_directive: actual_cached.working_directory_directive,
-                diagnostics: actual_cached.diagnostics
-            };
+            return this.cache_entry_to_parsed_result(
+                actual_cached, content, disk_hash
+            );
         } else if (actual_cached) {
             this.log(`[get_parsed_file] File cache STALE for ${actual_uri} (cached hash=${actual_cached.content_hash}, disk hash=${disk_hash})`);
             // New content observed without an invalidation event having
@@ -2469,6 +2655,7 @@ export class ScopeResolver {
                 cd_commands: parse_result.cd_commands,
                 working_directory: parse_result.working_directory,
                 working_directory_directive: parse_result.working_directory_directive,
+                is_standalone: parse_result.is_standalone,
                 diagnostics: parse_result.diagnostics,
                 // Stamp the mode the registration below runs under (and
                 // upgrade an 'explicit'-registered entry on later
@@ -2487,11 +2674,15 @@ export class ScopeResolver {
             // matching the commit-time effective registration in DocumentStore
             // (issue #184). An unthreaded call defaults to 'explicit', which
             // registers raw directives only — identical to the pre-#286 raw
-            // sync, so this can only ADD edges relative to that behavior.
+            // sync, so this can only ADD edges relative to that behavior,
+            // with one exception: a `sight: standalone` file's effective
+            // directives are EMPTY (issue #208), so its raw done-by edges
+            // are deliberately not registered.
             this.apply_backward_directive_registration(
                 actual_uri,
                 parse_result.directives,
-                { backward_dependencies: options?.backward_dependencies ?? 'explicit' }
+                { backward_dependencies: options?.backward_dependencies ?? 'explicit' },
+                parse_result.is_standalone
             );
 
             // Register forward call relationships from cached file
@@ -2505,14 +2696,37 @@ export class ScopeResolver {
 
             // Return empty results on parse failure
             const empty_symbols = create_empty_symbol_table();
+            // Recover header facts (directives, standalone, WD directive)
+            // via the directive parser — see recover_header_facts.
+            const my_recovered = this.recover_header_facts(
+                actual_uri, content
+            );
+            // Register only when the header facts were actually
+            // recovered: a failed recovery must leave the previous
+            // registrations unchanged (mirroring DocumentStore's
+            // undefined-staged-effects semantics), never clear them.
+            if (my_recovered.recovered) {
+                this.apply_backward_directive_registration(
+                    actual_uri,
+                    my_recovered.directives,
+                    {
+                        backward_dependencies:
+                            options?.backward_dependencies ?? 'explicit',
+                    },
+                    my_recovered.is_standalone
+                );
+            }
             return {
                 content,
                 content_hash: disk_hash,
                 symbols: empty_symbols,
-                directives: [],
+                directives: my_recovered.directives,
                 forward_calls: [],
                 cd_commands: [],
                 working_directory: undefined,
+                working_directory_directive:
+                    my_recovered.working_directory_directive,
+                is_standalone: my_recovered.is_standalone,
                 diagnostics: [{
                     message: `Parse error in file: ${actual_uri}`,
                     range: { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } },
@@ -2752,11 +2966,35 @@ export class ScopeResolver {
 
         // Build a map from parent basename to directive range for targeted remapping
         const parent_to_directive = new Map<string, Range>();
+        // URI-keyed variant for diagnostics that carry source_uri: exact
+        // identity routing, immune to basename collisions (#208 round 2).
+        const parent_uri_to_directive = new Map<string, Range>();
         for (const my_directive of directives) {
             const parent_basename = path.basename(my_directive.path);
             // If multiple directives reference the same parent, use the first one
             if (!parent_to_directive.has(parent_basename)) {
                 parent_to_directive.set(parent_basename, my_directive.range);
+            }
+            const parent_uri = URI.file(my_directive.path).toString();
+            if (!parent_uri_to_directive.has(parent_uri)) {
+                parent_uri_to_directive.set(parent_uri, my_directive.range);
+            }
+            // The traversal stamps source_uri with the REAL-CASED URI from
+            // compute_directive_real_path (case-only match, .do fallback),
+            // which can differ from the parser-resolved directive.path.
+            // Key the map through the same chokepoint so the exact lookup
+            // cannot miss and silently fall back to basename routing
+            // (#208 review round 3).
+            const my_real = this.compute_directive_real_path(
+                my_directive, active_file_uri
+            );
+            if (my_real.outcome_kind !== 'ambiguous') {
+                const my_real_uri = URI.file(my_real.real_path).toString();
+                if (!parent_uri_to_directive.has(my_real_uri)) {
+                    parent_uri_to_directive.set(
+                        my_real_uri, my_directive.range
+                    );
+                }
             }
         }
 
@@ -2769,8 +3007,13 @@ export class ScopeResolver {
                 return diagnostic;
             }
 
-            // Forward-call diagnostics (from current file) keep their original range
-            if (diagnostic.source.source_file === active_file_basename) {
+            // Forward-call diagnostics (from current file) keep their
+            // original range. Prefer the URI identity check when the
+            // source carries one — a PARENT whose basename happens to
+            // equal the active file's must still be remapped (#208 r2).
+            if (diagnostic.source.source_uri !== undefined
+                ? diagnostic.source.source_uri === active_file_uri
+                : diagnostic.source.source_file === active_file_basename) {
                 return diagnostic;
             }
 
@@ -2792,8 +3035,15 @@ export class ScopeResolver {
                 };
             }
 
-            // Find the specific directive that references the source file (rule b)
-            const target_range = parent_to_directive.get(diagnostic.source.source_file) ?? first_directive_range;
+            // Find the specific directive that references the source file
+            // (rule b): exact URI match first when available, then the
+            // basename map, then the first directive as a last resort.
+            const target_range =
+                (diagnostic.source.source_uri !== undefined
+                    ? parent_uri_to_directive.get(diagnostic.source.source_uri)
+                    : undefined) ??
+                parent_to_directive.get(diagnostic.source.source_file) ??
+                first_directive_range;
 
             // Update message to include source file and line info (rule c)
             const updated_message = diagnostic.message.includes(source_info)
@@ -3385,6 +3635,10 @@ export class ScopeResolver {
      * and want to register dependencies without doing a full scope resolve.
      */
     sync_backward_directive_dependencies(child_uri: string, directives: Directive[]): void {
+        // Raw-sync helper: deliberately bypasses BOTH auto-discovery and the
+        // standalone gate (issue #208) — it registers exactly the directives
+        // given, unlike the effective-directive chokepoint. A future caller
+        // must not assume it is standalone-aware.
         // Normalize directives to match resolve() behavior (handles done-by + included-by collisions)
         const normalized = this.normalize_directives(directives, []);
         this.apply_normalized_backward_directives(child_uri, normalized);
@@ -3402,12 +3656,13 @@ export class ScopeResolver {
     apply_backward_directive_registration(
         child_uri: string,
         raw_directives: Directive[],
-        config: Partial<ScopeResolverConfig> = {}
+        config: Partial<ScopeResolverConfig>,
+        is_standalone: boolean
     ): void {
         const my_config = { ...DEFAULT_CONFIG, ...config };
         const { directives: effective_directives } =
             this.get_effective_backward_directives(
-                child_uri, raw_directives, my_config
+                child_uri, raw_directives, my_config, is_standalone
             );
         const normalized = this.normalize_directives(effective_directives, []);
         this.apply_normalized_backward_directives(child_uri, normalized);
@@ -3422,9 +3677,10 @@ export class ScopeResolver {
      * resolutions keep hitting the cache (until the content changes).
      * When an 'auto'-mode read hits such an entry, apply effective
      * registration and stamp the entry so repeat hits are free.
-     * Effective ⊇ raw, so upgrading can only add edges. Explicit-mode
-     * hits never downgrade: for them hit paths stay side-effect-free,
-     * as before.
+     * Effective ⊇ raw (except for `sight: standalone` files, whose
+     * effective directives are empty, issue #208), so upgrading can only
+     * add edges. Explicit-mode hits never downgrade: for them hit paths
+     * stay side-effect-free, as before.
      *
      * Directive-less auto-mode hits always re-sync idempotently. The
      * file_cache may hold multiple entries for the same URI (different
@@ -3441,6 +3697,7 @@ export class ScopeResolver {
         uri: string,
         cached: {
             directives: Directive[];
+            is_standalone: boolean;
             registered_backward_mode?: 'auto' | 'explicit';
         },
         requested_mode: 'auto' | 'explicit' | undefined
@@ -3454,7 +3711,7 @@ export class ScopeResolver {
         }
         this.apply_backward_directive_registration(uri, cached.directives, {
             backward_dependencies: 'auto',
-        });
+        }, cached.is_standalone);
         cached.registered_backward_mode = 'auto';
     }
 
@@ -3481,14 +3738,17 @@ export class ScopeResolver {
         should_apply?: () => boolean
     ): Promise<boolean> {
         let raw_directives: Directive[] = [];
+        let disk_is_standalone = false;
         try {
             const file_exists = await this.content_provider.exists(child_uri);
             if (file_exists) {
                 const disk_content =
                     await this.content_provider.read_file(child_uri);
-                raw_directives = this.directive_parser.parse(
+                const disk_parse = this.directive_parser.parse(
                     disk_content, child_uri
-                ).directives;
+                );
+                raw_directives = disk_parse.directives;
+                disk_is_standalone = disk_parse.standalone !== undefined;
             }
         } catch {
             return false;
@@ -3497,7 +3757,7 @@ export class ScopeResolver {
             return false;
         }
         this.apply_backward_directive_registration(
-            child_uri, raw_directives, config
+            child_uri, raw_directives, config, disk_is_standalone
         );
         return true;
     }

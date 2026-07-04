@@ -172,7 +172,7 @@ display \`inside_x'
             out_of_scope_symbols: [],
             diagnostics: [],
             has_directives: true,
-            has_auto_parents: false,
+            has_auto_parents: false, is_standalone: false,
         };
         const provider = make_provider();
         const the_diagnostics = await provider.get_diagnostics(
@@ -222,7 +222,7 @@ display \`x'
             out_of_scope_symbols: [],
             diagnostics: [],
             has_directives: false,
-            has_auto_parents: true,
+            has_auto_parents: true, is_standalone: false,
             forward_call_symbols: [
                 {
                     callee_uri: 'file:///a.do',
@@ -287,7 +287,7 @@ display \`x'
             out_of_scope_symbols: [],
             diagnostics: [],
             has_directives: false,
-            has_auto_parents: true,
+            has_auto_parents: true, is_standalone: false,
             forward_call_symbols: [
                 {
                     callee_uri: 'file:///a.do',
@@ -339,7 +339,7 @@ display \`x'
             out_of_scope_symbols: [],
             diagnostics: [],
             has_directives: false,
-            has_auto_parents: true,
+            has_auto_parents: true, is_standalone: false,
             forward_call_symbols: [{
                 callee_uri: 'file:///child.do',
                 call_line: 4,

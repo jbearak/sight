@@ -33,6 +33,7 @@ import { DocumentStore } from '../../src/document-store';
 import { DiagnosticsProvider } from '../../src/providers/diagnostics';
 import { ScopeResolver } from '../../src/scope-resolver';
 import { DependencyGraph } from '../../src/dependency-graph';
+import { make_fs_content_provider } from '../fs-content-provider';
 import { StataDiagnosticCode, StataLSPConfig } from '../../src/types';
 
 let tmp_dir: string;
@@ -213,6 +214,50 @@ describe('cross-file diagnostic flicker (regression for #175)', () => {
                 }
             },
         });
+        scope_resolver.set_dependency_graph(graph);
+
+        const diagnostics_provider = new DiagnosticsProvider(
+            make_mock_connection(),
+        );
+        diagnostics_provider.set_dependency_graph(graph);
+
+        const document_store = new DocumentStore();
+        await document_store.open(child_uri, child_content, 1);
+        const document_state = document_store.get(child_uri);
+        if (!document_state) {
+            throw new Error('document state missing');
+        }
+
+        const diagnostics = await diagnostics_provider.get_diagnostics(
+            document_state,
+            build_config(),
+            undefined,
+            scope_resolver,
+        );
+
+        expect(
+            diagnostics.some(d => d.code === StataDiagnosticCode.UNDEFINED_MACRO)
+        ).toBe(true);
+    });
+
+    it('never defers a standalone file, even mid-scan (issue #208)', async () => {
+        // A standalone file can never gain backward parents from the
+        // workspace scan, so its undefined-symbol diagnostics publish
+        // immediately instead of waiting for scan completion.
+        const child_path = path.join(tmp_dir, 'demo_child.do');
+        const child_content =
+            '// sight: standalone\ndi "fruit: `fruit\'"\n';
+        fs.writeFileSync(child_path, child_content);
+        const child_uri = URI.file(child_path).toString();
+
+        // Scan NOT complete — a non-standalone zero-parent file would
+        // defer here (see the first test in this file).
+        const graph = new DependencyGraph();
+        expect(graph.is_scan_complete()).toBe(false);
+
+        const scope_resolver = new ScopeResolver(
+            undefined, make_fs_content_provider()
+        );
         scope_resolver.set_dependency_graph(graph);
 
         const diagnostics_provider = new DiagnosticsProvider(

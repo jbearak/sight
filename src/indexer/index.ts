@@ -613,6 +613,7 @@ export class WorkspaceIndexer {
                         .resolve_inherited_working_directory(
                             directive_result.directives,
                             file_uri,
+                            directive_result.standalone !== undefined,
                             this.scope_resolver_config,
                         );
             }

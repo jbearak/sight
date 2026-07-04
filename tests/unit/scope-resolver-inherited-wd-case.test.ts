@@ -167,6 +167,7 @@ describe('ScopeResolver inherited WD via case-only backward directive', () => {
             await scope_resolver.resolve_inherited_working_directory(
                 [my_child_directive],
                 child_uri,
+                false,
             );
 
         // Forced-explicit walk ignores the auto grandparent → no inherited WD.

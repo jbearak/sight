@@ -166,7 +166,7 @@ describe('Feature: unify-forward-call-feeds', () => {
                             out_of_scope_symbols: [],
                             diagnostics: [],
                             has_directives: false,
-                            has_auto_parents: false,
+                            has_auto_parents: false, is_standalone: false,
                             forward_call_symbols: [{
                                 callee_uri: URI.file(callee_path).toString(),
                                 call_line: call_line,
@@ -258,7 +258,7 @@ describe('Feature: unify-forward-call-feeds', () => {
                             out_of_scope_symbols: [],
                             diagnostics: [],
                             has_directives: false,
-                            has_auto_parents: false,
+                            has_auto_parents: false, is_standalone: false,
                             forward_call_symbols: [{
                                 callee_uri: URI.file(callee_path).toString(),
                                 call_line: 0,

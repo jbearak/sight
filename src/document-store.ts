@@ -7,6 +7,7 @@ import {
   ForwardCall,
   WorkingDirectoryDirective,
   Directive,
+  DirectiveParseResult,
   LexerError,
   ParseError,
   ScopeResolverConfig,
@@ -72,10 +73,9 @@ export interface DocumentState {
 /**
  * Result of create_document_state: the parsed state plus any cross-file
  * side effects staged for commit-time application (issue #184). Effects are
- * undefined when the parse failed before directive parsing (lexer/parser
- * error or timeout) — a committed error state keeps the previous
- * registrations on purpose (a transiently broken buffer must not wipe
- * cross-file edges).
+ * recoverable from header facts on lexer/parser failure when DirectiveParser
+ * recovery succeeds; undefined means recovery failed too, so commit leaves
+ * previous registrations unchanged.
  */
 export interface ParseOutcome {
   state: DocumentState;
@@ -154,7 +154,8 @@ export class DocumentStore {
           this.scope_resolver.apply_backward_directive_registration(
             my_state.uri,
             directive_result.directives,
-            this.scope_resolver_config
+            this.scope_resolver_config,
+            directive_result.standalone !== undefined
           );
         } catch {
           // Ignore directive parsing errors during warm-sync
@@ -484,11 +485,76 @@ export class DocumentStore {
       this.scope_resolver.apply_backward_directive_registration(
         uri,
         staged.raw_backward_directives,
-        staged.scope_resolver_config
+        staged.scope_resolver_config,
+        staged.is_standalone
       );
     }
+    // The indexer overlay deliberately receives RAW directives even for a
+    // standalone file (issue #208): it feeds get_related_uris, the
+    // find-references connectivity floor, which is raw-facts-based and
+    // standalone-independent by design (docs/cross-file.md "What
+    // standalone does not change"). The indexer's disk-side scan stores
+    // raw directives for the same file, so gating the overlay here would
+    // make an open buffer's connectivity diverge from the identical file
+    // on disk. Only the resolver registration above is effective/
+    // standalone-aware.
     if (this.on_backward_directives_parsed) {
       this.on_backward_directives_parsed(uri, staged.raw_backward_directives);
+    }
+  }
+
+  private stage_cross_file_effects(
+    directive_result: DirectiveParseResult,
+    scope_resolver_config: Partial<ScopeResolverConfig>
+  ): StagedCrossFileEffects {
+    return {
+      raw_backward_directives: directive_result.directives,
+      scope_resolver_config,
+      is_standalone: directive_result.standalone !== undefined,
+    };
+  }
+
+  private recover_staged_effects_from_tokens(
+    content: string,
+    uri: string,
+    tokens: Token[],
+    scope_resolver_config: Partial<ScopeResolverConfig>
+  ): StagedCrossFileEffects | undefined {
+    try {
+      const my_directive_parser = new DirectiveParser();
+      const my_directive_result = my_directive_parser.parse(
+        content,
+        uri,
+        tokens
+      );
+      return this.stage_cross_file_effects(
+        my_directive_result,
+        scope_resolver_config
+      );
+    } catch {
+      return undefined;
+    }
+  }
+
+  private async recover_staged_effects_with_timeout(
+    content: string,
+    uri: string,
+    scope_resolver_config: Partial<ScopeResolverConfig>
+  ): Promise<StagedCrossFileEffects | undefined> {
+    try {
+      const my_directive_parser = new DirectiveParser();
+      const my_result = await with_parse_timeout(() =>
+        my_directive_parser.parse(content, uri)
+      );
+      if (!my_result.success || my_result.timed_out || !my_result.result) {
+        return undefined;
+      }
+      return this.stage_cross_file_effects(
+        my_result.result,
+        scope_resolver_config
+      );
+    } catch {
+      return undefined;
     }
   }
 
@@ -699,6 +765,8 @@ export class DocumentStore {
     const lexer = new StataLexer();
     const parser = new StataParser();
     const analyzer = new SemanticAnalyzer();
+    const effective_scope_resolver_config =
+      scope_resolver_config ?? this.scope_resolver_config;
 
     // Lex with timeout
     const lex_result = await with_parse_timeout(() =>
@@ -706,6 +774,21 @@ export class DocumentStore {
     );
 
     if (!lex_result.success || lex_result.timed_out) {
+      // Recover header facts only when the lexer THREW (fast). On a
+      // TIMEOUT, the DirectiveParser's internal block-comment re-lex
+      // would run the same pathological tokenize again synchronously —
+      // with_parse_timeout cannot preempt synchronous work, so recovery
+      // would double the latency of the per-URI update chain. Staying
+      // unrecovered there keeps the previous registrations, matching the
+      // pre-recovery behavior for that (rare) case.
+      const recovered_staged_effects = lex_result.timed_out
+        ? undefined
+        : await this.recover_staged_effects_with_timeout(
+            content,
+            uri,
+            effective_scope_resolver_config
+          );
+
       // Return minimal state on timeout/error
       return {
         state: this.create_error_state(
@@ -715,7 +798,7 @@ export class DocumentStore {
           lex_result.error || 'Lexer timeout',
           lex_result.result?.line_offsets
         ),
-        staged_effects: undefined,
+        staged_effects: recovered_staged_effects,
       };
     }
 
@@ -733,6 +816,14 @@ export class DocumentStore {
     );
 
     if (!parse_result.success || parse_result.timed_out) {
+      const recovered_staged_effects =
+        this.recover_staged_effects_from_tokens(
+          content,
+          uri,
+          lex_result.result!.tokens,
+          effective_scope_resolver_config
+        );
+
       return {
         state: this.create_error_state(
           uri,
@@ -741,7 +832,7 @@ export class DocumentStore {
           parse_result.error || 'Parser timeout',
           lex_result.result!.line_offsets
         ),
-        staged_effects: undefined,
+        staged_effects: recovered_staged_effects,
       };
     }
 
@@ -754,14 +845,16 @@ export class DocumentStore {
     const directive_parser = new DirectiveParser();
     let resolved_working_directory: string | undefined;
     let staged_effects: StagedCrossFileEffects | undefined;
-    const effective_scope_resolver_config =
-      scope_resolver_config ?? this.scope_resolver_config;
     try {
-      const directive_result = directive_parser.parse(content, uri, lex_result.result!.tokens);
-      staged_effects = {
-        raw_backward_directives: directive_result.directives,
-        scope_resolver_config: effective_scope_resolver_config,
-      };
+      const directive_result = directive_parser.parse(
+        content,
+        uri,
+        lex_result.result!.tokens
+      );
+      staged_effects = this.stage_cross_file_effects(
+        directive_result,
+        effective_scope_resolver_config
+      );
 
       if (directive_result.working_directory) {
         // File has its own working directory directive

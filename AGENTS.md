@@ -148,6 +148,13 @@ user-facing examples):
 - `@lsp-done-by`, `@lsp-included-by`: Cross-file scope linking (header-only)
 - `@lsp-do`, `@lsp-run`, `@lsp-include`: Forward call directives (can appear
   anywhere in file comments, unlike header-only backward directives)
+- `@lsp-standalone` / `sight: standalone`: Header-only, no-argument marker
+  that opts a file out of ALL inherited backward parent scope and inherited
+  working directory (issue #208). Wins over explicit backward directives
+  (each ignored line gets a warning, emitted by resolve()'s root path).
+  Cut-everywhere: also honored when the file is walked as a mid-chain
+  ancestor. Forward calls, DependencyGraph edges, and find-references
+  connectivity are unchanged. See docs/cross-file.md "Standalone Files".
 
 **Dependency Graph** (`src/dependency-graph/`): Maintains a bidirectional graph
 of `do`/`run`/`include` relationships across the workspace. Populated during the

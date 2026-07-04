@@ -47,6 +47,53 @@ describe('sight check integration', () => {
         );
     });
 
+    it('honors sight: standalone in batch mode (issue #208)', async () => {
+        // parent.do defines the macro and calls child.do; without the
+        // standalone marker the auto-discovered parent would suppress the
+        // undefined-macro warning. With it, child.do is checked in
+        // isolation and its ignored-directive warning also surfaces.
+        const root = temp_dir();
+        fs.writeFileSync(path.join(root, 'parent.do'), [
+            'global cfg "x"',
+            'do child.do',
+        ].join('\n') + '\n');
+        fs.writeFileSync(path.join(root, 'child.do'), [
+            '// sight: standalone',
+            '// sight: done-by: "parent.do"',
+            'display "$cfg"',
+        ].join('\n') + '\n');
+
+        const result = await run_capture(
+            ['--workspace', root, '--quiet'], root
+        );
+
+        expect(result.code).toBe(EXIT_CHECK_FAILED);
+        // The parent's global no longer suppresses the child's warning.
+        expect(result.stdout).toContain('child.do:3:');
+        expect(result.stdout).toContain(
+            `[${StataDiagnosticCode.UNDEFINED_MACRO.toLowerCase()}]`
+        );
+        // The ignored-directive warning is attributed to child.do line 2.
+        expect(result.stdout).toContain('child.do:2:');
+        expect(result.stdout).toContain('sight: standalone');
+    });
+
+    it('control: without standalone the parent suppresses the warning in batch mode', async () => {
+        const root = temp_dir();
+        fs.writeFileSync(path.join(root, 'parent.do'), [
+            'global cfg "x"',
+            'do child.do',
+        ].join('\n') + '\n');
+        fs.writeFileSync(path.join(root, 'child.do'),
+            'display "$cfg"\n');
+
+        const result = await run_capture(
+            ['--workspace', root, '--quiet'], root
+        );
+
+        expect(result.code).toBe(EXIT_OK);
+    });
+
     it('honors editor default undefinedVariable off', async () => {
         const root = temp_dir();
         fs.writeFileSync(path.join(root, 'main.do'), 'regress y x\n');

@@ -176,4 +176,58 @@ describe('issue #209/#208 — forward-closure memo gate', () => {
         // sanity: the battery actually exercises forward inheritance
         expect(on.symbols.globalMacros.has('hub_g')).toBe(true);
     });
+
+    it('(3) a standalone callee stays caller-independent (issue #208)', async () => {
+        // The standalone marker changes only already-keyed closure inputs
+        // (inherited WD, effective call type) — never caller identity. A
+        // hub marked `sight: standalone` (with a backward parent that
+        // would otherwise supply scope) must produce byte-identical
+        // forward closures across two disjoint callers.
+        const grand = create_file('grand.do',
+            `global grand_g 1\ndo "hub.do"\n`);
+        const helper = create_file('helper.do', `global helper_g 1\n`);
+        const hub = create_file('hub.do',
+            `// sight: standalone\n` +
+            `// sight: done-by: "${grand}"\n` +
+            `run "${helper}"\nglobal hub_g 1\n`);
+        const hub_uri = to_uri(hub);
+
+        const resolve_from = async (caller_uri: string) => {
+            const { scope, forward } = make_resolver();
+            const parsed = await scope.get_parsed_file(hub_uri, hub);
+            if ('error' in parsed) throw new Error(parsed.error);
+            return forward.resolve(
+                hub_uri,
+                parsed.forward_calls,
+                'do',
+                {
+                    visited: new Map(),
+                    effective_call_type: 'do',
+                    depth: 0,
+                    diagnostics: [],
+                    working_directory: undefined,
+                    call_chain: [],
+                },
+                new Set([caller_uri]),
+            );
+        };
+
+        const r1 = await resolve_from('file:///callers/c1.do');
+        const r2 = await resolve_from('file:///callers/c2.do');
+
+        expect(forward_surface(r1)).toEqual(forward_surface(r2));
+        expect(r1.symbols.globalMacros.has('helper_g')).toBe(true);
+
+        // Teeth for the standalone gate itself (#208 review round 1: the
+        // forward-resolver path above never exercises backward cutting):
+        // resolving the hub through ScopeResolver must cut grand.do's
+        // scope despite the done-by directive.
+        const { scope: my_scope } = make_resolver();
+        const hub_scope = await my_scope.resolve(
+            hub_uri, fs.readFileSync(hub, 'utf8')
+        );
+        expect(hub_scope.is_standalone).toBe(true);
+        expect(hub_scope.symbols.globalMacros.has('grand_g')).toBe(false);
+        expect(hub_scope.symbols.globalMacros.has('hub_g')).toBe(true);
+    });
 });

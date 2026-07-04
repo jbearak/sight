@@ -660,12 +660,29 @@ export interface WorkingDirectoryDirective {
   directive_form: string;
 }
 
+/**
+ * A file's `sight: standalone` header marker (issue #208): header-only, no
+ * argument. When present, the file's scope resolution skips ALL backward
+ * parent inheritance (auto-discovered and explicit) and inherits no working
+ * directory. Naming note: unrelated to the forward-scope-resolver's #234
+ * "standalone closure" memo terminology — this is a parsed header fact, not
+ * a caching concept.
+ */
+export interface StandaloneDirective {
+  /**
+   * Source location for diagnostics. (No directive_form field: unlike the
+   * working-directory directive, `standalone` has a single keyword form.)
+   */
+  range: Range;
+}
+
 export interface DirectiveParseResult {
   directives: Directive[];
   declaration_directives: DeclarationDirective[];
   diagnostics: DirectiveDiagnostic[];
   forward_calls?: ForwardCallDirective[];
   working_directory?: WorkingDirectoryDirective;
+  standalone?: StandaloneDirective;
 }
 
 // Declaration Directive Types
@@ -681,8 +698,16 @@ export interface DeclarationDirective {
  * Source information for diagnostics that originate from parent files in directive chains.
  */
 export interface DiagnosticSource {
-  /** Filename where the error originated (basename only) */
+  /** Filename where the error originated (basename only, for display) */
   source_file: string;
+  /**
+   * Full URI of the originating file, when known. Used by
+   * remap_diagnostics_to_active_file to route the diagnostic to the
+   * directive referencing THAT file — basename routing alone collides
+   * when two parents share a basename, or skips remapping entirely when
+   * a parent's basename equals the active file's (#208 review round 2).
+   */
+  source_uri?: string;
   /** Line number in source file (0-indexed). Omit when call site is unknown. */
   source_line?: number;
   /** Original range in the source file */
@@ -763,6 +788,18 @@ export interface ResolvedScope {
   has_directives: boolean;         // True if current file has directive comments (regardless of resolution)
   has_auto_parents: boolean;       // True if auto-discovered (not explicit directive) parents were used
   /**
+   * True when the file's own header declares `sight: standalone` (#208).
+   * `chain` then contains only this file — no backward ancestors are
+   * followed regardless of `backward_dependencies` mode or any explicit
+   * done-by/run-by/included-by directives in the header (those are instead
+   * flagged with a warning diagnostic emitted by resolve()'s root path).
+   * Distinct from has_directives/has_auto_parents: a standalone file can
+   * still have has_directives === true (an explicit directive was present,
+   * just ignored). Diagnostics deferral and completion-mode selection read
+   * this field directly. See docs/cross-file.md "Standalone Files".
+   */
+  is_standalone: boolean;
+  /**
    * Snapshot of `dependency_graph.is_scan_complete()` taken at the
    * same moment as `has_auto_parents`. Diagnostic deferral must use
    * THIS value, not a fresh `is_scan_complete()` read at publication
@@ -798,7 +835,10 @@ export interface ScopeResolverConfig {
 /**
  * Options controlling ScopeResolver.resolve()'s side effects, distinct from
  * ScopeResolverConfig (which controls resolution behavior/limits). Intended
- * to grow additional fields (e.g. issue #208 standalone-mode inputs).
+ * to grow additional side-effect toggles. Note: issue #208
+ * (`sight: standalone`) needed NO field here — standalone-ness is derived
+ * from `file_content` (already passed to resolve()), not a caller-supplied
+ * behavior toggle, so the content-hash cache key stays authoritative.
  */
 export interface ResolveOptions {
   /**
@@ -830,6 +870,12 @@ export interface ResolveOptions {
 export interface StagedCrossFileEffects {
   raw_backward_directives: Directive[];
   scope_resolver_config: Partial<ScopeResolverConfig>;
+  /**
+   * True when the parsed content carries a `sight: standalone` header
+   * marker (#208). Captured at parse time and applied only at commit time,
+   * where it makes the effective backward-directive registration empty.
+   */
+  is_standalone: boolean;
 }
 
 export interface ScopeCacheEntry {

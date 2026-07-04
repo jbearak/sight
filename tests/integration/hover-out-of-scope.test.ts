@@ -169,7 +169,7 @@ display "\`country_name'"
                 },
                 out_of_scope_symbols,
                 diagnostics: [],
-                has_directives: true, has_auto_parents: false,
+                has_directives: true, has_auto_parents: false, is_standalone: false,
             };
 
             const mock_scope_resolver = {
@@ -256,7 +256,7 @@ display $country_name
                 },
                 out_of_scope_symbols,
                 diagnostics: [],
-                has_directives: true, has_auto_parents: false,
+                has_directives: true, has_auto_parents: false, is_standalone: false,
             };
 
             const mock_scope_resolver = {
@@ -338,7 +338,7 @@ display country_name
                 },
                 out_of_scope_symbols,
                 diagnostics: [],
-                has_directives: true, has_auto_parents: false,
+                has_directives: true, has_auto_parents: false, is_standalone: false,
             };
 
             const mock_scope_resolver = {
@@ -398,7 +398,7 @@ display "\`country_name'"
                 },
                 out_of_scope_symbols,
                 diagnostics: [],
-                has_directives: true, has_auto_parents: false,
+                has_directives: true, has_auto_parents: false, is_standalone: false,
             };
 
             const mock_scope_resolver = {
