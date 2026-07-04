@@ -748,10 +748,16 @@ describe('Standalone directive (issue #208)', () => {
                     my_resolver_internals.directive_parser.parse.bind(
                         my_resolver_internals.directive_parser
                     );
+                // Count x.do recovery attempts: the_p_has_x() is true
+                // BEFORE the resolve too, so without this the assertion
+                // below would pass vacuously if the walk never reached
+                // x.do (CodeRabbit follow-up).
+                let my_x_recovery_attempt_count = 0;
                 my_resolver_internals.directive_parser.parse = (
                     content: string, uri: string, tokens?: unknown
                 ) => {
                     if (uri === x_uri) {
+                        my_x_recovery_attempt_count += 1;
                         throw new Error(
                             'injected directive-parse failure'
                         );
@@ -761,8 +767,10 @@ describe('Standalone directive (issue #208)', () => {
 
                 await resolver.resolve(c_uri, c_content);
 
-                // The stale edge survives — a failed recovery must not
-                // wipe it.
+                // The failing recovery path was actually exercised …
+                expect(my_x_recovery_attempt_count).toBeGreaterThan(0);
+                // … and the stale edge survives — a failed recovery must
+                // not wipe it.
                 expect(the_p_has_x()).toBe(true);
             }
         );
