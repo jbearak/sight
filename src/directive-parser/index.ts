@@ -824,7 +824,7 @@ export class DirectiveParser {
      * - Quoted paths: do "child.do", include "path/child.do"
      * - Unquoted paths: do child.do, run child
      * - With/without .do suffix (case-insensitive for file extension)
-     * - Prefix commands: quietly do child.do, cap include child.do, noi run child.do
+     * - Prefix commands: quietly do child.do, nobreak do child.do, version 18.0: do child.do
      * - @lsp-do, @lsp-run, @lsp-include directives in comments
      *
      * Case-sensitivity:
@@ -1014,7 +1014,7 @@ export class DirectiveParser {
      * - Quoted paths: do "child.do", include "path/child.do"
      * - Unquoted paths: do child.do, run child
      * - With/without .do suffix (case-insensitive for file extension)
-     * - Prefix commands: quietly do child.do, cap include child.do, noi run child.do
+     * - Prefix commands: quietly do child.do, nobreak do child.do, version 18.0: do child.do
      * - @lsp-do, @lsp-run, @lsp-include directives in comments
      *
      * Case-sensitivity:

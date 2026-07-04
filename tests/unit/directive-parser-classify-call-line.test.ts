@@ -26,11 +26,23 @@ describe('DirectiveParser.classify_call_line', () => {
         expect(parser.classify_call_line('qui do "x.do"')).toBe('do');
         expect(parser.classify_call_line('cap include x.do')).toBe('include');
         expect(parser.classify_call_line('noisily run "x.do"')).toBe('run');
+        expect(parser.classify_call_line('nobreak do "x.do"')).toBe('do');
+        expect(parser.classify_call_line('nobreak include x.do')).toBe('include');
+        expect(parser.classify_call_line('nobreak run "x.do"')).toBe('run');
+        expect(parser.classify_call_line('nobreak capture do "x.do"')).toBe('do');
+        expect(parser.classify_call_line('quietly nobreak do "x.do"')).toBe('do');
+        expect(parser.classify_call_line('version 18.0: do "x.do"')).toBe('do');
+        expect(parser.classify_call_line('version 18.0:do "x.do"')).toBe('do');
+        expect(parser.classify_call_line('version 18.0 : include x.do')).toBe('include');
     });
 
     test('rejects a pathless do command', () => {
         expect(parser.classify_call_line('do ')).toBeUndefined();
         expect(parser.classify_call_line('do')).toBeUndefined();
+    });
+
+    test('rejects invalid no-colon version prefix commands', () => {
+        expect(parser.classify_call_line('version 18.0 do "x.do"')).toBeUndefined();
     });
 
     test('accepts a real path with a trailing comment', () => {
