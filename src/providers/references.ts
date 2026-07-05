@@ -505,7 +505,7 @@ export class ReferencesProvider {
      * (#270), applying the effective order (see
      * resolve_effective_local): a positionally RESOLVED same-file
      * symbol is the target; else the cross-file INHERITED do-file
-     * local is the winner (`exclude_same_file_local` + 
+     * local is the winner (`exclude_same_file_local` +
      * `inherited_target`: the flat slot must not be pooled,
      * declarations come from the winner, and same-file occurrences
      * count only when their own effective resolution is the winner);

@@ -244,12 +244,12 @@ export class StataParser {
       // Skip whitespace to check for opening brace
       this.skipTrivia();
       const is_brace_style = this.check('LBRACE');
-      
+
       if (is_brace_style) {
         // Brace-style block: collect until matching closing brace
         this.advance(); // consume opening {
         let brace_depth = 1;
-        
+
         while (!this.isAtEnd() && brace_depth > 0) {
           if (this.check('LBRACE')) {
             brace_depth++;
@@ -292,10 +292,10 @@ export class StataParser {
     if (content_tokens.length > 0) {
       for (let i = 0; i < content_tokens.length; i++) {
         const my_token = content_tokens[i];
-        
+
         // Add the token value
         content += my_token.value;
-        
+
         // Add space between tokens if there's a gap and not the last token
         if (i < content_tokens.length - 1) {
           const next_token = content_tokens[i + 1];
@@ -879,7 +879,7 @@ export class StataParser {
       if (this.check('COLON')) {
         // This is frame prefix syntax: frame name: command
         this.advance(); // consume colon
-        
+
         // Create a prefix node for the frame
         const frame_prefix: PrefixNode = {
           type: 'prefix',
@@ -892,7 +892,7 @@ export class StataParser {
             this.previous().range.end
           ),
         };
-        
+
         // Use shared helper for consistent frame prefix parsing
         return this.parseFramePrefixedCommand(
           frame_prefix, prefixes, start_token
@@ -912,7 +912,7 @@ export class StataParser {
    * Shared logic used by both parseCommand and parseFrameBlock to ensure
    * consistent handling of frame prefix syntax:
    * frame name: [prefix...] command [args]
-   * 
+   *
    * @param frame_prefix - The frame prefix node (has_colon=true)
    * @param prefixes - Array of prefix nodes to append to
    * @param start_token - The original start token for range calculation
@@ -924,10 +924,10 @@ export class StataParser {
     start_token: Token
   ): CommandNode {
     prefixes.push(frame_prefix);
-    
+
     // Skip whitespace after the colon
     this.skipTrivia();
-    
+
     // Parse any additional prefix commands (e.g., frame name: quietly: command)
     while (this.isPrefixCommand(this.peek().value)) {
       const prefix_token = this.advance();
@@ -945,10 +945,10 @@ export class StataParser {
       prefixes.push(prefix);
       this.skipTrivia();
     }
-    
+
     // Skip any remaining whitespace before the main command
     this.skipTrivia();
-    
+
     // Now parse the main command
     if (!this.check('WORD') && !this.check('MACRO_REF_LOCAL') &&
         !this.check('MACRO_REF_GLOBAL')) {
@@ -967,10 +967,10 @@ export class StataParser {
         ),
       };
     }
-    
+
     const command_token = this.advance();
     const command_name = command_token.value;
-    
+
     // Special handling for unab command: unab macroname : varlist
     if (command_name === 'unab') {
       const unab_node = this.parseUnabCommandBody(command_token);
@@ -981,7 +981,7 @@ export class StataParser {
       );
       return unab_node;
     }
-    
+
     // Use parseCommandBody for consistent varlist/option parsing
     // This ensures wildcards and other features work the same way
     return this.parseCommandBody(command_token, prefixes, start_token);
@@ -997,11 +997,11 @@ export class StataParser {
     start_token: Token
   ): CommandNode {
     const command_name = command_token.value;
-    
+
     // Parse variable list (stop at comma, statement terminator, comment,
     // or 'if' keyword). Use file path coalescing for file commands.
     const varlist: IdentifierNode[] = [];
-    
+
     // For file commands, try to parse the first argument as a file path
     const is_file_cmd = isFileCommand(command_name);
     const has_file_arg = this.check('WORD') || this.check('NUMBER') ||
@@ -1013,7 +1013,7 @@ export class StataParser {
         varlist.push(file_path);
       }
     }
-    
+
     // Parse remaining arguments normally (including parenthesized groups)
     while (!this.check('COMMA') && !this.isTrivia() &&
            !this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
@@ -1025,12 +1025,12 @@ export class StataParser {
       if (this.checkWord('in')) {
         break;
       }
-      
+
       // Check for wildcard operators (* and ?) which are valid in varlists
       // This mirrors the logic in parseCommand for consistency
       const is_wildcard = this.check('OPERATOR') &&
           (this.peek().value === '*' || this.peek().value === '?');
-      
+
       const is_varlist_token = this.check('WORD') || this.check('STRING') ||
           this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL') ||
           this.check('NUMBER') || is_wildcard;
@@ -1038,7 +1038,7 @@ export class StataParser {
         const var_token = this.advance();
         let name = var_token.value;
         let end_range = var_token.range.end;
-        
+
         // Coalesce adjacent wildcard tokens (e.g., var* -> single item "var*")
         // Only coalesce if the wildcard immediately follows (no whitespace)
         while (!this.isAtEnd() && this.isWildcardToken(this.peek()) &&
@@ -1047,7 +1047,7 @@ export class StataParser {
           name += wildcard_token.value;
           end_range = wildcard_token.range.end;
         }
-        
+
         varlist.push({
           name: name,
           range: { start: var_token.range.start, end: end_range },
@@ -1168,32 +1168,32 @@ export class StataParser {
         range: token.range,
       };
     }
-    
+
     // Must start with WORD, NUMBER, OPERATOR, or macro ref
     if (!this.check('WORD') && !this.check('NUMBER') && !this.check('OPERATOR') && !this.check('MACRO_REF_LOCAL') && !this.check('MACRO_REF_GLOBAL')) {
       return null;
     }
-    
+
     // Coalesce all tokens until whitespace, comma, terminator, or trivia
     const start_token = this.advance();
     let path = start_token.value;
     let end_range = start_token.range.end;
-    
+
     while (!this.isAtEnd()) {
       // Stop at whitespace, comma, terminator, or trivia
-      if (this.check('WHITESPACE') || 
-          this.check('COMMA') || 
+      if (this.check('WHITESPACE') ||
+          this.check('COMMA') ||
           this.check('STATEMENT_TERMINATOR') ||
           this.isTrivia()) {
         break;
       }
-      
+
       // Consume any other token as part of the path
       const token = this.advance();
       path += token.value;
       end_range = token.range.end;
     }
-    
+
     return {
       name: path,
       range: { start: start_token.range.start, end: end_range }
@@ -1204,7 +1204,7 @@ export class StataParser {
    * Parse a parenthesized group from the token stream.
    * Assumes the current token is LPAREN.
    * Handles nested parentheses and preserves spacing between word-like tokens.
-   * 
+   *
    * @returns IdentifierNode with the parenthesized content including surrounding
    *          parens, or null if the parenthesized group is empty/whitespace-only
    */
@@ -1267,13 +1267,13 @@ export class StataParser {
     prefixes: PrefixNode[]
   ): CommandNode {
     const start_pos = command_token.range.start;
-    
+
     // Parse macro name
     if (!this.check('WORD')) {
       this.addError('Expected macro name after unab', this.peek().range);
       throw new Error('Missing macro name in unab command');
     }
-    
+
     const macro_name_token = this.advance();
     const varlist: IdentifierNode[] = [
       {
@@ -1281,11 +1281,11 @@ export class StataParser {
         range: macro_name_token.range,
       }
     ];
-    
+
     // Track whether we found a colon - stored in dedicated field, not varlist
     // This keeps varlists pure (only variable names) while preserving syntax
     let has_colon_before_varlist = false;
-    
+
     // Expect colon
     if (!this.check('COLON')) {
       this.addError(
@@ -1296,7 +1296,7 @@ export class StataParser {
       this.advance(); // consume colon
       has_colon_before_varlist = true;
     }
-    
+
     // Parse variable list after colon
     while ((this.check('WORD') || this.check('MACRO_REF_LOCAL') ||
             this.check('MACRO_REF_GLOBAL') ||
@@ -1305,7 +1305,7 @@ export class StataParser {
       const var_token = this.advance();
       let name = var_token.value;
       let end_range = var_token.range.end;
-      
+
       // Only coalesce wildcards for actual varlist tokens, not standalone wildcards
       const is_varlist_token = var_token.type === 'WORD' || var_token.type === 'MACRO_REF_LOCAL' ||
           var_token.type === 'MACRO_REF_GLOBAL';
@@ -1318,13 +1318,13 @@ export class StataParser {
           end_range = wildcard_token.range.end;
         }
       }
-      
+
       varlist.push({
         name: name,
         range: { start: var_token.range.start, end: end_range },
       });
     }
-    
+
     // Parse options (after comma) - same as regular commands
     const options: OptionNode[] = [];
     if (this.check('COMMA')) {
@@ -1378,11 +1378,11 @@ export class StataParser {
     prefixes: PrefixNode[]
   ): CommandNode {
     const start_pos = command_token.range.start;
-    
+
     // Parse macro names - all WORD tokens until statement terminator or trivia
     // Unlike regular commands, 'if' and 'in' are valid macro names here
     const varlist: IdentifierNode[] = [];
-    
+
     while (!this.check('STATEMENT_TERMINATOR') &&
            !this.isAtEnd() && !this.isTrivia()) {
       const is_varlist_token = this.check('WORD') || this.check('STRING') ||
@@ -1463,7 +1463,7 @@ export class StataParser {
       // Check for * (could be arbitrary options marker or required option marker)
       if (my_token.type === 'OPERATOR' && my_token.value === '*') {
         // Look ahead to see if there's an option name following
-        if (token_idx + 1 < syntax_tokens.length && 
+        if (token_idx + 1 < syntax_tokens.length &&
             syntax_tokens[token_idx + 1].type === 'WORD') {
           // This is a required option marker, let parse_option_spec handle it
           const opt_result = this.parse_option_spec(
@@ -1721,7 +1721,7 @@ export class StataParser {
 
           // Look for default(value) in remaining tokens
           for (let i = 1; i < type_tokens.length; i++) {
-            if (type_tokens[i].type === 'WORD' && 
+            if (type_tokens[i].type === 'WORD' &&
                 type_tokens[i].value === 'default' &&
                 i + 1 < type_tokens.length &&
                 type_tokens[i + 1].type === 'LPAREN') {
@@ -1816,7 +1816,7 @@ export class StataParser {
         // Malformed continuation - don't advance
         return false;
       }
-      
+
       this.advance(); // consume continuation
       // Only the swallowed newline is trivia; a literal terminator on
       // the next line is a real statement end
@@ -1909,7 +1909,7 @@ export class StataParser {
     const condition_tokens: Token[] = [];
     const condition_start_line = ifToken.range.start.line;
     let paren_depth = 0;
-    
+
     while (!this.check('LBRACE') && !this.isAtEnd()) {
       // Handle continuation tokens - skip them and continue parsing
       if (this.skipContinuation()) {
@@ -1920,9 +1920,9 @@ export class StataParser {
       if (this.check('STATEMENT_TERMINATOR')) {
         break;
       }
-      
+
       const token = this.advance();
-      
+
       // Track parenthesis depth for error checking
       if (token.type === 'LPAREN') {
         paren_depth++;
@@ -1933,7 +1933,7 @@ export class StataParser {
           paren_depth = 0;
         }
       }
-      
+
       // Skip whitespace tokens but collect all others
       if (token.type !== 'WHITESPACE') {
         condition_tokens.push(token);
@@ -1947,7 +1947,7 @@ export class StataParser {
     if (paren_depth > 0) {
       this.addError('Unbalanced parentheses in if condition: missing closing parenthesis', ifToken.range, ParseErrorCode.UNBALANCED_PARENTHESES);
     }
-    
+
     if (condition.trim() === '') {
       this.addError('Empty if condition', ifToken.range, ParseErrorCode.MISSING_EXPRESSION_AFTER_EQUALS);
     }
@@ -2063,7 +2063,7 @@ export class StataParser {
     // For forvalues: next token is '=' (OPERATOR)
     // For foreach: next token is 'in' or 'of' (WORD)
     const is_forvalues_spec = this.check('OPERATOR') && this.peek().value === '=';
-    const is_foreach_spec = this.check('WORD') && 
+    const is_foreach_spec = this.check('WORD') &&
         (this.peek().value === 'in' || this.peek().value === 'of');
 
     if (is_forvalues_spec || is_foreach_spec) {
@@ -2177,7 +2177,7 @@ export class StataParser {
     // Parse condition - collect tokens until { and reconstruct with original spacing
     const condition_tokens: Token[] = [];
     let paren_depth = 0;
-    
+
     while (!this.check('LBRACE') && !this.isAtEnd()) {
       // Handle continuation tokens - skip them and continue parsing
       if (this.skipContinuation()) {
@@ -2188,9 +2188,9 @@ export class StataParser {
       if (this.check('STATEMENT_TERMINATOR')) {
         break;
       }
-      
+
       const token = this.advance();
-      
+
       // Track parenthesis depth for error checking
       if (token.type === 'LPAREN') {
         paren_depth++;
@@ -2201,7 +2201,7 @@ export class StataParser {
           paren_depth = 0;
         }
       }
-      
+
       // Skip whitespace tokens but collect all others
       if (token.type !== 'WHITESPACE') {
         condition_tokens.push(token);
@@ -2215,7 +2215,7 @@ export class StataParser {
     if (paren_depth > 0) {
       this.addError('Unbalanced parentheses in while condition: missing closing parenthesis', whileToken.range, ParseErrorCode.UNBALANCED_PARENTHESES);
     }
-    
+
     if (condition.trim() === '') {
       this.addError('Empty while condition', whileToken.range, ParseErrorCode.MISSING_EXPRESSION_AFTER_EQUALS);
     }
@@ -2259,18 +2259,18 @@ export class StataParser {
 
   /**
    * Parse a standalone string statement.
-   * 
+   *
    * In Stata, a string literal on its own line is valid syntax (though it does nothing).
    * The lexer splits compound strings with embedded macros into multiple tokens:
    * - `"`macro'"' becomes: STRING `" + MACRO_REF_LOCAL `macro' + STRING "'
-   * 
+   *
    * This method collects all tokens until the statement terminator and reconstructs
    * the original string with proper spacing preserved.
    */
   private parseStringStatement(): CommandNode {
     const start_token = this.peek();
     const statement_tokens: Token[] = [];
-    
+
     // Collect all tokens until statement terminator
     while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
       const token = this.advance();
@@ -2278,10 +2278,10 @@ export class StataParser {
         statement_tokens.push(token);
       }
     }
-    
+
     // Reconstruct the string with original spacing
     const content = this.reconstructTokensWithSpacing(statement_tokens);
-    
+
     // Create a command node with the reconstructed string as the name.
     // This is a pragmatic choice: standalone strings in Stata are valid
     // (though no-op) statements. By storing them as CommandNode with
@@ -2299,7 +2299,7 @@ export class StataParser {
    * Parse a frame block: `frame name { ... }` or prefix: `frame name: cmd`
    * Frame blocks execute code in the context of a named data frame.
    * Syntax: frame framename { commands } OR frame framename: command
-   * 
+   *
    * Unlike conditional blocks (if, while), frame blocks don't have a
    * condition - they just have a frame name followed by brace or colon.
    */
@@ -2329,7 +2329,7 @@ export class StataParser {
       // This is frame prefix syntax: frame name: command
       // Use shared frame prefix parsing logic for consistent behavior
       this.advance(); // consume colon
-      
+
       // Create a prefix node for the frame
       const frame_prefix: PrefixNode = {
         type: 'prefix',
@@ -2342,7 +2342,7 @@ export class StataParser {
           this.previous().range.end
         ),
       };
-      
+
       // Use shared helper for consistent frame prefix parsing
       return this.parseFramePrefixedCommand(frame_prefix, [], frame_token);
     }
@@ -2391,14 +2391,14 @@ export class StataParser {
       range: this.makeRange(frame_token.range.start, this.previous().range.end),
     };
   }
-  
+
   /**
    * Parse the body of an unab command (after command name consumed).
    * unab macroname : varlist
    */
   private parseUnabCommandBody(command_token: Token): CommandNode {
     const start_pos = command_token.range.start;
-    
+
     // Parse macro name
     if (!this.check('WORD')) {
       this.addError('Expected macro name after unab', this.peek().range);
@@ -2409,7 +2409,7 @@ export class StataParser {
         range: this.makeRange(start_pos, this.previous().range.end),
       };
     }
-    
+
     const macro_name_token = this.advance();
     const varlist: IdentifierNode[] = [
       {
@@ -2417,11 +2417,11 @@ export class StataParser {
         range: macro_name_token.range,
       }
     ];
-    
+
     // Track whether we found a colon - stored in dedicated field, not varlist
     // This keeps varlists pure (only variable names) while preserving syntax
     let has_colon_before_varlist = false;
-    
+
     // Expect colon
     if (!this.check('COLON')) {
       this.addError(
@@ -2432,7 +2432,7 @@ export class StataParser {
       this.advance(); // consume colon
       has_colon_before_varlist = true;
     }
-    
+
     // Parse variable list after colon
     while ((this.check('WORD') || this.check('MACRO_REF_LOCAL') ||
             this.check('MACRO_REF_GLOBAL') ||
@@ -2441,7 +2441,7 @@ export class StataParser {
       const var_token = this.advance();
       let name = var_token.value;
       let end_range = var_token.range.end;
-      
+
       // Only coalesce wildcards for actual varlist tokens, not standalone wildcards
       const is_varlist_token = var_token.type === 'WORD' || var_token.type === 'MACRO_REF_LOCAL' ||
           var_token.type === 'MACRO_REF_GLOBAL';
@@ -2454,13 +2454,13 @@ export class StataParser {
           end_range = wildcard_token.range.end;
         }
       }
-      
+
       varlist.push({
         name: name,
         range: { start: var_token.range.start, end: end_range },
       });
     }
-    
+
     // Parse options (after comma)
     const options: OptionNode[] = [];
     if (this.check('COMMA')) {
@@ -2813,7 +2813,7 @@ export class StataParser {
     }
 
     const trimmed_expression = expression.trim();
-    
+
     // Check for empty expression (missing expression after =)
     if (trimmed_expression === '') {
       const equals_pos = start_pos > 0 ? this.tokens[start_pos - 1].range : this.peek().range;
@@ -2828,12 +2828,12 @@ export class StataParser {
    * This indicates a string with embedded macros, where the
    * lexer splits the string into delimiter + macro + delimiter
    * tokens.
-   * 
+   *
    * Stata string delimiters:
    * - Double-quoted: " (opening), " (closing)
    * - Compound: `" (opening), "' (closing)
    * - Nested compound: `"`" (opening), "'"' (closing), etc.
-   * 
+   *
    * A STRING token is delimiter-only if it:
    * - Starts with `" or " (opening)
    * - Ends with "' or " (closing)
@@ -2843,24 +2843,24 @@ export class StataParser {
     if (token.type !== 'STRING') {
       return false;
     }
-    
+
     const token_value = token.value;
-    
+
     // Check for simple double-quote delimiter
     if (token_value === '"') {
       return true;
     }
-    
+
     // Check for compound string opening delimiter: `"
     if (token_value === '`"') {
       return true;
     }
-    
+
     // Check for compound string closing delimiter: "'
     if (token_value === `"'`) {
       return true;
     }
-    
+
     // Check for nested compound string delimiters
     // Opening: `"`", `"`"`", etc. (pattern: (`")+)
     // Closing: "'"', "'"'"', etc. (pattern: ("')+)
@@ -2868,14 +2868,14 @@ export class StataParser {
         StataParser.CLOSING_DELIMITER_PATTERN.test(token_value)) {
       return true;
     }
-    
+
     return false;
   }
 
   /**
    * Shared helper for parsing qualifier expressions with stray token detection.
    * Used by both parseIfQualifierExpression and parseInQualifierExpression.
-   * 
+   *
    * @param qualifier_type - 'if' or 'in' for error messages
    * @param stop_at_in - Whether to stop at the 'in' keyword (true for if-qualifiers)
    * @param check_empty - Whether to check for empty expression (true for if-qualifiers)
@@ -2894,10 +2894,10 @@ export class StataParser {
     // State machine for stray token detection at each paren level
     // States: INITIAL, AFTER_OPERAND, AFTER_COMPARE, AFTER_RHS
     type ExpressionState = 'INITIAL' | 'AFTER_OPERAND' | 'AFTER_COMPARE' | 'AFTER_RHS';
-    
+
     // Track state at each paren depth level
     const state_stack: ExpressionState[] = ['INITIAL'];
-    
+
     // Track previous non-whitespace token for split literal detection
     let prev_token: Token | null = null;
 
@@ -3005,7 +3005,7 @@ export class StataParser {
       // expression that doesn't affect the outer expression state
       if (token.type !== 'WHITESPACE' && token.type !== 'LPAREN' && token.type !== 'RPAREN' && bracket_depth === 0) {
         const current_state_for_transition = state_stack[state_stack.length - 1];
-        
+
         if (token.type === 'OPERATOR') {
           // Handle ~= as two tokens: ~ followed by =
           // When we see =, check if previous token was ~
@@ -3034,8 +3034,8 @@ export class StataParser {
               state_stack[state_stack.length - 1] = 'INITIAL';
             }
           }
-        } else if (token.type === 'WORD' || token.type === 'NUMBER' || 
-                   token.type === 'STRING' || token.type === 'MACRO_REF_LOCAL' || 
+        } else if (token.type === 'WORD' || token.type === 'NUMBER' ||
+                   token.type === 'STRING' || token.type === 'MACRO_REF_LOCAL' ||
                    token.type === 'MACRO_REF_GLOBAL') {
           const state = state_stack[state_stack.length - 1];
           if (state === 'AFTER_COMPARE') {
@@ -3045,7 +3045,7 @@ export class StataParser {
           }
           // If already AFTER_RHS, stay there (stray token case handled above)
         }
-        
+
         prev_token = token;
       }
 
@@ -3061,9 +3061,9 @@ export class StataParser {
     if (paren_depth > 0) {
       this.addError(`Unbalanced parentheses in ${qualifier_type} qualifier: missing closing parenthesis`, start_token.range, ParseErrorCode.UNBALANCED_PARENTHESES);
     }
-    
+
     const trimmed_expression = expression.trim();
-    
+
     // Check for empty expression (only for if-qualifiers)
     if (check_empty && trimmed_expression === '') {
       this.addError(`Empty ${qualifier_type} qualifier expression`, start_token.range, ParseErrorCode.MISSING_EXPRESSION_AFTER_EQUALS);
@@ -3085,18 +3085,18 @@ export class StataParser {
   /**
    * Detect split literal patterns and emit diagnostics.
    * Returns true if a split literal was detected.
-   * 
+   *
    * Patterns detected:
    * - `. N` (dot space number) → suggests `.N`
    * - `. a` (dot space letter) → suggests `.a` (extended missing value)
-   * 
+   *
    * Note: The lexer may tokenize `.` as either OPERATOR or WORD depending on context.
    */
   private detectSplitLiteral(prev_token: Token, current_token: Token): boolean {
     // Check for `. N` pattern (dot followed by number)
     // The dot may be tokenized as OPERATOR or WORD
     const is_prev_dot = prev_token.value === '.' && (prev_token.type === 'OPERATOR' || prev_token.type === 'WORD');
-    
+
     if (is_prev_dot) {
       if (current_token.type === 'NUMBER') {
         this.addError(
@@ -3116,10 +3116,10 @@ export class StataParser {
         return true;
       }
     }
-    
+
     // Check for `N .` pattern (number followed by dot)
     const is_current_dot = current_token.value === '.' && (current_token.type === 'OPERATOR' || current_token.type === 'WORD');
-    
+
     if (prev_token.type === 'NUMBER' && is_current_dot) {
       this.addError(
         `Split literal detected: '${prev_token.value} ${current_token.value}' may have been intended as '${prev_token.value}.' or the '.' may be stray`,
@@ -3128,7 +3128,7 @@ export class StataParser {
       );
       return true;
     }
-    
+
     // Check for `a .` pattern (identifier followed by dot)
     // Triggers for any word followed by a dot (e.g., `var .` or `x .`)
     if (prev_token.type === 'WORD' && prev_token.value !== '.' && is_current_dot) {
@@ -3139,7 +3139,7 @@ export class StataParser {
       );
       return true;
     }
-    
+
     return false;
   }
 
@@ -3313,7 +3313,7 @@ export class StataParser {
    * - Code after brace on same line → emit BRACE_NOT_ALONE
    * - Code before brace on same line → emit BRACE_NOT_ALONE
    * - `else` after brace on same line → emit BRACE_ELSE_SAME_LINE
-   * 
+   *
    * @param brace_token The closing brace token to validate
    * @param brace_index The index of the brace token in the tokens array
    */
@@ -3358,7 +3358,7 @@ export class StataParser {
    * Checks for:
    * - Brace alone on line (no condition before) → emit OPEN_BRACE_ALONE
    * - Code after brace on same line → emit CODE_AFTER_OPEN_BRACE (warning)
-   * 
+   *
    * @param brace_token The opening brace token to validate
    * @param brace_index The index of the brace token in the tokens array
    * @param has_condition_before Whether there is a condition/statement before the brace on the same line

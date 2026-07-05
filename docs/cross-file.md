@@ -277,9 +277,9 @@ What standalone does **not** change:
   workspace symbols remain reachable as annotated out-of-scope entries and
   navigation fallbacks, and never suppress diagnostics.
 
-Toggling the directive is picked up like any other header edit: caches are
-keyed by content hash, and files that inherit *through* the standalone file
-are re-resolved automatically.
+Toggling the directive is picked up like any other header edit. The current
+file and files that inherit *through* it are re-resolved automatically, so
+stale parent scope or inherited working-directory results are not kept.
 
 `sight check` honors the directive identically to the editor: the standalone
 file is validated in isolation, and the ignored-directive warnings appear in
@@ -794,114 +794,18 @@ an unintended cycle/fan-out worth investigating. Undefined-symbol warnings for
 symbols that were never reached because of a truncation still fire — the summary
 line tells you *why* a symbol may be unresolved.
 
-## Forward-Closure Caching Semantics
+## Forward Call Performance
 
-A file's **forward-call closure** is the set of symbols and call sites produced
-by following its `do`/`run`/`include` chain. The LSP's design treats this closure
-as a pure function of the file and its resolution context — **caller-independent**
-by construction. Concretely, the closure depends only on:
+Dense `do`/`run`/`include` graphs can contain many repeated forward-call chains.
+The LSP caches those internal results when it can do so without changing
+semantics. You should see the same symbols, diagnostics, completions, and
+go-to-definition behavior as if every chain were resolved from scratch.
 
-- the callee file's content,
-- the **effective call type** it is entered under (`do`/`run` vs `include`,
-  which governs local-macro propagation),
-- the **working directory** in force (which resolves the callee's relative
-  `do`/`run`/`include` paths),
-- the forward **depth budget** (raw depth + `maxForwardDepth`), and
-- the dependency-graph version.
-
-The *identity of the calling file* never varies the closure. Backward-walk state
-and parent forward-call resolution are kept isolated (the parent's forward walk
-runs against a *copy* of the backward `visited` set and a *fresh* forward visited
-map), so an earlier-sourced sibling's symbols are always visible to a later
-sibling in execution order — see
-`tests/integration/hub-heavy-sibling-visibility.test.ts`.
-
-**Interaction with the per-file standalone opt-out (issue #208).** The
-[`sight: standalone`](#standalone-files) directive resolves a file's own
-diagnostics as if it had no parents (a *backward* concern). It does **not**
-introduce caller-dependence into the *forward* closure: standalone changes the
-file's *inherited working directory* (cut to the file's own directive or
-none), an input the closure already depends on.
-Standalone introduces no other forward-closure variation, and never caller
-identity. This is the assumption the caller-independent forward-closure cache
-relies on; it is enforced by the memo correctness gate
-(`tests/integration/forward-closure-memo-gate.test.ts`), which checks that a
-file's forward closure is identical across distinct callers given the same
-inputs — including a standalone callee reached from two different callers.
-
-## Backward-Directive Registration Timing (Transactional Side Effects)
-
-The resolver keeps a live map of backward-directive relationships
-(`parent → children`) that drives transitive diagnostics revalidation, plus a
-buffer-directives overlay in the workspace indexer that makes unsaved
-`@lsp-done-by`/`@lsp-included-by` edits visible to find-references. Parse-time
-effects are staged and applied **only at commit time**; close-time re-sync is
-a separate best-effort recovery path (issue #184):
-
-- While a document parses, its directives and the scope-resolver config in
-  force are **staged** (`StagedCrossFileEffects`), not applied. The
-  working-directory probe the parse runs (`resolve()` with
-  `register_dependencies: false`) never registers the file's own edges;
-  ancestor files read from disk during the walk still register *their own*
-  edges (disk-derived, correct regardless of this parse's fate).
-- Ancestor-level registration inside `get_parsed_file` uses **effective**
-  directives under the resolution's `backward_dependencies` mode, threaded
-  through every read path — backward walks, forward callee reads, and
-  forward-closure memo builds (issue #286). In `'auto'` mode a file with no
-  explicit directives keeps (or gains) its dependency-graph parents when it
-  is read as an ancestor of another file's resolution, instead of having
-  those auto edges wiped by the clear-then-register sync until its next
-  commit. An `'explicit'`-mode resolution registers raw directives only and
-  never synthesizes graph parents; the indexer's working-directory walk
-  forces `'explicit'` for scan-order determinism and so never registers
-  auto edges. Effective ⊇ raw — except for
-  [`sight: standalone`](#standalone-files) files, whose effective directives
-  are empty (issue #208) — so for non-standalone files ancestor reads can
-  only add edges relative to the pre-#286 behavior. Registration remains a parse-path
-  side effect, with one exception: each file-cache entry is stamped with
-  the mode its registration ran under, and an `'auto'`-mode cache hit
-  re-applies effective registration and re-stamps
-  (`upgrade_registration_on_cache_hit`). Directive-less entries re-sync
-  on **every** `'auto'` hit rather than trusting the stamp: the file
-  cache can hold several entries for one URI (different inherited
-  working directories) while backward registration is one global map
-  per URI, so another cache-key variant — or an explicit-mode parse —
-  can replace the URI's registration without touching this entry's
-  stamp or the dependency-graph version. The re-sync is idempotent and
-  also picks up graph edges added after the stamp. Entries whose content
-  has explicit backward directives skip repeat work once
-  `'auto'`-stamped: their effective registration is graph-independent
-  (explicit directives win), and same-URI variants share content, so any
-  variant registers the same raw directives. Without that upgrade, the
-  indexer's explicit WD walk priming the cache would leave a
-  directive-less ancestor's auto edges unregistered for as long as the
-  content stayed unchanged. Explicit-mode hits never downgrade, and memo
-  serves still perform no registration (files reached only through a
-  served closure re-register when the memo entry is evicted or their
-  content changes).
-- `commit_state` applies the staged effects synchronously, after its
-  disposed/closed-generation/version guards pass. A parse discarded by a
-  racing `close()` (or by `dispose()`) therefore never mutates shared
-  cross-file state — no stale edge is added, and no valid edge is dropped by
-  the discarded parse's clear-then-register.
-- Commit-time registration uses **effective** directives — explicit
-  directives plus parents auto-synthesized from the dependency graph —
-  computed at apply time against live graph state. This also covers files
-  with their own `@lsp-cd` (which never run the probe) uniformly.
-- On document close, the server re-syncs the closed file's edges from its
-  **on-disk** content (best-effort), so a header change saved just before
-  closing converges even though the racing reparse was discarded. The re-sync
-  skips applying if the document was reopened while the disk read was in
-  flight; a read error keeps the existing edges, a missing file clears them.
-- Parses that fail before directive parsing (lexer/parser error or timeout)
-  stage nothing: a committed error state keeps the previous registrations on
-  purpose, so a transiently broken buffer does not wipe cross-file edges.
-
-See `tests/unit/document-store-commit-time-cross-file-effects.test.ts` for
-the race scenarios this guarantees (stale-add, valid-edge-drop across an
-A→B→C chain, dispose-during-parse, probe cache interaction, disk re-sync),
-and `tests/unit/scope-resolver-ancestor-effective-sync.test.ts` for the
-ancestor-level effective-sync behavior (issue #286).
+Edits to called files, working-directory changes, and dependency-graph changes
+invalidate stale results. The `sight: standalone` directive also remains a
+backward-scope opt-out only: it cuts inherited parent scope and inherited
+working directory for that file, while forward calls from the file continue to
+resolve normally.
 
 ## Configuration
 
