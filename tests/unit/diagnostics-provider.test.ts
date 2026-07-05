@@ -3,10 +3,25 @@ import {
     create_real_document_state,
 } from '../test-context-helper';
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
-import { DiagnosticsProvider } from '../../src/providers/diagnostics';
+import {
+    DiagnosticsConnection,
+    DiagnosticsProvider,
+} from '../../src/providers/diagnostics';
 import { DocumentState } from '../../src/document-store';
-import { StataLSPConfig, StataDiagnosticCode, LexerErrorCode, ParseErrorCode, ResolvedScope, CrossFileCaseMismatchSeverity } from '../../src/types';
-import { Diagnostic, DiagnosticSeverity } from 'vscode-languageserver';
+import {
+    CrossFileCaseMismatchSeverity,
+    LexerErrorCode,
+    ParseErrorCode,
+    ResolvedScope,
+    StataDiagnosticCode,
+    StataLSPConfig,
+    SymbolTable,
+} from '../../src/types';
+import {
+    CancellationToken,
+    Diagnostic,
+    DiagnosticSeverity,
+} from 'vscode-languageserver';
 import { ContextTracker } from '../../src/context-tracker';
 import { create_empty_symbol_table } from '../../src/analyzer';
 import { ScopeResolver } from '../../src/scope-resolver';
@@ -16,19 +31,39 @@ import { ScopeResolver } from '../../src/scope-resolver';
  * ResolvedScope. Used to exercise forward-call symbol filtering and
  * directive-diagnostic emission without standing up a full resolver.
  */
-function make_stub_scope_resolver(resolved_scope: ResolvedScope): ScopeResolver {
+function make_stub_scope_resolver(
+    resolved_scope: ResolvedScope
+): ScopeResolver {
     const the_stub = new ScopeResolver();
-    (the_stub as any).resolve = async () => resolved_scope;
+    the_stub.resolve = async () => resolved_scope;
     return the_stub;
 }
 
-// Mock connection for testing
-function create_mock_connection() {
-    const sent_diagnostics: { uri: string; diagnostics: any[] }[] = [];
+function create_empty_resolved_scope(): ResolvedScope {
     return {
-        sendDiagnostics: mock((params: { uri: string; diagnostics: any[] }) => {
-            sent_diagnostics.push(params);
-        }),
+        chain: [],
+        symbols: create_empty_symbol_table(),
+        out_of_scope_symbols: [],
+        diagnostics: [],
+        has_directives: false,
+        has_auto_parents: false,
+        is_standalone: false,
+        scan_complete_at_resolve_time: true,
+    };
+}
+
+// Mock connection for testing
+function create_mock_connection(): DiagnosticsConnection & {
+    get_sent_diagnostics(): { uri: string; diagnostics: Diagnostic[] }[];
+    clear_sent_diagnostics(): void;
+} {
+    const sent_diagnostics: { uri: string; diagnostics: Diagnostic[] }[] = [];
+    return {
+        sendDiagnostics: mock(
+            (params: { uri: string; diagnostics: Diagnostic[] }) => {
+                sent_diagnostics.push(params);
+            }
+        ),
         get_sent_diagnostics: () => sent_diagnostics,
         clear_sent_diagnostics: () => { sent_diagnostics.length = 0; },
     };
@@ -127,7 +162,7 @@ describe('DiagnosticsProvider', () => {
 
     beforeEach(() => {
         mock_connection = create_mock_connection();
-        provider = new DiagnosticsProvider(mock_connection as any);
+        provider = new DiagnosticsProvider(mock_connection);
     });
 
     describe('get_diagnostics', () => {
@@ -269,6 +304,59 @@ describe('DiagnosticsProvider', () => {
             // Diagnostics are still computed, but publish_diagnostics would clear them
             expect(the_diagnostics.length).toBeGreaterThan(0);
         });
+
+        it('should not cache diagnostics if force epoch advances', async () => {
+            const document = create_document_state(
+                'display `undefined\'\n',
+                1
+            );
+            const delayed_scope_resolver = new ScopeResolver();
+            let my_resolve_count = 0;
+            let resolve_first: (() => void) | undefined;
+            let resolve_first_started: (() => void) | undefined;
+            const first_started = new Promise<void>(resolve => {
+                resolve_first_started = resolve;
+            });
+            const first_delay = new Promise<void>(resolve => {
+                resolve_first = resolve;
+            });
+
+            delayed_scope_resolver.resolve =
+                async (): Promise<ResolvedScope> => {
+                    my_resolve_count++;
+                    if (my_resolve_count === 1) {
+                        resolve_first_started?.();
+                        await first_delay;
+                    }
+                    return create_empty_resolved_scope();
+                };
+
+            const first_diagnostics_promise = provider.get_diagnostics(
+                document,
+                DEFAULT_CONFIG,
+                undefined,
+                delayed_scope_resolver
+            );
+            await first_started;
+
+            provider.mark_force_republish(document.uri);
+            expect(resolve_first).toBeDefined();
+            resolve_first?.();
+
+            const first_diagnostics = await first_diagnostics_promise;
+            expect(my_resolve_count).toBe(1);
+
+            const second_diagnostics = await provider.get_diagnostics(
+                document,
+                DEFAULT_CONFIG,
+                undefined,
+                delayed_scope_resolver
+            );
+
+            expect(my_resolve_count).toBe(2);
+            expect(second_diagnostics).not.toBe(first_diagnostics);
+            expect(second_diagnostics).toEqual(first_diagnostics);
+        });
     });
 
     describe('publish_diagnostics', () => {
@@ -312,6 +400,233 @@ describe('DiagnosticsProvider', () => {
             const sent = mock_connection.get_sent_diagnostics();
             expect(sent.length).toBe(0);
         });
+
+        it('should drop a stale publish that resumes after a newer version', async () => {
+            const document_v1 = create_document_state(
+                'display `undefined\'\n',
+                1
+            );
+            const document_v2 = create_document_state('gen y = 2\n', 2);
+            const original_get_diagnostics = provider.get_diagnostics.bind(
+                provider
+            );
+            let resolve_v1: (() => void) | undefined;
+            let resolve_v1_started: (() => void) | undefined;
+            const v1_started = new Promise<void>(resolve => {
+                resolve_v1_started = resolve;
+            });
+            const v1_delay = new Promise<void>(resolve => {
+                resolve_v1 = resolve;
+            });
+
+            provider.get_diagnostics = async (
+                my_document: DocumentState,
+                the_config: StataLSPConfig,
+                the_workspace_symbols?: SymbolTable,
+                the_scope_resolver?: ScopeResolver,
+                the_cancellation_token?: CancellationToken
+            ): Promise<Diagnostic[]> => {
+                if (my_document.version === 1) {
+                    resolve_v1_started?.();
+                    await v1_delay;
+                }
+
+                return original_get_diagnostics(
+                    my_document,
+                    the_config,
+                    the_workspace_symbols,
+                    the_scope_resolver,
+                    the_cancellation_token
+                );
+            };
+
+            const publish_v1 = provider.publish_diagnostics(
+                document_v1,
+                DEFAULT_CONFIG
+            );
+            await v1_started;
+
+            await provider.publish_diagnostics(document_v2, DEFAULT_CONFIG);
+            const sent_after_v2 = mock_connection.get_sent_diagnostics();
+            expect(sent_after_v2.length).toBe(1);
+            expect(sent_after_v2[0].diagnostics).toEqual([]);
+
+            expect(resolve_v1).toBeDefined();
+            resolve_v1?.();
+            await publish_v1;
+
+            const sent_after_v1_resumes =
+                mock_connection.get_sent_diagnostics();
+            expect(sent_after_v1_resumes.length).toBe(1);
+            expect(sent_after_v1_resumes[0].diagnostics).toEqual([]);
+        });
+
+        it('should publish once for one same-version force epoch', async () => {
+            const document = create_document_state('gen x = 1\n', 1);
+
+            await provider.publish_diagnostics(document, DEFAULT_CONFIG);
+            mock_connection.clear_sent_diagnostics();
+
+            provider.mark_force_republish(document.uri);
+            await provider.publish_diagnostics(document, DEFAULT_CONFIG);
+
+            const sent_after_mark = mock_connection.get_sent_diagnostics();
+            expect(sent_after_mark.length).toBe(1);
+            mock_connection.clear_sent_diagnostics();
+
+            await provider.publish_diagnostics(document, DEFAULT_CONFIG);
+
+            const sent_without_mark = mock_connection.get_sent_diagnostics();
+            expect(sent_without_mark.length).toBe(0);
+        });
+
+        it(
+            'should drop older same-version work after newer force work',
+            async () => {
+                const document = create_document_state(
+                    'display `undefined\'\n',
+                    1
+                );
+                const original_get_diagnostics = provider.get_diagnostics.bind(
+                    provider
+                );
+                let resolve_a: (() => void) | undefined;
+                let resolve_a_started: (() => void) | undefined;
+                let my_delayed_a = false;
+                const a_started = new Promise<void>(resolve => {
+                    resolve_a_started = resolve;
+                });
+                const a_delay = new Promise<void>(resolve => {
+                    resolve_a = resolve;
+                });
+
+                await provider.publish_diagnostics(document, DEFAULT_CONFIG);
+                mock_connection.clear_sent_diagnostics();
+
+                provider.get_diagnostics = async (
+                    my_document: DocumentState,
+                    the_config: StataLSPConfig,
+                    the_workspace_symbols?: SymbolTable,
+                    the_scope_resolver?: ScopeResolver,
+                    the_cancellation_token?: CancellationToken
+                ): Promise<Diagnostic[]> => {
+                    const the_diagnostics = await original_get_diagnostics(
+                        my_document,
+                        the_config,
+                        the_workspace_symbols,
+                        the_scope_resolver,
+                        the_cancellation_token
+                    );
+
+                    if (!my_delayed_a && my_document.version === 1) {
+                        my_delayed_a = true;
+                        resolve_a_started?.();
+                        await a_delay;
+                    }
+
+                    return the_diagnostics;
+                };
+
+                provider.mark_force_republish(document.uri);
+                const publish_a = provider.publish_diagnostics(
+                    document,
+                    DEFAULT_CONFIG
+                );
+                await a_started;
+
+                provider.mark_force_republish(document.uri);
+                await provider.publish_diagnostics(document, DEFAULT_CONFIG);
+
+                const sent_after_b = mock_connection.get_sent_diagnostics();
+                expect(sent_after_b.length).toBe(1);
+                expect(resolve_a).toBeDefined();
+
+                resolve_a?.();
+                await publish_a;
+
+                const sent_after_a_resumes =
+                    mock_connection.get_sent_diagnostics();
+                expect(sent_after_a_resumes.length).toBe(1);
+            }
+        );
+
+        it(
+            'should drop a forced same-version republish superseded ' +
+                'by a version advance',
+            async () => {
+                const document_v1 = create_document_state(
+                    'display `undefined\'\n',
+                    1
+                );
+                const document_v2 = create_document_state('gen y = 2\n', 2);
+                const original_get_diagnostics = provider.get_diagnostics.bind(
+                    provider
+                );
+                let resolve_a: (() => void) | undefined;
+                let resolve_a_started: (() => void) | undefined;
+                let my_delayed_a = false;
+                const a_started = new Promise<void>(resolve => {
+                    resolve_a_started = resolve;
+                });
+                const a_delay = new Promise<void>(resolve => {
+                    resolve_a = resolve;
+                });
+
+                // Publish v1 so a same-version force is meaningful.
+                await provider.publish_diagnostics(document_v1, DEFAULT_CONFIG);
+                mock_connection.clear_sent_diagnostics();
+
+                provider.get_diagnostics = async (
+                    my_document: DocumentState,
+                    the_config: StataLSPConfig,
+                    the_workspace_symbols?: SymbolTable,
+                    the_scope_resolver?: ScopeResolver,
+                    the_cancellation_token?: CancellationToken
+                ): Promise<Diagnostic[]> => {
+                    const the_diagnostics = await original_get_diagnostics(
+                        my_document,
+                        the_config,
+                        the_workspace_symbols,
+                        the_scope_resolver,
+                        the_cancellation_token
+                    );
+
+                    if (!my_delayed_a && my_document.version === 1) {
+                        my_delayed_a = true;
+                        resolve_a_started?.();
+                        await a_delay;
+                    }
+
+                    return the_diagnostics;
+                };
+
+                // Forced same-version republish A captures epoch at v1 and
+                // stalls mid-compute.
+                provider.mark_force_republish(document_v1.uri);
+                const publish_a = provider.publish_diagnostics(
+                    document_v1,
+                    DEFAULT_CONFIG
+                );
+                await a_started;
+
+                // The document advances to v2 and publishes to completion
+                // while A is still in flight.
+                await provider.publish_diagnostics(document_v2, DEFAULT_CONFIG);
+
+                const sent_after_v2 = mock_connection.get_sent_diagnostics();
+                expect(sent_after_v2.length).toBe(1);
+                expect(resolve_a).toBeDefined();
+
+                // A resumes: its captured v1 is now older than the published
+                // v2, so it must be dropped (version dominates the epoch).
+                resolve_a?.();
+                await publish_a;
+
+                const sent_after_a_resumes =
+                    mock_connection.get_sent_diagnostics();
+                expect(sent_after_a_resumes.length).toBe(1);
+            }
+        );
     });
 
     describe('clear_diagnostics', () => {

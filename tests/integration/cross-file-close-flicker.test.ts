@@ -155,7 +155,7 @@ describe('cross-file diagnostic flicker on parent close', () => {
     });
 
     async function child_diagnostics() {
-        provider.clear_published_version(child_uri);
+        provider.mark_force_republish(child_uri);
         return provider.get_diagnostics(
             store.get(child_uri) as never,
             build_config(),
