@@ -531,10 +531,10 @@ export async function create_server(options: ServerOptions): Promise<void> {
 
             const callee_doc = documents.get(my_callee_uri);
             if (callee_doc) {
-                // Clear the published version so diagnostics will be republished
-                // even though the callee document's version hasn't changed
+                // Mark a forced republish so diagnostics update even though
+                // the callee document's version hasn't changed.
                 if (diagnostics_provider) {
-                    diagnostics_provider.clear_published_version(my_callee_uri);
+                    diagnostics_provider.mark_force_republish(my_callee_uri);
                 }
 
                 // Route through debounce instead of setTimeout (Req 3.1, 3.2)
@@ -663,10 +663,10 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 connection.console.log(`[caller-revalidation] Checking ${my_caller_uri}: doc=${caller_doc ? 'found' : 'not found'}`);
             }
             if (caller_doc) {
-                // Clear the published version so diagnostics will be republished
-                // even though the caller document's version hasn't changed
+                // Mark a forced republish so diagnostics update even though
+                // the caller document's version hasn't changed.
                 if (diagnostics_provider) {
-                    diagnostics_provider.clear_published_version(my_caller_uri);
+                    diagnostics_provider.mark_force_republish(my_caller_uri);
                 }
 
                 // Route through debounce instead of setTimeout (Req 3.1, 3.2)
@@ -736,7 +736,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
             if (!my_doc) {
                 continue;
             }
-            diagnostics_provider?.clear_published_version(
+            diagnostics_provider?.mark_force_republish(
                 my_callee_uri
             );
             void validate_text_document(my_doc, 0);
@@ -744,13 +744,13 @@ export async function create_server(options: ServerOptions): Promise<void> {
     }
 
     /**
-     * Clear published diagnostics and re-trigger validation for all
+     * Force diagnostics republish and re-trigger validation for all
      * currently open documents. Called after workspace state changes.
      */
     function revalidate_all_open_docs(): void {
         for (const my_doc of documents.all()) {
             if (diagnostics_provider) {
-                diagnostics_provider.clear_published_version(my_doc.uri);
+                diagnostics_provider.mark_force_republish(my_doc.uri);
             }
             void validate_text_document(my_doc, 0);
         }
@@ -1458,7 +1458,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
             // No indexing-affecting change: keep the index intact,
             // reconfigure providers, and revalidate open documents
             // immediately against the live index. revalidate_all_open_docs
-            // clears each document's published version and re-validates.
+            // marks each document for forced republish and re-validates.
             configure_completion_provider(settings);
             workspace_indexer?.configure(settings);
             revalidate_all_open_docs();

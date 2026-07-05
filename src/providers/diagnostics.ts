@@ -45,6 +45,7 @@ import { OperatorSequenceAnalyzer } from './operator-sequence-diagnostics';
 import { MixedLogicalOperatorAnalyzer } from './mixed-logical-diagnostics';
 import { ChainedComparisonAnalyzer } from './chained-comparison-diagnostics';
 import { LiteralMacroAdjacencyAnalyzer } from './literal-macro-adjacency-diagnostics';
+import { DiagnosticsPublishGate } from './diagnostics-publish-gate';
 type SemanticDiagnostic = {
     message: string;
     range: Range;
@@ -165,8 +166,7 @@ export class DiagnosticsProvider {
     private literal_macro_adjacency_analyzer = new LiteralMacroAdjacencyAnalyzer();
     private dependency_graph?: import('../dependency-graph').DependencyGraph;
 
-    // Track published versions to prevent stale diagnostics
-    private published_versions: Map<string, number> = new Map();
+    private publish_gate = new DiagnosticsPublishGate();
 
     // Cache filtered diagnostics by (uri, version, config_hash)
     private filtered_cache: Map<string, Map<string, Diagnostic[]>> = new Map();
@@ -211,14 +211,11 @@ export class DiagnosticsProvider {
     }
 
     /**
-     * Clear the published version for a document.
-     * This forces the next publish_diagnostics call to actually publish,
-     * even if the document version hasn't changed.
+     * Mark a document for forced same-version republish.
      * Used when dependencies change and diagnostics need to be recomputed.
      */
-    clear_published_version(uri: string): void {
-        this.published_versions.delete(uri);
-        // Also clear the filtered cache for this URI
+    mark_force_republish(uri: string): void {
+        this.publish_gate.mark_force_republish(uri);
         this.filtered_cache.delete(uri);
     }
 
@@ -240,35 +237,46 @@ export class DiagnosticsProvider {
         scope_resolver?: ScopeResolver,
         cancellation_token?: CancellationToken
     ): Promise<{ diagnostics: Diagnostic[]; pending: boolean }> {
-        // Version gating: only publish if this is the latest version
-        const current_published = this.published_versions.get(document.uri);
-        if (current_published !== undefined && current_published >= document.version) {
-            // Stale request, skip
+        if (!this.publish_gate.would_publish(document.uri, document.version)) {
             return { diagnostics: [], pending: false };
         }
 
         // Check if diagnostics are enabled
         if (!config?.diagnostics?.enabled) {
-            // Clear diagnostics and return
+            if (!this.publish_gate.try_consume_publish(
+                document.uri,
+                document.version
+            )) {
+                return { diagnostics: [], pending: false };
+            }
             this.clear_diagnostics(document.uri);
-            this.published_versions.set(document.uri, document.version);
             return { diagnostics: [], pending: false };
         }
 
         // Check if debounce is pending for this document
-        const is_pending = this.debounce_manager?.is_pending(document.uri) ?? false;
+        const is_pending =
+            this.debounce_manager?.is_pending(document.uri) ?? false;
 
         // Collect all diagnostics (reuse cached results from DocumentStore)
-        const the_diagnostics = await this.get_diagnostics(document, config, workspace_symbols, scope_resolver, cancellation_token);
+        const the_diagnostics = await this.get_diagnostics(
+            document,
+            config,
+            workspace_symbols,
+            scope_resolver,
+            cancellation_token
+        );
 
-        // Publish diagnostics
+        if (!this.publish_gate.try_consume_publish(
+            document.uri,
+            document.version
+        )) {
+            return { diagnostics: [], pending: is_pending };
+        }
+
         this.connection.sendDiagnostics({
             uri: document.uri,
             diagnostics: the_diagnostics,
         });
-
-        // Update published version
-        this.published_versions.set(document.uri, document.version);
         
         return { diagnostics: the_diagnostics, pending: is_pending };
     }
@@ -841,7 +849,7 @@ export class DiagnosticsProvider {
      * Remove tracking for a closed document.
      */
     on_document_closed(uri: string): void {
-        this.published_versions.delete(uri);
+        this.publish_gate.forget(uri);
         this.clear_cache_for_document(uri);
         this.clear_diagnostics(uri);
     }

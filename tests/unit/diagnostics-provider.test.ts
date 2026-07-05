@@ -5,8 +5,20 @@ import {
 import { describe, it, expect, beforeEach, mock } from 'bun:test';
 import { DiagnosticsProvider } from '../../src/providers/diagnostics';
 import { DocumentState } from '../../src/document-store';
-import { StataLSPConfig, StataDiagnosticCode, LexerErrorCode, ParseErrorCode, ResolvedScope, CrossFileCaseMismatchSeverity } from '../../src/types';
-import { Diagnostic, DiagnosticSeverity } from 'vscode-languageserver';
+import {
+    CrossFileCaseMismatchSeverity,
+    LexerErrorCode,
+    ParseErrorCode,
+    ResolvedScope,
+    StataDiagnosticCode,
+    StataLSPConfig,
+    SymbolTable,
+} from '../../src/types';
+import {
+    CancellationToken,
+    Diagnostic,
+    DiagnosticSeverity,
+} from 'vscode-languageserver';
 import { ContextTracker } from '../../src/context-tracker';
 import { create_empty_symbol_table } from '../../src/analyzer';
 import { ScopeResolver } from '../../src/scope-resolver';
@@ -311,6 +323,85 @@ describe('DiagnosticsProvider', () => {
             
             const sent = mock_connection.get_sent_diagnostics();
             expect(sent.length).toBe(0);
+        });
+
+        it('should drop a stale publish that resumes after a newer version', async () => {
+            const document_v1 = create_document_state(
+                'display `undefined\'\n',
+                1
+            );
+            const document_v2 = create_document_state('gen y = 2\n', 2);
+            const original_get_diagnostics = provider.get_diagnostics.bind(
+                provider
+            );
+            let resolve_v1: (() => void) | undefined;
+            let resolve_v1_started: (() => void) | undefined;
+            const v1_started = new Promise<void>(resolve => {
+                resolve_v1_started = resolve;
+            });
+            const v1_delay = new Promise<void>(resolve => {
+                resolve_v1 = resolve;
+            });
+
+            provider.get_diagnostics = async (
+                my_document: DocumentState,
+                the_config: StataLSPConfig,
+                the_workspace_symbols?: SymbolTable,
+                the_scope_resolver?: ScopeResolver,
+                the_cancellation_token?: CancellationToken
+            ): Promise<Diagnostic[]> => {
+                if (my_document.version === 1) {
+                    resolve_v1_started?.();
+                    await v1_delay;
+                }
+
+                return original_get_diagnostics(
+                    my_document,
+                    the_config,
+                    the_workspace_symbols,
+                    the_scope_resolver,
+                    the_cancellation_token
+                );
+            };
+
+            const publish_v1 = provider.publish_diagnostics(
+                document_v1,
+                DEFAULT_CONFIG
+            );
+            await v1_started;
+
+            await provider.publish_diagnostics(document_v2, DEFAULT_CONFIG);
+            const sent_after_v2 = mock_connection.get_sent_diagnostics();
+            expect(sent_after_v2.length).toBe(1);
+            expect(sent_after_v2[0].diagnostics).toEqual([]);
+
+            expect(resolve_v1).toBeDefined();
+            resolve_v1?.();
+            await publish_v1;
+
+            const sent_after_v1_resumes =
+                mock_connection.get_sent_diagnostics();
+            expect(sent_after_v1_resumes.length).toBe(1);
+            expect(sent_after_v1_resumes[0].diagnostics).toEqual([]);
+        });
+
+        it('should count same-version force republishes', async () => {
+            const document = create_document_state('gen x = 1\n', 1);
+
+            await provider.publish_diagnostics(document, DEFAULT_CONFIG);
+            mock_connection.clear_sent_diagnostics();
+
+            provider.mark_force_republish(document.uri);
+            await provider.publish_diagnostics(document, DEFAULT_CONFIG);
+
+            const sent_after_mark = mock_connection.get_sent_diagnostics();
+            expect(sent_after_mark.length).toBe(1);
+            mock_connection.clear_sent_diagnostics();
+
+            await provider.publish_diagnostics(document, DEFAULT_CONFIG);
+
+            const sent_without_mark = mock_connection.get_sent_diagnostics();
+            expect(sent_without_mark.length).toBe(0);
         });
     });
 
