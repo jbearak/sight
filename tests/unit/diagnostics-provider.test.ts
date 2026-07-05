@@ -549,6 +549,84 @@ describe('DiagnosticsProvider', () => {
                 expect(sent_after_a_resumes.length).toBe(1);
             }
         );
+
+        it(
+            'should drop a forced same-version republish superseded ' +
+                'by a version advance',
+            async () => {
+                const document_v1 = create_document_state(
+                    'display `undefined\'\n',
+                    1
+                );
+                const document_v2 = create_document_state('gen y = 2\n', 2);
+                const original_get_diagnostics = provider.get_diagnostics.bind(
+                    provider
+                );
+                let resolve_a: (() => void) | undefined;
+                let resolve_a_started: (() => void) | undefined;
+                let my_delayed_a = false;
+                const a_started = new Promise<void>(resolve => {
+                    resolve_a_started = resolve;
+                });
+                const a_delay = new Promise<void>(resolve => {
+                    resolve_a = resolve;
+                });
+
+                // Publish v1 so a same-version force is meaningful.
+                await provider.publish_diagnostics(document_v1, DEFAULT_CONFIG);
+                mock_connection.clear_sent_diagnostics();
+
+                provider.get_diagnostics = async (
+                    my_document: DocumentState,
+                    the_config: StataLSPConfig,
+                    the_workspace_symbols?: SymbolTable,
+                    the_scope_resolver?: ScopeResolver,
+                    the_cancellation_token?: CancellationToken
+                ): Promise<Diagnostic[]> => {
+                    const the_diagnostics = await original_get_diagnostics(
+                        my_document,
+                        the_config,
+                        the_workspace_symbols,
+                        the_scope_resolver,
+                        the_cancellation_token
+                    );
+
+                    if (!my_delayed_a && my_document.version === 1) {
+                        my_delayed_a = true;
+                        resolve_a_started?.();
+                        await a_delay;
+                    }
+
+                    return the_diagnostics;
+                };
+
+                // Forced same-version republish A captures epoch at v1 and
+                // stalls mid-compute.
+                provider.mark_force_republish(document_v1.uri);
+                const publish_a = provider.publish_diagnostics(
+                    document_v1,
+                    DEFAULT_CONFIG
+                );
+                await a_started;
+
+                // The document advances to v2 and publishes to completion
+                // while A is still in flight.
+                await provider.publish_diagnostics(document_v2, DEFAULT_CONFIG);
+
+                const sent_after_v2 = mock_connection.get_sent_diagnostics();
+                expect(sent_after_v2.length).toBe(1);
+                expect(resolve_a).toBeDefined();
+
+                // A resumes: its captured v1 is now older than the published
+                // v2, so it must be dropped (version dominates the epoch).
+                resolve_a?.();
+                await publish_a;
+
+                const sent_after_a_resumes =
+                    mock_connection.get_sent_diagnostics();
+                expect(sent_after_a_resumes.length).toBe(1);
+            }
+        );
     });
 
     describe('clear_diagnostics', () => {
