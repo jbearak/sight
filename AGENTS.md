@@ -194,12 +194,13 @@ call directives (`@lsp-do`, `@lsp-run`, `@lsp-include`) and auto-detected
 - Cycle detection and configurable max depth (`cross_file.max_backward_depth`, `cross_file.max_forward_depth`, `cross_file.max_chain_depth`, defaults 10, 10, 20; user-facing `crossFile.maxBackwardDepth`, `crossFile.maxForwardDepth`, `crossFile.maxChainDepth`)
 - Paths containing macro references are skipped
 - Caller-independent forward-closure memo (#234, on by default): nested
-  closures cached keyed by content hash / effective call type / WD / depth /
-  caps / dep-graph version; only standalone, diagnostic-free closures are
-  stored, served only when disjoint from the caller's dedup state (the
-  visited-delta is replayed on serve), and evicted in lockstep with
-  ScopeResolver's scope cache. See docs/cross-file.md "Forward-Closure
-  Caching Semantics"
+  closures cached by semantic inputs (callee content hash, effective call type,
+  inherited working directory, depth caps, and dependency-graph version), not
+  caller identity. Only standalone, diagnostic-free closures are stored. Serves
+  require disjoint caller dedup state, replay the cached visited-delta, and are
+  evicted with ScopeResolver's scope cache. Standalone files affect the inherited
+  working-directory input but do not otherwise make the forward closure
+  caller-dependent.
 
 ### LSP Features
 
@@ -286,7 +287,16 @@ Includes LRU eviction and `wait_for_update(uri)` to avoid race conditions betwee
 (backward-directive registration + indexer overlay) are transactional (#184):
 staged during the parse and applied only after `commit_state`'s guards pass,
 with a non-registering working-directory probe and a disk re-sync on close.
-See docs/cross-file.md "Backward-Directive Registration Timing".
+Maintainer invariant: discarded parses, failed parses, and stale close/dispose
+races must not mutate shared cross-file state, so no stale edge is added and no
+valid edge is dropped. Ancestor reads register **effective** directives for the
+active mode: auto mode preserves dependency-graph parents for directive-less
+files, explicit mode registers raw directives only, and standalone files have
+empty effective backward directives. Because parse-cache entries vary by
+working directory but backward registration is per URI, auto-mode cache hits for
+directive-less files must re-sync registration instead of trusting a prior stamp;
+memo serves do not register and rely on normal cache eviction/content changes to
+refresh registrations.
 
 **Debounce Manager** (`src/utils/debounce-manager.ts`): Batches rapid document
 changes with backpressure handling and metrics.
