@@ -1,36 +1,46 @@
 /**
- * Gate diagnostics publication by document version, while allowing counted
- * same-version force republishes for dependency-triggered recomputation.
+ * Gate diagnostics publication by document version and per-URI force epoch.
  */
 export class DiagnosticsPublishGate {
-    private last_published: Map<string, number> = new Map();
-    private force_budget: Map<string, number> = new Map();
+    private last_published_version: Map<string, number> = new Map();
+    private last_published_epoch: Map<string, number> = new Map();
+    private current_epoch: Map<string, number> = new Map();
 
-    would_publish(uri: string, version: number): boolean {
-        const last_version = this.last_published.get(uri);
-        if (last_version === undefined || version > last_version) {
-            return true;
-        }
-
-        const budget = this.force_budget.get(uri) ?? 0;
-        return version === last_version && budget > 0;
+    get_current_epoch(uri: string): number {
+        return this.current_epoch.get(uri) ?? 0;
     }
 
-    try_consume_publish(uri: string, version: number): boolean {
-        const last_version = this.last_published.get(uri);
-        if (last_version === undefined || version > last_version) {
-            this.last_published.set(uri, version);
-            this.force_budget.delete(uri);
+    would_publish(uri: string, version: number, epoch: number): boolean {
+        const my_last_version = this.last_published_version.get(uri);
+        if (my_last_version === undefined || version > my_last_version) {
             return true;
         }
 
-        const budget = this.force_budget.get(uri) ?? 0;
-        if (version === last_version && budget > 0) {
-            if (budget === 1) {
-                this.force_budget.delete(uri);
-            } else {
-                this.force_budget.set(uri, budget - 1);
-            }
+        if (version < my_last_version) {
+            return false;
+        }
+
+        const my_current_epoch = this.current_epoch.get(uri) ?? 0;
+        const my_last_epoch = this.last_published_epoch.get(uri) ?? 0;
+        return epoch === my_current_epoch && epoch > my_last_epoch;
+    }
+
+    try_consume_publish(uri: string, version: number, epoch: number): boolean {
+        const my_last_version = this.last_published_version.get(uri);
+        if (my_last_version === undefined || version > my_last_version) {
+            this.last_published_version.set(uri, version);
+            this.last_published_epoch.set(uri, epoch);
+            return true;
+        }
+
+        if (version < my_last_version) {
+            return false;
+        }
+
+        const my_current_epoch = this.current_epoch.get(uri) ?? 0;
+        const my_last_epoch = this.last_published_epoch.get(uri) ?? 0;
+        if (epoch === my_current_epoch && epoch > my_last_epoch) {
+            this.last_published_epoch.set(uri, epoch);
             return true;
         }
 
@@ -38,12 +48,12 @@ export class DiagnosticsPublishGate {
     }
 
     mark_force_republish(uri: string): void {
-        const budget = this.force_budget.get(uri) ?? 0;
-        this.force_budget.set(uri, budget + 1);
+        this.current_epoch.set(uri, (this.current_epoch.get(uri) ?? 0) + 1);
     }
 
     forget(uri: string): void {
-        this.last_published.delete(uri);
-        this.force_budget.delete(uri);
+        this.last_published_version.delete(uri);
+        this.last_published_epoch.delete(uri);
+        this.current_epoch.delete(uri);
     }
 }

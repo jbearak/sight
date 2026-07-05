@@ -237,7 +237,13 @@ export class DiagnosticsProvider {
         scope_resolver?: ScopeResolver,
         cancellation_token?: CancellationToken
     ): Promise<{ diagnostics: Diagnostic[]; pending: boolean }> {
-        if (!this.publish_gate.would_publish(document.uri, document.version)) {
+        const my_epoch = this.publish_gate.get_current_epoch(document.uri);
+
+        if (!this.publish_gate.would_publish(
+            document.uri,
+            document.version,
+            my_epoch
+        )) {
             return { diagnostics: [], pending: false };
         }
 
@@ -245,7 +251,8 @@ export class DiagnosticsProvider {
         if (!config?.diagnostics?.enabled) {
             if (!this.publish_gate.try_consume_publish(
                 document.uri,
-                document.version
+                document.version,
+                my_epoch
             )) {
                 return { diagnostics: [], pending: false };
             }
@@ -268,7 +275,8 @@ export class DiagnosticsProvider {
 
         if (!this.publish_gate.try_consume_publish(
             document.uri,
-            document.version
+            document.version,
+            my_epoch
         )) {
             return { diagnostics: [], pending: is_pending };
         }
@@ -293,6 +301,8 @@ export class DiagnosticsProvider {
         scope_resolver?: ScopeResolver,
         cancellation_token?: CancellationToken
     ): Promise<Diagnostic[]> {
+        const cache_epoch_at_start =
+            this.publish_gate.get_current_epoch(document.uri);
         // Generate config hash for cache key
         const config_hash = this.compute_config_hash(config);
         
@@ -725,13 +735,21 @@ export class DiagnosticsProvider {
             }
         }
 
-        // Cache the filtered diagnostics
-        let cache_for_uri = this.filtered_cache.get(document.uri);
-        if (!cache_for_uri) {
-            cache_for_uri = new Map();
-            this.filtered_cache.set(document.uri, cache_for_uri);
+        // Cache the filtered diagnostics if no force epoch advanced mid-run.
+        if (
+            this.publish_gate.get_current_epoch(document.uri) ===
+            cache_epoch_at_start
+        ) {
+            let cache_for_uri = this.filtered_cache.get(document.uri);
+            if (!cache_for_uri) {
+                cache_for_uri = new Map();
+                this.filtered_cache.set(document.uri, cache_for_uri);
+            }
+            cache_for_uri.set(
+                `${document.version}:${config_hash}`,
+                the_diagnostics
+            );
         }
-        cache_for_uri.set(`${document.version}:${config_hash}`, the_diagnostics);
 
         return the_diagnostics;
     }
