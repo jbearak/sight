@@ -99,7 +99,7 @@ export const DEFAULT_SETTINGS: StataLSPConfig = {
         severity: {
             undefinedMacro: 'warning',
             undefinedVariable: 'off',
-            styleWarnings: 'hint',
+            styleWarnings: 'information',
             malformedOperator: 'warning',
             spacedCompoundOperator: 'information',
             invalidOperatorSequence: 'error',

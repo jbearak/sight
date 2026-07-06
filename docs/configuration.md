@@ -24,7 +24,7 @@ Control how the LSP reports errors, warnings, and other diagnostics.
 | `sight.diagnostics.enabled`                    | boolean | `true`          | Enable or disable all diagnostics                                                                                     |
 | `sight.diagnostics.severity.undefinedMacro`    | enum    | `"warning"`     | Severity level for undefined macro references. Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"`    |
 | `sight.diagnostics.severity.undefinedVariable` | enum    | `"off"`         | [Experimental] Severity level for undefined variable references. Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"` |
-| `sight.diagnostics.severity.styleWarnings`     | enum    | `"hint"`        | Severity level for style warnings. Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"`                |
+| `sight.diagnostics.severity.styleWarnings`     | enum    | `"information"` | Severity level for style warnings. Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"`                |
 | `sight.diagnostics.severity.malformedOperator` | enum    | `"warning"`     | Severity for malformed operator diagnostics (e.g., `= =` instead of `==`). Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"` |
 | `sight.diagnostics.severity.spacedCompoundOperator` | enum | `"information"` | Severity for spaced compound operator diagnostics that Stata accepts as the compact form (e.g., `< =` → `<=`). Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"` |
 | `sight.diagnostics.severity.invalidOperatorSequence` | enum | `"error"`     | Severity for invalid operator sequence diagnostics (e.g., `< \|`). Options: `"error"`, `"warning"`, `"information"`, `"hint"`, `"off"` |
@@ -323,7 +323,7 @@ indentation = false
 [diagnostics.severity]
 undefinedMacro = "warning"
 undefinedVariable = "off"
-styleWarnings = "hint"
+styleWarnings = "information"
 malformedOperator = "warning"
 spacedCompoundOperator = "information"
 invalidOperatorSequence = "error"
