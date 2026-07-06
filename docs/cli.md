@@ -48,6 +48,15 @@ Exit codes:
 
 ## CI Examples
 
+Both examples run `sight check` on pull requests and on pushes to your default
+branch (`main`). Pushing to a branch that already has an open pull request runs
+the check only once — the push-to-`main` trigger is scoped to `main` precisely
+so it does not duplicate the pull-request run.
+
+Running the check does not by itself block a merge. To prevent broken code from
+landing, mark the Sight check as a required status check (GitHub branch
+protection) or a merge check (Bitbucket), so a failing check stops the merge.
+
 ### GitHub Actions
 
 Use [`jbearak/setup-sight`](https://github.com/jbearak/setup-sight) to install
@@ -58,9 +67,13 @@ to `.github/workflows/sight.yml`:
 ```yaml
 name: Sight
 
+# Runs on pull requests and on pushes to the default branch (main).
+# Scoping push to main avoids a duplicate run when you push to a branch
+# that already has an open pull request (pull_request already covers that).
 "on":
-  pull_request:
   push:
+    branches: [main]
+  pull_request:
 
 jobs:
   sight:
@@ -81,14 +94,28 @@ Install Sight from npm in a Node build image. You can copy
 to `bitbucket-pipelines.yml`:
 
 ```yaml
+# Runs on pull requests and on pushes to the default branch (main).
+# repository-push is scoped to main so pushing to a branch with an open
+# pull request runs only once (via pullrequest-push), not twice.
 pipelines:
-  default:
-    - step:
-        name: Sight
-        image: node:24
-        script:
-          - npm install -g @jbearak/sight
-          - sight check
+  custom:
+    Sight:
+      - step:
+          name: Sight
+          image: node:24
+          script:
+            - npm install -g @jbearak/sight
+            - sight check
+
+triggers:
+  repository-push:
+    - condition: BITBUCKET_BRANCH == "main"
+      pipelines:
+        - Sight
+  pullrequest-push:
+    - condition: glob(BITBUCKET_BRANCH, "**")
+      pipelines:
+        - Sight
 ```
 
 If VS Code's YAML extension reports an unresolved Bitbucket schema reference

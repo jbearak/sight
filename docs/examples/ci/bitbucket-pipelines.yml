@@ -1,8 +1,22 @@
+# Runs on pull requests and on pushes to the default branch (main).
+# repository-push is scoped to main so pushing to a branch with an open
+# pull request runs only once (via pullrequest-push), not twice.
 pipelines:
-  default:
-    - step:
-        name: Sight
-        image: node:24
-        script:
-          - npm install -g @jbearak/sight
-          - sight check
+  custom:
+    Sight:
+      - step:
+          name: Sight
+          image: node:24
+          script:
+            - npm install -g @jbearak/sight
+            - sight check
+
+triggers:
+  repository-push:
+    - condition: BITBUCKET_BRANCH == "main"
+      pipelines:
+        - Sight
+  pullrequest-push:
+    - condition: glob(BITBUCKET_BRANCH, "**")
+      pipelines:
+        - Sight

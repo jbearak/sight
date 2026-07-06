@@ -47,7 +47,7 @@ gated by the `styleWarnings` severity.
 | <a id="unbalanced-quotes"></a>`UNBALANCED_QUOTES` | error | A string literal is opened but never closed on the same statement. |
 | <a id="unbalanced-block-comment"></a>`UNBALANCED_BLOCK_COMMENT` | error | `/*` is not matched by `*/`. |
 | <a id="unterminated-statement"></a>`UNTERMINATED_STATEMENT` | error | A statement runs off the end of the file in `#delimit ;` mode without a terminating `;`. |
-| <a id="continuation-no-space"></a>`CONTINUATION_NO_SPACE` | hint (`styleWarnings`) | `///` continuation marker not preceded by whitespace (`foo///` instead of `foo ///`). |
+| <a id="continuation-no-space"></a>`CONTINUATION_NO_SPACE` | information (`styleWarnings`) | `///` continuation marker not preceded by whitespace (`foo///` instead of `foo ///`). |
 | <a id="block-comment-in-star-comment"></a>`BLOCK_COMMENT_IN_STAR_COMMENT` | warning | A `/* ... */` block appears inside a `*` line comment, which Stata parses unexpectedly. |
 
 ## Parse and structural errors
@@ -235,7 +235,7 @@ Diagnostics keys live under `sight.*` in VS Code's `settings.json`:
   "sight.diagnostics.indentation": false,      // enable indentation diagnostics
   "sight.diagnostics.severity.undefinedMacro":              "warning",
   "sight.diagnostics.severity.undefinedVariable":           "off",
-  "sight.diagnostics.severity.styleWarnings":               "hint",
+  "sight.diagnostics.severity.styleWarnings":               "information",
   "sight.diagnostics.severity.malformedOperator":           "warning",
   "sight.diagnostics.severity.spacedCompoundOperator":      "information",
   "sight.diagnostics.severity.invalidOperatorSequence":     "error",
@@ -256,7 +256,7 @@ indentation = false
 [diagnostics.severity]
 undefinedMacro = "warning"
 undefinedVariable = "off"
-styleWarnings = "hint"
+styleWarnings = "information"
 ```
 
 See the [Project Configuration File](configuration.md#project-configuration-file)

@@ -31,7 +31,7 @@ export function createTestConfig(overrides: Partial<StataLSPConfig> = {}): Stata
             severity: {
                 undefinedMacro: 'warning',
                 undefinedVariable: 'off',
-                styleWarnings: 'hint',
+                styleWarnings: 'information',
                 malformedOperator: 'warning',
                 spacedCompoundOperator: 'information',
                 invalidOperatorSequence: 'error',
