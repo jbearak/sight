@@ -20,6 +20,7 @@ jobs:
   bump-homebrew:
     if: vars.ENABLE_HOMEBREW_BUMP == 'true'
     runs-on: ubuntu-latest
+    environment: release
     steps:
       - name: Download the macOS arm64 binary from the build run
         env:

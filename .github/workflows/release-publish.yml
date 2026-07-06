@@ -127,7 +127,7 @@ jobs:
           fi
           (cd dist && sha256sum -c sight-server.js.sha256)
           if ls client/*.vsix.sha256 >/dev/null 2>&1; then
-            (cd client && sha256sum -c *.vsix.sha256)
+            (cd client && sha256sum -c -- *.vsix.sha256)
           fi
 
       - name: Upgrade npm for trusted publishing
@@ -171,36 +171,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-  # ── Homebrew tap bump ───────────────────────────────────────────────
-  # After the release is published, open a PR against the Homebrew tap
-  # (jbearak/homebrew-sight) bumping the formula to this version, with the
-  # Apple Silicon checksum recomputed from the same build artifact this run
-  # published (no dependence on release-CDN propagation). The tap's own CI
-  # (brew audit / install / test) gates that PR, and auto-merge lands it once
-  # green — so a broken formula never reaches users. The formula edit lives in
-  # the tap repo (bin/update-formula.sh), the single source of truth.
-  #
-  # Setup (one-time), then this job activates itself:
-  #   gh secret   set HOMEBREW_TAP_TOKEN   -R jbearak/sight   # paste token
-  #   gh variable set ENABLE_HOMEBREW_BUMP -R jbearak/sight --body true
-  # HOMEBREW_TAP_TOKEN: a GitHub App installation token or fine-grained PAT
-  # scoped to jbearak/homebrew-sight with Contents:write + Pull requests:write.
-  bump-homebrew:
-    needs: publish
-    if: vars.ENABLE_HOMEBREW_BUMP == 'true'
-    runs-on: ubuntu-latest
-    permissions:
-      actions: read
-      contents: read
-    steps:
-      - name: Download the macOS arm64 binary from the build run
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          BUILD_RUN_ID: ${{ inputs.build_run_id }}
-          TAG: ${{ inputs.tag }}
-        run: gh run download "$BUILD_RUN_ID" --repo jbearak/sight --name "release-$TAG" --dir art
-
+      # After the release is published, open a PR against the Homebrew tap
+      # (jbearak/homebrew-sight) bumping the formula to this version, with the
+      # Apple Silicon checksum recomputed from the same build artifact this run
+      # published. Keeping these steps in the release environment lets
+      # HOMEBREW_TAP_TOKEN live as an environment secret without a second
+      # release approval.
+      #
+      # Setup (one-time), then these steps activate themselves:
+      #   gh secret   set HOMEBREW_TAP_TOKEN   -R jbearak/sight --env release
+      #   gh variable set ENABLE_HOMEBREW_BUMP -R jbearak/sight --body true
+      # HOMEBREW_TAP_TOKEN: a GitHub App installation token or fine-grained PAT
+      # scoped to jbearak/homebrew-sight with Contents:write + Pull requests:write.
       - name: Checkout Homebrew tap
+        if: vars.ENABLE_HOMEBREW_BUMP == 'true'
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           repository: jbearak/homebrew-sight
@@ -210,14 +194,16 @@ jobs:
           persist-credentials: false
           path: tap
 
-      - name: Bump formula
+      - name: Bump Homebrew formula
+        if: vars.ENABLE_HOMEBREW_BUMP == 'true'
         env:
           TAG: ${{ inputs.tag }}
         run: |
           VERSION="${TAG#v}"
-          tap/bin/update-formula.sh "$VERSION" art/bin/sight-darwin-arm64
+          tap/bin/update-formula.sh "$VERSION" bin/sight-darwin-arm64
 
-      - name: Open bump PR + enable auto-merge
+      - name: Open Homebrew bump PR + enable auto-merge
+        if: vars.ENABLE_HOMEBREW_BUMP == 'true'
         working-directory: tap
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
