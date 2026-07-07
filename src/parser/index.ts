@@ -2004,7 +2004,9 @@ export class StataParser {
 
     // Parse body
     const body: StataNode[] = [];
+    let is_brace_else = false;
     if (this.check('LBRACE')) {
+      is_brace_else = true;
       const lbrace_index = this.current;
       const lbrace_token = this.advance(); // consume {
 
@@ -2037,10 +2039,21 @@ export class StataParser {
       }
     }
 
+    // For a single-statement else the block has no closing brace of its own,
+    // so its extent is exactly its body. Use the last body node's end rather
+    // than this.previous(), which can be a statement terminator whose range
+    // spills onto the next line (e.g. the following `end` / ancestor `}`).
+    // Otherwise that ancestor closer inherits the else's depth and is wrongly
+    // flagged as under-indented. The brace form keeps using the `}` token.
+    const end_position =
+      !is_brace_else && body.length > 0
+        ? body[body.length - 1].range.end
+        : this.previous().range.end;
+
     return {
       type: 'else',
       body,
-      range: this.makeRange(elseToken.range.start, this.previous().range.end),
+      range: this.makeRange(elseToken.range.start, end_position),
     };
   }
 
