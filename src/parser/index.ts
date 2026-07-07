@@ -111,7 +111,7 @@ export class StataParser {
     } else if (this.check('WORD') && this.isPrefixCommand(this.peek().value)) {
       // Prefix command - delegate to parseCommand which handles prefix parsing
       node = this.parseCommand();
-    } else if (this.checkWord('program') && this.peekNext()?.value === 'define') {
+    } else if (this.checkWord('program') && this.peekValueAfterWhitespace() === 'define') {
       node = this.parseProgramDefinition();
     } else if (this.checkWord('syntax')) {
       node = this.parseSyntaxCommand();
@@ -336,6 +336,12 @@ export class StataParser {
   private parseProgramDefinition(): ProgramNode {
     const start_token = this.advance(); // consume 'program'
 
+    // In `#delimit ;` mode the lexer emits a WHITESPACE token between `program`
+    // and `define` (elided in `#delimit cr` mode); skip it so the `define`
+    // check succeeds and the program is recognized rather than misparsed as an
+    // ordinary command (issue #305).
+    this.skipWhitespace();
+
     if (!this.checkWord('define')) {
       this.addError('Expected "define" after "program"', this.peek().range);
     } else {
@@ -362,7 +368,24 @@ export class StataParser {
     const was_inside_program = this.inside_program;
     this.inside_program = true;
 
-    while (!this.isAtEnd() && !this.checkWord('end')) {
+    // Collect any leading trivia before re-checking `end`, mirroring
+    // parseBraceBody (issue #301). In `#delimit ;` mode the lexer emits
+    // WHITESPACE tokens — and a comment-only line before `end` is a comment
+    // followed by WHITESPACE — that `#delimit cr` mode elides. Without
+    // consuming that trivia here, parseStatement() would run at the comment,
+    // swallow it plus the following whitespace, and then parse `end` as an
+    // ordinary command, losing the terminator and running the program off to
+    // EOF (issue #305). Carrying the trivia forward via pending_trivia so it
+    // attaches to the statement after the program matches how parseBraceBody
+    // handles a comment before `}`. Inert in cr mode (no WHITESPACE tokens).
+    while (!this.isAtEnd()) {
+      const my_trivia = this.collectTrivia();
+      if (my_trivia.length > 0) {
+        this.pending_trivia.push(...my_trivia);
+      }
+      if (this.checkWord('end') || this.isAtEnd()) {
+        break;
+      }
       const stmt = this.parseStatement();
       if (stmt) {
         body.push(stmt);
@@ -876,35 +899,42 @@ export class StataParser {
 
     // Special handling for frame prefix: frame name: command
     // This handles cases like `capture frame this: that`
-    if (commandName === 'frame' && this.check('WORD')) {
+    // In `#delimit ;` mode the lexer emits a WHITESPACE token between `frame`
+    // and the frame name (elided in `#delimit cr` mode); skip it before the
+    // WORD check so frame-prefix syntax is still recognized (issue #305).
+    // saved_pos is captured before that skip so a non-frame-prefix command
+    // backtracks fully and falls through to parseCommandBody unchanged.
+    if (commandName === 'frame') {
       const saved_pos = this.current;
-      const frame_name_token = this.advance();
-      this.skipTrivia();
-      if (this.check('COLON')) {
-        // This is frame prefix syntax: frame name: command
-        this.advance(); // consume colon
+      this.skipWhitespace();
+      if (this.check('WORD')) {
+        const frame_name_token = this.advance();
+        this.skipTrivia();
+        if (this.check('COLON')) {
+          // This is frame prefix syntax: frame name: command
+          this.advance(); // consume colon
 
-        // Create a prefix node for the frame
-        const frame_prefix: PrefixNode = {
-          type: 'prefix',
-          name: 'frame',
-          fullName: 'frame',
-          frameName: frame_name_token.value,
-          has_colon: true,
-          range: this.makeRange(
-            command_token.range.start,
-            this.previous().range.end
-          ),
-        };
+          // Create a prefix node for the frame
+          const frame_prefix: PrefixNode = {
+            type: 'prefix',
+            name: 'frame',
+            fullName: 'frame',
+            frameName: frame_name_token.value,
+            has_colon: true,
+            range: this.makeRange(
+              command_token.range.start,
+              this.previous().range.end
+            ),
+          };
 
-        // Use shared helper for consistent frame prefix parsing
-        return this.parseFramePrefixedCommand(
-          frame_prefix, prefixes, start_token
-        );
-      } else {
-        // Not frame prefix syntax, backtrack
-        this.current = saved_pos;
+          // Use shared helper for consistent frame prefix parsing
+          return this.parseFramePrefixedCommand(
+            frame_prefix, prefixes, start_token
+          );
+        }
       }
+      // Not frame prefix syntax, backtrack
+      this.current = saved_pos;
     }
 
     // Delegate to parseCommandBody for varlist/expression/qualifier/option parsing
@@ -941,6 +971,11 @@ export class StataParser {
         fullName: prefix_token.value,
         range: prefix_token.range,
       };
+      // In `#delimit ;` mode the lexer emits a WHITESPACE token between the
+      // prefix and its optional colon (elided in `#delimit cr` mode); skip it
+      // before the colon check so `frame m: quietly : cmd` is not split at the
+      // colon, mirroring the main prefix loop (issue #305).
+      this.skipWhitespace();
       // Consume colon after any prefix command
       if (this.check('COLON')) {
         this.advance();
@@ -1006,6 +1041,14 @@ export class StataParser {
     // or 'if' keyword). Use file path coalescing for file commands.
     const varlist: IdentifierNode[] = [];
 
+    // In `#delimit ;` mode the lexer emits a WHITESPACE token between the
+    // command name and its first argument (elided in `#delimit cr` mode).
+    // Skip it so the first argument — including a file path — is recognized
+    // rather than the varlist collection breaking immediately (issue #305).
+    // Whitespace only: a comment here belongs to the following statement's
+    // trivia and must not be discarded.
+    this.skipWhitespace();
+
     // For file commands, try to parse the first argument as a file path
     const is_file_cmd = isFileCommand(command_name);
     const has_file_arg = this.check('WORD') || this.check('NUMBER') ||
@@ -1021,6 +1064,17 @@ export class StataParser {
     // Parse remaining arguments normally (including parenthesized groups)
     while (!this.check('COMMA') && !this.isTrivia() &&
            !this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
+      // In `#delimit ;` mode the lexer emits WHITESPACE tokens between varlist
+      // items that `#delimit cr` mode elides. Skip the interstitial spacing so
+      // each item is collected as its own entry instead of the loop breaking
+      // at the first space (issue #305). Whitespace is the item *separator*, so
+      // skipping it still yields separate entries; it must not merge fragments
+      // that coalesce only when adjacent (wildcards like `var*`), which the
+      // isAdjacentToken()-gated coalescing below still handles correctly.
+      if (this.check('WHITESPACE')) {
+        this.advance();
+        continue;
+      }
       // Stop at 'if' keyword for if-qualifier
       if (this.checkWord('if')) {
         break;
@@ -1106,6 +1160,12 @@ export class StataParser {
             fullName: optionToken.value,
             range: optionToken.range,
           };
+
+          // In `#delimit ;` mode a WHITESPACE token may sit between the option
+          // name and its `(...)` argument (elided in `#delimit cr` mode); skip
+          // it so the argument still attaches to the option rather than the
+          // paren group being misread as a separate option (issue #305).
+          this.skipWhitespace();
 
           // Check for option argument
           if (this.check('LPAREN')) {
@@ -1272,6 +1332,12 @@ export class StataParser {
   ): CommandNode {
     const start_pos = command_token.range.start;
 
+    // In `#delimit ;` mode the lexer emits WHITESPACE tokens around the macro
+    // name, colon, and varlist that `#delimit cr` mode elides. Skip that
+    // spacing before each discrete check so the command is not misparsed
+    // (issue #305).
+    this.skipWhitespace();
+
     // Parse macro name
     if (!this.check('WORD')) {
       this.addError('Expected macro name after unab', this.peek().range);
@@ -1290,6 +1356,8 @@ export class StataParser {
     // This keeps varlists pure (only variable names) while preserving syntax
     let has_colon_before_varlist = false;
 
+    this.skipWhitespace();
+
     // Expect colon
     if (!this.check('COLON')) {
       this.addError(
@@ -1302,6 +1370,7 @@ export class StataParser {
     }
 
     // Parse variable list after colon
+    this.skipWhitespace();
     while ((this.check('WORD') || this.check('MACRO_REF_LOCAL') ||
             this.check('MACRO_REF_GLOBAL') ||
             (this.check('OPERATOR') && (this.peek().value === '*' || this.peek().value === '?'))) &&
@@ -1327,6 +1396,11 @@ export class StataParser {
         name: name,
         range: { start: var_token.range.start, end: end_range },
       });
+
+      // Skip interstitial whitespace before the next varlist item. Placed
+      // after wildcard coalescing so `var*` is still joined via adjacency
+      // (issue #305).
+      this.skipWhitespace();
     }
 
     // Parse options (after comma) - same as regular commands
@@ -1344,6 +1418,11 @@ export class StataParser {
             fullName: option_token.value,
             range: option_token.range,
           };
+
+          // Skip a WHITESPACE token between the option name and its `(...)`
+          // argument in `#delimit ;` mode so the argument still attaches
+          // (issue #305).
+          this.skipWhitespace();
 
           // Check for option argument
           if (this.check('LPAREN')) {
@@ -1389,6 +1468,14 @@ export class StataParser {
 
     while (!this.check('STATEMENT_TERMINATOR') &&
            !this.isAtEnd() && !this.isTrivia()) {
+      // In `#delimit ;` mode the lexer emits WHITESPACE tokens between the
+      // names that `#delimit cr` mode elides; skip that spacing so each name
+      // is collected separately instead of the loop breaking at the first
+      // space (issue #305).
+      if (this.check('WHITESPACE')) {
+        this.advance();
+        continue;
+      }
       const is_varlist_token = this.check('WORD') || this.check('STRING') ||
           this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL');
       if (is_varlist_token) {
@@ -1424,14 +1511,25 @@ export class StataParser {
     let allows_arbitrary_options = false;
     const seen_option_names = new Set<string>();
 
-    // Collect all tokens until statement terminator or comment
+    // Collect all tokens until statement terminator or comment. In
+    // `#delimit ;` mode the lexer emits interstitial WHITESPACE tokens that
+    // `#delimit cr` mode elides; the index-based spec parsers below assume
+    // cr-mode adjacency (e.g. an option name immediately followed by `(`), so
+    // consume the whitespace but do not collect it. This makes the token array
+    // identical to cr mode and keeps `syntax , opt (string)` parsing the same
+    // in both modes (issue #305). Whitespace is not meaningful within a syntax
+    // spec, so dropping it is safe; comments still stop collection via
+    // isTrivia().
     const syntax_tokens: Token[] = [];
     while (
       !this.check('STATEMENT_TERMINATOR') &&
       !this.isAtEnd() &&
       !this.isTrivia()
     ) {
-      syntax_tokens.push(this.advance());
+      const my_token = this.advance();
+      if (my_token.type !== 'WHITESPACE') {
+        syntax_tokens.push(my_token);
+      }
     }
 
     // Parse the collected tokens
@@ -2314,6 +2412,14 @@ export class StataParser {
    * condition - they just have a frame name followed by brace or colon.
    */
   private parseFrameBlock(): ControlFlowNode | CommandNode | null {
+    // Index of the `frame` token itself. Both non-block fallbacks below
+    // restore to exactly this index so parseCommand re-parses `frame` and its
+    // arguments from the start. A fixed offset (e.g. `saved_position - 1`)
+    // assumed `#delimit cr` adjacency where `frame` immediately precedes the
+    // name; in `#delimit ;` mode a WHITESPACE token sits between them, so the
+    // offset landed on the whitespace and dropped `frame` from the re-parse
+    // (issue #305).
+    const frame_index = this.current;
     const frame_token = this.advance(); // consume 'frame'
     const frame_start_line = frame_token.range.start.line;
 
@@ -2323,7 +2429,7 @@ export class StataParser {
     if (!this.check('WORD')) {
       // Not a frame block/prefix syntax, fall back to command parsing
       // Reset position and return null to let parseCommand handle it
-      this.current--;
+      this.current = frame_index;
       return null;
     }
 
@@ -2331,7 +2437,6 @@ export class StataParser {
 
     // Check if followed by brace (frame block) or colon (frame prefix)
     // We need to look ahead past the frame name
-    const saved_position = this.current;
     this.advance(); // consume frame name
     this.skipTrivia();
 
@@ -2360,7 +2465,7 @@ export class StataParser {
     if (!this.check('LBRACE')) {
       // Not frame block syntax (might be `frame create` or similar)
       // Reset position and return null to let parseCommand handle it
-      this.current = saved_position - 1; // Reset to before 'frame' was consumed
+      this.current = frame_index; // Reset to before 'frame' was consumed
       return null;
     }
 
@@ -2403,6 +2508,12 @@ export class StataParser {
   private parseUnabCommandBody(command_token: Token): CommandNode {
     const start_pos = command_token.range.start;
 
+    // In `#delimit ;` mode the lexer emits WHITESPACE tokens around the macro
+    // name, colon, and varlist that `#delimit cr` mode elides. Skip that
+    // spacing before each discrete check so the command is not misparsed
+    // (issue #305).
+    this.skipWhitespace();
+
     // Parse macro name
     if (!this.check('WORD')) {
       this.addError('Expected macro name after unab', this.peek().range);
@@ -2426,6 +2537,8 @@ export class StataParser {
     // This keeps varlists pure (only variable names) while preserving syntax
     let has_colon_before_varlist = false;
 
+    this.skipWhitespace();
+
     // Expect colon
     if (!this.check('COLON')) {
       this.addError(
@@ -2438,6 +2551,7 @@ export class StataParser {
     }
 
     // Parse variable list after colon
+    this.skipWhitespace();
     while ((this.check('WORD') || this.check('MACRO_REF_LOCAL') ||
             this.check('MACRO_REF_GLOBAL') ||
             (this.check('OPERATOR') && (this.peek().value === '*' || this.peek().value === '?'))) &&
@@ -2463,6 +2577,11 @@ export class StataParser {
         name: name,
         range: { start: var_token.range.start, end: end_range },
       });
+
+      // Skip interstitial whitespace before the next varlist item. Placed
+      // after wildcard coalescing so `var*` is still joined via adjacency
+      // (issue #305).
+      this.skipWhitespace();
     }
 
     // Parse options (after comma)
@@ -2479,6 +2598,10 @@ export class StataParser {
             fullName: option_token.value,
             range: option_token.range,
           };
+          // Skip a WHITESPACE token between the option name and its `(...)`
+          // argument in `#delimit ;` mode so the argument still attaches
+          // (issue #305).
+          this.skipWhitespace();
           if (this.check('LPAREN')) {
             const parsed = this.parse_option_argument_inside_parens();
             option.argument = parsed.argument;
@@ -2783,9 +2906,22 @@ export class StataParser {
     return this.tokens[this.current];
   }
 
-  private peekNext(): Token | undefined {
-    if (this.current + 1 >= this.tokens.length) return undefined;
-    return this.tokens[this.current + 1];
+  /**
+   * Value of the next token after any interstitial WHITESPACE tokens, without
+   * consuming anything. `#delimit ;` mode emits a WHITESPACE token between
+   * tokens that `#delimit cr` mode elides, so a two-token lookahead such as
+   * `program` + `define` needs to skip that spacing (issue #305). Whitespace
+   * only — a comment between the two tokens is not skipped, matching cr mode,
+   * where such a comment is likewise a distinct token that defeats the
+   * adjacency lookahead.
+   */
+  private peekValueAfterWhitespace(): string | undefined {
+    let offset = 1;
+    while (this.current + offset < this.tokens.length &&
+           this.tokens[this.current + offset].type === 'WHITESPACE') {
+      offset++;
+    }
+    return this.tokens[this.current + offset]?.value;
   }
 
   private previous(): Token {
@@ -3042,7 +3178,14 @@ export class StataParser {
       // Stray token and split literal detection - skip if in string context, inside brackets, or if this is a delimiter-only STRING
       // We also skip delimiter-only STRING tokens because they are part of the string literal structure
       // Skip when inside brackets (bracket_depth > 0) because subscript expressions like var[_n-1] are valid
-      if (current_state === 'AFTER_RHS' && token.type !== 'LPAREN' && token.type !== 'RPAREN' && token.type !== 'LBRACKET' && token.type !== 'RBRACKET' && bracket_depth === 0 && !in_string_context && !is_delimiter_only) {
+      // Skip WHITESPACE: in `#delimit ;` mode the lexer preserves interstitial
+      // WHITESPACE tokens (elided in `#delimit cr` mode), which reach this
+      // check in AFTER_RHS state (e.g. the space in `if z > 1 in 1/10`). A
+      // space is never a stray token, so treating it as one produced a false
+      // STRAY_TOKEN_IN_CONDITION on valid semicolon-delimited qualifiers; the
+      // state machine already excludes WHITESPACE from transitions below
+      // (issue #305).
+      if (current_state === 'AFTER_RHS' && token.type !== 'WHITESPACE' && token.type !== 'LPAREN' && token.type !== 'RPAREN' && token.type !== 'LBRACKET' && token.type !== 'RBRACKET' && bracket_depth === 0 && !in_string_context && !is_delimiter_only) {
         // Check for split literal patterns first
         if (prev_token && this.detectSplitLiteral(prev_token, token)) {
           // Split literal diagnostic already emitted by detectSplitLiteral
