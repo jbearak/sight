@@ -7,6 +7,49 @@ import { diagnostic_code_description_fields } from '../utils/diagnostic-code-des
 const CONTROL_FLOW_RE = /^(if|foreach|while|program|mata|python)\b/;
 const FIRST_WORD_RE = /^(\w+)\b/;
 
+// Parse/lex errors that specifically corrupt BLOCK NESTING (brace pairing /
+// program-body extent), making the AST-derived indentation depth untrustworthy
+// in the region around them. When one is present, an error-recovering parse can
+// misparent following statements into an unterminated block, giving correctly-
+// indented lines a bogus expected depth. We suppress the AST-depth indentation
+// check on the affected block only (see compute_structural_taint) rather than
+// trusting the corrupted depth. Codes are compared as strings because
+// parser/lexer codes are not all mirrored into StataDiagnosticCode.
+//
+// Only errors that specifically corrupt BLOCK NESTING (brace pairing /
+// program-body extent / whole-file tokenization) belong here: an
+// error-recovering parse can then misparent following statements into an
+// unterminated block, giving correctly-indented lines a bogus expected depth.
+// We suppress the AST-depth indentation check on the smallest enclosing block
+// (see compute_structural_taint) rather than trust the corrupted depth. Codes
+// are compared as strings because parser/lexer codes are not all mirrored into
+// StataDiagnosticCode.
+//
+// Deliberately EXCLUDED are codes that leave block nesting intact, where
+// tainting would only hide genuine indentation diagnostics with no false
+// positive to prevent:
+//  - UNBALANCED_PARENTHESES: parentheses are not block delimiters, so a
+//    brace-balanced block with a bad paren still has trustworthy depths.
+//  - the generic SYNTAX_ERROR: parser recovery emits it for statement-local
+//    problems too (e.g. `unab m x`), and since the smallest enclosing block of
+//    a program-body error is the whole program, tainting it would swallow the
+//    program's real indentation diagnostics. Brace/block misparenting already
+//    surfaces a brace-structure code (e.g. an unterminated `#delimit ;` brace
+//    block emits ORPHAN_CLOSE_BRACE on the stray close brace), so dropping the
+//    generic code loses no genuine coverage.
+//  - FORVALUES_SYNTAX, STRAY_TOKEN_IN_CONDITION, etc.: statement-local.
+const STRUCTURAL_NESTING_ERROR_CODES = new Set<string>([
+  'OPEN_BRACE_ALONE',
+  'ORPHAN_CLOSE_BRACE',
+  'BRACE_NOT_ALONE',
+  'BRACE_ELSE_SAME_LINE',
+  'CODE_AFTER_OPEN_BRACE',
+  'UNCLOSED_BLOCK',
+  'MISSING_PROGRAM_END',
+  'UNBALANCED_QUOTES',
+  'UNBALANCED_BLOCK_COMMENT',
+]);
+
 export class IndentationDiagnosticAnalyzer {
   analyze(document: DocumentState, config: StataLSPConfig): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
@@ -29,20 +72,29 @@ export class IndentationDiagnosticAnalyzer {
     const block_comment_lines = this.compute_block_comment_lines(lines, document.tokens);
     
     // Compute continuation lines from tokens for efficient lookup
-    const continuation_lines = document.tokens 
+    const continuation_lines = document.tokens
       ? this.compute_continuation_lines(document.tokens)
       : new Set<number>();
-    
+
+    // Lines whose AST-derived depth is untrustworthy because a structural
+    // parse error corrupted the enclosing block's nesting. Range-independent,
+    // so compute once. Empty in the common (clean-parse) case.
+    const structural_taint = this.compute_structural_taint(document);
+
     for (const range of stataRanges) {
       diagnostics.push(...this.find_comment_indentation_issues(lines, range, block_comment_lines, indent_size));
       diagnostics.push(...this.find_block_indentation_issues(document, lines, range, block_comment_lines, indent_size, continuation_lines));
       
-      // NEW: Compute expected depths from AST and find unnecessary indentation issues
+      // Compute expected depths from the AST and flag lines whose actual
+      // indentation disagrees (too deep -> unnecessary, too shallow ->
+      // missing).
       const expected_depths = this.compute_expected_depths(document, range);
-      diagnostics.push(...this.find_unnecessary_indentation_issues(document, lines, range, block_comment_lines, indent_size, expected_depths, continuation_lines));
+      diagnostics.push(...this.find_ast_depth_indentation_issues(lines, range, block_comment_lines, indent_size, expected_depths, continuation_lines, structural_taint));
     }
 
-    return diagnostics;
+    // Multiple producers can flag the same line with the same code; collapse
+    // those duplicates (e.g. brace scan + AST-depth both emit MISSING).
+    return this.dedupe_by_line_and_code(diagnostics);
   }
 
   /**
@@ -428,9 +480,25 @@ export class IndentationDiagnosticAnalyzer {
                               node.type === 'frame';
       
       if (is_control_flow && node.body) {
-        // Recurse into body with increased depth
+        // Recurse into body with increased depth. Mirror the same-line
+        // child rule in compute_expected_depths: a block child that
+        // starts on the parent's line (e.g. the `if` of an `else if`)
+        // stays at the parent's depth. Without this, the two depth maps
+        // disagree and Math.max in the merge would pick the deeper,
+        // wrong value, producing spurious diagnostics on correctly
+        // formatted `else if` blocks.
         for (const child of node.body) {
-          walk_node(child, current_depth + 1);
+          // A child that starts on the parent's physical line shares that
+          // line's indentation, so it stays at the parent's depth (e.g. the
+          // `if` of `else if`, the `capture {` of `else capture {`, or the
+          // `display` of `else display 2`). Only children on a later line are
+          // indented one level deeper.
+          const child_start_line = child.range.start.line;
+          if (child_start_line === start_line) {
+            walk_node(child, current_depth);
+          } else {
+            walk_node(child, current_depth + 1);
+          }
         }
         
         // Set closing brace depth
@@ -508,11 +576,12 @@ export class IndentationDiagnosticAnalyzer {
         
         // Process body nodes with increased depth
         for (const my_child of block_node.body) {
-          // Special case: if a child starts on the same line as the parent block,
-          // it should be at the parent's indentation level, not indented.
-          // This handles "else if" where the "if" is on the same line as "else".
+          // A child that starts on the parent's physical line shares that
+          // line's indentation, so it stays at the parent's depth. Handles
+          // "else if", "else capture {", and "else display 2" (a plain command
+          // on the `else` line). Only children on a later line indent deeper.
           const child_start_line = my_child.range.start.line;
-          if (child_start_line === start_line && this.is_block_node_type(my_child)) {
+          if (child_start_line === start_line) {
             // Use parent depth for this child (same line)
             walk_node(my_child, depth);
           } else {
@@ -597,39 +666,54 @@ export class IndentationDiagnosticAnalyzer {
   }
 
   /**
-   * Find lines with unnecessary indentation at any depth.
-   * A line has unnecessary indentation if its actual indentation
-   * exceeds the expected indentation for its depth.
-   * 
+   * Find lines whose actual indentation disagrees with the AST-computed
+   * expected depth, in both directions:
+   * - actual > expected -> UNNECESSARY_INDENTATION (too deep)
+   * - actual < expected -> MISSING_INDENTATION (too shallow)
+   * - actual === expected -> no diagnostic
+   *
+   * The too-shallow check only fires for lines with a KNOWN expected depth
+   * (present in `expected_depths`). Lines absent from the map default to
+   * expected depth 0, and actual indentation can never be negative, so the
+   * guard changes nothing today; it documents intent and stays correct if
+   * the default ever changes. The too-deep check keeps its default-0
+   * behavior so top-level over-indentation of AST-unknown lines is still
+   * reported.
+   *
    * Requirements: 1.1, 2.1, 2.2
    */
-  find_unnecessary_indentation_issues(
-    document: DocumentState,
+  find_ast_depth_indentation_issues(
     lines: string[],
     range: { start: number; end: number },
     block_comment_lines: Set<number>,
     indent_size: number,
     expected_depths: Map<number, number>,
-    continuation_lines: Set<number>
+    continuation_lines: Set<number>,
+    structural_taint: Set<number>
   ): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
-    
+
     for (let i = range.start; i <= range.end && i < lines.length; i++) {
       const line = lines[i];
-      
-      // Skip excluded lines
-      if (this.should_skip_unnecessary_check(line, i, block_comment_lines, continuation_lines)) {
+
+      // Skip excluded lines, and lines whose AST depth is untrustworthy because
+      // a structural parse error corrupted the enclosing block's nesting. On a
+      // tainted line neither too-deep nor too-shallow is reliable, so suppress
+      // both rather than emit a false positive (a miss, not a false positive).
+      if (this.should_skip_unnecessary_check(line, i, block_comment_lines, continuation_lines) ||
+          structural_taint.has(i)) {
         continue;
       }
-      
+
       const actual_indent = this.get_line_indentation(line, indent_size);
-      
+
       // Get expected depth from AST, default to 0 (top-level) if not found
+      const has_known_depth = expected_depths.has(i);
       const expected_depth = expected_depths.get(i) ?? 0;
       const expected_indent = expected_depth * indent_size;
-      
-      // Check if actual indentation exceeds expected
+
       if (actual_indent > expected_indent) {
+        // Too deep: unnecessary indentation.
         diagnostics.push({
           severity: DiagnosticSeverity.Information,
           range: Range.create(
@@ -643,9 +727,174 @@ export class IndentationDiagnosticAnalyzer {
             StataDiagnosticCode.UNNECESSARY_INDENTATION
           ),
         });
+      } else if (has_known_depth && actual_indent < expected_indent) {
+        // Too shallow: missing indentation for a known block depth.
+        diagnostics.push({
+          severity: DiagnosticSeverity.Information,
+          range: Range.create(
+            Position.create(i, 0),
+            Position.create(i, actual_indent)
+          ),
+          message: 'Line appears under-indented for its block depth. Use Format Document to fix.',
+          source: 'sight',
+          code: StataDiagnosticCode.MISSING_INDENTATION,
+          ...diagnostic_code_description_fields(
+            StataDiagnosticCode.MISSING_INDENTATION
+          ),
+        });
       }
     }
-    
+
     return diagnostics;
+  }
+
+  /**
+   * Compute the set of line numbers whose AST-derived indentation depth is
+   * untrustworthy because a structural parse/lex error corrupted the enclosing
+   * block's nesting. For each structural error (see
+   * STRUCTURAL_NESTING_ERROR_CODES) we taint the smallest AST block that
+   * contains the error line, so suppression is confined to the malformed block
+   * — healthy sibling and ancestor blocks keep reporting. When no block
+   * contains the error line (top-level error), only that line is tainted.
+   *
+   * `document.diagnostics` and `document.ast` are produced by the same parse
+   * pass, so the two are consistent and the taint toggles together with the
+   * diagnostics in a single publish — no transient flicker in healthy regions.
+   *
+   * Known limitation (issue #301): the parser emits a spurious
+   * ORPHAN_CLOSE_BRACE on valid `#delimit ;` brace blocks, so those blocks are
+   * tainted and their genuine indentation issues go unreported until that
+   * parser bug is fixed. This is the conservative side of the trade-off (a
+   * miss, not a false positive).
+   */
+  private compute_structural_taint(document: DocumentState): Set<number> {
+    const tainted_lines = new Set<number>();
+
+    const the_error_lines: number[] = [];
+    for (const my_diagnostic of document.diagnostics) {
+      const my_code =
+        typeof my_diagnostic.code === 'string' ? my_diagnostic.code : '';
+      if (STRUCTURAL_NESTING_ERROR_CODES.has(my_code)) {
+        the_error_lines.push(my_diagnostic.range.start.line);
+      }
+    }
+
+    // Common case: no structural errors, nothing tainted.
+    if (the_error_lines.length === 0) {
+      return tainted_lines;
+    }
+
+    // No AST to locate the enclosing block — taint just the error lines.
+    if (!document.ast) {
+      for (const my_error_line of the_error_lines) {
+        tainted_lines.add(my_error_line);
+      }
+      return tainted_lines;
+    }
+
+    for (const my_error_line of the_error_lines) {
+      const my_block = this.find_smallest_block_containing(
+        document.ast,
+        my_error_line
+      );
+      if (my_block) {
+        for (
+          let my_line = my_block.range.start.line;
+          my_line <= my_block.range.end.line;
+          my_line++
+        ) {
+          tainted_lines.add(my_line);
+        }
+      } else {
+        tainted_lines.add(my_error_line);
+      }
+    }
+
+    return tainted_lines;
+  }
+
+  /**
+   * Find the smallest (deepest) block node whose line span contains `line`,
+   * or null if no block node contains it. "Block node" means a control-flow
+   * block (if/else/foreach/forvalues/while/program/frame) or a prefix-command
+   * brace block (`capture { }`, `quietly { }`, ...) — the constructs whose
+   * body indentation the AST-depth check relies on.
+   */
+  private find_smallest_block_containing(
+    ast: StataAST,
+    line: number
+  ): StataNode | null {
+    let best: StataNode | null = null;
+
+    const walk = (node: StataNode): void => {
+      const start_line = node.range.start.line;
+      const end_line = node.range.end.line;
+      if (line < start_line || line > end_line) {
+        return;
+      }
+      if (this.is_indentation_block_node(node)) {
+        // Descending depth-first, later matches are deeper; `<=` keeps the
+        // smallest-span (deepest) containing block.
+        if (
+          best === null ||
+          end_line - start_line <=
+            best.range.end.line - best.range.start.line
+        ) {
+          best = node;
+        }
+      }
+      if ('body' in node && Array.isArray(node.body)) {
+        for (const my_child of node.body) {
+          walk(my_child);
+        }
+      }
+    };
+
+    for (const my_node of ast.nodes) {
+      walk(my_node);
+    }
+
+    return best;
+  }
+
+  /**
+   * Whether a node opens an indentation block: a control-flow block
+   * (if/else/foreach/forvalues/while/program/frame) or a prefix-command brace
+   * block (`capture { }`, `quietly { }`, ...). Single sources the "block
+   * child" test used by both same-line depth handling and structural taint,
+   * so `else capture {` (a prefix brace opened on the same line as `else`) is
+   * treated like `else if` and not pushed one level too deep.
+   */
+  private is_indentation_block_node(node: StataNode): boolean {
+    if (this.is_block_node_type(node)) {
+      return true;
+    }
+    return node.type === 'command' && 'name' in node && node.name === '{';
+  }
+
+  /**
+   * Collapse indentation diagnostics that share the same start line and
+   * code, keeping the first occurrence. This analyzer runs multiple
+   * producers over each Stata range (comment heuristic, textual brace
+   * scan, AST-depth check), and more than one can flag the same line with
+   * the same code — e.g. the brace scan and the AST-depth check both emit
+   * MISSING_INDENTATION for an under-indented body line. A physical line
+   * has a single indentation state per code, so collapsing duplicates
+   * never drops a distinct, separately-actionable diagnostic. This also
+   * dedupes overlapping UNNECESSARY_INDENTATION from the comment heuristic
+   * and the AST-depth check.
+   */
+  private dedupe_by_line_and_code(diagnostics: Diagnostic[]): Diagnostic[] {
+    const seen_line_codes = new Set<string>();
+    const deduped: Diagnostic[] = [];
+    for (const my_diagnostic of diagnostics) {
+      const my_key = `${my_diagnostic.range.start.line}:${my_diagnostic.code}`;
+      if (seen_line_codes.has(my_key)) {
+        continue;
+      }
+      seen_line_codes.add(my_key);
+      deduped.push(my_diagnostic);
+    }
+    return deduped;
   }
 }
