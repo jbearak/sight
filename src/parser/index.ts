@@ -728,6 +728,14 @@ export class StataParser {
         range: prefix_token.range,
       };
 
+      // In `#delimit ;` mode the lexer emits WHITESPACE tokens between the
+      // prefix and what follows it — an optional colon, a chained prefix, or a
+      // `{ ... }` block (elided in `#delimit cr` mode). Skip that spacing
+      // before each of those checks so the prefix is not misparsed and its
+      // block is recognized rather than treated as a stray open brace (issue
+      // #301). Whitespace only — a comment here must not be discarded.
+      this.skipWhitespace();
+
       // Handle 'by' prefix with variable list
       if (prefix_token.value === 'by') {
         if (this.check('COLON')) {
@@ -742,6 +750,7 @@ export class StataParser {
       if (this.check('COLON')) {
         this.advance();
         prefix.has_colon = true;
+        this.skipWhitespace();
       }
 
       prefixes.push(prefix);
@@ -805,12 +814,7 @@ export class StataParser {
       this.validate_open_brace(lbrace_token, lbrace_index, has_condition_before);
 
       const body: StataNode[] = [];
-      while (!this.check('RBRACE') && !this.isAtEnd()) {
-        const stmt = this.parseStatement();
-        if (stmt) {
-          body.push(stmt);
-        }
-      }
+      body.push(...this.parseBraceBody());
       if (this.check('RBRACE')) {
         const rbrace_index = this.current;
         const rbrace_token = this.advance(); // consume }
@@ -1963,12 +1967,7 @@ export class StataParser {
       const has_condition_before = lbrace_token.range.start.line === condition_start_line;
       this.validate_open_brace(lbrace_token, lbrace_index, has_condition_before);
 
-      while (!this.check('RBRACE') && !this.isAtEnd()) {
-        const stmt = this.parseStatement();
-        if (stmt) {
-          body.push(stmt);
-        }
-      }
+      body.push(...this.parseBraceBody());
 
       if (this.check('RBRACE')) {
         const rbrace_index = this.current;
@@ -1991,6 +1990,13 @@ export class StataParser {
 
   private parseElseStatement(): ControlFlowNode {
     const elseToken = this.advance(); // consume 'else'
+
+    // In `#delimit ;` mode the lexer emits a WHITESPACE token between `else`
+    // and what follows (elided in `#delimit cr` mode), so skip that spacing
+    // before the `else if` / brace checks. Without this an `else {` on its own
+    // line is misparsed as a single-statement else whose statement is a stray
+    // `{` (issue #301). Whitespace only — a comment here must not be discarded.
+    this.skipWhitespace();
 
     // Check for 'if' (else if)
     if (this.checkWord('if')) {
@@ -2015,12 +2021,7 @@ export class StataParser {
       const has_condition_before = lbrace_token.range.start.line === elseToken.range.start.line;
       this.validate_open_brace(lbrace_token, lbrace_index, has_condition_before);
 
-      while (!this.check('RBRACE') && !this.isAtEnd()) {
-        const stmt = this.parseStatement();
-        if (stmt) {
-          body.push(stmt);
-        }
-      }
+      body.push(...this.parseBraceBody());
 
       if (this.check('RBRACE')) {
         const rbrace_index = this.current;
@@ -2067,10 +2068,16 @@ export class StataParser {
     let loopVar = '';
     let loopSpec = '';
 
-    // Parse loop variable
+    // Parse loop variable. In `#delimit ;` mode the lexer emits WHITESPACE
+    // tokens between the keyword, the loop variable, and the spec keyword
+    // (they are elided in `#delimit cr` mode), so skip that spacing before
+    // each discrete token check (issue #301). Whitespace only — a comment here
+    // must not be discarded.
+    this.skipWhitespace();
     if (this.check('WORD')) {
       loopVar = this.advance().value;
     }
+    this.skipWhitespace();
 
     // Parse loop specification
     // For forvalues: next token is '=' (OPERATOR)
@@ -2156,12 +2163,7 @@ export class StataParser {
       const has_condition_before = lbrace_token.range.start.line === loop_start_line;
       this.validate_open_brace(lbrace_token, lbrace_index, has_condition_before);
 
-      while (!this.check('RBRACE') && !this.isAtEnd()) {
-        const stmt = this.parseStatement();
-        if (stmt) {
-          body.push(stmt);
-        }
-      }
+      body.push(...this.parseBraceBody());
 
       if (this.check('RBRACE')) {
         const rbrace_index = this.current;
@@ -2244,12 +2246,7 @@ export class StataParser {
       const has_condition_before = lbrace_token.range.start.line === while_start_line;
       this.validate_open_brace(lbrace_token, lbrace_index, has_condition_before);
 
-      while (!this.check('RBRACE') && !this.isAtEnd()) {
-        const stmt = this.parseStatement();
-        if (stmt) {
-          body.push(stmt);
-        }
-      }
+      body.push(...this.parseBraceBody());
 
       if (this.check('RBRACE')) {
         const rbrace_index = this.current;
@@ -2379,13 +2376,7 @@ export class StataParser {
     this.validate_open_brace(lbrace_token, lbrace_index, has_condition_before);
 
     // Parse body
-    const body: StataNode[] = [];
-    while (!this.check('RBRACE') && !this.isAtEnd()) {
-      const stmt = this.parseStatement();
-      if (stmt) {
-        body.push(stmt);
-      }
-    }
+    const body: StataNode[] = this.parseBraceBody();
 
     if (this.check('RBRACE')) {
       const rbrace_index = this.current;
@@ -2573,6 +2564,58 @@ export class StataParser {
     while (this.check('COMMENT_LINE') || this.check('COMMENT_BLOCK') || this.check('CONTINUATION') || this.check('WHITESPACE')) {
       this.advance();
     }
+  }
+
+  /**
+   * Skip only WHITESPACE tokens, leaving comments and continuations in place.
+   *
+   * `#delimit ;` mode emits a WHITESPACE token between adjacent tokens that
+   * `#delimit cr` mode elides (e.g. between a loop keyword and its variable,
+   * `else` and its brace, or a prefix and its block). Structural checks that
+   * only need to tolerate that interstitial spacing use this rather than
+   * skipTrivia(), which would silently discard comment trivia at those
+   * positions — dropping user comments from the formatter output (issue #301).
+   */
+  private skipWhitespace(): void {
+    while (this.check('WHITESPACE')) {
+      this.advance();
+    }
+  }
+
+  /**
+   * Parse the statements of a brace-delimited block body, stopping at the
+   * matching `}` (left unconsumed for the caller to validate) or EOF.
+   *
+   * In `#delimit ;` mode a raw newline before `}` is emitted as a WHITESPACE
+   * token (elided in `#delimit cr` mode), so the closing brace can be preceded
+   * by trivia. This loop consumes that leading trivia — carrying comments
+   * forward via pending_trivia exactly as parseStatement would — and then
+   * checks for `}` itself, so the closing brace is never handed to
+   * parseStatement, which would misreport it as an orphan (issue #301).
+   *
+   * A comment sitting between the last body statement and the closing brace is
+   * left in pending_trivia so it attaches to the statement after the block —
+   * identical to how the parser already handles that comment in `#delimit cr`
+   * mode. (Folding it into the last body node's trailing trivia instead makes
+   * the AST pretty-printer emit it inline on the preceding statement's line,
+   * corrupting output; repositioning block-ending comments is out of scope.)
+   */
+  private parseBraceBody(): StataNode[] {
+    const body: StataNode[] = [];
+    while (!this.isAtEnd()) {
+      const my_trivia = this.collectTrivia();
+      if (my_trivia.length > 0) {
+        this.pending_trivia.push(...my_trivia);
+      }
+      if (this.check('RBRACE') || this.isAtEnd()) {
+        break;
+      }
+      const stmt = this.parseStatement();
+      if (stmt) {
+        body.push(stmt);
+      }
+    }
+    return body;
   }
 
   // Skip trivia within a macro definition statement, bridging `///`

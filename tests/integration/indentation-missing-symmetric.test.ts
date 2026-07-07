@@ -77,13 +77,21 @@ describe('symmetric AST-depth indentation diagnostics (issue #300)', () => {
     expect(unnecessary_lines(source)).toEqual([]);
   });
 
-  test('suppresses MISSING inside a block corrupted by a structural error', () => {
-    // `#delimit ;` with braces: the error-recovering parser misparents the
-    // trailing `#delimit cr` into the unterminated `if` block, giving that
-    // column-0 line a bogus expected depth. The AST-depth check must not flag
-    // it (the formatter can't fix it either). Verified via the structural
-    // taint gate: the malformed `if` block is tainted, so no false positive.
-    const source = '#delimit ;\nif 1 {;\n    display 1;\n};\n#delimit cr';
+  test('flags an under-indented #delimit ; brace body (issue #301)', () => {
+    // Before #301 was fixed, valid `#delimit ;` brace blocks emitted a
+    // spurious ORPHAN_CLOSE_BRACE, so the structural taint gate suppressed all
+    // AST-depth indentation checks inside them. Now the block parses cleanly,
+    // so a genuinely under-indented body line must be flagged.
+    const source =
+      '#delimit ;\nforvalues i=1/3 {;\ndisplay 1;\n};\n#delimit cr';
+    // Line 2 (`display 1;` at column 0) has expected depth 1 but actual 0.
+    expect(missing_lines(source)).toEqual([2]);
+    expect(unnecessary_lines(source)).toEqual([]);
+  });
+
+  test('does not flag a correctly indented #delimit ; brace body (issue #301)', () => {
+    const source =
+      '#delimit ;\nforvalues i=1/3 {;\n    display 1;\n};\n#delimit cr';
     expect(missing_lines(source)).toEqual([]);
     expect(unnecessary_lines(source)).toEqual([]);
   });

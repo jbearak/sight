@@ -760,12 +760,6 @@ export class IndentationDiagnosticAnalyzer {
    * `document.diagnostics` and `document.ast` are produced by the same parse
    * pass, so the two are consistent and the taint toggles together with the
    * diagnostics in a single publish — no transient flicker in healthy regions.
-   *
-   * Known limitation (issue #301): the parser emits a spurious
-   * ORPHAN_CLOSE_BRACE on valid `#delimit ;` brace blocks, so those blocks are
-   * tainted and their genuine indentation issues go unreported until that
-   * parser bug is fixed. This is the conservative side of the trade-off (a
-   * miss, not a false positive).
    */
   private compute_structural_taint(document: DocumentState): Set<number> {
     const tainted_lines = new Set<number>();

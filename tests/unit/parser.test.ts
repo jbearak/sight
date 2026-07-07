@@ -802,6 +802,180 @@ end`;
     });
   });
 
+  describe('#delimit ; brace blocks (issue #301)', () => {
+    // In `#delimit ;` mode the lexer emits WHITESPACE tokens between tokens
+    // (in `#delimit cr` mode they are elided). A valid brace block must parse
+    // without spurious ORPHAN_CLOSE_BRACE / SYNTAX_ERROR on its closing brace.
+    const parse = (source: string) =>
+      parser.parse(lexer.tokenize(source).tokens);
+
+    const structural_error_codes = new Set([
+      'ORPHAN_CLOSE_BRACE',
+      'OPEN_BRACE_ALONE',
+      'SYNTAX_ERROR',
+    ]);
+    const structural_errors = (source: string) =>
+      parse(source).errors.filter(
+        e => e.code && structural_error_codes.has(e.code)
+      );
+
+    // Trailing-trivia contents of a node, tolerant of union members that do
+    // not carry trivia.
+    // Recursively collect the contents of every leading/trailing trivia node
+    // in the tree, tolerant of union members that do not carry trivia.
+    type MaybeTriviaNode = {
+      leadingTrivia?: { content: string }[];
+      trailingTrivia?: { content: string }[];
+      body?: MaybeTriviaNode[];
+    };
+    const collect_all_trivia = (nodes: readonly unknown[]): string[] => {
+      const contents: string[] = [];
+      const walk = (the_nodes: MaybeTriviaNode[]): void => {
+        for (const my_node of the_nodes) {
+          for (const t of my_node.leadingTrivia ?? []) contents.push(t.content);
+          for (const t of my_node.trailingTrivia ?? []) contents.push(t.content);
+          if (my_node.body) walk(my_node.body);
+        }
+      };
+      walk(nodes as unknown as MaybeTriviaNode[]);
+      return contents;
+    };
+    const all_comment_contents = (source: string): string =>
+      collect_all_trivia(parse(source).ast.nodes).join('');
+
+    test('forvalues block parses without structural errors', () => {
+      const source =
+        '#delimit ;\nforvalues i=1/3 {;\n    display 1;\n};\n#delimit cr';
+      const result = parse(source);
+      expect(structural_errors(source)).toHaveLength(0);
+      const loop = result.ast.nodes.find(n => n.type === 'forvalues');
+      expect(loop).toBeDefined();
+      if (loop && loop.type === 'forvalues') {
+        expect(loop.loopVar).toBe('i');
+        expect(loop.body).toHaveLength(1);
+      }
+    });
+
+    test('foreach block parses without structural errors', () => {
+      const source =
+        '#delimit ;\nforeach x in a b {;\n    display 1;\n};\n#delimit cr';
+      const result = parse(source);
+      expect(structural_errors(source)).toHaveLength(0);
+      const loop = result.ast.nodes.find(n => n.type === 'foreach');
+      expect(loop).toBeDefined();
+      if (loop && loop.type === 'foreach') {
+        expect(loop.loopVar).toBe('x');
+        expect(loop.body).toHaveLength(1);
+      }
+    });
+
+    test('if block parses without structural errors', () => {
+      const source =
+        '#delimit ;\nif 1 {;\n    display 1;\n};\n#delimit cr';
+      expect(structural_errors(source)).toHaveLength(0);
+    });
+
+    test('while block parses without structural errors', () => {
+      const source =
+        '#delimit ;\nwhile 1 {;\n    display 1;\n};\n#delimit cr';
+      expect(structural_errors(source)).toHaveLength(0);
+    });
+
+    test('nested blocks parse without structural errors', () => {
+      const source =
+        '#delimit ;\nforvalues i=1/3 {;\n    if 1 {;\n' +
+        '        display 1;\n    };\n};\n#delimit cr';
+      expect(structural_errors(source)).toHaveLength(0);
+    });
+
+    test('forvalues with spaces around = parses', () => {
+      const source =
+        '#delimit ;\nforvalues i = 1/3 {;\n    display 1;\n};\n#delimit cr';
+      const result = parse(source);
+      expect(structural_errors(source)).toHaveLength(0);
+      const loop = result.ast.nodes.find(n => n.type === 'forvalues');
+      expect(loop && loop.type === 'forvalues' && loop.loopVar).toBe('i');
+    });
+
+    test('else block parses without structural errors', () => {
+      const source =
+        '#delimit ;\nif 1 {;\n    display 1;\n};\nelse {;\n' +
+        '    display 2;\n};\n#delimit cr';
+      const result = parse(source);
+      expect(structural_errors(source)).toHaveLength(0);
+      expect(result.ast.nodes.some(n => n.type === 'else')).toBe(true);
+    });
+
+    test('prefix brace block parses without structural errors', () => {
+      const source =
+        '#delimit ;\nquietly {;\n    display 1;\n};\n#delimit cr';
+      expect(structural_errors(source)).toHaveLength(0);
+    });
+
+    test('chained prefix brace block parses without structural errors', () => {
+      const source =
+        '#delimit ;\nquietly capture {;\n    display 1;\n};\n#delimit cr';
+      expect(structural_errors(source)).toHaveLength(0);
+    });
+
+    test('prefix-colon brace block with space before colon parses', () => {
+      // `quietly : {` — whitespace before the colon is a WHITESPACE token in
+      // `#delimit ;` mode; the colon must still be consumed and the block
+      // recognized (issue #301).
+      const source =
+        '#delimit ;\nquietly : {;\n    display 1;\n};\n#delimit cr';
+      const result = parse(source);
+      expect(structural_errors(source)).toHaveLength(0);
+      const cmd = result.ast.nodes.find(n => n.type === 'command');
+      expect(cmd && cmd.type === 'command' && cmd.prefix?.[0]?.has_colon).toBe(true);
+    });
+
+    test('chained prefix-colon brace block with spaces parses', () => {
+      const source =
+        '#delimit ;\nquietly capture : {;\n    display 1;\n};\n#delimit cr';
+      expect(structural_errors(source)).toHaveLength(0);
+    });
+
+    test('genuine orphan close brace is still reported', () => {
+      const source = '#delimit ;\ndisplay 1;\n};\n#delimit cr';
+      const codes = parse(source).errors.map(e => e.code);
+      expect(codes).toContain('ORPHAN_CLOSE_BRACE');
+    });
+
+    test('comment before } is preserved and not corrupted', () => {
+      // A comment on its own line just before the closing brace must survive in
+      // the AST (it must never be dropped). Its attachment point matches the
+      // pre-existing `#delimit cr` behavior; this fix does not reposition it.
+      const source =
+        '#delimit ;\nforvalues i=1/3 {;\n    display 1;\n' +
+        '    * inner;\n};\ndisplay 2;\n#delimit cr';
+      const result = parse(source);
+      const loop = result.ast.nodes.find(n => n.type === 'forvalues');
+      expect(loop && loop.type === 'forvalues' && loop.body).toHaveLength(1);
+      expect(collect_all_trivia(result.ast.nodes).join('')).toContain('* inner');
+    });
+
+    // The whitespace-only skips added for #301 must not discard comments that
+    // sit at an adjacency point (between a keyword/prefix and what follows).
+    // These positions are unusual, but a comment there must survive in the AST
+    // so the formatter never deletes it.
+    test('comment between loop keyword and variable is not dropped', () => {
+      expect(all_comment_contents('forvalues /* c */ i=1/3 {\n    display 1\n}'))
+        .toContain('/* c */');
+    });
+
+    test('comment between else and its brace is not dropped', () => {
+      const source =
+        'if 1 {\n    display 1\n}\nelse /* c */ {\n    display 2\n}';
+      expect(all_comment_contents(source)).toContain('/* c */');
+    });
+
+    test('comment between prefix and its block is not dropped', () => {
+      expect(all_comment_contents('quietly /* c */ {\n    display 1\n}'))
+        .toContain('/* c */');
+    });
+  });
+
   describe('macro reference command parsing', () => {
     test('should parse local macro at start of statement', () => {
       const source = '`custom_cmd\' "arg1" "arg2"';
