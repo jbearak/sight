@@ -976,6 +976,264 @@ end`;
     });
   });
 
+  describe('#delimit ; command varlist (issue #305)', () => {
+    // In `#delimit ;` mode the lexer emits WHITESPACE tokens between varlist
+    // items that `#delimit cr` mode elides. The command-body parser assumed
+    // cr-mode adjacency, so it broke at the first interstitial space, left the
+    // varlist empty, and re-parsed the remaining arguments as fresh statements.
+    // A multi-token command must produce ONE command node with the full
+    // varlist (issue #305).
+    const parse = (source: string) =>
+      parser.parse(lexer.tokenize(source).tokens);
+
+    // Extract the sole command-like node from a parse, tolerant of the
+    // directive nodes that bracket a `#delimit ;` block.
+    type CommandLike = {
+      type: string;
+      name?: string;
+      varlist?: { name: string }[];
+      expression?: string;
+      ifExpression?: string;
+      inExpression?: string;
+      options?: { name: string }[];
+      prefix?: { name: string; has_colon?: boolean }[];
+    };
+    const commands = (source: string): CommandLike[] =>
+      (parse(source).ast.nodes as unknown as CommandLike[]).filter(
+        n => n.type === 'command'
+      );
+    const varlist_names = (c: CommandLike | undefined): string[] =>
+      (c?.varlist ?? []).map(v => v.name);
+
+    // Wrap a command body in a `#delimit ;` block terminated with `;`.
+    const semi = (body: string): string =>
+      `#delimit ;\n${body};\n#delimit cr`;
+
+    test('two-variable command is one node with full varlist', () => {
+      const cmds = commands(semi('regress y x'));
+      expect(cmds).toHaveLength(1);
+      expect(cmds[0].name).toBe('regress');
+      expect(varlist_names(cmds[0])).toEqual(['y', 'x']);
+    });
+
+    test('matches #delimit cr parsing of the same command', () => {
+      const cr = commands('regress y x');
+      expect(cr).toHaveLength(1);
+      expect(varlist_names(cr[0])).toEqual(['y', 'x']);
+      // The `#delimit ;` varlist must match the cr-mode varlist exactly.
+      expect(varlist_names(commands(semi('regress y x'))[0])).toEqual(
+        varlist_names(cr[0])
+      );
+    });
+
+    test('three-variable command collects every item', () => {
+      const cmds = commands(semi('summarize a b c'));
+      expect(cmds).toHaveLength(1);
+      expect(varlist_names(cmds[0])).toEqual(['a', 'b', 'c']);
+    });
+
+    test('prefixed command keeps prefix and full varlist in one node', () => {
+      const cmds = commands(semi('quietly regress y x'));
+      expect(cmds).toHaveLength(1);
+      expect(cmds[0].name).toBe('regress');
+      expect(cmds[0].prefix?.map(p => p.name)).toEqual(['quietly']);
+      expect(varlist_names(cmds[0])).toEqual(['y', 'x']);
+    });
+
+    test('if/in qualifiers parse after the varlist', () => {
+      const source = semi('regress y x if z > 1 in 1/10');
+      // The space after the comparison must not be flagged as a stray token.
+      expect(parse(source).errors).toHaveLength(0);
+      const cmds = commands(source);
+      expect(cmds).toHaveLength(1);
+      expect(varlist_names(cmds[0])).toEqual(['y', 'x']);
+      expect(cmds[0].ifExpression?.replace(/\s+/g, '')).toBe('z>1');
+      expect(cmds[0].inExpression?.replace(/\s+/g, '')).toBe('1/10');
+    });
+
+    test('qualifier expressions do not emit spurious stray-token errors', () => {
+      // In `#delimit ;` mode the WHITESPACE after a completed comparison
+      // (before `in`, `&`, `,`, or `;`) must not be flagged as a stray token
+      // (issue #305). A genuine stray token is still reported.
+      for (const my_body of [
+        'regress y x if z > 1 in 1/10',
+        'regress y x if z > 1, robust',
+        'regress y x if z > 1',
+        'regress y x if z > 1 & w < 2',
+      ]) {
+        expect(parse(semi(my_body)).errors).toHaveLength(0);
+      }
+      const stray = parse(semi('regress y x if z > 1 2')).errors;
+      expect(stray.some(e => e.code === 'STRAY_TOKEN_IN_CONDITION')).toBe(true);
+    });
+
+    test('options parse after the varlist and comma', () => {
+      const cmds = commands(semi('regress y x, robust cluster(id)'));
+      expect(cmds).toHaveLength(1);
+      expect(varlist_names(cmds[0])).toEqual(['y', 'x']);
+      expect(cmds[0].options?.map(o => o.name)).toEqual(['robust', 'cluster']);
+    });
+
+    test('assignment expression parses after the varlist', () => {
+      const cmds = commands(semi('gen z = x + y'));
+      expect(cmds).toHaveLength(1);
+      expect(varlist_names(cmds[0])).toEqual(['z']);
+      expect(cmds[0].expression?.replace(/\s+/g, '')).toBe('x+y');
+    });
+
+    test('adjacent wildcards coalesce but remain separate items', () => {
+      const cmds = commands(semi('summarize pop* gdp*'));
+      expect(cmds).toHaveLength(1);
+      expect(varlist_names(cmds[0])).toEqual(['pop*', 'gdp*']);
+    });
+
+    test('file-command path with a dot stays a single argument', () => {
+      const cmds = commands(semi('do myfile.do'));
+      expect(cmds).toHaveLength(1);
+      expect(cmds[0].name).toBe('do');
+      expect(varlist_names(cmds[0])).toEqual(['myfile.do']);
+    });
+
+    test('args command collects every name', () => {
+      const cmds = commands(semi('args a b c'));
+      expect(cmds).toHaveLength(1);
+      expect(cmds[0].name).toBe('args');
+      expect(varlist_names(cmds[0])).toEqual(['a', 'b', 'c']);
+    });
+
+    test('unab command collects macro name and varlist', () => {
+      const cmds = commands(semi('unab vars : pop*'));
+      expect(cmds).toHaveLength(1);
+      expect(cmds[0].name).toBe('unab');
+      expect(varlist_names(cmds[0])).toEqual(['vars', 'pop*']);
+    });
+
+    test('frame-prefixed command parses in #delimit ; mode', () => {
+      const cmds = commands(semi('frame mine: regress y x'));
+      expect(cmds).toHaveLength(1);
+      expect(cmds[0].name).toBe('regress');
+      expect(cmds[0].prefix?.some(p => p.name === 'frame')).toBe(true);
+      expect(varlist_names(cmds[0])).toEqual(['y', 'x']);
+    });
+
+    test('non-prefix frame subcommand parses as one frame command', () => {
+      // `frame create x;` is a plain `frame` command (subcommand `create`,
+      // arg `x`), not the `frame name:` prefix or `frame name { }` block.
+      // parseFrameBlock must backtrack to the `frame` token — not to the
+      // interstitial WHITESPACE — so parseCommand re-parses it whole (#305).
+      const source = semi('frame create x');
+      const result = parse(source);
+      expect(result.errors).toHaveLength(0);
+      const cmds = commands(source);
+      expect(cmds).toHaveLength(1);
+      expect(cmds[0].name).toBe('frame');
+      expect(varlist_names(cmds[0])).toEqual(['create', 'x']);
+    });
+
+    test('frame subcommand matches #delimit cr parsing', () => {
+      const cr = commands('frame change default');
+      expect(cr).toHaveLength(1);
+      expect(cr[0].name).toBe('frame');
+      expect(varlist_names(commands(semi('frame change default'))[0])).toEqual(
+        varlist_names(cr[0])
+      );
+    });
+
+    test('frame block parses without errors in #delimit ; mode', () => {
+      const source = '#delimit ;\nframe mine {;\n  gen x = 1;\n};\n#delimit cr';
+      const result = parse(source);
+      expect(result.errors).toHaveLength(0);
+      expect(result.ast.nodes.some(n => n.type === 'frame')).toBe(true);
+    });
+
+    test('option argument attaches with a space before its paren', () => {
+      // `cluster (id)` — a WHITESPACE token sits between the option name and
+      // its `(...)` in `#delimit ;` mode; the argument must still attach
+      // rather than the paren group being read as a separate option (#305).
+      const cmds = commands(semi('regress y x, cluster (id)'));
+      expect(cmds).toHaveLength(1);
+      expect(cmds[0].options?.map(o => o.name)).toEqual(['cluster']);
+      // Matches `#delimit cr` parsing of the same command text.
+      const cr = commands('regress y x, cluster (id)');
+      expect(cmds[0].options?.map(o => o.name)).toEqual(
+        cr[0].options?.map(o => o.name)
+      );
+    });
+
+    test('program define is recognized in #delimit ; mode', () => {
+      // `program` and `define` are separated by a WHITESPACE token in
+      // #delimit ; mode; the lookahead and the define check must tolerate it
+      // so the program is recognized (not misparsed as an ordinary command
+      // that runs off to EOF), and the body must terminate at `end` (#305).
+      const source =
+        '#delimit ;\nprogram define p;\n  display 1;\nend;\n#delimit cr';
+      const result = parse(source);
+      expect(result.errors).toHaveLength(0);
+      const prog = result.ast.nodes.find(n => n.type === 'program');
+      expect(prog).toBeDefined();
+      if (prog && prog.type === 'program') {
+        expect(prog.name).toBe('p');
+        expect(prog.body).toHaveLength(1);
+      }
+      // No stray top-level command named `program` or `end`.
+      const cmd_names = (result.ast.nodes as unknown as CommandLike[])
+        .filter(n => n.type === 'command')
+        .map(n => n.name);
+      expect(cmd_names).not.toContain('program');
+      expect(cmd_names).not.toContain('end');
+    });
+
+    test('program with a comment before end closes and keeps following code', () => {
+      // A comment-only line before `end` must not swallow `end` and the
+      // statements after the program. The body loop collects the comment as
+      // trivia and re-checks `end`, mirroring parseBraceBody (#305).
+      const source =
+        '#delimit ;\nprogram define p;\n  display 1;\n  // note\nend;\n' +
+        'display 2;\n#delimit cr';
+      const result = parse(source);
+      expect(result.errors).toHaveLength(0);
+      const prog = result.ast.nodes.find(n => n.type === 'program');
+      expect(prog && prog.type === 'program' && prog.body).toHaveLength(1);
+      // `display 2` survives as a top-level command after the program.
+      const cmds = commands(source);
+      expect(cmds).toHaveLength(1);
+      expect(cmds[0].name).toBe('display');
+    });
+
+    test('syntax option argument attaches across a space before its paren', () => {
+      // `opt (string)` — the WHITESPACE before `(` must not detach the
+      // argument type, matching #delimit cr parsing (#305).
+      const source =
+        '#delimit ;\nprogram define p;\n  syntax , opt (string);\nend;\n#delimit cr';
+      const result = parse(source);
+      expect(result.errors).toHaveLength(0);
+      const prog = result.ast.nodes.find(n => n.type === 'program');
+      const the_syntax = prog && prog.type === 'program'
+        ? prog.body?.find(n => n.type === 'syntax')
+        : undefined;
+      expect(the_syntax).toBeDefined();
+      if (the_syntax && the_syntax.type === 'syntax') {
+        expect(the_syntax.signature.options).toHaveLength(1);
+        expect(the_syntax.signature.options[0].name).toBe('opt');
+        expect(the_syntax.signature.options[0].argumentType).toBe('string');
+      }
+    });
+
+    test('nested prefix colon inside a frame prefix parses in #delimit ; mode', () => {
+      // `frame mine: quietly : cmd` — the WHITESPACE before the inner colon
+      // must not split the statement (#305).
+      const source = semi('frame mine: quietly : regress y x');
+      const result = parse(source);
+      expect(result.errors).toHaveLength(0);
+      const cmds = commands(source);
+      expect(cmds).toHaveLength(1);
+      expect(cmds[0].name).toBe('regress');
+      expect(cmds[0].prefix?.map(p => p.name)).toEqual(['frame', 'quietly']);
+      expect(cmds[0].prefix?.every(p => p.has_colon)).toBe(true);
+      expect(varlist_names(cmds[0])).toEqual(['y', 'x']);
+    });
+  });
+
   describe('macro reference command parsing', () => {
     test('should parse local macro at start of statement', () => {
       const source = '`custom_cmd\' "arg1" "arg2"';

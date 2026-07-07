@@ -79,22 +79,24 @@ describe('Analyzer cd_command detection (issue #252)', () => {
         expect(cd_paths('CD "x"\n')).toEqual([]);
     });
 
-    it('does not record cd under #delimit ; (pre-existing parser limitation)', () => {
-        // KNOWN LIMITATION: under `#delimit ;` the parser does not attach the
-        // path as a varlist argument (`cd "raw";` becomes a `cd` node with no
-        // varlist plus a separate `"raw"` node), so cd is skipped. This affects
-        // do/run/include forward-call detection identically and is out of scope
-        // for #252. Pinned here so the behavior change is explicit if the parser
-        // later gains #delimit ; file-command support.
+    it('records cd under #delimit ; now that the parser attaches the path', () => {
+        // Previously a known limitation: under `#delimit ;` the parser split
+        // the command varlist into separate nodes (`cd "raw";` became a `cd`
+        // node with no varlist plus a stray `"raw"` node), so cd was skipped.
+        // Issue #305 fixed the varlist splitting, so `cd "raw";` now attaches
+        // its path and is recorded — matching `#delimit cr` behavior. The
+        // do/run/include forward-call detection recovers identically.
         const src = `#delimit ;\ncd "raw";\ndo import;\n`;
         const the_lex = my_lexer.tokenize(src);
         const the_parse = my_parser.parse(the_lex.tokens);
         const the_result = my_analyzer.analyze(
             the_parse.ast, 'file:///test.do', undefined, undefined, the_lex.tokens,
         );
-        expect(the_result.cd_commands).toEqual([]);
-        // do/run/include detection is a no-op here too — consistency check.
-        expect(the_result.forward_calls).toEqual([]);
+        expect(the_result.cd_commands).toHaveLength(1);
+        expect(the_result.cd_commands[0]!.raw_path).toBe('raw');
+        // do/run/include detection recovers here too — consistency check.
+        expect(the_result.forward_calls).toHaveLength(1);
+        expect(the_result.forward_calls[0]!.raw_path).toBe('import');
     });
 
     it('records the command range start for ordering', () => {
