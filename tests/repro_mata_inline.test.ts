@@ -228,4 +228,52 @@ mata: foo(); python: x = (1+
             expect(out).toContain('mata: foo(); python: x = (1+');
         }
     );
+
+    // Source-preserving mode only: the AST formatter ignores context ranges
+    // (it prints embedded_block nodes directly) and has unrelated pre-existing
+    // #delimit ; pretty-printer artifacts.
+    test('preserves indentation of overlapping inline ranges nested in a block (issue #309)', () => {
+        // mata range (lines 2-3) and python range (lines 3-4) overlap on line
+        // 3 with DIFFERENT start lines; neither contains the other. Coalescing
+        // them into one verbatim span preserves every line's indentation,
+        // including mata's own opener line, rather than leaving it reindented.
+        const source = `foreach x in 1 2 {
+    #delimit ;
+    mata: st_local("b",
+    "2"); python: x = (1+
+    2);
+    #delimit cr
+}
+`;
+
+        const lexer = new StataLexer();
+        const lex_result = lexer.tokenize(source);
+        const parser = new StataParser();
+        const parse_result = parser.parse(lex_result.tokens);
+
+        const context_tracker = new ContextTracker();
+        context_tracker.initialize_from_tokens(lex_result.tokens, source);
+        const context_ranges = context_tracker.get_all_context_ranges();
+
+        const formatter = new CodeFormatter(create_formatter_config('source-preserving'));
+        const document_state = {
+            content: source,
+            tokens: lex_result.tokens,
+            ast: parse_result.ast,
+            line_offsets: lex_result.line_offsets,
+            context_ranges: context_ranges,
+        };
+
+        const edits = formatter.format(document_state as any, {
+            tabSize: 4,
+            insertSpaces: true,
+        });
+
+        expect(edits.length).toBeGreaterThan(0);
+        const out = edits[0].newText;
+        // Every embedded line keeps its 4-space indentation; none is mangled.
+        expect(out).toContain('    mata: st_local("b",');
+        expect(out).toContain('    "2"); python: x = (1+');
+        expect(out).toContain('    2);');
+    });
 });

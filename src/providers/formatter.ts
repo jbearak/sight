@@ -159,82 +159,42 @@ export class CodeFormatter {
         const the_embedded_blocks: Map<string, { content: string; range: ContextRange }> = new Map();
         let my_placeholder_counter = 0;
 
-        // Extract embedded blocks and replace with placeholders
+        // Extract embedded blocks and replace with placeholders.
         let my_modified_content = document.content;
-        // Process bottom-up (descending start line) so earlier replacements
-        // never shift the offsets of later ones. At equal start lines, process
-        // the WIDER range (larger end line) first: when two whole-line embedded
-        // ranges share their start line, the narrower one is fully contained in
-        // the wider, so keeping the wider and skipping the narrower (via the
-        // overlap guard below) preserves every embedded line verbatim.
-        const the_sorted_ranges = [...context_ranges].sort((a, b) => {
-            if (b.range.start.line !== a.range.start.line) {
-                return b.range.start.line - a.range.start.line;
-            }
-            return b.range.end.line - a.range.end.line;
-        });
 
-        // Smallest start line of a range already replaced. Ranges are
-        // processed in descending start-line order, so this only decreases;
-        // a later range whose end line reaches it shares a physical line with
-        // an already-replaced range (see the overlap guard below).
-        let my_min_replaced_start_line = Number.MAX_SAFE_INTEGER;
+        // Coalesce the context ranges into non-overlapping replacement units.
+        // A unit is one context range, unless two or more ranges share a
+        // physical line (e.g. an inline `mata:` statement and a trailing
+        // `python:` on the same line under #delimit ;, or an inline range
+        // widened to its continuation line that straddles a following
+        // statement). Overlapping ranges are merged into a single verbatim
+        // span: replacing them independently would double-cover the shared
+        // line and drop an already-inserted placeholder (deleting source), or
+        // leave a range's unique lines unprotected (mangling their layout).
+        const the_replacement_units = this.coalesce_embedded_ranges(
+            the_doc,
+            context_ranges
+        );
 
-        for (const my_range of the_sorted_ranges) {
+        for (const my_unit of the_replacement_units) {
             // Prevent resource exhaustion from too many embedded blocks
             if (my_placeholder_counter >= MAX_EMBEDDED_BLOCKS) {
                 break;
             }
 
-            // Calculate the actual range to replace
-            // For single-line contexts (mata:, python:), use the range as-is
-            // For multi-line blocks, include the end delimiter line
-            let actual_range: Range;
-            if (my_range.is_single_line) {
-                // Single-line context: range already covers the entire line
-                actual_range = my_range.range;
-            } else {
-                // Multi-line block: context_range.range excludes the end delimiter,
-                // but we need to include it
-                const actual_end_line = my_range.end_delimiter
-                    ? my_range.end_delimiter.range.start.line
-                    : my_range.range.end.line;
-                // Get the length of the end line to use as the end character
-                const end_line_text = get_line_text(the_doc, actual_end_line);
-                actual_range = {
-                    start: my_range.range.start,
-                    end: { line: actual_end_line, character: end_line_text.length }
-                };
-            }
-
-            // Skip a range that shares a physical line with one already
-            // replaced. Whole-line embedded ranges can overlap when two
-            // embedded statements sit on one physical line (e.g. an inline
-            // `mata:` statement and a trailing `python:` under #delimit ;).
-            // Replacing both would double-cover the shared line and drop an
-            // already-inserted placeholder, deleting source text. The shared
-            // line's text is preserved verbatim inside the range that is kept.
-            if (actual_range.end.line >= my_min_replaced_start_line) {
-                continue;
-            }
-
             const my_placeholder = `__EMBEDDED_BLOCK_${my_placeholder_counter}__`;
             the_embedded_blocks.set(my_placeholder, {
-                content: this.extract_block_content(the_doc, my_range),
-                range: my_range
+                content: my_unit.content,
+                range: my_unit.range
             });
 
-            // Replace the block with placeholder using the actual range
+            // Replace the unit with the placeholder using its actual range
             my_modified_content = this.replace_range_in_content(
                 my_modified_content,
-                actual_range,
+                my_unit.actual_range,
                 my_placeholder
             );
 
-            my_min_replaced_start_line = Math.min(
-                my_min_replaced_start_line,
-                actual_range.start.line
-            );
             my_placeholder_counter++;
         }
 
@@ -330,12 +290,155 @@ export class CodeFormatter {
     }
 
     /**
+     * The physical line span a context range occupies when replaced with a
+     * placeholder: for single-line (inline) ranges the range itself; for
+     * multi-line blocks, extended to include the end-delimiter line.
+     */
+    private embedded_range_span(
+        doc: DocumentLike,
+        context_range: ContextRange
+    ): { start_line: number; end_line: number } {
+        if (context_range.is_single_line) {
+            return {
+                start_line: context_range.range.start.line,
+                end_line: context_range.range.end.line,
+            };
+        }
+        const my_end_line = context_range.end_delimiter
+            ? context_range.end_delimiter.range.start.line
+            : context_range.range.end.line;
+        return { start_line: context_range.range.start.line, end_line: my_end_line };
+    }
+
+    /**
+     * Coalesce embedded context ranges into non-overlapping replacement units,
+     * ordered bottom-up (descending start line) so each placeholder
+     * substitution leaves the offsets of the not-yet-processed units intact.
+     *
+     * Ranges that share a physical line are merged into ONE verbatim unit
+     * (whole lines from the group's first start line to its last end line).
+     * A physical line cannot hold two languages, so overlapping whole-line
+     * ranges cannot be replaced independently without either double-covering
+     * the shared line (dropping a placeholder, deleting source) or leaving a
+     * range's unique lines unprotected. Preserving the union verbatim avoids
+     * both. A lone range keeps its exact prior behavior (block end-delimiter
+     * reindentation via `extract_block_content`).
+     */
+    private coalesce_embedded_ranges(
+        doc: DocumentLike,
+        context_ranges: ContextRange[]
+    ): Array<{ content: string; range: ContextRange; actual_range: Range }> {
+        // Group ranges that overlap or touch on a shared physical line.
+        const the_spans = context_ranges
+            .map((my_range) => ({
+                my_range,
+                span: this.embedded_range_span(doc, my_range),
+            }))
+            .sort((a, b) => {
+                if (a.span.start_line !== b.span.start_line) {
+                    return a.span.start_line - b.span.start_line;
+                }
+                return a.span.end_line - b.span.end_line;
+            });
+
+        const the_groups: Array<{
+            start_line: number;
+            end_line: number;
+            members: ContextRange[];
+        }> = [];
+        for (const my_item of the_spans) {
+            const my_last = the_groups[the_groups.length - 1];
+            if (my_last && my_item.span.start_line <= my_last.end_line) {
+                // Shares a physical line with the current group: merge.
+                my_last.end_line = Math.max(my_last.end_line, my_item.span.end_line);
+                my_last.members.push(my_item.my_range);
+            } else {
+                the_groups.push({
+                    start_line: my_item.span.start_line,
+                    end_line: my_item.span.end_line,
+                    members: [my_item.my_range],
+                });
+            }
+        }
+
+        const the_line_count = get_line_count(doc);
+        const the_units: Array<{
+            content: string;
+            range: ContextRange;
+            actual_range: Range;
+        }> = [];
+        for (const my_group of the_groups) {
+            if (my_group.members.length === 1) {
+                // Lone range: preserve exact prior behavior.
+                const my_range = my_group.members[0];
+                const my_end_line_text = get_line_text(doc, my_group.end_line);
+                the_units.push({
+                    content: this.extract_block_content(doc, my_range),
+                    range: my_range,
+                    actual_range: {
+                        start: { line: my_group.start_line, character: 0 },
+                        end: {
+                            line: my_group.end_line,
+                            character: my_end_line_text.length,
+                        },
+                    },
+                });
+                continue;
+            }
+
+            // Merged group: preserve the union of physical lines verbatim.
+            const my_lines: string[] = [];
+            for (
+                let my_line = my_group.start_line;
+                my_line <= my_group.end_line && my_line < the_line_count;
+                my_line++
+            ) {
+                const my_text = get_line_text(doc, my_line);
+                // Strip the first line's indentation only; the formatter
+                // reapplies the placeholder's indentation to it on restore.
+                my_lines.push(
+                    my_line === my_group.start_line ? my_text.trimStart() : my_text
+                );
+            }
+            const my_end_line_text = get_line_text(doc, my_group.end_line);
+            // Synthetic single-line range: restore preserves it verbatim
+            // (leading indent on the first line only, no end-delimiter reindent).
+            const my_synthetic_range: ContextRange = {
+                context: my_group.members[0].context,
+                range: {
+                    start: { line: my_group.start_line, character: 0 },
+                    end: { line: my_group.end_line, character: Number.MAX_SAFE_INTEGER },
+                },
+                start_delimiter: my_group.members[0].start_delimiter,
+                is_single_line: true,
+            };
+            the_units.push({
+                content: my_lines.join('\n'),
+                range: my_synthetic_range,
+                actual_range: {
+                    start: { line: my_group.start_line, character: 0 },
+                    end: {
+                        line: my_group.end_line,
+                        character: my_end_line_text.length,
+                    },
+                },
+            });
+        }
+
+        // Bottom-up so replacements do not shift later units' offsets.
+        the_units.sort(
+            (a, b) => b.actual_range.start.line - a.actual_range.start.line
+        );
+        return the_units;
+    }
+
+    /**
      * Extract the full content of an embedded language block including delimiters.
-     * 
+     *
      * Note: context_range.range excludes the end delimiter line, but we need to
      * include it. Use end_delimiter.range.start.line if available, otherwise
      * fall back to context_range.range.end.line.
-     * 
+     *
      * The first line's (opening delimiter) and last line's (closing delimiter)
      * leading whitespace is stripped since the formatter will handle indentation.
      * This prevents double-indentation when the block is restored.
