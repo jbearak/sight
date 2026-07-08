@@ -82,6 +82,23 @@ const identifier = fc.constantFrom('a', 'b', 'x', 'y', 'z', 'foo', 'bar', 'v1', 
 const number = fc.constantFrom('0', '1', '2', '10', '3.14');
 const binop = fc.constantFrom('+', '-', '*', '/', '==', '!=', '>', '<', '>=', '&', '|');
 const term = fc.oneof(identifier, number);
+type RenderedFuncArg = [string, string];
+
+function render_func_call(
+  fn: string,
+  args: RenderedFuncArg[],
+  trailing: string
+): string {
+  const first = args[0];
+  const rest = args.slice(1);
+  const inner = first === undefined
+    ? ''
+    : [
+        first[1],
+        ...rest.map(([comma_gap, t]) => `${comma_gap},${comma_gap}${t}`),
+      ].join('');
+  return `${fn}(${trailing}${inner}${trailing})`;
+}
 
 // `term (op term){0,2}`, e.g. `a`, `a + b`, `x*2 > y`.
 const expression = fc
@@ -100,10 +117,7 @@ const func_call = fc
     fc.array(fc.tuple(gap, term), { minLength: 1, maxLength: 3 }),
     gap
   )
-  .map(([fn, args, trailing]) => {
-    const inner = args.map(([, t]) => t).join(', ');
-    return `${fn}(${trailing}${inner}${trailing})`;
-  });
+  .map(([fn, args, trailing]) => render_func_call(fn, args, trailing));
 
 const assignment_command = fc
   .tuple(
@@ -491,6 +505,16 @@ const structured_source_pair = fc.oneof(
 // well-defined pair of equivalent embedded programs.
 
 describe('delimiter-mode reconstruction parity (issue #306)', () => {
+  it('function-call generator renders drawn comma gaps', () => {
+    expect(render_func_call('max', [['', 'a'], ['', 'b']], '')).toBe('max(a,b)');
+    expect(render_func_call('max', [['', 'a'], ['  ', 'b']], '')).toBe(
+      'max(a  ,  b)'
+    );
+    expect(render_func_call('max', [['', 'a'], ['\t', 'b']], '')).toBe(
+      'max(a\t,\tb)'
+    );
+  });
+
   it('parses identically in #delimit cr and #delimit ; modes', () => {
     fc.assert(
       fc.property(command_source, body => {
