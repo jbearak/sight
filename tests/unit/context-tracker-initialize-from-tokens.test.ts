@@ -376,4 +376,149 @@ end`;
     const my_diagnostics = tracker.validate_context_structure();
     expect(my_diagnostics).toHaveLength(0);
   });
+
+  /**
+   * Issue #309: under #delimit ; an inline mata: statement can continue
+   * onto later physical lines (statement ends at ;). The context tracker
+   * must report MATA on those continuation lines, not STATA.
+   */
+  it('reports mata on #delimit ; inline mata continuation lines', () => {
+    const my_content = `#delimit ;
+mata: st_local("b",
+"2");
+#delimit cr
+`;
+    const my_lex_result = lexer.tokenize(my_content);
+    tracker.initialize_from_tokens(my_lex_result.tokens, my_content);
+
+    // The repro position: line 2 (the "2") is inside the mata statement.
+    expect(
+      tracker.get_context_at_position({ line: 2, character: 1 })
+    ).toBe(LanguageContext.MATA);
+    // Opener line is also mata.
+    expect(
+      tracker.get_context_at_position({ line: 1, character: 0 })
+    ).toBe(LanguageContext.MATA);
+    // The #delimit cr line is not part of the mata statement.
+    expect(
+      tracker.get_context_at_position({ line: 3, character: 0 })
+    ).toBe(LanguageContext.STATA);
+  });
+
+  it('reports python on #delimit ; inline python continuation lines', () => {
+    const my_content = `#delimit ;
+python: x = (1 +
+2);
+`;
+    const my_lex_result = lexer.tokenize(my_content);
+    tracker.initialize_from_tokens(my_lex_result.tokens, my_content);
+
+    expect(
+      tracker.get_context_at_position({ line: 2, character: 0 })
+    ).toBe(LanguageContext.PYTHON);
+  });
+
+  it('leaves cr single-line inline mata ending on the opener line', () => {
+    const my_content = `mata: st_local("b", "2")
+display 1
+`;
+    const my_lex_result = lexer.tokenize(my_content);
+    tracker.initialize_from_tokens(my_lex_result.tokens, my_content);
+
+    const my_ranges = tracker.get_all_context_ranges();
+    expect(my_ranges).toHaveLength(1);
+    expect(my_ranges[0].is_single_line).toBe(true);
+    expect(my_ranges[0].range.end.line).toBe(0);
+    // The next physical line is plain Stata.
+    expect(
+      tracker.get_context_at_position({ line: 1, character: 0 })
+    ).toBe(LanguageContext.STATA);
+  });
+
+  it('produces exactly one non-overlapping range for a #delimit ; multiline inline', () => {
+    const my_content = `#delimit ;
+mata: st_local("b",
+"2");
+mata: foo();
+#delimit cr
+`;
+    const my_lex_result = lexer.tokenize(my_content);
+    tracker.initialize_from_tokens(my_lex_result.tokens, my_content);
+
+    const my_ranges = tracker.get_all_context_ranges();
+    // Two separate inline mata statements, each its own range, no overlap.
+    expect(my_ranges).toHaveLength(2);
+    for (let my_i = 1; my_i < my_ranges.length; my_i++) {
+      const my_prev = my_ranges[my_i - 1];
+      const my_curr = my_ranges[my_i];
+      expect(my_curr.range.start.line).toBeGreaterThan(my_prev.range.end.line);
+    }
+    // The second inline opener (line 3) is mata.
+    expect(
+      tracker.get_context_at_position({ line: 3, character: 0 })
+    ).toBe(LanguageContext.MATA);
+  });
+
+  it('keeps full context for a trailing inline opener that spills to a later line', () => {
+    // `"2"); python: x = (1+\n2);` — the trailing inline python: statement
+    // continues onto line 3. Its continuation content must NOT be dropped to
+    // stata: the tracker creates a separate python range covering it (matching
+    // the parser's separate embedded_block).
+    const my_content = `#delimit ;
+mata: st_local("b",
+"2"); python: x = (1+
+2);
+#delimit cr
+`;
+    const my_lex_result = lexer.tokenize(my_content);
+    tracker.initialize_from_tokens(my_lex_result.tokens, my_content);
+
+    // The spilled python continuation line is embedded python, not stata.
+    expect(
+      tracker.get_context_at_position({ line: 3, character: 0 })
+    ).toBe(LanguageContext.PYTHON);
+    // The mata continuation line before the trailing statement is still mata.
+    expect(
+      tracker.get_context_at_position({ line: 1, character: 0 })
+    ).toBe(LanguageContext.MATA);
+  });
+
+  it('still opens a real block opener trailing an inline terminator (regression #309)', () => {
+    // A bare `mata:` block opener after an inline mata statement's `;` on the
+    // same #delimit ; line must still open its multi-line block; the inline
+    // statement's end handling must not swallow it.
+    const my_content = `#delimit ;
+mata: st_local("a", "1"); mata:
+x = 1;
+end;
+#delimit cr
+`;
+    const my_lex_result = lexer.tokenize(my_content);
+    tracker.initialize_from_tokens(my_lex_result.tokens, my_content);
+
+    // Lines 2-3 are the body of the real mata block opened at end of line 1.
+    expect(
+      tracker.get_context_at_position({ line: 2, character: 0 })
+    ).toBe(LanguageContext.MATA);
+    expect(
+      tracker.get_context_at_position({ line: 3, character: 0 })
+    ).toBe(LanguageContext.MATA);
+  });
+
+  it('reports mata across a multi-line block comment in a cr inline', () => {
+    const my_content = `mata: st_local("a", /* c
+*/ "1")
+display 1
+`;
+    const my_lex_result = lexer.tokenize(my_content);
+    tracker.initialize_from_tokens(my_lex_result.tokens, my_content);
+
+    // The comment continuation line is part of the mata statement.
+    expect(
+      tracker.get_context_at_position({ line: 1, character: 0 })
+    ).toBe(LanguageContext.MATA);
+    expect(
+      tracker.get_context_at_position({ line: 2, character: 0 })
+    ).toBe(LanguageContext.STATA);
+  });
 });
