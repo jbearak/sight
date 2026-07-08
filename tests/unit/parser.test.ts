@@ -1367,6 +1367,12 @@ end`;
       (parse(source).ast.nodes as unknown as CommandLike[]).find(
         n => n.type === 'command'
       );
+    const command_names = (source: string): string[] =>
+      (parse(source).ast.nodes as unknown as CommandLike[])
+        .filter(n => n.type === 'command')
+        .map(n => n.name ?? '');
+    const varlist_names = (source: string): string[] =>
+      command(source)?.varlist?.map(v => v.name) ?? [];
     const semi = (body: string): string =>
       `#delimit ;\n${body};\n#delimit cr`;
 
@@ -1434,6 +1440,59 @@ end`;
       expect((semi_cmd?.varlist ?? []).map(v => v.name)).toEqual(
         (cr?.varlist ?? []).map(v => v.name)
       );
+    });
+
+    test('unterminated cr-mode parenthesized group does not swallow following statements', () => {
+      const source = 'rename (old1 old2\ndisplay 1\ndisplay 2';
+
+      expect(command_names(source)).toEqual(['rename', 'display', 'display']);
+      expect(varlist_names(source)).toEqual(['(old1 old2)']);
+    });
+
+    test('unterminated semicolon-mode parenthesized group does not consume the terminator', () => {
+      const source =
+        '#delimit ;\nrename (old1 old2;\ndisplay 1;\n#delimit cr';
+
+      expect(command_names(source)).toEqual(['rename', 'display']);
+      expect(varlist_names(source)).toEqual(['(old1 old2)']);
+    });
+
+    test('unterminated assignment expression does not swallow following statements', () => {
+      const source = 'gen z = (x\ndisplay 1\ndisplay 2';
+
+      expect(command_names(source)).toEqual(['gen', 'display', 'display']);
+      expect(command(source)?.expression).toBe('(x');
+    });
+
+    test('unterminated semicolon-mode assignment expression does not consume the terminator', () => {
+      const source = '#delimit ;\ngen z = (x;\ndisplay 1;\n#delimit cr';
+
+      expect(command_names(source)).toEqual(['gen', 'display']);
+      expect(command(source)?.expression).toBe('(x');
+    });
+
+    test('unterminated if qualifier does not swallow following statements', () => {
+      const source = 'keep if (x > 0\ndisplay 1\ndisplay 2';
+
+      expect(command_names(source)).toEqual(['keep', 'display', 'display']);
+      expect(command(source)?.ifExpression).toBe('(x > 0');
+    });
+
+    test('balanced rename parenthesized groups stay intact', () => {
+      expect(varlist_names('rename (old1 old2) (new1 new2)')).toEqual([
+        '(old1 old2)',
+        '(new1 new2)',
+      ]);
+    });
+
+    test('cr-mode slash continuation inside parenthesized group stays in the group', () => {
+      const source = 'rename (old1 ///\nold2) (new1 new2)';
+
+      expect(command_names(source)).toEqual(['rename']);
+      expect(varlist_names(source)).toEqual([
+        '(old1 old2)',
+        '(new1 new2)',
+      ]);
     });
 
     test('AST formatter emits valid Stata for value-separator whitespace', () => {

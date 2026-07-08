@@ -1379,6 +1379,9 @@ export class StataParser {
     };
 
     while (!this.isAtEnd() && paren_depth > 0) {
+      if (this.check('STATEMENT_TERMINATOR')) {
+        break;
+      }
       if (this.check('CONTINUATION')) {
         const cont_token = this.peek();
         if (this.skipContinuation()) {
@@ -2983,6 +2986,10 @@ export class StataParser {
     while (!this.isAtEnd()) {
       const token = this.peek();
 
+      if (token.type === 'STATEMENT_TERMINATOR') {
+        break;
+      }
+
       // Handle continuation tokens - skip them and continue parsing
       if (this.skipContinuation()) {
         continuation.note_continuation(token);
@@ -3001,9 +3008,10 @@ export class StataParser {
         }
       }
 
-      // Stop at top-level comma, statement terminator, or qualifier keywords
+      // Stop at top-level comma or qualifier keywords. A statement terminator
+      // is always a hard stop and is handled before depth accounting above.
       if (paren_depth === 0) {
-        if (token.type === 'COMMA' || token.type === 'STATEMENT_TERMINATOR') {
+        if (token.type === 'COMMA') {
           break;
         }
         // Stop at qualifier keywords
@@ -3138,6 +3146,10 @@ export class StataParser {
     while (!this.isAtEnd()) {
       const token = this.peek();
 
+      if (token.type === 'STATEMENT_TERMINATOR') {
+        break;
+      }
+
       // Track parenthesis depth
       if (token.type === 'LPAREN') {
         paren_depth++;
@@ -3182,9 +3194,11 @@ export class StataParser {
         continue;
       }
 
-      // Stop at top-level terminators (only when not inside brackets)
+      // Stop at top-level separators (only when not inside brackets). A
+      // statement terminator is always a hard stop and is handled before depth
+      // accounting above.
       if (paren_depth === 0 && bracket_depth === 0) {
-        if (token.type === 'STATEMENT_TERMINATOR' || token.type === 'COMMA') {
+        if (token.type === 'COMMA') {
           break;
         }
         // Stop at 'in' keyword (only for if-qualifiers)
