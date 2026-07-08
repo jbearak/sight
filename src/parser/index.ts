@@ -1259,10 +1259,8 @@ export class StataParser {
     const preceded_by_continuation: boolean[] = [];
     const continuation = new ContinuationTracker();
     let paren_depth = 1;
-    let stopped_at_terminator = false;
     while (!this.isAtEnd() && paren_depth > 0) {
       if (this.check('STATEMENT_TERMINATOR')) {
-        stopped_at_terminator = true;
         break;
       }
       if (this.check('CONTINUATION')) {
@@ -1285,19 +1283,6 @@ export class StataParser {
       preceded_by_continuation.push(continuation.collect(t));
     }
     const argument_unclosed = paren_depth > 0 ? true : undefined;
-    if (
-      stopped_at_terminator &&
-      paren_depth === 1 &&
-      arg_tokens[arg_tokens.length - 1]?.type === 'RPAREN'
-    ) {
-      // Recovery-only trim: a trailing inner `)` often belongs to the final
-      // nested call (`vce(seed(123)`) rather than to the option itself. Removing
-      // it keeps the recovered argument tidy, but this does NOT count as a
-      // closed outer option paren; downstream semantic effects must still see
-      // argument_unclosed.
-      arg_tokens.pop();
-      preceded_by_continuation.pop();
-    }
     const argument = this.reconstruct_value_tokens(
       arg_tokens,
       preceded_by_continuation

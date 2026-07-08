@@ -1657,7 +1657,7 @@ end`;
       const source = 'reg y x, vce(seed(123)\ndisplay 1\ndisplay 2';
 
       expect(command_names(source)).toEqual(['reg', 'display', 'display']);
-      expect(option_arg(source, 'vce')).toBe('seed(123');
+      expect(option_arg(source, 'vce')).toBe('seed(123)');
     });
 
     test('unterminated option argument is marked on the option node', () => {
@@ -1674,7 +1674,7 @@ end`;
       const source = '#delimit ;\nreg y x, vce(seed(123);\ndisplay 1;\n#delimit cr';
 
       expect(command_names(source)).toEqual(['reg', 'display']);
-      expect(option_arg(source, 'vce')).toBe('seed(123');
+      expect(option_arg(source, 'vce')).toBe('seed(123)');
     });
 
     test('two-level nested option arguments are preserved', () => {

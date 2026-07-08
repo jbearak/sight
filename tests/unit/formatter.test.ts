@@ -113,10 +113,34 @@ display 1`;
 
       const my_expected = mode === 'source-preserving'
         ? my_source
-        : `reg y x, vce(seed(123
+        : `reg y x, vce(seed(123)
 display 1
 `;
       expect(my_formatted).toBe(my_expected);
+    });
+
+    for_each_formatter_mode('should not delete inner option close paren during recovery', (mode) => {
+      const my_source = `reg y x, vce(seed(123)
+display 1`;
+      const config = create_formatter_config(mode);
+      const mode_formatter = new CodeFormatter();
+      const my_formatted = format_document(my_source, lexer, parser, mode_formatter, config);
+
+      const my_expected = mode === 'source-preserving'
+        ? my_source
+        : `reg y x, vce(seed(123)
+display 1
+`;
+      expect(my_formatted).toBe(my_expected);
+
+      const my_formatted_again = format_document(
+        my_formatted,
+        lexer,
+        parser,
+        mode_formatter,
+        config
+      );
+      expect(my_formatted_again).toBe(my_formatted);
     });
 
     for_each_formatter_mode('should preserve unclosed option argument before continuation EOF', (mode) => {
