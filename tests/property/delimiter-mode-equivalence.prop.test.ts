@@ -39,9 +39,10 @@ function content_nodes(nodes: StataNode[]): StataNode[] {
 }
 
 // Canonicalize nodes for comparison: sort keys and drop every position-bearing
-// field (`range`, `argument_range`) — those legitimately differ because the
-// semicolon-mode wrapper shifts the command onto a later line. What must match
-// across modes is the structural + string content, which is what #306 governs.
+// field (`range`, `argument_range`, `syntaxRanges`) — those legitimately differ
+// because the semicolon-mode wrapper shifts the command onto a later line. What
+// must match across modes is the structural + string content, which is what
+// #306 governs.
 function canonical(value: unknown): unknown {
   if (Array.isArray(value)) {
     return value.map(canonical);
@@ -49,7 +50,11 @@ function canonical(value: unknown): unknown {
   if (value !== null && typeof value === 'object') {
     const the_result: Record<string, unknown> = {};
     for (const my_key of Object.keys(value as Record<string, unknown>).sort()) {
-      if (my_key === 'range' || my_key === 'argument_range') {
+      if (
+        my_key === 'range' ||
+        my_key === 'argument_range' ||
+        my_key === 'syntaxRanges'
+      ) {
         continue;
       }
       the_result[my_key] = canonical((value as Record<string, unknown>)[my_key]);
@@ -150,6 +155,254 @@ const command_source = fc.oneof(
   macro_command
 );
 
+type DelimiterMode = 'cr' | 'semicolon';
+
+type Statement =
+  | { kind: 'simple'; body: string }
+  | { kind: 'simple_pair'; cr_body: string; semi_body: string }
+  | { kind: 'brace_block'; header: string; body: Statement[] }
+  | {
+      kind: 'if_else';
+      condition: string;
+      if_body: Statement[];
+      else_body: Statement[];
+    }
+  | { kind: 'program'; name: string; syntax: string; body: Statement[] };
+
+interface SourcePair {
+  label: string;
+  cr: string;
+  semi: string;
+}
+
+function terminator(mode: DelimiterMode): string {
+  return mode === 'semicolon' ? ';' : '';
+}
+
+function indent(source: string): string {
+  return source
+    .split('\n')
+    .map(line => line.length > 0 ? `  ${line}` : line)
+    .join('\n');
+}
+
+function render_statement_list(
+  statements: Statement[],
+  mode: DelimiterMode
+): string {
+  return statements.map(statement => render_statement(statement, mode)).join('\n');
+}
+
+function render_statement(statement: Statement, mode: DelimiterMode): string {
+  switch (statement.kind) {
+    case 'simple':
+      return `${statement.body}${terminator(mode)}`;
+    case 'simple_pair': {
+      const body = mode === 'semicolon' ? statement.semi_body : statement.cr_body;
+      return `${body}${terminator(mode)}`;
+    }
+    case 'brace_block': {
+      const opener = mode === 'semicolon'
+        ? `${statement.header} {;`
+        : `${statement.header} {`;
+      const closer = mode === 'semicolon' ? '};' : '}';
+      return [
+        opener,
+        indent(render_statement_list(statement.body, mode)),
+        closer,
+      ].join('\n');
+    }
+    case 'if_else': {
+      const if_opener = mode === 'semicolon'
+        ? `if ${statement.condition} {;`
+        : `if ${statement.condition} {`;
+      const else_opener = mode === 'semicolon' ? 'else {;' : 'else {';
+      const closer = mode === 'semicolon' ? '};' : '}';
+      return [
+        if_opener,
+        indent(render_statement_list(statement.if_body, mode)),
+        closer,
+        else_opener,
+        indent(render_statement_list(statement.else_body, mode)),
+        closer,
+      ].join('\n');
+    }
+    case 'program': {
+      return [
+        `program define ${statement.name}${terminator(mode)}`,
+        indent(`${statement.syntax}${terminator(mode)}`),
+        indent(render_statement_list(statement.body, mode)),
+        `end${terminator(mode)}`,
+      ].join('\n');
+    }
+  }
+}
+
+function render_source_pair(label: string, statements: Statement[]): SourcePair {
+  return {
+    label,
+    cr: render_statement_list(statements, 'cr'),
+    semi: `#delimit ;\n${render_statement_list(statements, 'semicolon')}`,
+  };
+}
+
+const simple_statement_body = fc.oneof(
+  command_source,
+  fc.constantFrom(
+    'by id: gen x = 1',
+    'bysort id: gen x = 1',
+    'quietly: gen x = 1',
+    'quietly : replace y = x[_n-1]',
+    'frame create analysis',
+    'frame change default',
+    'gen lag_x = x[_n-1]',
+    'gen s = "plain string"',
+    'gen t = "value `foo\'"',
+    'local quoted = "value `foo\'"',
+    'local compound = `"hello `foo\'"\'',
+    'local n : word count a b c',
+    'local joined = a///\nb',
+    'local indented = a///\n    b',
+    'local spaced = a ///\nb',
+    'gen continued = a///\nb',
+    'gen continued_spaced = a ///\nb'
+  )
+);
+
+const gratuitous_newline_statement = fc.constantFrom<Statement>(
+  {
+    kind: 'simple_pair',
+    cr_body: 'gen z = x + y',
+    semi_body: 'gen z = x\n  + y',
+  },
+  {
+    kind: 'simple_pair',
+    cr_body: 'reg y x, absorb(firm year)',
+    semi_body: 'reg y\n  x, absorb(firm\nyear)',
+  },
+  {
+    kind: 'simple_pair',
+    cr_body: 'local n : word count a b c',
+    semi_body: 'local n : word\n  count a\n  b c',
+  },
+  {
+    kind: 'simple_pair',
+    cr_body: 'bysort id: gen x = 1',
+    semi_body: 'bysort id:\n  gen x = 1',
+  },
+  {
+    kind: 'simple_pair',
+    cr_body: 'keep if x > 0',
+    semi_body: 'keep if x\n  > 0',
+  }
+);
+
+const block_body_statement = fc.oneof(
+  fc.constant<Statement>({ kind: 'simple', body: 'display "inside"' }),
+  fc.constant<Statement>({ kind: 'simple', body: 'gen y = x[_n-1]' }),
+  fc.constant<Statement>({ kind: 'simple', body: 'local n : word count a b c' }),
+  fc.constant<Statement>({ kind: 'simple', body: 'quietly: replace y = x + 1' })
+);
+
+const loop_statement = fc
+  .tuple(
+    fc.constantFrom('foreach i in a b c', 'forvalues i = 1/3'),
+    fc.array(block_body_statement, { minLength: 1, maxLength: 3 })
+  )
+  .map(([header, body]): Statement => ({ kind: 'brace_block', header, body }));
+
+const while_statement = fc
+  .tuple(
+    fc.constantFrom('x > 0', 'a///\nb', 'a ///\nb'),
+    fc.array(block_body_statement, { minLength: 1, maxLength: 2 })
+  )
+  .map(([condition, body]): Statement => ({
+    kind: 'brace_block',
+    header: `while ${condition}`,
+    body,
+  }));
+
+const if_else_statement = fc
+  .tuple(
+    fc.constantFrom('x > 0', 'x[_n-1] != 0', 'a///\nb', 'a ///\nb'),
+    fc.array(block_body_statement, { minLength: 1, maxLength: 2 }),
+    fc.array(block_body_statement, { minLength: 1, maxLength: 2 })
+  )
+  .map(([condition, if_body, else_body]): Statement => ({
+    kind: 'if_else',
+    condition,
+    if_body,
+    else_body,
+  }));
+
+const frame_block_statement = fc
+  .array(block_body_statement, { minLength: 1, maxLength: 3 })
+  .map((body): Statement => ({
+    kind: 'brace_block',
+    header: 'frame analysis',
+    body,
+  }));
+
+const nested_block_statement = fc.constant<Statement>({
+  kind: 'brace_block',
+  header: 'forvalues i = 1/3',
+  body: [
+    {
+      kind: 'if_else',
+      condition: 'x[_n-1] > 0',
+      if_body: [{ kind: 'simple', body: 'display "positive"' }],
+      else_body: [{ kind: 'simple', body: 'display `"not positive"\'' }],
+    },
+  ],
+});
+
+const program_statement = fc
+  .tuple(
+    fc.constantFrom('p', 'build_vars', 'summarize_sample'),
+    fc.constantFrom(
+      'syntax varlist, opt (string default(a b)) cluster(varname)',
+      'syntax , flag(integer) label (string default(`"hello `foo\'"\'))'
+    ),
+    fc.array(block_body_statement, { minLength: 1, maxLength: 3 })
+  )
+  .map(([name, syntax, body]): Statement => ({
+    kind: 'program',
+    name,
+    syntax,
+    body,
+  }));
+
+const top_level_simple_statement = simple_statement_body.map(
+  (body): Statement => ({ kind: 'simple', body })
+);
+
+const structured_statement = fc.oneof(
+  top_level_simple_statement,
+  gratuitous_newline_statement,
+  loop_statement,
+  while_statement,
+  if_else_statement,
+  frame_block_statement,
+  nested_block_statement,
+  program_statement
+);
+
+const structured_source_pair = fc.oneof(
+  structured_statement.map(statement =>
+    render_source_pair(statement.kind, [statement])
+  ),
+  fc
+    .array(structured_statement, { minLength: 2, maxLength: 4 })
+    .map(statements => render_source_pair('statement_list', statements))
+);
+
+// Embedded Mata/Python shapes are intentionally not part of this oracle. The
+// embedded lexer path preserves embedded whitespace, but newlines are still
+// delimiter-sensitive tokens (`STATEMENT_TERMINATOR` in cr mode and WHITESPACE
+// in semicolon mode). A cross-mode render would therefore compare Stata
+// delimiter mechanics inside a non-Stata body rather than a semantically
+// well-defined pair of equivalent embedded programs.
+
 describe('delimiter-mode reconstruction parity (issue #306)', () => {
   it('parses identically in #delimit cr and #delimit ; modes', () => {
     fc.assert(
@@ -166,6 +419,24 @@ describe('delimiter-mode reconstruction parity (issue #306)', () => {
         expect(JSON.stringify(semi_nodes)).toBe(JSON.stringify(cr_nodes));
       }),
       { numRuns: 2000 }
+    );
+  });
+
+  it('parses generated structured sources identically in both delimiter modes', () => {
+    fc.assert(
+      fc.property(structured_source_pair, pair => {
+        const cr = parse(pair.cr);
+        const semi = parse(pair.semi);
+
+        // Same diagnostics (by code) regardless of delimiter mode.
+        expect(error_codes(semi)).toEqual(error_codes(cr));
+
+        // Same command AST, ignoring ranges and the #delimit wrapper node.
+        const cr_nodes = canonical(content_nodes(cr.ast.nodes));
+        const semi_nodes = canonical(content_nodes(semi.ast.nodes));
+        expect(JSON.stringify(semi_nodes)).toBe(JSON.stringify(cr_nodes));
+      }),
+      { numRuns: 800 }
     );
   });
 });
