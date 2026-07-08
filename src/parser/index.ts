@@ -1259,6 +1259,7 @@ export class StataParser {
     const preceded_by_continuation: boolean[] = [];
     const continuation = new ContinuationTracker();
     let paren_depth = 1;
+    let option_closes_after_comments: boolean | undefined;
     while (!this.isAtEnd() && paren_depth > 0) {
       if (this.check('STATEMENT_TERMINATOR')) {
         break;
@@ -1271,7 +1272,13 @@ export class StataParser {
         }
       }
       if (this.check('COMMENT_LINE') || this.check('COMMENT_BLOCK')) {
-        if (this.has_matching_option_close_before_statement(paren_depth)) {
+        // One forward scan is enough for all comments in this option argument:
+        // once an outer close is known to exist before the effective statement
+        // end, every later comment we reach is still on the same path toward
+        // that close. If no close exists, recovery breaks immediately here.
+        option_closes_after_comments ??=
+          this.has_matching_option_close_before_statement(paren_depth);
+        if (option_closes_after_comments) {
           this.advance();
           continue;
         }
@@ -1312,6 +1319,21 @@ export class StataParser {
     let index = this.current;
     while (index < this.tokens.length && scan_depth > 0) {
       const token = this.tokens[index];
+      if (token.type === 'COMMENT_LINE' || token.type === 'COMMENT_BLOCK') {
+        index++;
+        continue;
+      }
+      if (token.type === 'CONTINUATION') {
+        const next_token = this.tokens[index + 1];
+        index += 1;
+        if (
+          next_token !== undefined &&
+          is_swallowed_continuation_terminator(next_token, true)
+        ) {
+          index += 1;
+        }
+        continue;
+      }
       if (token.type === 'STATEMENT_TERMINATOR') {
         return false;
       }
@@ -1323,6 +1345,9 @@ export class StataParser {
           return true;
         }
       }
+      // STRING tokens are ignored here on purpose: the lexer keeps any parens
+      // inside a string literal inside the STRING token value rather than
+      // emitting LPAREN/RPAREN tokens, so they cannot affect option depth.
       index++;
     }
     return false;

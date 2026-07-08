@@ -1689,6 +1689,70 @@ end`;
       expect(closed.find(o => o.name === 'global')?.argument_unclosed).toBeUndefined();
     });
 
+    test('cr-mode option comment before slash continuation keeps option closed', () => {
+      const source = 'reg y x, vce(a /* c */ ///\nb)';
+      const options = command_options(source);
+
+      expect(command_names(source)).toEqual(['reg']);
+      expect(options.find(o => o.name === 'vce')?.argument).toBe('a b');
+      expect(options.find(o => o.name === 'vce')?.argument_unclosed).toBeUndefined();
+    });
+
+    test('semicolon-mode option comment before physical newline keeps option closed', () => {
+      const source = semi('reg y x, vce(a /* c */\nb)');
+      const options = command_options(source);
+
+      expect(command_names(source)).toEqual(['reg']);
+      expect(options.find(o => o.name === 'vce')?.argument).toBe('a b');
+      expect(options.find(o => o.name === 'vce')?.argument_unclosed).toBeUndefined();
+    });
+
+    test('continuation between option comment and close paren keeps option closed', () => {
+      const source = 'reg y x, vce(a /* c */ ///\n)';
+      const options = command_options(source);
+
+      expect(command_names(source)).toEqual(['reg']);
+      expect(options.find(o => o.name === 'vce')?.argument).toBe('a');
+      expect(options.find(o => o.name === 'vce')?.argument_unclosed).toBeUndefined();
+    });
+
+    test('comment after option continuation keeps closed option argument collecting', () => {
+      const source = 'reg y x, vce(a ///\n/* c */ b)';
+      const options = command_options(source);
+
+      expect(command_names(source)).toEqual(['reg']);
+      expect(options.find(o => o.name === 'vce')?.argument).toBe('a b');
+      expect(options.find(o => o.name === 'vce')?.argument_unclosed).toBeUndefined();
+    });
+
+    test('comment before continuation still recovers when option never closes', () => {
+      const source = 'reg y x, vce(a /* c */ ///\nb\ndisplay 1';
+      const options = command_options(source);
+
+      expect(options.find(o => o.name === 'vce')?.argument).toBe('a');
+      expect(options.find(o => o.name === 'vce')?.argument_unclosed).toBe(true);
+    });
+
+    test('comment after continuation still recovers when option never closes', () => {
+      const source = 'reg y x, vce(a ///\n/* c */ b\ndisplay 1';
+      const options = command_options(source);
+
+      expect(options.find(o => o.name === 'vce')?.argument).toBe('a');
+      expect(options.find(o => o.name === 'vce')?.argument_unclosed).toBe(true);
+    });
+
+    test('many comments inside one closed option argument parse without quadratic blowup', () => {
+      const comment_count = 100_000;
+      const source = `reg y x, vce(a ${'/* c */ '.repeat(comment_count)}b)`;
+      const start_time = performance.now();
+      const options = command_options(source);
+      const elapsed_ms = performance.now() - start_time;
+
+      expect(options.find(o => o.name === 'vce')?.argument).toBe('a b');
+      expect(options.find(o => o.name === 'vce')?.argument_unclosed).toBeUndefined();
+      expect(elapsed_ms).toBeLessThan(2_000);
+    });
+
     test('unterminated nested option argument recovers at semicolon-mode statement terminator', () => {
       const source = '#delimit ;\nreg y x, vce(seed(123);\ndisplay 1;\n#delimit cr';
 
