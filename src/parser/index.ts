@@ -1215,6 +1215,9 @@ export class StataParser {
             if (parsed.argument_unclosed) {
               option.argument_unclosed = true;
             }
+            if (parsed.argument_trailing_trivia) {
+              option.argument_trailing_trivia = parsed.argument_trailing_trivia;
+            }
           }
 
           options.push(option);
@@ -1249,6 +1252,7 @@ export class StataParser {
     argument: string;
     argument_range?: Range;
     argument_unclosed?: true;
+    argument_trailing_trivia?: string;
   } {
     this.advance(); // consume (
     // Collect argument tokens and reconstruct spacing from their ranges via
@@ -1258,8 +1262,8 @@ export class StataParser {
     const arg_tokens: Token[] = [];
     const preceded_by_continuation: boolean[] = [];
     const continuation = new ContinuationTracker();
+    let pending_trailing_trivia: Token[] = [];
     let paren_depth = 1;
-    let option_closes_after_comments: boolean | undefined;
     while (!this.isAtEnd() && paren_depth > 0) {
       if (this.check('STATEMENT_TERMINATOR')) {
         break;
@@ -1268,21 +1272,13 @@ export class StataParser {
         const cont_token = this.peek();
         if (this.skipContinuation()) {
           continuation.note_continuation(cont_token);
+          pending_trailing_trivia = [];
           continue;
         }
       }
       if (this.check('COMMENT_LINE') || this.check('COMMENT_BLOCK')) {
-        // One forward scan is enough for all comments in this option argument:
-        // once an outer close is known to exist before the effective statement
-        // end, every later comment we reach is still on the same path toward
-        // that close. If no close exists, recovery breaks immediately here.
-        option_closes_after_comments ??=
-          this.has_matching_option_close_before_statement(paren_depth);
-        if (option_closes_after_comments) {
-          this.advance();
-          continue;
-        }
-        break;
+        pending_trailing_trivia.push(this.advance());
+        continue;
       }
       const t = this.advance();
       if (t.type === 'LPAREN') {
@@ -1294,9 +1290,13 @@ export class StataParser {
         }
       }
       arg_tokens.push(t);
+      pending_trailing_trivia = [];
       preceded_by_continuation.push(continuation.collect(t));
     }
     const argument_unclosed = paren_depth > 0 ? true : undefined;
+    const argument_trailing_trivia = argument_unclosed && pending_trailing_trivia.length > 0
+      ? pending_trailing_trivia.map(token => token.value).join(' ')
+      : undefined;
     const argument = this.reconstruct_value_tokens(
       arg_tokens,
       preceded_by_continuation
@@ -1304,53 +1304,7 @@ export class StataParser {
     const argument_range = arg_tokens.length > 0
       ? { start: arg_tokens[0].range.start, end: arg_tokens[arg_tokens.length - 1].range.end }
       : undefined;
-    return { argument, argument_range, argument_unclosed };
-  }
-
-  /**
-   * Look ahead from a comment inside an option argument to determine whether
-   * the already-open option parenthesis is closed before the statement ends.
-   * Comments are trivia for the argument string, but a close paren after trivia
-   * still means the option is semantically closed.
-   */
-  private has_matching_option_close_before_statement(paren_depth: number):
-    boolean {
-    let scan_depth = paren_depth;
-    let index = this.current;
-    while (index < this.tokens.length && scan_depth > 0) {
-      const token = this.tokens[index];
-      if (token.type === 'COMMENT_LINE' || token.type === 'COMMENT_BLOCK') {
-        index++;
-        continue;
-      }
-      if (token.type === 'CONTINUATION') {
-        const next_token = this.tokens[index + 1];
-        index += 1;
-        if (
-          next_token !== undefined &&
-          is_swallowed_continuation_terminator(next_token, true)
-        ) {
-          index += 1;
-        }
-        continue;
-      }
-      if (token.type === 'STATEMENT_TERMINATOR') {
-        return false;
-      }
-      if (token.type === 'LPAREN') {
-        scan_depth++;
-      } else if (token.type === 'RPAREN') {
-        scan_depth--;
-        if (scan_depth === 0) {
-          return true;
-        }
-      }
-      // STRING tokens are ignored here on purpose: the lexer keeps any parens
-      // inside a string literal inside the STRING token value rather than
-      // emitting LPAREN/RPAREN tokens, so they cannot affect option depth.
-      index++;
-    }
-    return false;
+    return { argument, argument_range, argument_unclosed, argument_trailing_trivia };
   }
 
   /**
@@ -1570,6 +1524,9 @@ export class StataParser {
             option.argument_range = parsed.argument_range;
             if (parsed.argument_unclosed) {
               option.argument_unclosed = true;
+            }
+            if (parsed.argument_trailing_trivia) {
+              option.argument_trailing_trivia = parsed.argument_trailing_trivia;
             }
           }
 
@@ -2720,6 +2677,9 @@ export class StataParser {
             option.argument_range = parsed.argument_range;
             if (parsed.argument_unclosed) {
               option.argument_unclosed = true;
+            }
+            if (parsed.argument_trailing_trivia) {
+              option.argument_trailing_trivia = parsed.argument_trailing_trivia;
             }
           }
           options.push(option);

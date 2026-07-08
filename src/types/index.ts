@@ -246,6 +246,7 @@ export interface OptionNode {
   argument?: string;
   argument_range?: Range;
   argument_unclosed?: true;
+  argument_trailing_trivia?: string;
   range: Range;
 }
 

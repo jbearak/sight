@@ -1,6 +1,7 @@
 import { StataParser } from '../../src/parser';
 import { StataLexer } from '../../src/lexer';
 import { PrettyPrinter } from '../../src/pretty-printer';
+import { SemanticAnalyzer } from '../../src/analyzer';
 
 describe('StataParser', () => {
   let parser: StataParser;
@@ -1626,6 +1627,18 @@ end`;
         .filter(n => n.type === 'command')
         .map(n => (n as { name: string }).name);
     const parse_errors = (source: string) => parse(source).errors;
+    const forward_calls = (source: string) => {
+      const lex_result = lexer.tokenize(source);
+      const parse_result = parser.parse(lex_result.tokens);
+      const analyzer = new SemanticAnalyzer();
+      return analyzer.analyze(
+        parse_result.ast,
+        'file:///test.do',
+        undefined,
+        undefined,
+        lex_result.tokens
+      ).forward_calls;
+    };
 
     test('multi-token option argument matches across modes', () => {
       expect(option_arg('reg y x, absorb(firm year)', 'absorb')).toBe(
@@ -1729,7 +1742,7 @@ end`;
       const source = 'reg y x, vce(a /* c */ ///\nb\ndisplay 1';
       const options = command_options(source);
 
-      expect(options.find(o => o.name === 'vce')?.argument).toBe('a');
+      expect(options.find(o => o.name === 'vce')?.argument).toBe('a b');
       expect(options.find(o => o.name === 'vce')?.argument_unclosed).toBe(true);
     });
 
@@ -1737,8 +1750,38 @@ end`;
       const source = 'reg y x, vce(a ///\n/* c */ b\ndisplay 1';
       const options = command_options(source);
 
-      expect(options.find(o => o.name === 'vce')?.argument).toBe('a');
+      expect(options.find(o => o.name === 'vce')?.argument).toBe('a b');
       expect(options.find(o => o.name === 'vce')?.argument_unclosed).toBe(true);
+    });
+
+    test('cr-mode comment before continued unclosed option does not expose do as top-level command', () => {
+      const source = 'reg y x, vce(a /* c */ ///\ndo child.do\ndisplay 1';
+      const options = command_options(source);
+
+      expect(command_names(source)).toEqual(['reg', 'display']);
+      expect(options.find(o => o.name === 'vce')?.argument).toBe('a do child.do');
+      expect(options.find(o => o.name === 'vce')?.argument_unclosed).toBe(true);
+      expect(forward_calls(source)).toHaveLength(0);
+    });
+
+    test('semicolon-mode comment before unclosed option does not expose do as top-level command', () => {
+      const source = '#delimit ;\nreg y x, vce(a // c\ndo child.do ;\ndisplay 1;';
+      const options = command_options(source);
+
+      expect(command_names(source)).toEqual(['reg', 'display']);
+      expect(options.find(o => o.name === 'vce')?.argument).toBe('a do child.do');
+      expect(options.find(o => o.name === 'vce')?.argument_unclosed).toBe(true);
+      expect(forward_calls(source)).toHaveLength(0);
+    });
+
+    test('top-level do after terminated option statement still emits forward call', () => {
+      const source = 'reg y x, vce(a)\ndo child.do\ndisplay 1';
+      const calls = forward_calls(source);
+
+      expect(command_names(source)).toEqual(['reg', 'do', 'display']);
+      expect(calls).toHaveLength(1);
+      expect(calls[0].type).toBe('do');
+      expect(calls[0].raw_path).toBe('child.do');
     });
 
     test('many comments inside one closed option argument parse without quadratic blowup', () => {
