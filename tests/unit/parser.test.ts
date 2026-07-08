@@ -1,5 +1,6 @@
 import { StataParser } from '../../src/parser';
 import { StataLexer } from '../../src/lexer';
+import { PrettyPrinter } from '../../src/pretty-printer';
 
 describe('StataParser', () => {
   let parser: StataParser;
@@ -45,7 +46,7 @@ describe('StataParser', () => {
         expect(node.name).toBe('generate');
         expect(node.varlist).toHaveLength(1);
         expect(node.varlist?.[0].name).toBe('newvar');
-        expect(node.expression).toBe('oldvar+1*2');
+        expect(node.expression).toBe('oldvar + 1 * 2');
       }
     });
 
@@ -65,7 +66,7 @@ describe('StataParser', () => {
         expect(node.varlist).toHaveLength(2);
         expect(node.varlist?.[0].name).toBe('var1');
         expect(node.varlist?.[1].name).toBe('var2');
-        expect(node.ifExpression).toBe('age>30');
+        expect(node.ifExpression).toBe('age > 30');
         expect(node.inExpression).toBeUndefined();
       }
     });
@@ -106,7 +107,7 @@ describe('StataParser', () => {
         expect(node.varlist).toHaveLength(2);
         expect(node.varlist?.[0].name).toBe('var1');
         expect(node.varlist?.[1].name).toBe('var2');
-        expect(node.ifExpression).toBe('age>30');
+        expect(node.ifExpression).toBe('age > 30');
         expect(node.inExpression).toBe('1/10');
       }
     });
@@ -126,8 +127,8 @@ describe('StataParser', () => {
         expect(node.name).toBe('generate');
         expect(node.varlist).toHaveLength(1);
         expect(node.varlist?.[0].name).toBe('newvar');
-        expect(node.expression).toBe('oldvar*2');
-        expect(node.ifExpression).toBe('condition==1');
+        expect(node.expression).toBe('oldvar * 2');
+        expect(node.ifExpression).toBe('condition == 1');
         expect(node.inExpression).toBeUndefined();
       }
     });
@@ -147,7 +148,7 @@ describe('StataParser', () => {
         expect(node.name).toBe('list');
         expect(node.varlist).toHaveLength(1);
         expect(node.varlist?.[0].name).toBe('var');
-        expect(node.ifExpression).toBe('(age>30&gender=="male")');
+        expect(node.ifExpression).toBe('(age > 30 & gender == "male")');
       }
     });
 
@@ -1234,6 +1235,368 @@ end`;
     });
   });
 
+  describe('#delimit ; reconstructed-string spacing parity (issue #306)', () => {
+    // In `#delimit ;` mode the lexer emits WHITESPACE tokens that `#delimit cr`
+    // mode elides, so the reconstructed expression / if-in qualifier /
+    // parenthesized-group strings gained internal spaces in `;` mode that were
+    // absent in `cr` mode. The AST structure was already identical; only the
+    // internal spacing diverged. We reconstruct spacing from token ranges (via
+    // reconstruct_value_tokens) in BOTH modes, so each yields the identical,
+    // source-faithful single-space form (issue #306, Option 3). This also fixes
+    // the latent `cr`-mode defect where value-separator whitespace was lost
+    // (e.g. `group(a b)` became `group(ab)`), which the pretty-printer could
+    // not recover once two value tokens had been fused into one identifier.
+    const parse = (source: string) =>
+      parser.parse(lexer.tokenize(source).tokens);
+    type CommandLike = {
+      type: string;
+      name?: string;
+      varlist?: { name: string }[];
+      expression?: string;
+      ifExpression?: string;
+      inExpression?: string;
+    };
+    const command = (source: string): CommandLike | undefined =>
+      (parse(source).ast.nodes as unknown as CommandLike[]).find(
+        n => n.type === 'command'
+      );
+    const semi = (body: string): string =>
+      `#delimit ;\n${body};\n#delimit cr`;
+
+    // For each body, the `;`-mode reconstruction must equal the `cr`-mode one
+    // (a single space per source gap), and neither mode may emit a diagnostic.
+    const cases: { body: string; expr?: string; if_?: string; in_?: string;
+                   vl?: string[] }[] = [
+      { body: 'gen z = x + y', expr: 'x + y', vl: ['z'] },
+      { body: 'gen z = x+y', expr: 'x+y', vl: ['z'] },
+      { body: 'gen z = (x + y) * 2', expr: '(x + y) * 2', vl: ['z'] },
+      // Value-separator whitespace must survive so the argument list is not
+      // fused into one identifier (the pre-existing cr-mode defect).
+      { body: 'egen g = group(a b)', expr: 'group(a b)', vl: ['g'] },
+      { body: 'replace z = x * 2 if y > 0', expr: 'x * 2', if_: 'y > 0',
+        vl: ['z'] },
+      { body: 'keep if inrange(age, 18, 65)', if_: 'inrange(age, 18, 65)' },
+      { body: 'keep in 1 / 10', in_: '1 / 10' },
+      { body: 'recode x (1/3 = 1) (4/6 = 2)',
+        vl: ['x', '(1/3 = 1)', '(4/6 = 2)'] },
+    ];
+
+    for (const my_case of cases) {
+      test(`"${my_case.body}" matches cr spacing and is error-free`, () => {
+        const cr = parse(my_case.body);
+        const semi_result = parse(semi(my_case.body));
+        expect(cr.errors).toHaveLength(0);
+        expect(semi_result.errors).toHaveLength(0);
+
+        const cr_cmd = command(my_case.body);
+        const semi_cmd = command(semi(my_case.body));
+        expect(cr_cmd).toBeDefined();
+        expect(semi_cmd).toBeDefined();
+
+        // Parity: every reconstructed field agrees across modes.
+        expect(semi_cmd?.expression).toBe(cr_cmd?.expression);
+        expect(semi_cmd?.ifExpression).toBe(cr_cmd?.ifExpression);
+        expect(semi_cmd?.inExpression).toBe(cr_cmd?.inExpression);
+        expect((semi_cmd?.varlist ?? []).map(v => v.name)).toEqual(
+          (cr_cmd?.varlist ?? []).map(v => v.name)
+        );
+
+        // And the agreed form is the source-faithful single-space one.
+        if (my_case.expr !== undefined) {
+          expect(semi_cmd?.expression).toBe(my_case.expr);
+        }
+        if (my_case.if_ !== undefined) {
+          expect(semi_cmd?.ifExpression).toBe(my_case.if_);
+        }
+        if (my_case.in_ !== undefined) {
+          expect(semi_cmd?.inExpression).toBe(my_case.in_);
+        }
+        if (my_case.vl !== undefined) {
+          expect((semi_cmd?.varlist ?? []).map(v => v.name)).toEqual(my_case.vl);
+        }
+      });
+    }
+
+    test('multi-word parenthesized group keeps its word separators', () => {
+      // Range-based reconstruction must keep the value separator: `(a b)` is
+      // `(a b)` in both modes, never `(ab)`. Whitespace around operators is
+      // normalized to a single space rather than dropped.
+      const cr = command('mycmd (a b)');
+      const semi_cmd = command(semi('mycmd (a b)'));
+      expect((cr?.varlist ?? []).map(v => v.name)).toContain('(a b)');
+      expect((semi_cmd?.varlist ?? []).map(v => v.name)).toEqual(
+        (cr?.varlist ?? []).map(v => v.name)
+      );
+    });
+
+    test('AST formatter emits valid Stata for value-separator whitespace', () => {
+      // Regression: reconstructing the assignment RHS without value-separator
+      // whitespace produced `group(ab)` — a different, broken expression the
+      // pretty-printer could not repair. Both modes must round-trip through the
+      // AST formatter with `group(a b)` intact (issue #306).
+      const printer = new PrettyPrinter();
+      const format = (source: string): string =>
+        printer.print(parse(source).ast);
+      expect(format('egen g = group(a b)')).toContain('group(a b)');
+      expect(format(semi('egen g = group(a b)'))).toContain('group(a b)');
+      expect(format('egen g = group(a b)')).not.toContain('group(ab)');
+    });
+
+    test('/// continuation joins only the immediately-following line', () => {
+      // `///` continues one line: a column-0 token on the next line joins with
+      // no space, an indented token keeps one space, and consecutive `///`
+      // lines still join. A blank line after `///` is an ordinary newline and
+      // must separate — it must NOT fuse the tokens into one identifier
+      // (issue #306; matches the documented macro-value convention).
+      const expr = (body: string): string | undefined =>
+        command(semi(body))?.expression;
+      expect(expr('gen z = a///\nb')).toBe('ab');
+      expect(expr('gen z = a///\n    b')).toBe('a b');
+      expect(expr('gen z = a///\n///\nb')).toBe('ab');
+      expect(expr('gen z = a///\n\nb')).toBe('a b');
+      // A same-line space before `///` is real whitespace and must separate,
+      // even when the continued token starts at column 0.
+      expect(expr('gen z = a ///\nb')).toBe('a b');
+      // A raw newline before a later `///` breaks the chain: the tokens must
+      // not fuse just because the second `///` sits next to the final token.
+      expect(expr('gen z = a///\n\n///\nb')).toBe('a b');
+      // Diagnostic-free in every case.
+      for (const my_body of [
+        'gen z = a///\nb',
+        'gen z = a///\n\nb',
+        'gen z = a///\n    b',
+        'gen z = a///\n\n///\nb',
+      ]) {
+        expect(parse(semi(my_body)).errors).toHaveLength(0);
+      }
+    });
+  });
+
+  describe('#delimit cr file-command argument coalescing (issue #306)', () => {
+    // In `#delimit cr` mode the lexer emits no WHITESPACE tokens, so a file
+    // command's first-argument path coalesced every following token into one
+    // string (`merge 1:1 id using data` -> `["1:1idusingdata"]`), whereas
+    // `#delimit ;` mode kept the arguments separate. parseFilePathArgument now
+    // stops coalescing at a source gap, so both modes agree (issue #306).
+    const parse = (source: string) =>
+      parser.parse(lexer.tokenize(source).tokens);
+    type CommandLike = { type: string; name?: string; varlist?: { name: string }[] };
+    const commands = (source: string): CommandLike[] =>
+      (parse(source).ast.nodes as unknown as CommandLike[]).filter(
+        n => n.type === 'command'
+      );
+    const varlist_names = (c: CommandLike | undefined): string[] =>
+      (c?.varlist ?? []).map(v => v.name);
+    const semi = (body: string): string =>
+      `#delimit ;\n${body};\n#delimit cr`;
+
+    test('merge arguments stay separate in #delimit cr mode', () => {
+      const cr = commands('merge 1:1 id using data');
+      expect(cr).toHaveLength(1);
+      expect(cr[0].name).toBe('merge');
+      expect(varlist_names(cr[0])).toEqual(['1:1', 'id', 'using', 'data']);
+      expect(parse('merge 1:1 id using data').errors).toHaveLength(0);
+    });
+
+    test('merge parses identically in #delimit cr and #delimit ; modes', () => {
+      const cr = commands('merge 1:1 id using data');
+      const semi_cmds = commands(semi('merge 1:1 id using data'));
+      expect(semi_cmds).toHaveLength(1);
+      expect(varlist_names(cr[0])).toEqual(varlist_names(semi_cmds[0]));
+    });
+
+    test('m:1 merge with a using path matches across modes', () => {
+      const cr = commands('merge m:1 statefip year using acs');
+      const semi_cmds = commands(semi('merge m:1 statefip year using acs'));
+      expect(cr).toHaveLength(1);
+      expect(semi_cmds).toHaveLength(1);
+      expect(varlist_names(cr[0])).toEqual(varlist_names(semi_cmds[0]));
+      expect(varlist_names(cr[0])[0]).toBe('m:1');
+    });
+
+    test('unquoted file paths still coalesce as one argument in cr mode', () => {
+      // Adjacent tokens (no source gap) remain a single path: the adjacency
+      // guard must not fragment `use data/sub.dir/file.dta` or `do myfile.do`.
+      expect(varlist_names(commands('do myfile.do')[0])).toEqual(['myfile.do']);
+      expect(varlist_names(commands('use data/sub.dir/file.dta')[0])).toEqual([
+        'data/sub.dir/file.dta',
+      ]);
+    });
+  });
+
+  describe('#delimit ; loop-spec spacing parity (issue #306)', () => {
+    // The foreach/forvalues loop spec is reconstructed from tokens too, so it
+    // must agree across delimiter modes and never fuse list items — otherwise
+    // the loop expander sees one iterator value (`x_ab`) instead of two
+    // (`x_a`, `x_b`) (issue #306).
+    const parse = (source: string) =>
+      parser.parse(lexer.tokenize(source).tokens);
+    const loop_spec = (source: string): string | undefined => {
+      const my_node = parse(source).ast.nodes.find(
+        n => n.type === 'foreach' || n.type === 'forvalues'
+      ) as { loopSpec?: string } | undefined;
+      return my_node?.loopSpec;
+    };
+    const semi_loop = (spec_line: string): string =>
+      `#delimit ;\n${spec_line} {;\n  display 1;\n};\n#delimit cr`;
+
+    test('foreach in-list matches across modes', () => {
+      const cr = loop_spec('foreach i in a b c {\n  display 1\n}');
+      expect(cr).toBe('in a b c');
+      expect(loop_spec(semi_loop('foreach i in a b c'))).toBe(cr);
+    });
+
+    test('forvalues spec matches across modes', () => {
+      const cr = loop_spec('forvalues i = 1/10 {\n  display 1\n}');
+      expect(cr).toBe('= 1/10');
+      expect(loop_spec(semi_loop('forvalues i = 1/10'))).toBe(cr);
+    });
+
+    test('/// continuation in a foreach list joins only the next line', () => {
+      // Column-0 join, then a blank line that must separate rather than fuse.
+      expect(loop_spec(semi_loop('foreach i in a///\nb'))).toBe('in ab');
+      expect(loop_spec(semi_loop('foreach i in a///\n\nb'))).toBe('in a b');
+    });
+  });
+
+  describe('if/while condition spacing parity (issue #306)', () => {
+    // if/while conditions are reconstructed from tokens too. They were already
+    // mode-invariant, but used a different spacing path; routing them through
+    // the shared reconstruct_value_tokens gives consistent single-space spacing
+    // and correct `///` join semantics (issue #306).
+    const parse = (source: string) =>
+      parser.parse(lexer.tokenize(source).tokens);
+    const condition = (source: string): string | undefined => {
+      const my_node = parse(source).ast.nodes.find(
+        n => n.type === 'if' || n.type === 'while'
+      ) as { condition?: string } | undefined;
+      return my_node?.condition;
+    };
+
+    test('condition spacing agrees across delimiter modes', () => {
+      const cr = condition('if x > 0 & y < 1 {\n  display 1\n}');
+      expect(cr).toBe('x > 0 & y < 1');
+      const semi = condition(
+        '#delimit ;\nif x > 0 & y < 1 {;\n  display 1;\n};\n#delimit cr'
+      );
+      expect(semi).toBe(cr);
+    });
+
+    test('/// continuation in a condition joins only the next line', () => {
+      // Column-0 join matches Stata (`if a///` then `b` executes `if ab`); a
+      // space before `///` separates.
+      expect(condition('if a///\nb {\n  display 1\n}')).toBe('ab');
+      expect(condition('if a ///\nb {\n  display 1\n}')).toBe('a b');
+      expect(condition('while a///\nb {\n  display 1\n}')).toBe('ab');
+    });
+  });
+
+  describe('#delimit ; option-argument spacing parity (issue #306)', () => {
+    // An option's parenthesized argument is reconstructed from tokens too, so a
+    // multi-token argument must agree across delimiter modes and never fuse —
+    // `absorb(firm year)` is `firm year`, not `firmyear` (issue #306).
+    const parse = (source: string) =>
+      parser.parse(lexer.tokenize(source).tokens);
+    const option_arg = (source: string, name: string): string | undefined => {
+      const my_cmd = parse(source).ast.nodes.find(n => n.type === 'command') as
+        { options?: { name: string; argument?: string }[] } | undefined;
+      return my_cmd?.options?.find(o => o.name === name)?.argument;
+    };
+    const semi = (body: string): string =>
+      `#delimit ;\n${body};\n#delimit cr`;
+
+    test('multi-token option argument matches across modes', () => {
+      expect(option_arg('reg y x, absorb(firm year)', 'absorb')).toBe(
+        'firm year'
+      );
+      expect(option_arg(semi('reg y x, absorb(firm year)'), 'absorb')).toBe(
+        'firm year'
+      );
+      expect(parse('reg y x, absorb(firm year)').errors).toHaveLength(0);
+    });
+
+    test('adjacent option-argument tokens stay joined in both modes', () => {
+      expect(option_arg('reg y x, cluster(id)', 'cluster')).toBe('id');
+      expect(option_arg(semi('reg y x, cluster(id)'), 'cluster')).toBe('id');
+    });
+  });
+
+  describe('#delimit ; extended-macro argument parity (issue #306)', () => {
+    // Extended macro functions (`local n : word count a b c`) reconstruct their
+    // argument string from tokens too, so it must agree across delimiter modes
+    // and normalize spacing to a single space per gap (issue #306).
+    const parse = (source: string) =>
+      parser.parse(lexer.tokenize(source).tokens);
+    const ext_args = (source: string): string | undefined => {
+      const my_node = parse(source).ast.nodes.find(
+        n => n.type === 'macro_def'
+      ) as { extendedFunction?: { args?: string } } | undefined;
+      return my_node?.extendedFunction?.args;
+    };
+    const semi = (body: string): string =>
+      `#delimit ;\n${body};\n#delimit cr`;
+
+    test('multi-token extended-macro args match across modes', () => {
+      expect(ext_args('local n : word count a b c')).toBe('count a b c');
+      expect(ext_args(semi('local n : word count a b c'))).toBe('count a b c');
+    });
+
+    test('/// continuation in extended-macro args joins only the next line', () => {
+      expect(ext_args('local x : display a///\nb')).toBe('ab');
+      expect(ext_args(semi('local x : display a///\n\nb'))).toBe('a b');
+    });
+  });
+
+  describe('syntax option default() value spacing (issue #306)', () => {
+    // A `syntax` option's default() value is reconstructed from tokens too; a
+    // multi-token default must keep its separator (`default(a b)` -> `a b`, not
+    // `ab`) so hover/completion default text is correct (issue #306).
+    const parse = (source: string) =>
+      parser.parse(lexer.tokenize(source).tokens);
+    const default_value = (source: string): string | undefined => {
+      const my_prog = parse(source).ast.nodes.find(n => n.type === 'program') as
+        { body?: { type: string; signature?: { options?: { name: string;
+          defaultValue?: string }[] } }[] } | undefined;
+      const my_syntax = my_prog?.body?.find(n => n.type === 'syntax');
+      return my_syntax?.signature?.options?.[0]?.defaultValue;
+    };
+
+    test('multi-token default keeps its separator and agrees across modes', () => {
+      const src = 'program define q\n  syntax , opt(string default(a b))\nend';
+      const semi_src =
+        '#delimit ;\nprogram define q;\n  syntax , opt(string default(a b));\n' +
+        'end;\n#delimit cr';
+      expect(default_value(src)).toBe('a b');
+      expect(default_value(semi_src)).toBe('a b');
+    });
+
+    test('single-token and nested defaults are preserved', () => {
+      expect(
+        default_value('program define q\n  syntax , opt(string default(foo))\nend')
+      ).toBe('foo');
+      expect(
+        default_value('program define q\n  syntax , opt(string default(f(x)))\nend')
+      ).toBe('f(x)');
+    });
+
+    test('syntax declaration spanning /// continuations is collected whole', () => {
+      // A `///` used to truncate the syntax declaration at the first
+      // continuation (isTrivia included CONTINUATION); it must now be bridged
+      // so every option on continued lines is captured (issue #306).
+      const my_prog = parse(
+        'program define q\n  syntax varlist, ///\n  Robust ///\n' +
+        '  Cluster(varname)\nend'
+      ).ast.nodes.find(n => n.type === 'program') as
+        { body?: { type: string; signature?: { options?: { name: string }[] } }[] }
+        | undefined;
+      const my_syntax = my_prog?.body?.find(n => n.type === 'syntax');
+      expect(my_syntax?.signature?.options?.map(o => o.name)).toEqual([
+        'Robust',
+        'Cluster',
+      ]);
+    });
+  });
+
   describe('macro reference command parsing', () => {
     test('should parse local macro at start of statement', () => {
       const source = '`custom_cmd\' "arg1" "arg2"';
@@ -1335,7 +1698,7 @@ else {
         expect(node.name).toBe('`cmd\'');
         expect(node.varlist).toHaveLength(1);
         expect(node.varlist?.[0].name).toBe('var1');
-        expect(node.ifExpression).toBe('x>0');
+        expect(node.ifExpression).toBe('x > 0');
       }
     });
 

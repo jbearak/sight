@@ -28,6 +28,79 @@ import { is_swallowed_continuation_terminator } from '../utils/continuation';
 
 const PREFIX_COMMANDS = new Set(['by', 'bysort', 'quietly', 'qui', 'capture', 'cap', 'noisily', 'noi']);
 
+/**
+ * Tracks `///` line-continuation state while a caller collects the tokens of a
+ * reconstructed value (expression, if/in qualifier, parenthesized group, macro
+ * value, or loop spec). It answers, per collected token, whether that token was
+ * reached by an UNBROKEN continuation chain from the previous collected token —
+ * i.e. every physical line between them ended with `///`.
+ *
+ * `///` continues ONLY the immediately-following line, so a token pushed
+ * further down by a raw newline (a blank line in `#delimit ;` mode, or a `///`
+ * that does not extend the chain contiguously) is NOT a continuation join and
+ * must separate. This prevents value-token fusion such as `a///\n\nb` -> `ab`
+ * or `a///\n\n///\nb` -> `ab` (issue #306). The boolean flag it produces feeds
+ * `reconstruct_value_tokens`, which applies the column-0-join rule only when
+ * the flag is true.
+ */
+class ContinuationTracker {
+  // The line that must end with `///` to extend the chain by one line. Advances
+  // as contiguous continuations are noted; a gap leaves it behind the next
+  // collected token, which then reads as a raw-newline separator.
+  private required_line = -1;
+  private prev_collected_line: number | null = null;
+  private prev_collected_end: { line: number; character: number } | null = null;
+  // False once the chain contains real whitespace that must separate (a
+  // same-line gap before the first `///`, e.g. `a ///`); a "clean" chain is a
+  // pure column-0 join like `a///`.
+  private chain_clean = true;
+
+  /** Record a `///` continuation token (used for its own line and column). */
+  note_continuation(continuation_token: Token): void {
+    const cont_line = continuation_token.range.start.line;
+    if (cont_line !== this.required_line) {
+      // Not a contiguous extension; collect()'s line check separates the token.
+      return;
+    }
+    // Whitespace immediately before a contiguous `///` is real content that
+    // must separate, so the chain is no longer a clean column-0 join (issue
+    // #306). For the FIRST `///` (on the previous collected token's line) that
+    // is a same-line gap after that token, e.g. `a ///`. For a `///` on its own
+    // continuation line, any leading indentation is that whitespace, e.g. the
+    // `    ` before the second `///` in `a///` / `    ///` / `b`.
+    const cont_col = continuation_token.range.start.character;
+    const is_first_on_prev_line =
+      this.prev_collected_end !== null &&
+      this.required_line === this.prev_collected_line &&
+      cont_line === this.prev_collected_end.line;
+    const has_leading_gap = is_first_on_prev_line
+      ? cont_col > (this.prev_collected_end as { character: number }).character
+      : cont_col > 0;
+    if (has_leading_gap) {
+      this.chain_clean = false;
+    }
+    this.required_line += 1;
+  }
+
+  /**
+   * Register a collected token; returns whether it directly follows an unbroken,
+   * gap-free `///` chain from the previous collected token (a column-0 join).
+   */
+  collect(token: Token): boolean {
+    const token_line = token.range.start.line;
+    const follows_continuation =
+      this.prev_collected_line !== null &&
+      token_line > this.prev_collected_line &&
+      token_line === this.required_line &&
+      this.chain_clean;
+    this.prev_collected_line = token_line;
+    this.prev_collected_end = token.range.end;
+    this.required_line = token_line;
+    this.chain_clean = true;
+    return follows_continuation;
+  }
+}
+
 export class StataParser {
   private tokens: Token[] = [];
   private current: number = 0;
@@ -521,13 +594,16 @@ export class StataParser {
     // with no space; a raw `#delimit ;` newline is ordinary whitespace and
     // always separates. See reconstruct_value_tokens.
     const preceded_by_continuation: boolean[] = [];
-    let continuation_pending = false;
+    const continuation = new ContinuationTracker();
 
     while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
       // Handle continuation tokens - skip them and continue parsing
-      if (this.skipContinuation()) {
-        continuation_pending = true;
-        continue;
+      if (this.check('CONTINUATION')) {
+        const cont_token = this.peek();
+        if (this.skipContinuation()) {
+          continuation.note_continuation(cont_token);
+          continue;
+        }
       }
 
       // Stop at comments (but not continuations - handled above)
@@ -542,9 +618,11 @@ export class StataParser {
       // the raw run of spaces/newlines. Skip them: reconstruct_value_tokens
       // re-inserts a single space from inter-token gaps, so keeping them would
       // embed literal whitespace (and `\n`) into the stored macro value.
-      // Leave continuation_pending untouched: a `///` continuation's
-      // indentation may surface as a WHITESPACE token before the next real
-      // token, and the continuation status still applies to that token.
+      // Leave continuation_line untouched: a `///` continuation's indentation
+      // may surface as a WHITESPACE token before the next real token, and the
+      // continuation still applies to that token (unless extra raw newlines
+      // push it off the immediately-following line — see
+      // token_follows_continuation).
       if (token.type === 'WHITESPACE') {
         continue;
       }
@@ -562,8 +640,9 @@ export class StataParser {
       }
 
       value_tokens.push(token);
-      preceded_by_continuation.push(continuation_pending);
-      continuation_pending = false;
+      preceded_by_continuation.push(
+        continuation.collect(token)
+      );
     }
 
     // Reconstruct with single-space separation from token ranges. The lexer
@@ -607,15 +686,27 @@ export class StataParser {
     const function_name = this.advance().value;
     this.skipMacroDefinitionTrivia();
 
-    // Collect function arguments.
-    // IMPORTANT: Preserve the original token stream verbatim to avoid introducing
-    // artificial token boundaries (e.g., turning "0Ea" into "0E a").
+    // Collect function arguments. `arg_tokens` keeps every token (including
+    // WHITESPACE) for macro-reference extraction, while `value_tokens` holds
+    // only the non-whitespace tokens used to reconstruct the arg string.
+    // Reconstructing from token ranges via reconstruct_value_tokens keeps the
+    // two delimiter modes identical (a single space per gap) and never invents
+    // artificial boundaries (adjacent tokens like `0Ea` stay joined), unlike
+    // appending raw WHITESPACE token values which embeds literal spaces and
+    // newlines in `#delimit ;` mode (issue #306).
     const arg_tokens: Token[] = [];
+    const value_tokens: Token[] = [];
+    const preceded_by_continuation: boolean[] = [];
+    const continuation = new ContinuationTracker();
     while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
       // Bridge `///` continuations onto the next physical line, matching the
       // standard `= ...` value path.
-      if (this.skipContinuation()) {
-        continue;
+      if (this.check('CONTINUATION')) {
+        const cont_token = this.peek();
+        if (this.skipContinuation()) {
+          continuation.note_continuation(cont_token);
+          continue;
+        }
       }
 
       // Stop at comments (continuations are handled above).
@@ -625,10 +716,19 @@ export class StataParser {
 
       const token = this.advance();
       arg_tokens.push(token);
+      if (token.type !== 'WHITESPACE') {
+        value_tokens.push(token);
+        preceded_by_continuation.push(
+          continuation.collect(token)
+        );
+      }
     }
 
-    // Reconstruct args with original spacing preserved
-    const args_trimmed = this.reconstructTokensWithSpacing(arg_tokens).trim();
+    // Reconstruct args with mode-independent single-space spacing.
+    const args_trimmed = this.reconstruct_value_tokens(
+      value_tokens,
+      preceded_by_continuation
+    ).trim();
     const extended_function = {
       name: function_name,
       args: args_trimmed,
@@ -1202,19 +1302,39 @@ export class StataParser {
    */
   private parse_option_argument_inside_parens(): { argument: string; argument_range?: Range } {
     this.advance(); // consume (
-    let argument = '';
+    // Collect the non-whitespace argument tokens and reconstruct spacing from
+    // their ranges via reconstruct_value_tokens, so `#delimit ;` and
+    // `#delimit cr` produce the identical single-space form and multi-token
+    // arguments are never fused — e.g. `absorb(firm year)` stays `firm year`,
+    // not `firmyear` (issue #306). Appending raw token values would also embed
+    // literal WHITESPACE and `///` continuation markers into the argument.
     const arg_tokens: Token[] = [];
+    const preceded_by_continuation: boolean[] = [];
+    const continuation = new ContinuationTracker();
     while (!this.check('RPAREN') && !this.isAtEnd()) {
+      if (this.check('CONTINUATION')) {
+        const cont_token = this.peek();
+        if (this.skipContinuation()) {
+          continuation.note_continuation(cont_token);
+          continue;
+        }
+      }
       const t = this.advance();
+      if (t.type === 'WHITESPACE') {
+        continue;
+      }
       arg_tokens.push(t);
-      argument += t.value;
+      preceded_by_continuation.push(continuation.collect(t));
     }
     if (this.check('RPAREN')) {
       this.advance(); // consume )
     }
-    const non_ws = arg_tokens.filter(t => t.type !== 'WHITESPACE');
-    const argument_range = non_ws.length > 0
-      ? { start: non_ws[0].range.start, end: non_ws[non_ws.length - 1].range.end }
+    const argument = this.reconstruct_value_tokens(
+      arg_tokens,
+      preceded_by_continuation
+    );
+    const argument_range = arg_tokens.length > 0
+      ? { start: arg_tokens[0].range.start, end: arg_tokens[arg_tokens.length - 1].range.end }
       : undefined;
     return { argument, argument_range };
   }
@@ -1238,10 +1358,11 @@ export class StataParser {
       return null;
     }
 
-    // Coalesce all tokens until whitespace, comma, terminator, or trivia
+    // Coalesce adjacent tokens until whitespace, comma, terminator, or trivia
     const start_token = this.advance();
     let path = start_token.value;
     let end_range = start_token.range.end;
+    let prev_token = start_token;
 
     while (!this.isAtEnd()) {
       // Stop at whitespace, comma, terminator, or trivia
@@ -1252,10 +1373,22 @@ export class StataParser {
         break;
       }
 
+      // Stop at a source gap. In `#delimit cr` mode the lexer emits no
+      // WHITESPACE tokens, so coalescing every non-trivia token would merge a
+      // file command's entire argument list into one path (e.g.
+      // `merge 1:1 id using data` -> `1:1idusingdata`). Only coalesce tokens
+      // physically adjacent to the previous one; a gap ends the path. In
+      // `#delimit ;` mode the WHITESPACE break above already separates
+      // arguments, so this adjacency guard is inert there (issue #306).
+      if (!this.isAdjacentToken(prev_token, this.peek())) {
+        break;
+      }
+
       // Consume any other token as part of the path
       const token = this.advance();
       path += token.value;
       end_range = token.range.end;
+      prev_token = token;
     }
 
     return {
@@ -1274,36 +1407,54 @@ export class StataParser {
    */
   private parseParenthesizedGroup(): IdentifierNode | null {
     const paren_start = this.advance(); // consume (
-    const paren_parts: string[] = [];
+    // Collect the inner tokens (everything up to, but not including, the
+    // matching outer close paren) and reconstruct spacing from their ranges via
+    // reconstruct_value_tokens, so `#delimit ;` and `#delimit cr` produce the
+    // identical single-space form — e.g. `(a b)` stays `(a b)` and `(1/3 = 1)`
+    // is `(1/3 = 1)` in both modes (issue #306). WHITESPACE only marks a gap.
+    const inner_tokens: Token[] = [];
+    const preceded_by_continuation: boolean[] = [];
+    const continuation = new ContinuationTracker();
     let paren_depth = 1;
-    let last_was_word = false;
+
+    const collect = (my_token: Token): void => {
+      inner_tokens.push(my_token);
+      preceded_by_continuation.push(
+        continuation.collect(my_token)
+      );
+    };
 
     while (!this.isAtEnd() && paren_depth > 0) {
+      if (this.check('WHITESPACE')) {
+        this.advance();
+        continue;
+      }
+      if (this.check('CONTINUATION')) {
+        const cont_token = this.peek();
+        if (this.skipContinuation()) {
+          continuation.note_continuation(cont_token);
+          continue;
+        }
+      }
       if (this.check('LPAREN')) {
         paren_depth++;
-        paren_parts.push(this.advance().value);
-        last_was_word = false;
+        collect(this.advance());
       } else if (this.check('RPAREN')) {
         paren_depth--;
+        // Collect nested close parens; the matching outer close is the wrapper
+        // and is excluded from the reconstructed content.
         if (paren_depth > 0) {
-          paren_parts.push(this.advance().value);
+          collect(this.advance());
         }
-        last_was_word = false;
       } else {
-        const current_is_word = this.check('WORD') ||
-            this.check('NUMBER') ||
-            this.check('MACRO_REF_LOCAL') ||
-            this.check('MACRO_REF_GLOBAL');
-        // Add space between consecutive word-like tokens
-        if (last_was_word && current_is_word) {
-          paren_parts.push(' ');
-        }
-        paren_parts.push(this.advance().value);
-        last_was_word = current_is_word;
+        collect(this.advance());
       }
     }
 
-    const paren_content = paren_parts.join('');
+    const paren_content = this.reconstruct_value_tokens(
+      inner_tokens,
+      preceded_by_continuation
+    );
     const paren_end_pos = this.check('RPAREN')
         ? this.peek().range.end
         : this.previous().range.end;
@@ -1523,9 +1674,18 @@ export class StataParser {
     const syntax_tokens: Token[] = [];
     while (
       !this.check('STATEMENT_TERMINATOR') &&
-      !this.isAtEnd() &&
-      !this.isTrivia()
+      !this.isAtEnd()
     ) {
+      // Bridge `///` continuations onto the next physical line so a multi-line
+      // syntax declaration (`syntax varlist, ///` newline `opt(string)`) is
+      // collected whole rather than truncated at the first continuation
+      // (issue #306). A comment still stops collection.
+      if (this.skipContinuation()) {
+        continue;
+      }
+      if (this.check('COMMENT_LINE') || this.check('COMMENT_BLOCK')) {
+        break;
+      }
       const my_token = this.advance();
       if (my_token.type !== 'WHITESPACE') {
         syntax_tokens.push(my_token);
@@ -1827,26 +1987,41 @@ export class StataParser {
                 type_tokens[i].value === 'default' &&
                 i + 1 < type_tokens.length &&
                 type_tokens[i + 1].type === 'LPAREN') {
-              // Found default(, collect tokens until closing paren
-              let default_str = '';
+              // Found default(, collect tokens until closing paren and
+              // reconstruct spacing from token ranges via the shared helper, so
+              // a multi-token default like `default(a b)` stays `a b` instead
+              // of fusing to `ab` (issue #306). Range-based reconstruction
+              // yields a single space per gap even though whitespace tokens are
+              // absent here.
+              const default_tokens: Token[] = [];
+              const default_flags: boolean[] = [];
+              const default_continuation = new ContinuationTracker();
               let default_paren_depth = 1;
               let j = i + 2;
               while (j < type_tokens.length && default_paren_depth > 0) {
                 const my_token = type_tokens[j];
+                // syntax_tokens has WHITESPACE/CONTINUATION already stripped, so
+                // spacing comes purely from token ranges via the helper.
+                if (my_token.type === 'WHITESPACE') {
+                  j++;
+                  continue;
+                }
                 if (my_token.type === 'LPAREN') {
                   default_paren_depth++;
-                  default_str += my_token.value;
                 } else if (my_token.type === 'RPAREN') {
                   default_paren_depth--;
-                  if (default_paren_depth > 0) {
-                    default_str += my_token.value;
+                  if (default_paren_depth === 0) {
+                    break;
                   }
-                } else {
-                  default_str += my_token.value;
                 }
+                default_tokens.push(my_token);
+                default_flags.push(default_continuation.collect(my_token));
                 j++;
               }
-              default_value = default_str.trim();
+              default_value = this.reconstruct_value_tokens(
+                default_tokens,
+                default_flags
+              ).trim();
               break;
             }
           }
@@ -2007,15 +2182,23 @@ export class StataParser {
   private parseIfStatement(): ControlFlowNode {
     const ifToken = this.advance(); // consume 'if'
 
-    // Parse condition - collect tokens until { and reconstruct with original spacing
+    // Parse condition - collect tokens until { and reconstruct spacing from
+    // token ranges, so both delimiter modes agree and `///` continuations use
+    // the same join semantics as expressions/qualifiers (issue #306).
     const condition_tokens: Token[] = [];
+    const preceded_by_continuation: boolean[] = [];
+    const continuation = new ContinuationTracker();
     const condition_start_line = ifToken.range.start.line;
     let paren_depth = 0;
 
     while (!this.check('LBRACE') && !this.isAtEnd()) {
       // Handle continuation tokens - skip them and continue parsing
-      if (this.skipContinuation()) {
-        continue;
+      if (this.check('CONTINUATION')) {
+        const cont_token = this.peek();
+        if (this.skipContinuation()) {
+          continuation.note_continuation(cont_token);
+          continue;
+        }
       }
 
       // Stop at statement terminator
@@ -2039,11 +2222,15 @@ export class StataParser {
       // Skip whitespace tokens but collect all others
       if (token.type !== 'WHITESPACE') {
         condition_tokens.push(token);
+        preceded_by_continuation.push(continuation.collect(token));
       }
     }
 
-    // Reconstruct condition with original spacing preserved
-    const condition = this.reconstructTokensWithSpacing(condition_tokens).trim();
+    // Reconstruct condition with mode-independent single-space spacing.
+    const condition = this.reconstruct_value_tokens(
+      condition_tokens,
+      preceded_by_continuation
+    ).trim();
 
     // Check for unbalanced parentheses and empty condition
     if (paren_depth > 0) {
@@ -2186,13 +2373,14 @@ export class StataParser {
 
     if (is_forvalues_spec || is_foreach_spec) {
       const specType = this.advance().value;
-      let loop_spec_body = '';
-      let prev_spec_token: Token | null = null;
-      // True when the next real token was reached by crossing a `///`
-      // continuation (vs an ordinary newline). A `///` join keeps only the
-      // continuation line's indentation, so an unindented item joins with no
-      // space; a raw `#delimit ;` newline is whitespace and always separates.
-      let continuation_pending = false;
+      // Collect the spec tokens and reconstruct spacing from their ranges via
+      // reconstruct_value_tokens, so `#delimit ;` and `#delimit cr` yield the
+      // identical single-space form and value items are never fused (issue
+      // #306). A `///` continuation changes how a line break is spaced, so its
+      // line is recorded on the shared ContinuationTracker.
+      const spec_tokens: Token[] = [];
+      const preceded_by_continuation: boolean[] = [];
+      const continuation = new ContinuationTracker();
 
       // Collect specification until {
       while (!this.check('LBRACE') && !this.isAtEnd()) {
@@ -2212,42 +2400,20 @@ export class StataParser {
           break;
         }
         const token = this.advance();
-        // Spacing is derived from token ranges, not from WHITESPACE/CONTINUATION
-        // token values. A `///` continuation, however, changes how a line break
-        // is spaced, so remember that we crossed one.
         if (token.type === 'CONTINUATION') {
-          continuation_pending = true;
+          continuation.note_continuation(token);
           continue;
         }
         if (token.type === 'WHITESPACE') {
           continue;
         }
-        if (prev_spec_token !== null) {
-          const same_line = prev_spec_token.range.end.line === token.range.start.line;
-          let needs_separator: boolean;
-          if (same_line) {
-            // Same-line gap: separate only when there is whitespace between.
-            // Truly adjacent fragments (e.g. `a`m'`) join into one list item.
-            needs_separator =
-              token.range.start.character - prev_spec_token.range.end.character > 0;
-          } else if (continuation_pending) {
-            // `///`-continued item: Stata removes the newline and keeps only
-            // indentation, so an unindented continuation joins (`a///`\n`b` ⇒
-            // `ab`) and an indented one separates.
-            needs_separator = token.range.start.character > 0;
-          } else {
-            // Raw newline (`#delimit ;` mode): ordinary whitespace separator.
-            needs_separator = true;
-          }
-          if (needs_separator) {
-            loop_spec_body += ' ';
-          }
-        }
-        loop_spec_body += token.value;
-        prev_spec_token = token;
-        continuation_pending = false;
+        spec_tokens.push(token);
+        preceded_by_continuation.push(
+          continuation.collect(token)
+        );
       }
-      loopSpec = specType + ' ' + loop_spec_body.trim();
+      loopSpec = specType + ' ' +
+        this.reconstruct_value_tokens(spec_tokens, preceded_by_continuation).trim();
     }
 
     // Parse body
@@ -2287,14 +2453,21 @@ export class StataParser {
     const whileToken = this.advance(); // consume 'while'
     const while_start_line = whileToken.range.start.line;
 
-    // Parse condition - collect tokens until { and reconstruct with original spacing
+    // Parse condition - collect tokens until { and reconstruct spacing from
+    // token ranges, matching the expression/qualifier path (issue #306).
     const condition_tokens: Token[] = [];
+    const preceded_by_continuation: boolean[] = [];
+    const continuation = new ContinuationTracker();
     let paren_depth = 0;
 
     while (!this.check('LBRACE') && !this.isAtEnd()) {
       // Handle continuation tokens - skip them and continue parsing
-      if (this.skipContinuation()) {
-        continue;
+      if (this.check('CONTINUATION')) {
+        const cont_token = this.peek();
+        if (this.skipContinuation()) {
+          continuation.note_continuation(cont_token);
+          continue;
+        }
       }
 
       // Stop at statement terminator
@@ -2318,11 +2491,15 @@ export class StataParser {
       // Skip whitespace tokens but collect all others
       if (token.type !== 'WHITESPACE') {
         condition_tokens.push(token);
+        preceded_by_continuation.push(continuation.collect(token));
       }
     }
 
-    // Reconstruct condition with original spacing preserved
-    const condition = this.reconstructTokensWithSpacing(condition_tokens).trim();
+    // Reconstruct condition with mode-independent single-space spacing.
+    const condition = this.reconstruct_value_tokens(
+      condition_tokens,
+      preceded_by_continuation
+    ).trim();
 
     // Check for unbalanced parentheses and empty condition
     if (paren_depth > 0) {
@@ -2950,7 +3127,13 @@ export class StataParser {
    * Returns the expression as a trimmed string.
    */
   parseExpression(): string {
-    let expression = '';
+    // Collect the surviving tokens and reconstruct spacing from their ranges,
+    // so `#delimit ;` (which emits WHITESPACE tokens) and `#delimit cr` (which
+    // does not) produce the identical, source-faithful single-space form
+    // (issue #306). WHITESPACE contributes only a gap, never a character.
+    const the_tokens: Token[] = [];
+    const preceded_by_continuation: boolean[] = [];
+    const continuation = new ContinuationTracker();
     let paren_depth = 0;
     const start_pos = this.current;
 
@@ -2959,6 +3142,7 @@ export class StataParser {
 
       // Handle continuation tokens - skip them and continue parsing
       if (this.skipContinuation()) {
+        continuation.note_continuation(token);
         continue;
       }
 
@@ -2990,13 +3174,20 @@ export class StataParser {
         break;
       }
 
-      const tokenValue = this.advance().value;
-      if (token.type === 'WHITESPACE') {
-        expression += ' '; // Normalize whitespace to single space
-      } else {
-        expression += tokenValue;
+      this.advance();
+      // WHITESPACE only marks a gap for range-based spacing; do not collect it.
+      if (token.type !== 'WHITESPACE') {
+        the_tokens.push(token);
+        preceded_by_continuation.push(
+          continuation.collect(token)
+        );
       }
     }
+
+    const expression = this.reconstruct_value_tokens(
+      the_tokens,
+      preceded_by_continuation
+    );
 
     // Check for unbalanced parentheses (unclosed opening parentheses)
     if (paren_depth > 0) {
@@ -3078,7 +3269,13 @@ export class StataParser {
     stop_at_in: boolean,
     check_empty: boolean
   ): string {
-    let expression = '';
+    // Collect the surviving tokens and reconstruct spacing from their ranges,
+    // so `#delimit ;` and `#delimit cr` yield the identical single-space form
+    // (issue #306). The stray-token state machine below is unchanged; only the
+    // string it builds is collected here instead of appended inline.
+    const the_tokens: Token[] = [];
+    const preceded_by_continuation: boolean[] = [];
+    const continuation = new ContinuationTracker();
     let paren_depth = 0;
     let bracket_depth = 0;  // Track subscript bracket depth
     const start_token = this.peek();
@@ -3141,6 +3338,7 @@ export class StataParser {
 
       // Handle continuation tokens - skip them and continue parsing
       if (this.skipContinuation()) {
+        continuation.note_continuation(token);
         continue;
       }
 
@@ -3248,11 +3446,13 @@ export class StataParser {
         prev_token = token;
       }
 
-      const tokenValue = this.advance().value;
-      if (token.type === 'WHITESPACE') {
-        expression += ' ';
-      } else {
-        expression += tokenValue;
+      this.advance();
+      // WHITESPACE only marks a gap for range-based spacing; do not collect it.
+      if (token.type !== 'WHITESPACE') {
+        the_tokens.push(token);
+        preceded_by_continuation.push(
+          continuation.collect(token)
+        );
       }
     }
 
@@ -3261,7 +3461,10 @@ export class StataParser {
       this.addError(`Unbalanced parentheses in ${qualifier_type} qualifier: missing closing parenthesis`, start_token.range, ParseErrorCode.UNBALANCED_PARENTHESES);
     }
 
-    const trimmed_expression = expression.trim();
+    const trimmed_expression = this.reconstruct_value_tokens(
+      the_tokens,
+      preceded_by_continuation
+    ).trim();
 
     // Check for empty expression (only for if-qualifiers)
     if (check_empty && trimmed_expression === '') {
