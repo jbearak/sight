@@ -161,9 +161,18 @@ export class CodeFormatter {
 
         // Extract embedded blocks and replace with placeholders
         let my_modified_content = document.content;
-        const the_sorted_ranges = [...context_ranges].sort(
-            (a, b) => b.range.start.line - a.range.start.line
-        );
+        // Process bottom-up (descending start line) so earlier replacements
+        // never shift the offsets of later ones. At equal start lines, process
+        // the WIDER range (larger end line) first: when two whole-line embedded
+        // ranges share their start line, the narrower one is fully contained in
+        // the wider, so keeping the wider and skipping the narrower (via the
+        // overlap guard below) preserves every embedded line verbatim.
+        const the_sorted_ranges = [...context_ranges].sort((a, b) => {
+            if (b.range.start.line !== a.range.start.line) {
+                return b.range.start.line - a.range.start.line;
+            }
+            return b.range.end.line - a.range.end.line;
+        });
 
         // Smallest start line of a range already replaced. Ranges are
         // processed in descending start-line order, so this only decreases;
