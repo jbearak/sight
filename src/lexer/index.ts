@@ -393,16 +393,7 @@ export class StataLexer {
         this.advance();
       }
 
-      // In semicolon mode, whitespace is trivia - return it
-      // In cr mode, skip whitespace entirely
-      if (this.state.delimiterMode === 'semicolon') {
-        return {
-          type: 'WHITESPACE',
-          value: this.source.substring(this.position_to_offset(startLine, startColumn), this.position),
-          range: this.makeRange(startLine, startColumn, this.line, this.column),
-        };
-      }
-      return null; // Skip whitespace in cr mode
+      return null;
     }
 
     // Handle newlines (significant in cr mode)
@@ -413,14 +404,8 @@ export class StataLexer {
           value: '\n',
           range: this.makeRange(startLine, startColumn, this.line, this.column),
         };
-      } else {
-        // In semicolon mode, newlines are whitespace
-        return {
-          type: 'WHITESPACE',
-          value: '\n',
-          range: this.makeRange(startLine, startColumn, this.line, this.column),
-        };
       }
+      return null;
     }
 
     // Handle semicolons (significant in semicolon mode)

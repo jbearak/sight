@@ -11,17 +11,17 @@ export interface LineSpan {
 
 /**
  * Token types skipped while searching for the first token of the "next
- * statement" after a directive comment: surrounding whitespace, other
- * comments, a `///` continuation and the newline it swallows, blank
- * statement terminators, and a `#delimit` mode switch — so an
+ * statement" after a directive comment: surrounding comments, a `///`
+ * continuation and the newline it swallows, blank statement terminators, and a
+ * `#delimit` mode switch — so an
  * `@lsp-ignore-next` immediately followed by `#delimit ;` targets the
  * first real statement under the new mode, not the mode-switch line.
  */
 const LEADING_TRIVIA_TYPES: ReadonlySet<string> = new Set([
-    'WHITESPACE',
     'COMMENT_LINE',
     'COMMENT_BLOCK',
     'CONTINUATION',
+    'WHITESPACE',
     'STATEMENT_TERMINATOR',
     'DELIMIT_DIRECTIVE',
 ]);
@@ -45,7 +45,6 @@ const BODY_OPENER_TYPES: ReadonlySet<string> = new Set([
  * src/providers/diagnostic-token-stream.ts).
  */
 const CONTINUATION_NEUTRAL_TYPES: ReadonlySet<string> = new Set([
-    'WHITESPACE',
     'COMMENT_LINE',
     'COMMENT_BLOCK',
 ]);

@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import { SemanticAnalyzer, create_empty_symbol_table, merge_symbol_tables } from '../../src/analyzer';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
-import { StataDiagnosticCode, SymbolTable } from '../../src/types';
+import { StataDiagnosticCode, SymbolTable, Token } from '../../src/types';
 
 describe('SemanticAnalyzer', () => {
     const lexer = new StataLexer();
@@ -157,6 +157,108 @@ display \`result'
             expect(result.diagnostics.find(
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
                     d.message.includes('result')
+            )).toBeUndefined();
+        });
+
+        it('should not register an unclosed levelsof global() option in cr mode', () => {
+            const source = 'levelsof rep78, global(G\ndisplay $G';
+            const { tokens } = lexer.tokenize(source);
+            const { ast } = parser.parse(tokens);
+            const commands = ast.nodes
+                .filter(n => n.type === 'command')
+                .map(n => n.name);
+
+            expect(commands).toEqual(['levelsof', 'display']);
+
+            const result = analyzer.analyze(
+                ast,
+                'test://file.do',
+                undefined,
+                { undefined_macro_enabled: true },
+                tokens
+            );
+
+            expect(result.symbols.globalMacros.has('G')).toBe(false);
+            expect(result.diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                    d.message.includes('G')
+            )).toBeDefined();
+        });
+
+        it('should not register an unclosed levelsof local() option in cr mode', () => {
+            const result = analyze(
+                'levelsof rep78, local(L\ndisplay `L\'',
+                { undefined_macro_enabled: true }
+            );
+
+            expect(result.symbols.localMacros.has('L')).toBe(false);
+            expect(result.diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                    d.message.includes('L')
+            )).toBeDefined();
+        });
+
+        it('should not register an unclosed levelsof global() option in semicolon mode', () => {
+            const result = analyze(
+                '#delimit ;\nlevelsof rep78, global(G;\ndisplay $G;\n#delimit cr',
+                { undefined_macro_enabled: true }
+            );
+
+            expect(result.symbols.globalMacros.has('G')).toBe(false);
+            expect(result.diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                    d.message.includes('G')
+            )).toBeDefined();
+        });
+
+        it('should still register a closed levelsof global() option', () => {
+            const result = analyze(
+                'levelsof rep78, global(G)\ndisplay $G',
+                { undefined_macro_enabled: true }
+            );
+
+            expect(result.symbols.globalMacros.has('G')).toBe(true);
+            expect(result.diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                d.message.includes('G')
+            )).toBeUndefined();
+        });
+
+        it('should register a closed levelsof global() option with inline comment', () => {
+            const result = analyze(
+                'levelsof rep78, global(G /* c */)\ndisplay $G',
+                { undefined_macro_enabled: true }
+            );
+
+            expect(result.symbols.globalMacros.has('G')).toBe(true);
+            expect(result.diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                    d.message.includes('G')
+            )).toBeUndefined();
+        });
+
+        it('should register a closed levelsof global() option across comment continuation', () => {
+            const source = 'levelsof rep78, global(G /* c */ ///\n)\ndisplay $G';
+            const { tokens } = lexer.tokenize(source);
+            const { ast } = parser.parse(tokens);
+            const commands = ast.nodes
+                .filter(n => n.type === 'command')
+                .map(n => n.name);
+
+            expect(commands).toEqual(['levelsof', 'display']);
+
+            const result = analyzer.analyze(
+                ast,
+                'test://file.do',
+                undefined,
+                { undefined_macro_enabled: true },
+                tokens
+            );
+
+            expect(result.symbols.globalMacros.has('G')).toBe(true);
+            expect(result.diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                    d.message.includes('G')
             )).toBeUndefined();
         });
 
@@ -365,6 +467,20 @@ display \`result'
 
             expect(result.symbols.variables.get('new1')?.source).toBe('rename');
             expect(result.symbols.variables.get('new2')?.source).toBe('rename');
+        });
+
+        it('should preserve final variable in unclosed grouped rename command', () => {
+            const result = analyze('rename (old1 old2) (new1 new2');
+
+            expect(result.symbols.variables.has('new1')).toBe(true);
+            expect(result.symbols.variables.has('new2')).toBe(true);
+            expect(result.symbols.variables.has('new')).toBe(false);
+        });
+
+        it('should ignore bare open paren in unclosed grouped rename command', () => {
+            const result = analyze('rename (old1 old2) (');
+
+            expect(result.symbols.variables.size).toBe(0);
         });
 
         it('should NOT register local macro references as variables in confirm variable', () => {
@@ -580,6 +696,30 @@ display \`undefined_macro'
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
             );
             expect(undefined_diags.length).toBe(0);
+        });
+
+        it('classifies indented embedded-block comment lines as standalone', () => {
+            const { tokens } = lexer.tokenize(
+                'mata:\n    // @lsp-ignore\n    x = 1\nend'
+            );
+            const comment_index = tokens.findIndex(
+                token => token.type === 'COMMENT_LINE' &&
+                    token.value.includes('@lsp-ignore')
+            );
+            expect(comment_index).toBeGreaterThanOrEqual(0);
+
+            const analyzer_with_private = analyzer as unknown as {
+                is_standalone_comment_token(
+                    token_stream: Token[],
+                    comment_token_index: number
+                ): boolean;
+            };
+            expect(
+                analyzer_with_private.is_standalone_comment_token(
+                    tokens,
+                    comment_index
+                )
+            ).toBe(true);
         });
 
         it('should suppress diagnostics with canonical sight ignore directives', () => {

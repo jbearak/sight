@@ -24,7 +24,7 @@ describe('Expression Keyword Disambiguation', () => {
       
       if (node.type === 'command') {
         expect(node.name).toBe('count');
-        expect(node.ifExpression).toBe('program=="x"');
+        expect(node.ifExpression).toBe('program == "x"');
       }
     });
 
@@ -41,7 +41,7 @@ describe('Expression Keyword Disambiguation', () => {
       
       if (node.type === 'command') {
         expect(node.name).toBe('drop');
-        expect(node.ifExpression).toBe('_merge==1&program=="dhs"');
+        expect(node.ifExpression).toBe('_merge == 1 & program == "dhs"');
       }
     });
 
@@ -58,7 +58,7 @@ describe('Expression Keyword Disambiguation', () => {
       
       if (node.type === 'command') {
         expect(node.name).toBe('keep');
-        expect(node.ifExpression).toBe('program!="missing"');
+        expect(node.ifExpression).toBe('program != "missing"');
       }
     });
 
@@ -77,7 +77,7 @@ describe('Expression Keyword Disambiguation', () => {
         expect(node.name).toBe('replace');
         expect(node.varlist?.[0].name).toBe('value');
         expect(node.expression).toBe('0');
-        expect(node.ifExpression).toBe('program=="test"');
+        expect(node.ifExpression).toBe('program == "test"');
       }
     });
   });
@@ -191,7 +191,7 @@ describe('Expression Keyword Disambiguation', () => {
       
       if (node.type === 'command') {
         expect(node.name).toBe('generate');
-        expect(node.expression).toBe('program+while+foreach');
+        expect(node.expression).toBe('program + while + foreach');
       }
     });
 
@@ -208,7 +208,7 @@ describe('Expression Keyword Disambiguation', () => {
       
       if (node.type === 'command') {
         expect(node.name).toBe('generate');
-        expect(node.expression).toBe('max(program,while,foreach)');
+        expect(node.expression).toBe('max(program, while, foreach)');
       }
     });
 
@@ -225,7 +225,7 @@ describe('Expression Keyword Disambiguation', () => {
       
       if (node.type === 'command') {
         expect(node.name).toBe('generate');
-        expect(node.expression).toBe('(program+while)*foreach');
+        expect(node.expression).toBe('(program + while) * foreach');
       }
     });
   });

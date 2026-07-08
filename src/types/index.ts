@@ -245,11 +245,13 @@ export interface OptionNode {
   fullName: string;
   argument?: string;
   argument_range?: Range;
+  argument_unclosed?: true;
   range: Range;
 }
 
 export interface IdentifierNode {
   name: string;
+  recovery_only?: true;
   range: Range;
 }
 

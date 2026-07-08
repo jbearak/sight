@@ -2,9 +2,8 @@
  * Extract a constructed macro-name template from a `local`/`global` statement's
  * tokens, and expand it across loop iterator bindings.
  *
- * Name extraction uses **source-range adjacency**, not whitespace tokens,
- * because the lexer emits no WHITESPACE tokens in the default `cr` delimiter
- * mode (src/lexer/index.ts) — a space manifests as a gap between token ranges.
+ * Name extraction uses **source-range adjacency**, not whitespace tokens; a
+ * space manifests as a gap between token ranges.
  */
 import { SymbolTable, Token } from '../../types';
 import { is_valid_identifier } from '../option-argument-parser';
@@ -113,13 +112,6 @@ function parse_macro_def_head(statement_tokens: Token[]): MacroDefHead | null {
     const run: Token[] = [];
     while (i < statement_tokens.length) {
         const my_tok = statement_tokens[i];
-        // `#delimit ;` mode emits WHITESPACE tokens; skip them. The range
-        // adjacency check still detects the gap they occupy, so a space-
-        // separated trailing value is not joined to the name.
-        if (my_tok.type === 'WHITESPACE') {
-            i++;
-            continue;
-        }
         if (!NAME_TOKEN_TYPES.has(my_tok.type)) break;
         if (run.length > 0 && !tokens_adjacent(run[run.length - 1], my_tok)) break;
         run.push(my_tok);

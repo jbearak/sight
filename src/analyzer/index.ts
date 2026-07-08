@@ -770,9 +770,10 @@ export class SemanticAnalyzer {
             if (token.range.start.line !== line) {
                 break;
             }
-            if (token.type !== 'WHITESPACE') {
-                return false;
+            if (token.type === 'WHITESPACE') {
+                continue;
             }
+            return false;
         }
 
         return true;
@@ -1030,6 +1031,12 @@ export class SemanticAnalyzer {
         }
     }
 
+    private semantic_varlist(node: CommandNode): IdentifierNode[] {
+        return (node.varlist ?? []).filter(
+            (item) => item.recovery_only !== true
+        );
+    }
+
     /**
      * Extract static c_local macro names from program body.
      * Only extracts names that are literal identifiers (not macro expansions).
@@ -1038,8 +1045,9 @@ export class SemanticAnalyzer {
         const c_locals: string[] = [];
         for (const node of nodes) {
             if (node.type === 'command') {
-                if (node.fullName === 'c_local' && node.varlist && node.varlist.length > 0) {
-                    const name = node.varlist[0].name;
+                const varlist = this.semantic_varlist(node);
+                if (node.fullName === 'c_local' && varlist.length > 0) {
+                    const name = varlist[0].name;
                     // Only include valid literal identifiers (exclude macro refs like `name')
                     if (is_valid_identifier(name)) {
                         c_locals.push(name);
@@ -1089,9 +1097,10 @@ export class SemanticAnalyzer {
         
         for (const node of nodes) {
             if (node.type === 'command') {
+                const varlist = this.semantic_varlist(node);
                 // Check for c_local `local' pattern (case-sensitive)
-                if (node.fullName === 'c_local' && node.varlist && node.varlist.length > 0) {
-                    const macro_name = node.varlist[0].name;
+                if (node.fullName === 'c_local' && varlist.length > 0) {
+                    const macro_name = varlist[0].name;
                     // Check if it's a macro reference pattern (starts with backtick)
                     if (macro_name.startsWith('`') && macro_name.endsWith("'")) {
                         const inner_name = macro_name.slice(1, -1);
@@ -1103,8 +1112,8 @@ export class SemanticAnalyzer {
                     }
                 }
                 // Check for global `global' pattern (case-sensitive)
-                else if (node.fullName === 'global' && node.varlist && node.varlist.length > 0) {
-                    const macro_name = node.varlist[0].name;
+                else if (node.fullName === 'global' && varlist.length > 0) {
+                    const macro_name = varlist[0].name;
                     // Check if it's a macro reference pattern (starts with backtick)
                     if (macro_name.startsWith('`') && macro_name.endsWith("'")) {
                         const inner_name = macro_name.slice(1, -1);
@@ -1482,14 +1491,15 @@ export class SemanticAnalyzer {
     private extract_command_path(
         node: CommandNode
     ): { raw_path: string; has_macro: boolean } | null {
-        if (!node.varlist || node.varlist.length === 0) {
+        const varlist = this.semantic_varlist(node);
+        if (varlist.length === 0) {
             return null;
         }
 
         let raw_path = '';
         let has_macro = false;
 
-        const first_item = node.varlist[0];
+        const first_item = varlist[0];
         const first_name = first_item.name;
 
         // Check if this is a complete quoted string (starts and ends with same quote)
@@ -1508,8 +1518,8 @@ export class SemanticAnalyzer {
             raw_path = first_name;
             has_macro = raw_path.includes('`') || raw_path.includes('$');
 
-            for (let i = 1; i < node.varlist.length; i++) {
-                const item_name = node.varlist[i].name;
+            for (let i = 1; i < varlist.length; i++) {
+                const item_name = varlist[i].name;
                 raw_path += item_name;
 
                 // Check for macro references in this item
@@ -1754,21 +1764,22 @@ export class SemanticAnalyzer {
         symbols: SymbolTable,
         node_index: number
     ): void {
-        if (!node.varlist || node.varlist.length === 0) {
+        const varlist = this.semantic_varlist(node);
+        if (varlist.length === 0) {
             return;
         }
 
-        const scalar_name = node.varlist[0].name;
+        const scalar_name = varlist[0].name;
         this.add_or_append_definition(
             symbols.scalars,
             scalar_name,
             node_index,
-            node.varlist[0].range,
+            varlist[0].range,
             () => ({
                 name: scalar_name,
-                location: { uri: this.uri, range: node.varlist![0].range },
+                location: { uri: this.uri, range: varlist[0].range },
                 sourceUri: this.uri,
-                definition_line: node.varlist![0].range.start.line,
+                definition_line: varlist[0].range.start.line,
             })
         );
     }
@@ -1784,12 +1795,13 @@ export class SemanticAnalyzer {
         symbols: SymbolTable,
         node_index: number
     ): void {
-        if (!node.varlist || node.varlist.length === 0) {
+        const varlist = this.semantic_varlist(node);
+        if (varlist.length === 0) {
             return;
         }
 
-        const first = node.varlist[0]?.name;
-        const second = node.varlist[1]?.name;
+        const first = varlist[0]?.name;
+        const second = varlist[1]?.name;
 
         const matrix_name = (first && first === 'define')
             ? second
@@ -1800,9 +1812,9 @@ export class SemanticAnalyzer {
         }
 
         // If 'define' is present, prefer the name token's range.
-        const name_range = (first && first === 'define' && node.varlist[1])
-            ? node.varlist[1].range
-            : node.varlist[0].range;
+        const name_range = (first && first === 'define' && varlist[1])
+            ? varlist[1].range
+            : varlist[0].range;
 
         this.add_or_append_definition(
             symbols.matrices,
@@ -1827,22 +1839,23 @@ export class SemanticAnalyzer {
     // Pushes diagnostics to this.current_diagnostics; only call from within an
     // analyze() cycle (e.g., process_command → extract_gen_variable / extract_egen_variable).
     private pick_new_variable(node: CommandNode): IdentifierNode | undefined {
-        if (!node.varlist || node.varlist.length === 0) {
+        const varlist = this.semantic_varlist(node);
+        if (varlist.length === 0) {
             return undefined;
         }
-        if (is_stata_storage_type(node.varlist[0].name)) {
-            if (node.varlist.length > 1) {
-                return node.varlist[1];
+        if (is_stata_storage_type(varlist[0].name)) {
+            if (varlist.length > 1) {
+                return varlist[1];
             }
             this.current_diagnostics.push({
-                message: `Missing variable name after storage type \`${node.varlist[0].name}'`,
-                range: node.varlist[0].range,
+                message: `Missing variable name after storage type \`${varlist[0].name}'`,
+                range: varlist[0].range,
                 code: StataDiagnosticCode.MISSING_VARIABLE_NAME,
                 severity: 'error',
             });
             return undefined;
         }
-        return node.varlist[0];
+        return varlist[0];
     }
 
     /**
@@ -1896,11 +1909,12 @@ export class SemanticAnalyzer {
      * Syntax: input varlist
      */
     private extract_input_variables(node: CommandNode, symbols: SymbolTable): void {
-        if (!node.varlist) {
+        const varlist = this.semantic_varlist(node);
+        if (varlist.length === 0) {
             return;
         }
 
-        for (const var_node of node.varlist) {
+        for (const var_node of varlist) {
             // Skip macro references - they are not actual variable definitions
             if (this.is_macro_reference(var_node.name)) {
                 continue;
@@ -1973,7 +1987,8 @@ export class SemanticAnalyzer {
      * as they cannot be statically resolved.
      */
     private extract_rename_variables(node: CommandNode, symbols: SymbolTable): void {
-        if (!node.varlist || node.varlist.length < 2) {
+        const varlist = this.semantic_varlist(node);
+        if (varlist.length < 2) {
             return;
         }
 
@@ -1983,16 +1998,16 @@ export class SemanticAnalyzer {
         //
         // This also guards cases like: rename old new?  ("?" may become a separate WORD token)
         if (
-            node.varlist.length !== 2 &&
-            !(node.varlist[0].name.startsWith('(') && node.varlist[1].name.startsWith('('))
+            varlist.length !== 2 &&
+            !(varlist[0].name.startsWith('(') && varlist[1].name.startsWith('('))
         ) {
             return;
         }
 
         // Check for grouped syntax: (old1 old2) (new1 new2)
         // Parser captures parenthesized groups as single varlist items with parens
-        const first_item = node.varlist[0].name;
-        const second_item = node.varlist[1].name;
+        const first_item = varlist[0].name;
+        const second_item = varlist[1].name;
 
         if (first_item.startsWith('(') && second_item.startsWith('(')) {
             // If either group contains wildcards, treat as pattern-based rename
@@ -2000,7 +2015,7 @@ export class SemanticAnalyzer {
                 return;
             }
             // Grouped syntax - extract names from second group
-            this.extract_grouped_rename_variables(second_item, node.varlist[1].range, symbols);
+            this.extract_grouped_rename_variables(second_item, varlist[1].range, symbols);
             return;
         }
 
@@ -2014,13 +2029,13 @@ export class SemanticAnalyzer {
         // (and similarly for *new). The parser currently drops the wildcard token from
         // varlist, so we must consult the token stream to avoid false registration.
         if (
-            this.has_adjacent_wildcard_token(node.varlist[0].range) ||
-            this.has_adjacent_wildcard_token(node.varlist[1].range)
+            this.has_adjacent_wildcard_token(varlist[0].range) ||
+            this.has_adjacent_wildcard_token(varlist[1].range)
         ) {
             return;
         }
 
-        const new_var = node.varlist[1];
+        const new_var = varlist[1];
 
         // Skip macro references - they are not actual variable definitions
         if (this.is_macro_reference(new_var.name)) {
@@ -2046,8 +2061,14 @@ export class SemanticAnalyzer {
         group_range: Range,
         symbols: SymbolTable
     ): void {
-        // Remove parentheses and split by whitespace
-        const inner = group_content.slice(1, -1).trim();
+        // Remove the source-authored wrapper. During parser recovery an
+        // unclosed group keeps the missing close paren out of `name`, so only
+        // strip a trailing close when one is actually present.
+        const inner = (
+            group_content.endsWith(')')
+                ? group_content.slice(1, -1)
+                : group_content.slice(1)
+        ).trim();
         const the_names = inner.split(/\s+/).filter(n => n.length > 0);
 
         for (const my_name of the_names) {
@@ -2090,11 +2111,12 @@ export class SemanticAnalyzer {
      * then register the second varlist item as the variable.
      */
     private extract_confirm_variable(node: CommandNode, symbols: SymbolTable): void {
-        if (!node.varlist || node.varlist.length < 2) {
+        const varlist = this.semantic_varlist(node);
+        if (varlist.length < 2) {
             return;
         }
 
-        const first_item = node.varlist[0].name.toLowerCase();
+        const first_item = varlist[0].name.toLowerCase();
 
         // Check if this is a "confirm variable" or "confirm var" command
         if (first_item !== 'variable' && first_item !== 'var') {
@@ -2102,7 +2124,7 @@ export class SemanticAnalyzer {
         }
 
         // The second item is the variable name
-        const var_node = node.varlist[1];
+        const var_node = varlist[1];
 
         // Skip macro references - they are not actual variable definitions
         if (this.is_macro_reference(var_node.name)) {
@@ -2130,11 +2152,12 @@ export class SemanticAnalyzer {
         current_scope: ScopeInfo,
         node_index: number
     ): void {
-        if (!node.varlist) {
+        const varlist = this.semantic_varlist(node);
+        if (varlist.length === 0) {
             return;
         }
 
-        for (const var_node of node.varlist) {
+        for (const var_node of varlist) {
             this.register_local_macro(
                 current_scope,
                 symbols,
@@ -2167,8 +2190,9 @@ export class SemanticAnalyzer {
     ): void {
         // For unab command, the first argument is the macro name
         // The syntax is: unab macname : varlist
-        if (node.varlist && node.varlist.length > 0) {
-            const macro_node = node.varlist[0];
+        const varlist = this.semantic_varlist(node);
+        if (varlist.length > 0) {
+            const macro_node = varlist[0];
             const macro_name = macro_node.name;
             this.register_local_macro(
                 current_scope,
@@ -2204,8 +2228,9 @@ export class SemanticAnalyzer {
     ): void {
         // For args command, each argument in the varlist becomes a local macro
         // The syntax is: args name1 name2 name3 ...
-        if (node.varlist && node.varlist.length > 0) {
-            for (const my_var_node of node.varlist) {
+        const varlist = this.semantic_varlist(node);
+        if (varlist.length > 0) {
+            for (const my_var_node of varlist) {
                 const macro_name = my_var_node.name;
                 // Use definition_index: 0 and definition_line: 0 because args
                 // macros represent parameters passed into the program/file.
@@ -2252,14 +2277,15 @@ export class SemanticAnalyzer {
         // The syntax is: gettoken macname1 [macname2] : macname3 [, options]
         // - If varlist has 1 element: single output macro (macname1)
         // - If varlist has 2 elements: two output macros (macname1, macname2)
-        if (!node.varlist || node.varlist.length === 0) {
+        const varlist = this.semantic_varlist(node);
+        if (varlist.length === 0) {
             return;
         }
 
         // Extract up to 2 macro names from the varlist (before the colon)
-        const max_macros = Math.min(node.varlist.length, 2);
+        const max_macros = Math.min(varlist.length, 2);
         for (let i = 0; i < max_macros; i++) {
-            const my_var_node = node.varlist[i];
+            const my_var_node = varlist[i];
             const macro_name = my_var_node.name;
 
             // Skip invalid identifiers (e.g., macro references like `name')
@@ -2305,16 +2331,17 @@ export class SemanticAnalyzer {
         node_index: number
     ): void {
         // Require at least 3 varlist items: subcommand, handle, macroname
-        if (!node.varlist || node.varlist.length < 3) {
+        const varlist = this.semantic_varlist(node);
+        if (varlist.length < 3) {
             return;
         }
 
         // Only "read" subcommand creates a local macro (exact match)
-        if (node.varlist[0].name !== 'read') {
+        if (varlist[0].name !== 'read') {
             return;
         }
 
-        const macro_node = node.varlist[2];
+        const macro_node = varlist[2];
         const macro_name = macro_node.name;
 
         if (!is_valid_identifier(macro_name)) {
@@ -2463,6 +2490,9 @@ export class SemanticAnalyzer {
             this.get_program_macro_creating_options(node.fullName, symbols);
         if (!builtin_cmd && !program_options) return false;
         for (const my_option of node.options) {
+            if (my_option.argument_unclosed) {
+                continue;
+            }
             let matches = false;
             if (builtin_cmd) {
                 for (const opt of builtin_cmd.local_options) {
@@ -2496,7 +2526,7 @@ export class SemanticAnalyzer {
         if (node.fullName !== 'macro' && node.fullName !== 'mac') {
             return { names: [], unknown: false };
         }
-        const the_args = node.varlist ?? [];
+        const the_args = this.semantic_varlist(node);
         // First varlist item is the `drop` subcommand (allow abbreviations).
         if (the_args.length < 2 || !/^dr(o(p)?)?$/.test(the_args[0].name)) {
             return { names: [], unknown: false };
@@ -2540,19 +2570,21 @@ export class SemanticAnalyzer {
             cmd_name === 'tempvar' || cmd_name === 'tempfile'
             || cmd_name === 'tempname' || cmd_name === 'args'
         ) {
-            for (const my_var of node.varlist ?? []) push_literal(my_var.name);
+            for (const my_var of this.semantic_varlist(node)) push_literal(my_var.name);
         } else if (cmd_name === 'unab') {
-            push_literal(node.varlist?.[0]?.name);
+            push_literal(this.semantic_varlist(node)[0]?.name);
         } else if (cmd_name === 'gettoken' || cmd_name === 'gettok') {
-            const max_macros = Math.min(node.varlist?.length ?? 0, 2);
+            const varlist = this.semantic_varlist(node);
+            const max_macros = Math.min(varlist.length, 2);
             for (let i = 0; i < max_macros; i++) {
-                push_literal(node.varlist![i].name);
+                push_literal(varlist[i].name);
             }
         } else if (cmd_name === 'file' || cmd_name === 'fil' || cmd_name === 'fi') {
             // `file read handle macroname` — only the "read" subcommand creates
             // a macro, stored in varlist[2] (see extract_file_read_macro).
-            if ((node.varlist?.length ?? 0) >= 3 && node.varlist![0].name === 'read') {
-                push_literal(node.varlist![2].name);
+            const varlist = this.semantic_varlist(node);
+            if (varlist.length >= 3 && varlist[0].name === 'read') {
+                push_literal(varlist[2].name);
             }
         }
         return names;
@@ -2606,6 +2638,9 @@ export class SemanticAnalyzer {
             argument_range?: Range;
         }> = [];
         for (const option of node.options) {
+            if (option.argument_unclosed) {
+                continue;
+            }
             const parse_result = parse_option_argument(option.argument);
             if (!parse_result.is_literal || !parse_result.identifier) {
                 continue;
@@ -3354,26 +3389,24 @@ export class SemanticAnalyzer {
         }
 
         // Check varlist for undefined variables
-        if (node.varlist) {
-            for (const var_node of node.varlist) {
-                const is_defined = this.is_variable_defined(
-                    var_node.name,
-                    symbols,
-                    var_node.range.start.line
-                );
+        for (const var_node of this.semantic_varlist(node)) {
+            const is_defined = this.is_variable_defined(
+                var_node.name,
+                symbols,
+                var_node.range.start.line
+            );
 
-                if (!is_defined) {
-                    diagnostics.push({
-                        message: format_undefined_variable_message(
-                            var_node.name
-                        ),
-                        range: var_node.range,
-                        code: StataDiagnosticCode.UNDEFINED_VARIABLE,
-                        severity: 'information',
-                        symbol_name: var_node.name,
-                        reference_kind: 'variable',
-                    });
-                }
+            if (!is_defined) {
+                diagnostics.push({
+                    message: format_undefined_variable_message(
+                        var_node.name
+                    ),
+                    range: var_node.range,
+                    code: StataDiagnosticCode.UNDEFINED_VARIABLE,
+                    severity: 'information',
+                    symbol_name: var_node.name,
+                    reference_kind: 'variable',
+                });
             }
         }
     }
@@ -4697,9 +4730,9 @@ export class SemanticAnalyzer {
         // with no intervening hard break. A hard break is a real (non-`///`)
         // STATEMENT_TERMINATOR or a `;` separator (under `#delimit ;`); once
         // one is seen the body is on a later line, so a blank or comment-only
-        // continued line cannot keep the opener on the logical line. Under
-        // `#delimit ;` a physical newline lexes as WHITESPACE (no terminator
-        // token), so the physical-line comparison is what detects that break.
+        // continued line cannot keep the opener on the logical line. A
+        // physical-line change without a terminator is also a break unless it
+        // was crossed by `///`.
         let opener_idx = mata_index + 1;
         let crossed_continuation = false;
         let saw_hard_break = false;
