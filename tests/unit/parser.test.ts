@@ -1608,6 +1608,16 @@ end`;
         { options?: { name: string; argument?: string }[] } | undefined;
       return my_cmd?.options?.find(o => o.name === name)?.argument;
     };
+    const command_options = (source: string): { name: string; argument?: string;
+      argument_range?: { start: { line: number; character: number };
+        end: { line: number; character: number } } }[] => {
+      const my_cmd = parse(source).ast.nodes.find(n => n.type === 'command') as
+        { options?: { name: string; argument?: string; argument_range?: {
+          start: { line: number; character: number };
+          end: { line: number; character: number };
+        } }[] } | undefined;
+      return my_cmd?.options ?? [];
+    };
     const semi = (body: string): string =>
       `#delimit ;\n${body};\n#delimit cr`;
 
@@ -1624,6 +1634,50 @@ end`;
     test('adjacent option-argument tokens stay joined in both modes', () => {
       expect(option_arg('reg y x, cluster(id)', 'cluster')).toBe('id');
       expect(option_arg(semi('reg y x, cluster(id)'), 'cluster')).toBe('id');
+    });
+
+    test('nested option arguments are not truncated in either delimiter mode', () => {
+      for (const source of [
+        'reg y x, vce(bootstrap, nodots seed(123) rep(300))',
+        semi('reg y x, vce(bootstrap, nodots seed(123) rep(300))'),
+      ]) {
+        const options = command_options(source);
+        expect(options.map(o => o.name)).toEqual(['vce']);
+        expect(options.find(o => o.name === 'rep')).toBeUndefined();
+        expect(options[0].argument).toBe('bootstrap, nodots seed(123) rep(300)');
+      }
+    });
+
+    test('two-level nested option arguments are preserved', () => {
+      expect(option_arg('reg y x, absorb(f(a) g(b))', 'absorb')).toBe(
+        'f(a) g(b)'
+      );
+      expect(option_arg(semi('reg y x, absorb(f(a) g(b))'), 'absorb')).toBe(
+        'f(a) g(b)'
+      );
+    });
+
+    test('nested option argument range spans the full argument content', () => {
+      const options = command_options(
+        'reg y x, vce(bootstrap, nodots seed(123) rep(300))'
+      );
+      expect(options[0].argument_range?.end.character).toBe(
+        'reg y x, vce(bootstrap, nodots seed(123) rep(300)'.length
+      );
+    });
+
+    test('unbalanced nested option argument does not crash', () => {
+      expect(() => parse('reg y x, cluster(seed(1')).not.toThrow();
+      const result = parse('reg y x, cluster(seed(1');
+      expect(result.ast.nodes.find(n => n.type === 'command')).toBeDefined();
+    });
+
+    test('AST formatter preserves nested option arguments', () => {
+      const printer = new PrettyPrinter();
+      const format = (source: string): string =>
+        printer.print(parse(source).ast);
+      expect(format('reg y x, vce(bootstrap, nodots seed(123) rep(300))'))
+        .toContain('vce(bootstrap, nodots seed(123) rep(300))');
     });
   });
 

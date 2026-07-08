@@ -1249,7 +1249,8 @@ export class StataParser {
     const arg_tokens: Token[] = [];
     const preceded_by_continuation: boolean[] = [];
     const continuation = new ContinuationTracker();
-    while (!this.check('RPAREN') && !this.isAtEnd()) {
+    let paren_depth = 1;
+    while (!this.isAtEnd() && paren_depth > 0) {
       if (this.check('CONTINUATION')) {
         const cont_token = this.peek();
         if (this.skipContinuation()) {
@@ -1258,11 +1259,16 @@ export class StataParser {
         }
       }
       const t = this.advance();
+      if (t.type === 'LPAREN') {
+        paren_depth++;
+      } else if (t.type === 'RPAREN') {
+        paren_depth--;
+        if (paren_depth === 0) {
+          break;
+        }
+      }
       arg_tokens.push(t);
       preceded_by_continuation.push(continuation.collect(t));
-    }
-    if (this.check('RPAREN')) {
-      this.advance(); // consume )
     }
     const argument = this.reconstruct_value_tokens(
       arg_tokens,
