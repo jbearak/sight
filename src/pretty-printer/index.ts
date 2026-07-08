@@ -317,10 +317,7 @@ export class PrettyPrinter {
         if (option.argument !== undefined) {
             const close_paren = option.argument_unclosed ? '' : ')';
             const argument = format_expression_spacing(option.argument);
-            const trailing_trivia = option.argument_trailing_trivia
-                ? `${argument.length > 0 ? ' ' : ''}${option.argument_trailing_trivia}`
-                : '';
-            result += `(${argument}${trailing_trivia}${close_paren}`;
+            result += `(${argument}${close_paren}`;
         }
 
         return result;

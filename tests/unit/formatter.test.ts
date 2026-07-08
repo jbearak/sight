@@ -46,6 +46,67 @@ function format_document(source: string, lexer: StataLexer, parser: StataParser,
     return format_shared_document(source, lexer, parser, formatter, options, config);
 }
 
+function command_option_summary(
+    source: string,
+    lexer: StataLexer,
+    parser: StataParser
+): {
+    command_names: string[];
+    option_argument?: string;
+    option_unclosed?: true;
+} {
+    const my_ast = parser.parse(lexer.tokenize(source).tokens).ast;
+    const the_commands = my_ast.nodes.filter(n => n.type === 'command') as {
+        name: string;
+        options?: {
+            name: string;
+            argument?: string;
+            argument_unclosed?: true;
+        }[];
+    }[];
+    const my_reg = the_commands.find(c => c.name === 'reg');
+    const my_option = my_reg?.options?.find(o => o.name === 'vce');
+
+    return {
+        command_names: the_commands.map(c => c.name),
+        option_argument: my_option?.argument,
+        option_unclosed: my_option?.argument_unclosed,
+    };
+}
+
+function expect_format_round_trip_stable(
+    source: string,
+    mode: FormatterMode,
+    lexer: StataLexer,
+    parser: StataParser
+): void {
+    const config = create_formatter_config(mode);
+    const mode_formatter = new CodeFormatter();
+    const my_formatted = format_document(
+        source,
+        lexer,
+        parser,
+        mode_formatter,
+        config
+    );
+    const my_formatted_again = format_document(
+        my_formatted,
+        lexer,
+        parser,
+        mode_formatter,
+        config
+    );
+
+    expect(my_formatted_again).toBe(my_formatted);
+    if (mode === 'source-preserving') {
+        expect(my_formatted).toBe(source);
+    }
+
+    expect(command_option_summary(my_formatted, lexer, parser)).toEqual(
+        command_option_summary(source, lexer, parser)
+    );
+}
+
 describe('CodeFormatter with embedded language support', () => {
   let formatter: CodeFormatter;
   let parser: StataParser;
@@ -152,7 +213,7 @@ display 1`;
 
       const my_expected = mode === 'source-preserving'
         ? my_source
-        : `reg y x, vce(seed(123) // note
+        : `reg y x, vce(seed(123)
 display 1
 `;
       expect(my_formatted).toBe(my_expected);
@@ -177,7 +238,7 @@ display 1`;
 
       const my_expected = mode === 'source-preserving'
         ? my_source
-        : `reg y x, vce(seed(123) /* note */
+        : `reg y x, vce(seed(123)
 display 1
 `;
       expect(my_formatted).toBe(my_expected);
@@ -205,7 +266,7 @@ display 1;
       const my_expected = mode === 'source-preserving'
         ? my_source
         : `#delimit ;;
-reg y x, vce(seed(123) /* note */;
+reg y x, vce(seed(123);
 display 1;
 #delimit cr
 `;
@@ -220,6 +281,34 @@ display 1;
         config
       );
       expect(my_formatted_again).toBe(my_formatted);
+    });
+
+    for_each_formatter_mode('should round-trip cr-mode line comment after unclosed option', (mode) => {
+      const my_source = `reg y x, vce(seed(123) // note
+display 1`;
+
+      expect_format_round_trip_stable(my_source, mode, lexer, parser);
+    });
+
+    for_each_formatter_mode('should round-trip semicolon line comment after unclosed option', (mode) => {
+      const my_source = `#delimit ;
+reg y x, vce(seed(123) // note
+;
+display 1;
+#delimit cr`;
+
+      expect_format_round_trip_stable(my_source, mode, lexer, parser);
+    });
+
+    for_each_formatter_mode('should round-trip multiple semicolon comments after unclosed option', (mode) => {
+      const my_source = `#delimit ;
+reg y x, vce(seed(123) // one
+/* two */ // three
+;
+display 1;
+#delimit cr`;
+
+      expect_format_round_trip_stable(my_source, mode, lexer, parser);
     });
 
     for_each_formatter_mode('should preserve unclosed option argument before continuation EOF', (mode) => {

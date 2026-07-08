@@ -1215,9 +1215,6 @@ export class StataParser {
             if (parsed.argument_unclosed) {
               option.argument_unclosed = true;
             }
-            if (parsed.argument_trailing_trivia) {
-              option.argument_trailing_trivia = parsed.argument_trailing_trivia;
-            }
           }
 
           options.push(option);
@@ -1252,7 +1249,6 @@ export class StataParser {
     argument: string;
     argument_range?: Range;
     argument_unclosed?: true;
-    argument_trailing_trivia?: string;
   } {
     this.advance(); // consume (
     // Collect argument tokens and reconstruct spacing from their ranges via
@@ -1262,7 +1258,6 @@ export class StataParser {
     const arg_tokens: Token[] = [];
     const preceded_by_continuation: boolean[] = [];
     const continuation = new ContinuationTracker();
-    let pending_trailing_trivia: Token[] = [];
     let paren_depth = 1;
     while (!this.isAtEnd() && paren_depth > 0) {
       if (this.check('STATEMENT_TERMINATOR')) {
@@ -1272,12 +1267,11 @@ export class StataParser {
         const cont_token = this.peek();
         if (this.skipContinuation()) {
           continuation.note_continuation(cont_token);
-          pending_trailing_trivia = [];
           continue;
         }
       }
       if (this.check('COMMENT_LINE') || this.check('COMMENT_BLOCK')) {
-        pending_trailing_trivia.push(this.advance());
+        this.advance();
         continue;
       }
       const t = this.advance();
@@ -1290,13 +1284,9 @@ export class StataParser {
         }
       }
       arg_tokens.push(t);
-      pending_trailing_trivia = [];
       preceded_by_continuation.push(continuation.collect(t));
     }
     const argument_unclosed = paren_depth > 0 ? true : undefined;
-    const argument_trailing_trivia = argument_unclosed && pending_trailing_trivia.length > 0
-      ? pending_trailing_trivia.map(token => token.value).join(' ')
-      : undefined;
     const argument = this.reconstruct_value_tokens(
       arg_tokens,
       preceded_by_continuation
@@ -1304,7 +1294,7 @@ export class StataParser {
     const argument_range = arg_tokens.length > 0
       ? { start: arg_tokens[0].range.start, end: arg_tokens[arg_tokens.length - 1].range.end }
       : undefined;
-    return { argument, argument_range, argument_unclosed, argument_trailing_trivia };
+    return { argument, argument_range, argument_unclosed };
   }
 
   /**
@@ -1524,9 +1514,6 @@ export class StataParser {
             option.argument_range = parsed.argument_range;
             if (parsed.argument_unclosed) {
               option.argument_unclosed = true;
-            }
-            if (parsed.argument_trailing_trivia) {
-              option.argument_trailing_trivia = parsed.argument_trailing_trivia;
             }
           }
 
@@ -2677,9 +2664,6 @@ export class StataParser {
             option.argument_range = parsed.argument_range;
             if (parsed.argument_unclosed) {
               option.argument_unclosed = true;
-            }
-            if (parsed.argument_trailing_trivia) {
-              option.argument_trailing_trivia = parsed.argument_trailing_trivia;
             }
           }
           options.push(option);
