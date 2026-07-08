@@ -177,7 +177,8 @@ display "done"
 
             expect(edits.length).toBeGreaterThan(0);
             const out = edits[0].newText;
-            // No source text lost: both continuation lines survive.
+            // No source text lost: the mata half and both continuation lines survive.
+            expect(out).toContain('st_local("b",');
             expect(out).toContain('x = (1+');
             expect(out).toContain('2);');
             expect(out).toContain('display "done"');
