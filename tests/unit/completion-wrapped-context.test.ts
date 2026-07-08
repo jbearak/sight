@@ -83,10 +83,13 @@ describe('logical_statement_start (issue #310)', () => {
         expect(start!.character).toBeGreaterThan(0);
     });
 
-    it('returns undefined on a blank line after a terminator', () => {
+    it('reports a fresh statement position on a blank line after a terminator', () => {
+        // No statement token yet: the start is on the cursor's own line so the
+        // caller treats it as a fresh (command) position, not a continuation.
         const source = 'reg y x\n';
         const start = logical_statement_start(tokens_of(source), { line: 1, character: 0 });
-        expect(start).toBeUndefined();
+        expect(start).toBeDefined();
+        expect(start!.line).toBe(1);
     });
 
     it('returns undefined for undefined/empty tokens', () => {
@@ -178,29 +181,45 @@ describe('detect_completion_context — multiple statements on one line (#310)',
             expect(context.command).toBe('reg');
         }
     });
+
+    it('gives command context at the start of a new statement after a ; on the same line', () => {
+        // Cursor at the first character of `reg`, right after `display 1; `.
+        const source = '#delimit ;\ndisplay 1; reg y x,';
+        const context = context_of(source, { line: 1, character: 11 });
+        expect(context.type).toBe('command');
+    });
+
+    it('gives command context immediately after a ; with nothing typed yet', () => {
+        const source = '#delimit ;\ndisplay 1; ';
+        const context = context_of(source, { line: 1, character: 11 });
+        expect(context.type).toBe('command');
+    });
+
+    it('gives command context while typing the second statement command word', () => {
+        const source = '#delimit ;\ndisplay 1; re';
+        const context = context_of(source, { line: 1, character: 13 });
+        expect(context.type).toBe('command');
+    });
+
+    it('does not offer the prior command\'s options for an empty statement after its ;', () => {
+        // Cursor right after `regress y x, robust; ` — a brand-new empty
+        // statement, not more options for regress.
+        const source = '#delimit ;\nregress y x, robust; ';
+        const context = context_of(source, { line: 1, character: 22 });
+        expect(context.type).toBe('command');
+    });
+
+    it('gives command context right after a { block opener on the same line', () => {
+        const source = 'foreach v of varlist a b { \n}\n';
+        const context = context_of(source, { line: 0, character: 27 });
+        expect(context.type).toBe('command');
+    });
 });
 
-describe('detect_completion_context — continuation-line guard (#310)', () => {
-    it('does not return command_path for a continuation line starting with a file command', () => {
-        // `merge` wrapped; continuation line begins with `keepusing(` — but a
-        // continuation line that started with a file-command word must not
-        // shadow option context. Use `using` which is a file-ish word.
-        const source = '#delimit ;\nmerge 1:1 id using "f.dta",\n    keepusing(';
-        const context = context_of(source, { line: 2, character: 14 });
-        expect(context.type).toBe('option');
-    });
-
-    it('still returns command_path for a genuine single-line file command', () => {
-        const source = 'do myfile.do';
-        const context = context_of(source, { line: 0, character: 4 });
-        expect(context.type).toBe('command_path');
-    });
-
-    it('still returns subcommand for a genuine single-line prefix command', () => {
-        const db = create_test_command_db();
-        // `frame ` needs subcommands in the db; use the real command db shape.
-        const real_db = new CommandDatabase();
-        real_db.register({
+describe('detect_completion_context — statement-scoped detectors over logical text (#310)', () => {
+    function frame_command_db(): CommandDatabase {
+        const db = new CommandDatabase();
+        db.register({
             name: 'frame',
             minAbbreviation: 'frame',
             syntax: 'frame ...',
@@ -210,9 +229,49 @@ describe('detect_completion_context — continuation-line guard (#310)', () => {
             isBuiltin: true,
             subcommands: [{ name: 'create', minAbbreviation: 'cr' }],
         });
-        const context = context_of('frame ', { line: 0, character: 6 }, real_db);
+        return db;
+    }
+
+    it('does not return command_path on a wrapped option statement (comma carries through)', () => {
+        // The logical text `merge 1:1 id using "f.dta" , keepusing(` contains
+        // the comma, so command_path bails and option context wins.
+        const source = '#delimit ;\nmerge 1:1 id using "f.dta",\n    keepusing(';
+        const context = context_of(source, { line: 2, character: 14 });
+        expect(context.type).toBe('option');
+    });
+
+    it('resolves command_path for a file command that is the second statement on a line', () => {
+        const source = '#delimit ;\ndisplay 1 ; use "data';
+        const context = context_of(source, { line: 1, character: 21 });
+        expect(context.type).toBe('command_path');
+        if (context.type === 'command_path') {
+            expect(context.command).toBe('use');
+        }
+    });
+
+    it('resolves an extended-macro function split across a /// continuation', () => {
+        const source = '#delimit ;\nlocal x : ///\n    list a b';
+        const context = context_of(source, { line: 2, character: 8 });
+        expect(context.type).toBe('macro');
+    });
+
+    it('resolves a subcommand split across a /// continuation', () => {
+        const source = '#delimit ;\nframe ///\n    cr';
+        const context = context_of(source, { line: 2, character: 6 }, frame_command_db());
         expect(context.type).toBe('subcommand');
-        void db;
+        if (context.type === 'subcommand') {
+            expect(context.prefix_command).toBe('frame');
+        }
+    });
+
+    it('still returns command_path for a genuine single-line file command', () => {
+        const context = context_of('do myfile.do', { line: 0, character: 4 });
+        expect(context.type).toBe('command_path');
+    });
+
+    it('still returns subcommand for a genuine single-line prefix command', () => {
+        const context = context_of('frame ', { line: 0, character: 6 }, frame_command_db());
+        expect(context.type).toBe('subcommand');
     });
 });
 

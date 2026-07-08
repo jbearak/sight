@@ -341,26 +341,51 @@ export function logical_statement_start(
         }
     }
 
-    // First non-trivia token after the boundary, not past the cursor.
-    for (
-        let my_i = boundary_index + 1;
-        my_i <= search_index;
-        my_i++
-    ) {
+    // First non-trivia token after the boundary (the statement's head).
+    let first_index = -1;
+    for (let my_i = boundary_index + 1; my_i < tokens.length; my_i++) {
         const my_token = tokens[my_i];
         if (my_token.type === 'EOF') {
             break;
         }
         if (!STATEMENT_LEADING_TRIVIA_TYPES.has(my_token.type)) {
+            first_index = my_i;
+            break;
+        }
+    }
+
+    // Case A: the statement has a real head token at or before the cursor.
+    if (first_index !== -1) {
+        const my_start = tokens[first_index].range.start;
+        const at_or_before_cursor =
+            my_start.line < position.line ||
+            (my_start.line === position.line &&
+                my_start.character <= position.character);
+        if (at_or_before_cursor) {
             return {
-                index: my_i,
-                line: my_token.range.start.line,
-                character: my_token.range.start.character,
+                index: first_index,
+                line: my_start.line,
+                character: my_start.character,
             };
         }
     }
 
-    // Boundary sits right before the cursor with only trivia between:
-    // no statement has started yet (blank line after a terminator).
-    return undefined;
+    // Case B: an empty statement position — the cursor sits at/just after a
+    // boundary with no statement token yet before it (right after a `;` on a
+    // shared physical line, in a new statement's leading whitespace, or on a
+    // blank line). The statement "starts" where the boundary left off. Report
+    // it on the cursor's own line so the caller slices the current physical
+    // line from just after the boundary (dropping any earlier statement that
+    // shares the line) and treats it as a fresh — not continuation —
+    // statement.
+    const resume_character =
+        boundary_index >= 0 &&
+        tokens[boundary_index].range.end.line === position.line
+            ? tokens[boundary_index].range.end.character
+            : 0;
+    return {
+        index: first_index >= 0 ? first_index : boundary_index + 1,
+        line: position.line,
+        character: resume_character,
+    };
 }

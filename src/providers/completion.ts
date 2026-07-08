@@ -288,18 +288,18 @@ export function detect_completion_context(
     const current_line = get_line_text(document, position.line);
     const text_before_cursor = current_line.substring(0, position.character);
 
-    // Locate the logical statement (#310). `start` is used both to detect a
-    // continuation line and (lazily) to build the flattened logical text for
-    // the statement-scoped detectors. The flatten is deferred so the hot
-    // macro/directive paths, which return before it is needed, never pay for
-    // building the string.
+    // Logical statement text before the cursor (#310). The statement-scoped
+    // detectors below run over the whole logical statement (wrapped across
+    // physical lines via `#delimit ;` newlines or `///` continuations, and
+    // correctly sliced when several statements share one physical line),
+    // rather than just the current physical line. For a genuine single-line
+    // statement the logical text equals the physical text (modulo leading
+    // indentation, which every detector already trims), so single-line
+    // behavior is unchanged. Built once, lazily.
     const logical_start = logical_statement_start(tokens, position);
-    const is_continuation_line =
-        logical_start !== undefined && logical_start.line < position.line;
     let cached_logical_text: string | undefined;
-    let has_logical_text = false;
     const get_logical_text = (): string => {
-        if (!has_logical_text) {
+        if (cached_logical_text === undefined) {
             cached_logical_text = build_logical_text_before_cursor(
                 document,
                 position,
@@ -307,43 +307,35 @@ export function detect_completion_context(
                 logical_start,
                 text_before_cursor
             );
-            has_logical_text = true;
         }
-        return cached_logical_text!;
+        return cached_logical_text;
     };
 
-    // Extended-macro, command-path, and subcommand detection all presuppose the
-    // physical line begins a fresh statement (they match the first word / a
-    // `local`/`global` head / a prefix command). On a wrapped statement's
-    // continuation line that is false, so they are skipped there — otherwise a
-    // continuation line whose first word happens to be a file command (`use`,
-    // `save`, ...) or a subcommand prefix (`frame`) would shadow the option
-    // context the logical text now enables (#310).
-
     // Check for extended macro function context (`: list`, `: word`, etc.)
-    if (!is_continuation_line) {
-        const extended_macro_context = detect_extended_macro_context(text_before_cursor, position);
-        if (extended_macro_context) {
-            return extended_macro_context;
-        }
+    const extended_macro_context = detect_extended_macro_context(get_logical_text(), position);
+    if (extended_macro_context) {
+        return extended_macro_context;
     }
 
     // Check for directive path context (e.g., @lsp-done-by:). Directives are
-    // inert inside `/* ... */` block comments, so skip block-commented lines.
+    // read from the raw physical line: they are their own comment line, never
+    // a wrapped code statement, and are inert inside `/* ... */` block
+    // comments, so skip block-commented lines.
     const directive_context = detect_directive_context(text_before_cursor);
     if (directive_context && !is_cursor_in_block_comment(document, position)) {
         return directive_context;
     }
 
-    // Check for command path context (e.g., do file.do)
-    if (!is_continuation_line) {
-        const command_path_context = detect_command_path_context(text_before_cursor);
-        if (command_path_context) {
-            return command_path_context;
-        }
+    // Check for command path context (e.g., do file.do). Over the logical
+    // statement so a wrapped/second-on-line `do`/`use`/... resolves, while a
+    // wrapped option statement (whose logical text carries the comma) bails
+    // here and falls through to option context.
+    const command_path_context = detect_command_path_context(get_logical_text());
+    if (command_path_context) {
+        return command_path_context;
     }
 
-    // Check for macro context first (highest priority)
+    // Check for macro context (cursor-local `` ` `` / `$` on the physical line).
     const macro_context = detect_macro_context(text_before_cursor, document, position);
     if (macro_context) {
         return macro_context;
@@ -355,12 +347,10 @@ export function detect_completion_context(
         return option_context;
     }
 
-    // Check for subcommand context (after prefix command like 'frame ')
-    if (!is_continuation_line) {
-        const subcommand_context = detect_subcommand_context(text_before_cursor, command_db);
-        if (subcommand_context) {
-            return subcommand_context;
-        }
+    // Check for subcommand context (after prefix command like 'frame ').
+    const subcommand_context = detect_subcommand_context(get_logical_text(), command_db);
+    if (subcommand_context) {
+        return subcommand_context;
     }
 
     // Check for command context (start of statement) — over the logical statement.
