@@ -475,6 +475,41 @@ gen`;
             const stata_labels = stata_completions.map(c => c.label);
             expect(stata_labels).toContain('generate');
         });
+
+        it('should keep mata context on #delimit ; inline continuation line (issue #309)', async () => {
+            const my_content = `#delimit ;
+mata: st_local("b",
+"2") ;
+#delimit cr
+gen`;
+
+            const my_uri = 'file:///test_delimit_inline_mata.do';
+            await document_store.open(my_uri, my_content, 1);
+            const my_document = document_store.get(my_uri)!;
+
+            // The continuation line (line 2) is inside the inline mata
+            // statement: Stata command completions must be suppressed there.
+            const my_context_tracker = my_document.context_tracker;
+            expect(
+                my_context_tracker.get_context_at_position({ line: 2, character: 1 })
+            ).toBe(LanguageContext.MATA);
+
+            const continuation_completions =
+                await completion_provider.get_completions(my_document, {
+                    line: 2,
+                    character: 1,
+                });
+            const continuation_labels = continuation_completions.map(c => c.label);
+            expect(continuation_labels).not.toContain('generate');
+
+            // The line after #delimit cr is plain Stata again.
+            const stata_completions = await completion_provider.get_completions(
+                my_document,
+                { line: 4, character: 3 }
+            );
+            const stata_labels = stata_completions.map(c => c.label);
+            expect(stata_labels).toContain('generate');
+        });
     });
 
     describe('Block structure validation', () => {

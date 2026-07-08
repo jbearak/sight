@@ -376,4 +376,122 @@ end`;
     const my_diagnostics = tracker.validate_context_structure();
     expect(my_diagnostics).toHaveLength(0);
   });
+
+  /**
+   * Issue #309: under #delimit ; an inline mata: statement can continue
+   * onto later physical lines (statement ends at ;). The context tracker
+   * must report MATA on those continuation lines, not STATA.
+   */
+  it('reports mata on #delimit ; inline mata continuation lines', () => {
+    const my_content = `#delimit ;
+mata: st_local("b",
+"2");
+#delimit cr
+`;
+    const my_lex_result = lexer.tokenize(my_content);
+    tracker.initialize_from_tokens(my_lex_result.tokens, my_content);
+
+    // The repro position: line 2 (the "2") is inside the mata statement.
+    expect(
+      tracker.get_context_at_position({ line: 2, character: 1 })
+    ).toBe(LanguageContext.MATA);
+    // Opener line is also mata.
+    expect(
+      tracker.get_context_at_position({ line: 1, character: 0 })
+    ).toBe(LanguageContext.MATA);
+    // The #delimit cr line is not part of the mata statement.
+    expect(
+      tracker.get_context_at_position({ line: 3, character: 0 })
+    ).toBe(LanguageContext.STATA);
+  });
+
+  it('reports python on #delimit ; inline python continuation lines', () => {
+    const my_content = `#delimit ;
+python: x = (1 +
+2);
+`;
+    const my_lex_result = lexer.tokenize(my_content);
+    tracker.initialize_from_tokens(my_lex_result.tokens, my_content);
+
+    expect(
+      tracker.get_context_at_position({ line: 2, character: 0 })
+    ).toBe(LanguageContext.PYTHON);
+  });
+
+  it('leaves cr single-line inline mata ending on the opener line', () => {
+    const my_content = `mata: st_local("b", "2")
+display 1
+`;
+    const my_lex_result = lexer.tokenize(my_content);
+    tracker.initialize_from_tokens(my_lex_result.tokens, my_content);
+
+    const my_ranges = tracker.get_all_context_ranges();
+    expect(my_ranges).toHaveLength(1);
+    expect(my_ranges[0].is_single_line).toBe(true);
+    expect(my_ranges[0].range.end.line).toBe(0);
+    // The next physical line is plain Stata.
+    expect(
+      tracker.get_context_at_position({ line: 1, character: 0 })
+    ).toBe(LanguageContext.STATA);
+  });
+
+  it('produces exactly one non-overlapping range for a #delimit ; multiline inline', () => {
+    const my_content = `#delimit ;
+mata: st_local("b",
+"2");
+mata: foo();
+#delimit cr
+`;
+    const my_lex_result = lexer.tokenize(my_content);
+    tracker.initialize_from_tokens(my_lex_result.tokens, my_content);
+
+    const my_ranges = tracker.get_all_context_ranges();
+    // Two separate inline mata statements, each its own range, no overlap.
+    expect(my_ranges).toHaveLength(2);
+    for (let my_i = 1; my_i < my_ranges.length; my_i++) {
+      const my_prev = my_ranges[my_i - 1];
+      const my_curr = my_ranges[my_i];
+      expect(my_curr.range.start.line).toBeGreaterThan(my_prev.range.end.line);
+    }
+    // The second inline opener (line 3) is mata.
+    expect(
+      tracker.get_context_at_position({ line: 3, character: 0 })
+    ).toBe(LanguageContext.MATA);
+  });
+
+  it('does not spawn an overlapping range for a trailing same-line inline opener', () => {
+    const my_content = `#delimit ;
+mata: st_local("b",
+"2"); python: x = 1;
+#delimit cr
+`;
+    const my_lex_result = lexer.tokenize(my_content);
+    tracker.initialize_from_tokens(my_lex_result.tokens, my_content);
+
+    const my_ranges = tracker.get_all_context_ranges();
+    // The trailing python: on the terminator line is swallowed into the
+    // mata whole-line span; no second overlapping range is produced.
+    for (let my_i = 1; my_i < my_ranges.length; my_i++) {
+      const my_prev = my_ranges[my_i - 1];
+      const my_curr = my_ranges[my_i];
+      expect(my_curr.range.start.line).toBeGreaterThan(my_prev.range.end.line);
+    }
+  });
+
+  it('reports mata across a multi-line block comment in a cr inline', () => {
+    const my_content = `mata: st_local("a", /* c
+*/ "1")
+display 1
+`;
+    const my_lex_result = lexer.tokenize(my_content);
+    tracker.initialize_from_tokens(my_lex_result.tokens, my_content);
+
+    // The comment continuation line is part of the mata statement.
+    expect(
+      tracker.get_context_at_position({ line: 1, character: 0 })
+    ).toBe(LanguageContext.MATA);
+    expect(
+      tracker.get_context_at_position({ line: 2, character: 0 })
+    ).toBe(LanguageContext.STATA);
+  });
 });

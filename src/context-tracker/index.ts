@@ -8,6 +8,7 @@ import {
 import { ContextErrorCode, Token, TokenType } from '../types';
 import { get_line_text, get_line_count, compute_line_offsets } from '../utils/line-utils';
 import { block_comment_lines } from '../utils/block-comment-utils';
+import { inline_embedded_statement_end } from '../utils/statement-span';
 
 // Token types that carry no live code. A line whose only tokens are
 // these (and that the lexer placed inside a block comment) is safe to
@@ -114,15 +115,24 @@ export class ContextTracker implements IContextTracker {
         };
         
         if (my_token.type === 'MATA_INLINE') {
-          // Single-line mata context ends at end of token line
-          my_current_range.end_delimiter = {
-            command: my_token.value,
-            range: my_token.range,
-          };
+          // Inline mata (`mata:`) is a single statement. Under `#delimit ;`
+          // it can continue onto later physical lines and ends at the `;`,
+          // so compute the real end line from the token stream (issue #309)
+          // rather than assuming it ends on the opener line. No
+          // end_delimiter: inline forms have no `end`, and leaving it
+          // undefined keeps the formatter's whole-line replace/extract
+          // regions consistent.
+          const my_inline_end = inline_embedded_statement_end(tokens, my_i);
           this.context_ranges.push(
-            this.complete_context_range_from_token(my_current_range)
+            this.complete_context_range_from_token(
+              my_current_range,
+              my_inline_end.end_line
+            )
           );
           my_current_range = null;
+          // Skip the tokens the inline statement consumed so nothing inside
+          // it (or a trailing same-line opener) spawns an overlapping range.
+          my_i = my_inline_end.end_index;
         } else {
           this.context_stack.push(LanguageContext.MATA);
           my_current_context = LanguageContext.MATA;
@@ -152,15 +162,18 @@ export class ContextTracker implements IContextTracker {
         };
         
         if (my_token.type === 'PYTHON_INLINE') {
-          // Single-line python context ends at end of token line
-          my_current_range.end_delimiter = {
-            command: my_token.value,
-            range: my_token.range,
-          };
+          // Inline python (`python:`) mirrors inline mata: a single
+          // statement that can continue onto later lines under `#delimit ;`
+          // (ends at the `;`). See the MATA_INLINE branch above (issue #309).
+          const my_inline_end = inline_embedded_statement_end(tokens, my_i);
           this.context_ranges.push(
-            this.complete_context_range_from_token(my_current_range)
+            this.complete_context_range_from_token(
+              my_current_range,
+              my_inline_end.end_line
+            )
           );
           my_current_range = null;
+          my_i = my_inline_end.end_index;
         } else {
           this.context_stack.push(LanguageContext.PYTHON);
           my_current_context = LanguageContext.PYTHON;
@@ -624,14 +637,18 @@ export class ContextTracker implements IContextTracker {
    * For multi-line contexts, the range includes the start delimiter line but excludes the end delimiter line.
    */
   private complete_context_range_from_token(
-    partial_range: Partial<ContextRange>
+    partial_range: Partial<ContextRange>,
+    single_line_end_line?: number
   ): ContextRange {
     const my_start_line = partial_range.start_delimiter!.range.start.line;
     let my_end_line: number;
 
     if (partial_range.is_single_line) {
-      // For single-line contexts, the entire line is included
-      my_end_line = my_start_line;
+      // Inline contexts (`mata:`/`python:`) cover whole physical lines. The
+      // caller passes the real end line computed from the token stream so
+      // `#delimit ;` continuation lines are included (issue #309); when it
+      // is omitted, fall back to the opener line.
+      my_end_line = single_line_end_line ?? my_start_line;
     } else {
       // For multi-line contexts, exclude the end delimiter line
       if (partial_range.end_delimiter) {
