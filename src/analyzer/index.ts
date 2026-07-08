@@ -770,9 +770,7 @@ export class SemanticAnalyzer {
             if (token.range.start.line !== line) {
                 break;
             }
-            if (token.type !== 'WHITESPACE') {
-                return false;
-            }
+            return false;
         }
 
         return true;
@@ -4697,9 +4695,9 @@ export class SemanticAnalyzer {
         // with no intervening hard break. A hard break is a real (non-`///`)
         // STATEMENT_TERMINATOR or a `;` separator (under `#delimit ;`); once
         // one is seen the body is on a later line, so a blank or comment-only
-        // continued line cannot keep the opener on the logical line. Under
-        // `#delimit ;` a physical newline lexes as WHITESPACE (no terminator
-        // token), so the physical-line comparison is what detects that break.
+        // continued line cannot keep the opener on the logical line. A
+        // physical-line change without a terminator is also a break unless it
+        // was crossed by `///`.
         let opener_idx = mata_index + 1;
         let crossed_continuation = false;
         let saw_hard_break = false;

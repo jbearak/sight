@@ -36,10 +36,10 @@ const PREFIX_COMMANDS = new Set(['by', 'bysort', 'quietly', 'qui', 'capture', 'c
  * i.e. every physical line between them ended with `///`.
  *
  * `///` continues ONLY the immediately-following line, so a token pushed
- * further down by a raw newline (a blank line in `#delimit ;` mode, or a `///`
- * that does not extend the chain contiguously) is NOT a continuation join and
- * must separate. This prevents value-token fusion such as `a///\n\nb` -> `ab`
- * or `a///\n\n///\nb` -> `ab` (issue #306). The boolean flag it produces feeds
+ * further down by a raw newline or by a `///` that does not extend the chain
+ * contiguously is NOT a continuation join and must separate. This prevents
+ * value-token fusion such as `a///\n\nb` -> `ab` or
+ * `a///\n\n///\nb` -> `ab` (issue #306). The boolean flag it produces feeds
  * `reconstruct_value_tokens`, which applies the column-0-join rule only when
  * the flag is true.
  */
@@ -184,7 +184,8 @@ export class StataParser {
     } else if (this.check('WORD') && this.isPrefixCommand(this.peek().value)) {
       // Prefix command - delegate to parseCommand which handles prefix parsing
       node = this.parseCommand();
-    } else if (this.checkWord('program') && this.peekValueAfterWhitespace() === 'define') {
+    } else if (this.checkWord('program') &&
+        this.tokens[this.current + 1]?.value === 'define') {
       node = this.parseProgramDefinition();
     } else if (this.checkWord('syntax')) {
       node = this.parseSyntaxCommand();
@@ -422,12 +423,6 @@ export class StataParser {
   private parseProgramDefinition(): ProgramNode {
     const start_token = this.advance(); // consume 'program'
 
-    // In `#delimit ;` mode the lexer emits a WHITESPACE token between `program`
-    // and `define` (elided in `#delimit cr` mode); skip it so the `define`
-    // check succeeds and the program is recognized rather than misparsed as an
-    // ordinary command (issue #305).
-    this.skipWhitespace();
-
     if (!this.checkWord('define')) {
       this.addError('Expected "define" after "program"', this.peek().range);
     } else {
@@ -455,15 +450,9 @@ export class StataParser {
     this.inside_program = true;
 
     // Collect any leading trivia before re-checking `end`, mirroring
-    // parseBraceBody (issue #301). In `#delimit ;` mode the lexer emits
-    // WHITESPACE tokens — and a comment-only line before `end` is a comment
-    // followed by WHITESPACE — that `#delimit cr` mode elides. Without
-    // consuming that trivia here, parseStatement() would run at the comment,
-    // swallow it plus the following whitespace, and then parse `end` as an
-    // ordinary command, losing the terminator and running the program off to
-    // EOF (issue #305). Carrying the trivia forward via pending_trivia so it
-    // attaches to the statement after the program matches how parseBraceBody
-    // handles a comment before `}`. Inert in cr mode (no WHITESPACE tokens).
+    // parseBraceBody (issue #301). Carrying the trivia forward via
+    // pending_trivia so it attaches to the statement after the program matches
+    // how parseBraceBody handles a comment before `}`.
     while (!this.isAtEnd()) {
       const my_trivia = this.collectTrivia();
       if (my_trivia.length > 0) {
@@ -627,19 +616,6 @@ export class StataParser {
 
       const token = this.advance();
 
-      // In `#delimit ;` mode the lexer emits WHITESPACE tokens whose value is
-      // the raw run of spaces/newlines. Skip them: reconstruct_value_tokens
-      // re-inserts a single space from inter-token gaps, so keeping them would
-      // embed literal whitespace (and `\n`) into the stored macro value.
-      // Leave continuation_line untouched: a `///` continuation's indentation
-      // may surface as a WHITESPACE token before the next real token, and the
-      // continuation still applies to that token (unless extra raw newlines
-      // push it off the immediately-following line — see
-      // token_follows_continuation).
-      if (token.type === 'WHITESPACE') {
-        continue;
-      }
-
       // Track parenthesis depth for error checking
       if (token.type === 'LPAREN') {
         paren_depth++;
@@ -699,14 +675,12 @@ export class StataParser {
     const function_name = this.advance().value;
     this.skipMacroDefinitionTrivia();
 
-    // Collect function arguments. `arg_tokens` keeps every token (including
-    // WHITESPACE) for macro-reference extraction, while `value_tokens` holds
-    // only the non-whitespace tokens used to reconstruct the arg string.
-    // Reconstructing from token ranges via reconstruct_value_tokens keeps the
-    // two delimiter modes identical (a single space per gap) and never invents
-    // artificial boundaries (adjacent tokens like `0Ea` stay joined), unlike
-    // appending raw WHITESPACE token values which embeds literal spaces and
-    // newlines in `#delimit ;` mode (issue #306).
+    // Collect function arguments. `arg_tokens` keeps every token for
+    // macro-reference extraction, while `value_tokens` holds the tokens used
+    // to reconstruct the arg string from source ranges. Range reconstruction
+    // keeps the two delimiter modes identical (a single space per gap) and
+    // never invents artificial boundaries (adjacent tokens like `0Ea` stay
+    // joined).
     const arg_tokens: Token[] = [];
     const value_tokens: Token[] = [];
     const preceded_by_continuation: boolean[] = [];
@@ -729,12 +703,10 @@ export class StataParser {
 
       const token = this.advance();
       arg_tokens.push(token);
-      if (token.type !== 'WHITESPACE') {
-        value_tokens.push(token);
-        preceded_by_continuation.push(
-          continuation.collect(token)
-        );
-      }
+      value_tokens.push(token);
+      preceded_by_continuation.push(
+        continuation.collect(token)
+      );
     }
 
     // Reconstruct args with mode-independent single-space spacing.
@@ -864,14 +836,6 @@ export class StataParser {
         range: prefix_token.range,
       };
 
-      // In `#delimit ;` mode the lexer emits WHITESPACE tokens between the
-      // prefix and what follows it — an optional colon, a chained prefix, or a
-      // `{ ... }` block (elided in `#delimit cr` mode). Skip that spacing
-      // before each of those checks so the prefix is not misparsed and its
-      // block is recognized rather than treated as a stray open brace (issue
-      // #301). Whitespace only — a comment here must not be discarded.
-      this.skipWhitespace();
-
       // Handle 'by' prefix with variable list
       if (prefix_token.value === 'by') {
         if (this.check('COLON')) {
@@ -886,7 +850,6 @@ export class StataParser {
       if (this.check('COLON')) {
         this.advance();
         prefix.has_colon = true;
-        this.skipWhitespace();
       }
 
       prefixes.push(prefix);
@@ -1011,15 +974,9 @@ export class StataParser {
     }
 
     // Special handling for frame prefix: frame name: command
-    // This handles cases like `capture frame this: that`
-    // In `#delimit ;` mode the lexer emits a WHITESPACE token between `frame`
-    // and the frame name (elided in `#delimit cr` mode); skip it before the
-    // WORD check so frame-prefix syntax is still recognized (issue #305).
-    // saved_pos is captured before that skip so a non-frame-prefix command
-    // backtracks fully and falls through to parseCommandBody unchanged.
+    // This handles cases like `capture frame this: that`.
     if (commandName === 'frame') {
       const saved_pos = this.current;
-      this.skipWhitespace();
       if (this.check('WORD')) {
         const frame_name_token = this.advance();
         this.skipTrivia();
@@ -1084,11 +1041,6 @@ export class StataParser {
         fullName: prefix_token.value,
         range: prefix_token.range,
       };
-      // In `#delimit ;` mode the lexer emits a WHITESPACE token between the
-      // prefix and its optional colon (elided in `#delimit cr` mode); skip it
-      // before the colon check so `frame m: quietly : cmd` is not split at the
-      // colon, mirroring the main prefix loop (issue #305).
-      this.skipWhitespace();
       // Consume colon after any prefix command
       if (this.check('COLON')) {
         this.advance();
@@ -1154,14 +1106,6 @@ export class StataParser {
     // or 'if' keyword). Use file path coalescing for file commands.
     const varlist: IdentifierNode[] = [];
 
-    // In `#delimit ;` mode the lexer emits a WHITESPACE token between the
-    // command name and its first argument (elided in `#delimit cr` mode).
-    // Skip it so the first argument — including a file path — is recognized
-    // rather than the varlist collection breaking immediately (issue #305).
-    // Whitespace only: a comment here belongs to the following statement's
-    // trivia and must not be discarded.
-    this.skipWhitespace();
-
     // For file commands, try to parse the first argument as a file path
     const is_file_cmd = isFileCommand(command_name);
     const has_file_arg = this.check('WORD') || this.check('NUMBER') ||
@@ -1177,17 +1121,6 @@ export class StataParser {
     // Parse remaining arguments normally (including parenthesized groups)
     while (!this.check('COMMA') && !this.isTrivia() &&
            !this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
-      // In `#delimit ;` mode the lexer emits WHITESPACE tokens between varlist
-      // items that `#delimit cr` mode elides. Skip the interstitial spacing so
-      // each item is collected as its own entry instead of the loop breaking
-      // at the first space (issue #305). Whitespace is the item *separator*, so
-      // skipping it still yields separate entries; it must not merge fragments
-      // that coalesce only when adjacent (wildcards like `var*`), which the
-      // isAdjacentToken()-gated coalescing below still handles correctly.
-      if (this.check('WHITESPACE')) {
-        this.advance();
-        continue;
-      }
       // Stop at 'if' keyword for if-qualifier
       if (this.checkWord('if')) {
         break;
@@ -1274,12 +1207,6 @@ export class StataParser {
             range: optionToken.range,
           };
 
-          // In `#delimit ;` mode a WHITESPACE token may sit between the option
-          // name and its `(...)` argument (elided in `#delimit cr` mode); skip
-          // it so the argument still attaches to the option rather than the
-          // paren group being misread as a separate option (issue #305).
-          this.skipWhitespace();
-
           // Check for option argument
           if (this.check('LPAREN')) {
             const parsed = this.parse_option_argument_inside_parens();
@@ -1315,12 +1242,10 @@ export class StataParser {
    */
   private parse_option_argument_inside_parens(): { argument: string; argument_range?: Range } {
     this.advance(); // consume (
-    // Collect the non-whitespace argument tokens and reconstruct spacing from
-    // their ranges via reconstruct_value_tokens, so `#delimit ;` and
-    // `#delimit cr` produce the identical single-space form and multi-token
-    // arguments are never fused — e.g. `absorb(firm year)` stays `firm year`,
-    // not `firmyear` (issue #306). Appending raw token values would also embed
-    // literal WHITESPACE and `///` continuation markers into the argument.
+    // Collect argument tokens and reconstruct spacing from their ranges via
+    // reconstruct_value_tokens, so delimiter modes produce the identical
+    // single-space form and multi-token arguments are never fused — e.g.
+    // `absorb(firm year)` stays `firm year`, not `firmyear` (issue #306).
     const arg_tokens: Token[] = [];
     const preceded_by_continuation: boolean[] = [];
     const continuation = new ContinuationTracker();
@@ -1333,9 +1258,6 @@ export class StataParser {
         }
       }
       const t = this.advance();
-      if (t.type === 'WHITESPACE') {
-        continue;
-      }
       arg_tokens.push(t);
       preceded_by_continuation.push(continuation.collect(t));
     }
@@ -1379,20 +1301,16 @@ export class StataParser {
 
     while (!this.isAtEnd()) {
       // Stop at whitespace, comma, terminator, or trivia
-      if (this.check('WHITESPACE') ||
-          this.check('COMMA') ||
+      if (this.check('COMMA') ||
           this.check('STATEMENT_TERMINATOR') ||
           this.isTrivia()) {
         break;
       }
 
-      // Stop at a source gap. In `#delimit cr` mode the lexer emits no
-      // WHITESPACE tokens, so coalescing every non-trivia token would merge a
+      // Stop at a source gap. Coalescing every non-trivia token would merge a
       // file command's entire argument list into one path (e.g.
       // `merge 1:1 id using data` -> `1:1idusingdata`). Only coalesce tokens
-      // physically adjacent to the previous one; a gap ends the path. In
-      // `#delimit ;` mode the WHITESPACE break above already separates
-      // arguments, so this adjacency guard is inert there (issue #306).
+      // physically adjacent to the previous one; a gap ends the path.
       if (!this.isAdjacentToken(prev_token, this.peek())) {
         break;
       }
@@ -1422,9 +1340,9 @@ export class StataParser {
     const paren_start = this.advance(); // consume (
     // Collect the inner tokens (everything up to, but not including, the
     // matching outer close paren) and reconstruct spacing from their ranges via
-    // reconstruct_value_tokens, so `#delimit ;` and `#delimit cr` produce the
-    // identical single-space form — e.g. `(a b)` stays `(a b)` and `(1/3 = 1)`
-    // is `(1/3 = 1)` in both modes (issue #306). WHITESPACE only marks a gap.
+    // reconstruct_value_tokens, so delimiter modes produce the identical
+    // single-space form — e.g. `(a b)` stays `(a b)` and `(1/3 = 1)` is
+    // `(1/3 = 1)` in both modes (issue #306).
     const inner_tokens: Token[] = [];
     const preceded_by_continuation: boolean[] = [];
     const continuation = new ContinuationTracker();
@@ -1438,10 +1356,6 @@ export class StataParser {
     };
 
     while (!this.isAtEnd() && paren_depth > 0) {
-      if (this.check('WHITESPACE')) {
-        this.advance();
-        continue;
-      }
       if (this.check('CONTINUATION')) {
         const cont_token = this.peek();
         if (this.skipContinuation()) {
@@ -1496,12 +1410,6 @@ export class StataParser {
   ): CommandNode {
     const start_pos = command_token.range.start;
 
-    // In `#delimit ;` mode the lexer emits WHITESPACE tokens around the macro
-    // name, colon, and varlist that `#delimit cr` mode elides. Skip that
-    // spacing before each discrete check so the command is not misparsed
-    // (issue #305).
-    this.skipWhitespace();
-
     // Parse macro name
     if (!this.check('WORD')) {
       this.addError('Expected macro name after unab', this.peek().range);
@@ -1520,8 +1428,6 @@ export class StataParser {
     // This keeps varlists pure (only variable names) while preserving syntax
     let has_colon_before_varlist = false;
 
-    this.skipWhitespace();
-
     // Expect colon
     if (!this.check('COLON')) {
       this.addError(
@@ -1534,7 +1440,6 @@ export class StataParser {
     }
 
     // Parse variable list after colon
-    this.skipWhitespace();
     while ((this.check('WORD') || this.check('MACRO_REF_LOCAL') ||
             this.check('MACRO_REF_GLOBAL') ||
             (this.check('OPERATOR') && (this.peek().value === '*' || this.peek().value === '?'))) &&
@@ -1561,10 +1466,6 @@ export class StataParser {
         range: { start: var_token.range.start, end: end_range },
       });
 
-      // Skip interstitial whitespace before the next varlist item. Placed
-      // after wildcard coalescing so `var*` is still joined via adjacency
-      // (issue #305).
-      this.skipWhitespace();
     }
 
     // Parse options (after comma) - same as regular commands
@@ -1582,11 +1483,6 @@ export class StataParser {
             fullName: option_token.value,
             range: option_token.range,
           };
-
-          // Skip a WHITESPACE token between the option name and its `(...)`
-          // argument in `#delimit ;` mode so the argument still attaches
-          // (issue #305).
-          this.skipWhitespace();
 
           // Check for option argument
           if (this.check('LPAREN')) {
@@ -1632,14 +1528,6 @@ export class StataParser {
 
     while (!this.check('STATEMENT_TERMINATOR') &&
            !this.isAtEnd() && !this.isTrivia()) {
-      // In `#delimit ;` mode the lexer emits WHITESPACE tokens between the
-      // names that `#delimit cr` mode elides; skip that spacing so each name
-      // is collected separately instead of the loop breaking at the first
-      // space (issue #305).
-      if (this.check('WHITESPACE')) {
-        this.advance();
-        continue;
-      }
       const is_varlist_token = this.check('WORD') || this.check('STRING') ||
           this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL');
       if (is_varlist_token) {
@@ -1675,15 +1563,9 @@ export class StataParser {
     let allows_arbitrary_options = false;
     const seen_option_names = new Set<string>();
 
-    // Collect all tokens until statement terminator or comment. In
-    // `#delimit ;` mode the lexer emits interstitial WHITESPACE tokens that
-    // `#delimit cr` mode elides; the index-based spec parsers below assume
-    // cr-mode adjacency (e.g. an option name immediately followed by `(`), so
-    // consume the whitespace but do not collect it. This makes the token array
-    // identical to cr mode and keeps `syntax , opt (string)` parsing the same
-    // in both modes (issue #305). Whitespace is not meaningful within a syntax
-    // spec, so dropping it is safe; comments still stop collection via
-    // isTrivia().
+    // Collect all tokens until statement terminator or comment. The
+    // index-based spec parsers below operate on the lexer token stream
+    // directly; comments still stop collection.
     const syntax_tokens: Token[] = [];
     while (
       !this.check('STATEMENT_TERMINATOR') &&
@@ -1700,9 +1582,7 @@ export class StataParser {
         break;
       }
       const my_token = this.advance();
-      if (my_token.type !== 'WHITESPACE') {
-        syntax_tokens.push(my_token);
-      }
+      syntax_tokens.push(my_token);
     }
 
     // Parse the collected tokens
@@ -2013,12 +1893,6 @@ export class StataParser {
               let j = i + 2;
               while (j < type_tokens.length && default_paren_depth > 0) {
                 const my_token = type_tokens[j];
-                // syntax_tokens has WHITESPACE/CONTINUATION already stripped, so
-                // spacing comes purely from token ranges via the helper.
-                if (my_token.type === 'WHITESPACE') {
-                  j++;
-                  continue;
-                }
                 if (my_token.type === 'LPAREN') {
                   default_paren_depth++;
                 } else if (my_token.type === 'RPAREN') {
@@ -2232,11 +2106,8 @@ export class StataParser {
         }
       }
 
-      // Skip whitespace tokens but collect all others
-      if (token.type !== 'WHITESPACE') {
-        condition_tokens.push(token);
-        preceded_by_continuation.push(continuation.collect(token));
-      }
+      condition_tokens.push(token);
+      preceded_by_continuation.push(continuation.collect(token));
     }
 
     // Reconstruct condition with mode-independent single-space spacing.
@@ -2288,13 +2159,6 @@ export class StataParser {
 
   private parseElseStatement(): ControlFlowNode {
     const elseToken = this.advance(); // consume 'else'
-
-    // In `#delimit ;` mode the lexer emits a WHITESPACE token between `else`
-    // and what follows (elided in `#delimit cr` mode), so skip that spacing
-    // before the `else if` / brace checks. Without this an `else {` on its own
-    // line is misparsed as a single-statement else whose statement is a stray
-    // `{` (issue #301). Whitespace only — a comment here must not be discarded.
-    this.skipWhitespace();
 
     // Check for 'if' (else if)
     if (this.checkWord('if')) {
@@ -2366,16 +2230,10 @@ export class StataParser {
     let loopVar = '';
     let loopSpec = '';
 
-    // Parse loop variable. In `#delimit ;` mode the lexer emits WHITESPACE
-    // tokens between the keyword, the loop variable, and the spec keyword
-    // (they are elided in `#delimit cr` mode), so skip that spacing before
-    // each discrete token check (issue #301). Whitespace only — a comment here
-    // must not be discarded.
-    this.skipWhitespace();
+    // Parse loop variable.
     if (this.check('WORD')) {
       loopVar = this.advance().value;
     }
-    this.skipWhitespace();
 
     // Parse loop specification
     // For forvalues: next token is '=' (OPERATOR)
@@ -2415,9 +2273,6 @@ export class StataParser {
         const token = this.advance();
         if (token.type === 'CONTINUATION') {
           continuation.note_continuation(token);
-          continue;
-        }
-        if (token.type === 'WHITESPACE') {
           continue;
         }
         spec_tokens.push(token);
@@ -2501,11 +2356,8 @@ export class StataParser {
         }
       }
 
-      // Skip whitespace tokens but collect all others
-      if (token.type !== 'WHITESPACE') {
-        condition_tokens.push(token);
-        preceded_by_continuation.push(continuation.collect(token));
-      }
+      condition_tokens.push(token);
+      preceded_by_continuation.push(continuation.collect(token));
     }
 
     // Reconstruct condition with mode-independent single-space spacing.
@@ -2572,9 +2424,7 @@ export class StataParser {
     // Collect all tokens until statement terminator
     while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
       const token = this.advance();
-      if (token.type !== 'WHITESPACE') {
-        statement_tokens.push(token);
-      }
+      statement_tokens.push(token);
     }
 
     // Reconstruct the string with original spacing
@@ -2604,11 +2454,7 @@ export class StataParser {
   private parseFrameBlock(): ControlFlowNode | CommandNode | null {
     // Index of the `frame` token itself. Both non-block fallbacks below
     // restore to exactly this index so parseCommand re-parses `frame` and its
-    // arguments from the start. A fixed offset (e.g. `saved_position - 1`)
-    // assumed `#delimit cr` adjacency where `frame` immediately precedes the
-    // name; in `#delimit ;` mode a WHITESPACE token sits between them, so the
-    // offset landed on the whitespace and dropped `frame` from the re-parse
-    // (issue #305).
+    // arguments from the start.
     const frame_index = this.current;
     const frame_token = this.advance(); // consume 'frame'
     const frame_start_line = frame_token.range.start.line;
@@ -2698,12 +2544,6 @@ export class StataParser {
   private parseUnabCommandBody(command_token: Token): CommandNode {
     const start_pos = command_token.range.start;
 
-    // In `#delimit ;` mode the lexer emits WHITESPACE tokens around the macro
-    // name, colon, and varlist that `#delimit cr` mode elides. Skip that
-    // spacing before each discrete check so the command is not misparsed
-    // (issue #305).
-    this.skipWhitespace();
-
     // Parse macro name
     if (!this.check('WORD')) {
       this.addError('Expected macro name after unab', this.peek().range);
@@ -2727,8 +2567,6 @@ export class StataParser {
     // This keeps varlists pure (only variable names) while preserving syntax
     let has_colon_before_varlist = false;
 
-    this.skipWhitespace();
-
     // Expect colon
     if (!this.check('COLON')) {
       this.addError(
@@ -2741,7 +2579,6 @@ export class StataParser {
     }
 
     // Parse variable list after colon
-    this.skipWhitespace();
     while ((this.check('WORD') || this.check('MACRO_REF_LOCAL') ||
             this.check('MACRO_REF_GLOBAL') ||
             (this.check('OPERATOR') && (this.peek().value === '*' || this.peek().value === '?'))) &&
@@ -2768,10 +2605,6 @@ export class StataParser {
         range: { start: var_token.range.start, end: end_range },
       });
 
-      // Skip interstitial whitespace before the next varlist item. Placed
-      // after wildcard coalescing so `var*` is still joined via adjacency
-      // (issue #305).
-      this.skipWhitespace();
     }
 
     // Parse options (after comma)
@@ -2788,10 +2621,6 @@ export class StataParser {
             fullName: option_token.value,
             range: option_token.range,
           };
-          // Skip a WHITESPACE token between the option name and its `(...)`
-          // argument in `#delimit ;` mode so the argument still attaches
-          // (issue #305).
-          this.skipWhitespace();
           if (this.check('LPAREN')) {
             const parsed = this.parse_option_argument_inside_parens();
             option.argument = parsed.argument;
@@ -2841,7 +2670,7 @@ export class StataParser {
   private collectTrivia(): TriviaNode[] {
     const trivia: TriviaNode[] = [];
 
-    while (this.check('COMMENT_LINE') || this.check('COMMENT_BLOCK') || this.check('CONTINUATION') || this.check('WHITESPACE')) {
+    while (this.check('COMMENT_LINE') || this.check('COMMENT_BLOCK') || this.check('CONTINUATION')) {
       const token = this.advance();
 
       if (token.type === 'COMMENT_LINE') {
@@ -2867,7 +2696,6 @@ export class StataParser {
           range: token.range,
         });
       }
-      // Skip whitespace tokens (don't add to trivia)
     }
 
     return trivia;
@@ -2880,31 +2708,13 @@ export class StataParser {
   }
 
   /**
-   * Skip only WHITESPACE tokens, leaving comments and continuations in place.
-   *
-   * `#delimit ;` mode emits a WHITESPACE token between adjacent tokens that
-   * `#delimit cr` mode elides (e.g. between a loop keyword and its variable,
-   * `else` and its brace, or a prefix and its block). Structural checks that
-   * only need to tolerate that interstitial spacing use this rather than
-   * skipTrivia(), which would silently discard comment trivia at those
-   * positions — dropping user comments from the formatter output (issue #301).
-   */
-  private skipWhitespace(): void {
-    while (this.check('WHITESPACE')) {
-      this.advance();
-    }
-  }
-
-  /**
    * Parse the statements of a brace-delimited block body, stopping at the
    * matching `}` (left unconsumed for the caller to validate) or EOF.
    *
-   * In `#delimit ;` mode a raw newline before `}` is emitted as a WHITESPACE
-   * token (elided in `#delimit cr` mode), so the closing brace can be preceded
-   * by trivia. This loop consumes that leading trivia — carrying comments
-   * forward via pending_trivia exactly as parseStatement would — and then
-   * checks for `}` itself, so the closing brace is never handed to
-   * parseStatement, which would misreport it as an orphan (issue #301).
+   * This loop consumes leading trivia — carrying comments forward via
+   * pending_trivia exactly as parseStatement would — and then checks for `}`
+   * itself, so the closing brace is never handed to parseStatement, which
+   * would misreport it as an orphan (issue #301).
    *
    * A comment sitting between the last body statement and the closing brace is
    * left in pending_trivia so it attaches to the statement after the block —
@@ -2949,7 +2759,7 @@ export class StataParser {
         continue;
       }
 
-      if (this.check('WHITESPACE') || this.check('COMMENT_LINE') || this.check('COMMENT_BLOCK')) {
+      if (this.check('COMMENT_LINE') || this.check('COMMENT_BLOCK')) {
         this.advance();
         continue;
       }
@@ -2979,8 +2789,7 @@ export class StataParser {
         }
         continue;
       }
-      if (token.type === 'COMMENT_LINE' || token.type === 'COMMENT_BLOCK' ||
-          token.type === 'WHITESPACE') {
+      if (token.type === 'COMMENT_LINE' || token.type === 'COMMENT_BLOCK') {
         offset++;
         continue;
       }
@@ -3096,24 +2905,6 @@ export class StataParser {
     return this.tokens[this.current];
   }
 
-  /**
-   * Value of the next token after any interstitial WHITESPACE tokens, without
-   * consuming anything. `#delimit ;` mode emits a WHITESPACE token between
-   * tokens that `#delimit cr` mode elides, so a two-token lookahead such as
-   * `program` + `define` needs to skip that spacing (issue #305). Whitespace
-   * only — a comment between the two tokens is not skipped, matching cr mode,
-   * where such a comment is likewise a distinct token that defeats the
-   * adjacency lookahead.
-   */
-  private peekValueAfterWhitespace(): string | undefined {
-    let offset = 1;
-    while (this.current + offset < this.tokens.length &&
-           this.tokens[this.current + offset].type === 'WHITESPACE') {
-      offset++;
-    }
-    return this.tokens[this.current + offset]?.value;
-  }
-
   private previous(): Token {
     return this.tokens[this.current - 1];
   }
@@ -3141,9 +2932,8 @@ export class StataParser {
    */
   parseExpression(): string {
     // Collect the surviving tokens and reconstruct spacing from their ranges,
-    // so `#delimit ;` (which emits WHITESPACE tokens) and `#delimit cr` (which
-    // does not) produce the identical, source-faithful single-space form
-    // (issue #306). WHITESPACE contributes only a gap, never a character.
+    // so delimiter modes produce the identical, source-faithful single-space
+    // form (issue #306).
     const the_tokens: Token[] = [];
     const preceded_by_continuation: boolean[] = [];
     const continuation = new ContinuationTracker();
@@ -3188,13 +2978,10 @@ export class StataParser {
       }
 
       this.advance();
-      // WHITESPACE only marks a gap for range-based spacing; do not collect it.
-      if (token.type !== 'WHITESPACE') {
-        the_tokens.push(token);
-        preceded_by_continuation.push(
-          continuation.collect(token)
-        );
-      }
+      the_tokens.push(token);
+      preceded_by_continuation.push(
+        continuation.collect(token)
+      );
     }
 
     const expression = this.reconstruct_value_tokens(
@@ -3300,7 +3087,7 @@ export class StataParser {
     // Track state at each paren depth level
     const state_stack: ExpressionState[] = ['INITIAL'];
 
-    // Track previous non-whitespace token for split literal detection
+    // Track previous significant token for split literal detection
     let prev_token: Token | null = null;
 
     // Track string context for embedded macro handling
@@ -3389,14 +3176,7 @@ export class StataParser {
       // Stray token and split literal detection - skip if in string context, inside brackets, or if this is a delimiter-only STRING
       // We also skip delimiter-only STRING tokens because they are part of the string literal structure
       // Skip when inside brackets (bracket_depth > 0) because subscript expressions like var[_n-1] are valid
-      // Skip WHITESPACE: in `#delimit ;` mode the lexer preserves interstitial
-      // WHITESPACE tokens (elided in `#delimit cr` mode), which reach this
-      // check in AFTER_RHS state (e.g. the space in `if z > 1 in 1/10`). A
-      // space is never a stray token, so treating it as one produced a false
-      // STRAY_TOKEN_IN_CONDITION on valid semicolon-delimited qualifiers; the
-      // state machine already excludes WHITESPACE from transitions below
-      // (issue #305).
-      if (current_state === 'AFTER_RHS' && token.type !== 'WHITESPACE' && token.type !== 'LPAREN' && token.type !== 'RPAREN' && token.type !== 'LBRACKET' && token.type !== 'RBRACKET' && bracket_depth === 0 && !in_string_context && !is_delimiter_only) {
+      if (current_state === 'AFTER_RHS' && token.type !== 'LPAREN' && token.type !== 'RPAREN' && token.type !== 'LBRACKET' && token.type !== 'RBRACKET' && bracket_depth === 0 && !in_string_context && !is_delimiter_only) {
         // Check for split literal patterns first
         if (prev_token && this.detectSplitLiteral(prev_token, token)) {
           // Split literal diagnostic already emitted by detectSplitLiteral
@@ -3410,10 +3190,10 @@ export class StataParser {
         }
       }
 
-      // State transitions based on token type (skip whitespace)
+      // State transitions based on token type.
       // Also skip state transitions when inside brackets - bracket content is a subscript
       // expression that doesn't affect the outer expression state
-      if (token.type !== 'WHITESPACE' && token.type !== 'LPAREN' && token.type !== 'RPAREN' && bracket_depth === 0) {
+      if (token.type !== 'LPAREN' && token.type !== 'RPAREN' && bracket_depth === 0) {
         const current_state_for_transition = state_stack[state_stack.length - 1];
 
         if (token.type === 'OPERATOR') {
@@ -3460,13 +3240,10 @@ export class StataParser {
       }
 
       this.advance();
-      // WHITESPACE only marks a gap for range-based spacing; do not collect it.
-      if (token.type !== 'WHITESPACE') {
-        the_tokens.push(token);
-        preceded_by_continuation.push(
-          continuation.collect(token)
-        );
-      }
+      the_tokens.push(token);
+      preceded_by_continuation.push(
+        continuation.collect(token)
+      );
     }
 
     // Check for unbalanced parentheses
@@ -3581,7 +3358,7 @@ export class StataParser {
   /**
    * Check if there are non-trivia tokens after the given position on the same line.
    * Returns the first non-trivia token if found, null otherwise.
-   * Skips WHITESPACE, COMMENT_LINE, COMMENT_BLOCK, CONTINUATION tokens.
+   * Skips COMMENT_LINE, COMMENT_BLOCK, CONTINUATION tokens.
    * A `///` continuation joins the next physical line, so "same
    * line" means the same logical line.
    */
@@ -3594,14 +3371,13 @@ export class StataParser {
    * and return its first and last non-trivia tokens, or null when the
    * line has no code before a real terminator or EOF. A `///`
    * continuation joins the next physical line into the same logical
-   * line. Skips WHITESPACE, COMMENT_LINE, COMMENT_BLOCK, CONTINUATION.
+   * line. Skips COMMENT_LINE, COMMENT_BLOCK, CONTINUATION.
    */
   scan_code_on_same_line(
     start_pos: number,
     line: number
   ): { first_token: Token; last_token: Token } | null {
     const trivia_types: TokenType[] = [
-      'WHITESPACE',
       'COMMENT_LINE',
       'COMMENT_BLOCK',
       'CONTINUATION',
@@ -3660,13 +3436,12 @@ export class StataParser {
   /**
    * Check if there are non-trivia tokens before the given position on the same line.
    * Returns the last non-trivia token if found, null otherwise.
-   * Skips WHITESPACE, COMMENT_LINE, COMMENT_BLOCK, CONTINUATION tokens.
+   * Skips COMMENT_LINE, COMMENT_BLOCK, CONTINUATION tokens.
    * A `///` continuation joins the next physical line, so "same
    * line" means the same logical line.
    */
   find_code_before_on_same_line(end_pos: number, line: number): Token | null {
     const trivia_types: TokenType[] = [
-      'WHITESPACE',
       'COMMENT_LINE',
       'COMMENT_BLOCK',
       'CONTINUATION',
@@ -3828,7 +3603,7 @@ export class StataParser {
    * `reconstructTokensWithSpacing`, exact widths and indentation are collapsed,
    * so values read cleanly.
    *
-   * @param tokens - value tokens in order (WHITESPACE/CONTINUATION removed)
+   * @param tokens - value tokens in order (CONTINUATION removed)
    * @param preceded_by_continuation - parallel array; entry `i` is true when
    *   `tokens[i]` was reached by crossing a `///` continuation
    */
