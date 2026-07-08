@@ -8,7 +8,11 @@
 
 import { describe, it, expect } from 'bun:test';
 import { StataLexer } from '../../src/lexer';
-import { next_statement_line_span } from '../../src/utils/statement-span';
+import {
+    next_statement_line_span,
+    inline_embedded_statement_end,
+} from '../../src/utils/statement-span';
+import { StataParser } from '../../src/parser';
 
 const lexer = new StataLexer();
 
@@ -130,5 +134,174 @@ describe('next_statement_line_span', () => {
             '// @lsp-ignore-next\nmata:\n    x = 1 < 2 < 3\nend'
         );
         expect(my_span).toEqual({ start_line: 1, end_line: 1 });
+    });
+});
+
+/**
+ * inline_embedded_statement_end (issue #309): computes the physical end
+ * line of an inline `mata:`/`python:` statement so the context tracker can
+ * report the embedded language on `#delimit ;` continuation lines. It must
+ * agree with the parser's embedded_block span (the governing principle).
+ */
+function opener_index(tokens: ReturnType<StataLexer['tokenize']>['tokens']) {
+    const my_index = tokens.findIndex(
+        (my_token) =>
+            my_token.type === 'MATA_INLINE' ||
+            my_token.type === 'PYTHON_INLINE'
+    );
+    expect(my_index).toBeGreaterThanOrEqual(0);
+    return my_index;
+}
+
+/**
+ * The parser's single-line embedded_block range.end.line is the ground
+ * truth the helper must match.
+ */
+function parser_inline_end_line(source: string): number {
+    const { tokens } = lexer.tokenize(source);
+    const my_parse = new StataParser().parse(tokens);
+    let my_end_line = -1;
+    const my_seen = new WeakSet<object>();
+    const walk = (node: unknown): void => {
+        if (!node || typeof node !== 'object') {
+            return;
+        }
+        if (my_seen.has(node as object)) {
+            return;
+        }
+        my_seen.add(node as object);
+        const my_node = node as Record<string, unknown>;
+        if (
+            my_node.type === 'embedded_block' &&
+            my_node.is_single_line === true
+        ) {
+            const my_range = my_node.range as {
+                end: { line: number };
+            };
+            my_end_line = my_range.end.line;
+        }
+        for (const my_key of Object.keys(my_node)) {
+            const my_value = my_node[my_key];
+            if (Array.isArray(my_value)) {
+                my_value.forEach(walk);
+            } else if (my_value && typeof my_value === 'object') {
+                walk(my_value);
+            }
+        }
+    };
+    walk(my_parse.ast);
+    return my_end_line;
+}
+
+describe('inline_embedded_statement_end', () => {
+    it('spans to the ; terminator line for a #delimit ; multiline mata', () => {
+        const my_source = '#delimit ;\nmata: st_local("b",\n"2");\n#delimit cr\n';
+        const { tokens } = lexer.tokenize(my_source);
+        const my_end = inline_embedded_statement_end(
+            tokens,
+            opener_index(tokens)
+        );
+        expect(my_end.end_line).toBe(2);
+        expect(my_end.end_line).toBe(parser_inline_end_line(my_source));
+        // end_index consumes the ; terminator.
+        expect(tokens[my_end.end_index].type).toBe('STATEMENT_TERMINATOR');
+        expect(tokens[my_end.end_index].value).toBe(';');
+    });
+
+    it('spans to the ; terminator line for a #delimit ; multiline python', () => {
+        const my_source = '#delimit ;\npython: x = (1 +\n2);\n';
+        const { tokens } = lexer.tokenize(my_source);
+        const my_end = inline_embedded_statement_end(
+            tokens,
+            opener_index(tokens)
+        );
+        expect(my_end.end_line).toBe(2);
+        expect(my_end.end_line).toBe(parser_inline_end_line(my_source));
+    });
+
+    it('ends on the opener line for a cr single-line inline (unchanged)', () => {
+        const my_source = 'mata: st_local("b", "2")\ndisplay 1\n';
+        const { tokens } = lexer.tokenize(my_source);
+        const my_end = inline_embedded_statement_end(
+            tokens,
+            opener_index(tokens)
+        );
+        expect(my_end.end_line).toBe(0);
+        expect(my_end.end_line).toBe(parser_inline_end_line(my_source));
+    });
+
+    it('ends on the opener line for a ; inline terminating on that line', () => {
+        const my_source = '#delimit ;\nmata: foo() ;\ndisplay 1 ;\n';
+        const { tokens } = lexer.tokenize(my_source);
+        const my_end = inline_embedded_statement_end(
+            tokens,
+            opener_index(tokens)
+        );
+        expect(my_end.end_line).toBe(1);
+        expect(my_end.end_line).toBe(parser_inline_end_line(my_source));
+    });
+
+    it('bounds an unterminated inline at EOF (no file swallow)', () => {
+        const my_source = '#delimit ;\nmata: st_local("b",\n"2")';
+        const { tokens } = lexer.tokenize(my_source);
+        const my_end = inline_embedded_statement_end(
+            tokens,
+            opener_index(tokens)
+        );
+        expect(my_end.end_line).toBe(2);
+        expect(my_end.end_line).toBe(parser_inline_end_line(my_source));
+        // end_index must not run past the final token index.
+        expect(my_end.end_index).toBeLessThan(tokens.length);
+    });
+
+    it('matches the parser when #delimit cr appears before the terminator', () => {
+        const my_source = '#delimit ;\nmata: foo(\n#delimit cr\ndisplay 1\n';
+        const { tokens } = lexer.tokenize(my_source);
+        const my_end = inline_embedded_statement_end(
+            tokens,
+            opener_index(tokens)
+        );
+        expect(my_end.end_line).toBe(2);
+        expect(my_end.end_line).toBe(parser_inline_end_line(my_source));
+    });
+
+    it('ends on the opener line for a cr /// continued inline (matches parser)', () => {
+        const my_source = 'mata: st_local("b", ///\n"2")\ndisplay 1\n';
+        const { tokens } = lexer.tokenize(my_source);
+        const my_end = inline_embedded_statement_end(
+            tokens,
+            opener_index(tokens)
+        );
+        expect(my_end.end_line).toBe(0);
+        expect(my_end.end_line).toBe(parser_inline_end_line(my_source));
+    });
+
+    it('spans a multi-line /* */ block comment inside a cr inline (matches parser)', () => {
+        const my_source = 'mata: st_local("a", /* c\n*/ "1")\ndisplay 1\n';
+        const { tokens } = lexer.tokenize(my_source);
+        const my_end = inline_embedded_statement_end(
+            tokens,
+            opener_index(tokens)
+        );
+        expect(my_end.end_line).toBe(1);
+        expect(my_end.end_line).toBe(parser_inline_end_line(my_source));
+    });
+
+    it('consumes a trailing same-line embedded opener after the terminator', () => {
+        // `"2"); python: x = 1;` — the trailing python: on the terminator
+        // line must be swallowed into the mata whole-line span so it cannot
+        // spawn a second, overlapping context range.
+        const my_source =
+            '#delimit ;\nmata: st_local("b",\n"2"); python: x = 1;\n';
+        const { tokens } = lexer.tokenize(my_source);
+        const my_opener = opener_index(tokens);
+        const my_end = inline_embedded_statement_end(tokens, my_opener);
+        expect(my_end.end_line).toBe(2);
+        // Every remaining token on line 2 (including the trailing PYTHON_INLINE)
+        // is consumed: no token after end_index starts on line 2.
+        const my_next = tokens[my_end.end_index + 1];
+        if (my_next && my_next.type !== 'EOF') {
+            expect(my_next.range.start.line).toBeGreaterThan(2);
+        }
     });
 });
