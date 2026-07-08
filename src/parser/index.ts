@@ -369,13 +369,26 @@ export class StataParser {
         // Add the token value
         content += my_token.value;
 
-        // Add space between tokens if there's a gap and not the last token
+        // Add source gap between tokens if there is one. In `#delimit ;`
+        // mode, inline embedded content can cross physical lines without an
+        // interposed WHITESPACE token; preserve that line boundary so `//`
+        // comments do not swallow the next physical line.
         if (i < content_tokens.length - 1) {
           const next_token = content_tokens[i + 1];
-          const gap = next_token.range.start.character - my_token.range.end.character;
-          if (gap > 0) {
-            // Add the appropriate number of spaces
-            content += ' '.repeat(gap);
+          if (next_token.range.start.line === my_token.range.end.line) {
+            const gap =
+              next_token.range.start.character -
+              my_token.range.end.character;
+            if (gap > 0) {
+              content += ' '.repeat(gap);
+            }
+          } else if (next_token.range.start.line > my_token.range.end.line) {
+            const line_gap =
+              next_token.range.start.line - my_token.range.end.line;
+            content += '\n'.repeat(line_gap);
+            if (next_token.range.start.character > 0) {
+              content += ' '.repeat(next_token.range.start.character);
+            }
           }
         }
       }
@@ -3877,13 +3890,12 @@ export class StataParser {
           if (gap > 0) {
             the_parts.push(' '.repeat(gap));
           }
-        } else {
-          // Different lines - preserve original spacing by using the token's column position
-          const spaces_from_line_start = my_token.range.start.character;
-          if (spaces_from_line_start > 0) {
-            the_parts.push(' '.repeat(spaces_from_line_start));
-          } else {
-            the_parts.push(' ');
+        } else if (my_token.range.start.line > prev_token.range.end.line) {
+          const line_gap =
+            my_token.range.start.line - prev_token.range.end.line;
+          the_parts.push('\n'.repeat(line_gap));
+          if (my_token.range.start.character > 0) {
+            the_parts.push(' '.repeat(my_token.range.start.character));
           }
         }
       }

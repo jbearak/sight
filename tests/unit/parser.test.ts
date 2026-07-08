@@ -91,6 +91,26 @@ describe('StataParser', () => {
       }
     });
 
+    test('should preserve cross-line gaps in semicolon-mode string statements', () => {
+      const source = `#delimit ;
+"first" // note
+"second";
+#delimit cr`;
+      const lexResult = lexer.tokenize(source);
+      const parseResult = parser.parse(lexResult.tokens);
+
+      expect(parseResult.errors).toHaveLength(0);
+      expect(parseResult.ast.nodes).toHaveLength(3);
+
+      const node = parseResult.ast.nodes[1];
+      expect(node.type).toBe('command');
+
+      if (node.type === 'command') {
+        expect(node.name).toBe(`"first" // note
+"second"`);
+      }
+    });
+
     test('should parse command with both if and in qualifiers', () => {
       const source = 'list var1 var2 if age > 30 in 1/10';
       const lexResult = lexer.tokenize(source);
@@ -543,6 +563,28 @@ end`;
       }
     });
 
+    test('should preserve multiline mata block content with whitespace tokens', () => {
+      const source = `mata
+real // note
+scalar x
+end`;
+      const lexResult = lexer.tokenize(source);
+      const parseResult = parser.parse(lexResult.tokens);
+
+      expect(parseResult.errors).toHaveLength(0);
+      expect(parseResult.ast.nodes).toHaveLength(1);
+
+      const node = parseResult.ast.nodes[0];
+      expect(node.type).toBe('embedded_block');
+
+      if (node.type === 'embedded_block') {
+        expect(node.language).toBe('mata');
+        expect(node.is_single_line).toBe(false);
+        expect(node.content).toBe(`real // note
+scalar x`);
+      }
+    });
+
     test('should parse python block', () => {
       const source = `python
   x = 1
@@ -598,6 +640,70 @@ end`;
         expect(node.language).toBe('python');
         expect(node.start_command).toBe('python:');
         expect(node.is_single_line).toBe(true);
+      }
+    });
+
+    test('should preserve line boundary in semicolon-mode inline mata content', () => {
+      const source = `#delimit ;
+mata: real // note
+scalar x;
+#delimit cr`;
+      const lexResult = lexer.tokenize(source);
+      const parseResult = parser.parse(lexResult.tokens);
+
+      expect(parseResult.errors).toHaveLength(0);
+      expect(parseResult.ast.nodes).toHaveLength(3);
+
+      const node = parseResult.ast.nodes[1];
+      expect(node.type).toBe('embedded_block');
+
+      if (node.type === 'embedded_block') {
+        expect(node.language).toBe('mata');
+        expect(node.content).toBe(`real // note
+scalar x`);
+      }
+    });
+
+    test('should preserve line boundary in semicolon-mode inline python content', () => {
+      const source = `#delimit ;
+python: value = 1 // note
+print(value);
+#delimit cr`;
+      const lexResult = lexer.tokenize(source);
+      const parseResult = parser.parse(lexResult.tokens);
+
+      expect(parseResult.errors).toHaveLength(0);
+      expect(parseResult.ast.nodes).toHaveLength(3);
+
+      const node = parseResult.ast.nodes[1];
+      expect(node.type).toBe('embedded_block');
+
+      if (node.type === 'embedded_block') {
+        expect(node.language).toBe('python');
+        expect(node.content).toBe(`value = 1 // note
+print(value)`);
+      }
+    });
+
+    test('should not fuse semicolon-mode inline embedded tokens across lines', () => {
+      const source = `#delimit ;
+mata: real
+scalar x;
+#delimit cr`;
+      const lexResult = lexer.tokenize(source);
+      const parseResult = parser.parse(lexResult.tokens);
+
+      expect(parseResult.errors).toHaveLength(0);
+      expect(parseResult.ast.nodes).toHaveLength(3);
+
+      const node = parseResult.ast.nodes[1];
+      expect(node.type).toBe('embedded_block');
+
+      if (node.type === 'embedded_block') {
+        expect(node.language).toBe('mata');
+        expect(node.content).toBe(`real
+scalar x`);
+        expect(node.content).not.toContain('realscalar');
       }
     });
 

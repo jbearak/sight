@@ -207,6 +207,20 @@ summarize z`;
       expect(my_formatted).toContain('summarize z');
     });
 
+    for_each_formatter_mode('should not move semicolon-mode inline mata code into a line comment', (mode) => {
+      const my_source = `#delimit ;
+mata: real // note
+scalar x;
+#delimit cr`;
+      const config = create_formatter_config(mode);
+      const mode_formatter = new CodeFormatter(config);
+      const my_formatted = format_document(my_source, lexer, parser, mode_formatter, config);
+
+      expect(my_formatted).toContain(`real // note
+scalar x`);
+      expect(my_formatted).not.toContain('real // notescalar x');
+    });
+
     test('should preserve nested embedded blocks', () => {
       const my_source = `mata
       matrix A = (1, 2)
