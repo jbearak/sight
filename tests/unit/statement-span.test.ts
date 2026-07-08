@@ -88,6 +88,13 @@ describe('next_statement_line_span', () => {
         expect(my_span).toEqual({ start_line: 2, end_line: 4 });
     });
 
+    it('skips embedded-block blank-line whitespace under #delimit ;', () => {
+        const my_span = span_after_directive(
+            '#delimit ;\nmata:\n// @lsp-ignore-next\n\nx = 1;\nend\n#delimit cr'
+        );
+        expect(my_span?.start_line).toBe(4);
+    });
+
     it('ends at a real ; terminator on the line after a /// (semicolon mode)', () => {
         // In `#delimit ;` mode the newline after `///` lexes as
         // WHITESPACE, so a `;` on the following line is a REAL

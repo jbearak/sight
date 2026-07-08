@@ -2,7 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import { SemanticAnalyzer, create_empty_symbol_table, merge_symbol_tables } from '../../src/analyzer';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
-import { StataDiagnosticCode, SymbolTable } from '../../src/types';
+import { StataDiagnosticCode, SymbolTable, Token } from '../../src/types';
 
 describe('SemanticAnalyzer', () => {
     const lexer = new StataLexer();
@@ -580,6 +580,30 @@ display \`undefined_macro'
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
             );
             expect(undefined_diags.length).toBe(0);
+        });
+
+        it('classifies indented embedded-block comment lines as standalone', () => {
+            const { tokens } = lexer.tokenize(
+                'mata:\n    // @lsp-ignore\n    x = 1\nend'
+            );
+            const comment_index = tokens.findIndex(
+                token => token.type === 'COMMENT_LINE' &&
+                    token.value.includes('@lsp-ignore')
+            );
+            expect(comment_index).toBeGreaterThanOrEqual(0);
+
+            const analyzer_with_private = analyzer as unknown as {
+                is_standalone_comment_token(
+                    token_stream: Token[],
+                    comment_token_index: number
+                ): boolean;
+            };
+            expect(
+                analyzer_with_private.is_standalone_comment_token(
+                    tokens,
+                    comment_index
+                )
+            ).toBe(true);
         });
 
         it('should suppress diagnostics with canonical sight ignore directives', () => {

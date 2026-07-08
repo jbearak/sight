@@ -21,6 +21,7 @@ const LEADING_TRIVIA_TYPES: ReadonlySet<string> = new Set([
     'COMMENT_LINE',
     'COMMENT_BLOCK',
     'CONTINUATION',
+    'WHITESPACE',
     'STATEMENT_TERMINATOR',
     'DELIMIT_DIRECTIVE',
 ]);

@@ -770,6 +770,9 @@ export class SemanticAnalyzer {
             if (token.range.start.line !== line) {
                 break;
             }
+            if (token.type === 'WHITESPACE') {
+                continue;
+            }
             return false;
         }
 
