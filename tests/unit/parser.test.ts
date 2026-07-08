@@ -1666,6 +1666,17 @@ end`;
       const my_syntax = my_prog?.body?.find(n => n.type === 'syntax');
       return my_syntax?.signature?.options?.[0]?.defaultValue;
     };
+    const cr_program = (syntax_line: string): string =>
+      `program define q\n  ${syntax_line}\nend`;
+    const semi_program = (syntax_line: string): string =>
+      `#delimit ;\nprogram define q;\n  ${syntax_line};\nend;\n#delimit cr`;
+    const expect_default_in_both_modes = (
+      syntax_line: string,
+      expected: string
+    ) => {
+      expect(default_value(cr_program(syntax_line))).toBe(expected);
+      expect(default_value(semi_program(syntax_line))).toBe(expected);
+    };
 
     test('multi-token default keeps its separator and agrees across modes', () => {
       const src = 'program define q\n  syntax , opt(string default(a b))\nend';
@@ -1683,6 +1694,34 @@ end`;
       expect(
         default_value('program define q\n  syntax , opt(string default(f(x)))\nend')
       ).toBe('f(x)');
+    });
+
+    test('default column-0 continuation joins without a separator in both modes', () => {
+      expect_default_in_both_modes(
+        'syntax , opt(string default(a///\nb))',
+        'ab'
+      );
+    });
+
+    test('default continuation with space before slashes keeps a separator in both modes', () => {
+      expect_default_in_both_modes(
+        'syntax , opt(string default(a ///\nb))',
+        'a b'
+      );
+    });
+
+    test('default indented continuation-only line keeps a separator in both modes', () => {
+      expect_default_in_both_modes(
+        'syntax , opt(string default(a///\n    ///\nb))',
+        'a b'
+      );
+    });
+
+    test('plain multi-token default keeps a separator in both modes', () => {
+      expect_default_in_both_modes(
+        'syntax , opt(string default(a b))',
+        'a b'
+      );
     });
 
     test('syntax declaration spanning /// continuations is collected whole', () => {

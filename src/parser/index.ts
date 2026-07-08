@@ -1567,6 +1567,8 @@ export class StataParser {
     // index-based spec parsers below operate on the lexer token stream
     // directly; comments still stop collection.
     const syntax_tokens: Token[] = [];
+    const preceded_by_continuation: boolean[] = [];
+    const continuation = new ContinuationTracker();
     while (
       !this.check('STATEMENT_TERMINATOR') &&
       !this.isAtEnd()
@@ -1575,14 +1577,19 @@ export class StataParser {
       // syntax declaration (`syntax varlist, ///` newline `opt(string)`) is
       // collected whole rather than truncated at the first continuation
       // (issue #306). A comment still stops collection.
-      if (this.skipContinuation()) {
-        continue;
+      if (this.check('CONTINUATION')) {
+        const cont_token = this.peek();
+        if (this.skipContinuation()) {
+          continuation.note_continuation(cont_token);
+          continue;
+        }
       }
       if (this.check('COMMENT_LINE') || this.check('COMMENT_BLOCK')) {
         break;
       }
       const my_token = this.advance();
       syntax_tokens.push(my_token);
+      preceded_by_continuation.push(continuation.collect(my_token));
     }
 
     // Parse the collected tokens
@@ -1623,7 +1630,8 @@ export class StataParser {
           // This is a required option marker, let parse_option_spec handle it
           const opt_result = this.parse_option_spec(
             syntax_tokens,
-            token_idx
+            token_idx,
+            preceded_by_continuation
           );
           if (opt_result) {
             // Track option names for duplicate detection
@@ -1646,7 +1654,8 @@ export class StataParser {
       // Try to parse an option
       const opt_result = this.parse_option_spec(
         syntax_tokens,
-        token_idx
+        token_idx,
+        preceded_by_continuation
       );
       if (opt_result) {
         // Track option names for duplicate detection
@@ -1791,7 +1800,8 @@ export class StataParser {
 
   private parse_option_spec(
     tokens: Token[],
-    start_idx: number
+    start_idx: number,
+    preceded_by_continuation: boolean[] = []
   ): { spec: OptionSpec; next_idx: number } | null {
     if (start_idx >= tokens.length) {
       return null;
@@ -1838,6 +1848,7 @@ export class StataParser {
 
       // Collect tokens until closing paren
       const type_tokens: Token[] = [];
+      const type_flags: boolean[] = [];
       let paren_depth = 1;
       while (current_idx < tokens.length && paren_depth > 0) {
         const my_token = tokens[current_idx];
@@ -1850,6 +1861,7 @@ export class StataParser {
           }
         }
         type_tokens.push(my_token);
+        type_flags.push(preceded_by_continuation[current_idx] ?? false);
         current_idx++;
       }
 
@@ -1888,7 +1900,6 @@ export class StataParser {
               // absent here.
               const default_tokens: Token[] = [];
               const default_flags: boolean[] = [];
-              const default_continuation = new ContinuationTracker();
               let default_paren_depth = 1;
               let j = i + 2;
               while (j < type_tokens.length && default_paren_depth > 0) {
@@ -1902,7 +1913,7 @@ export class StataParser {
                   }
                 }
                 default_tokens.push(my_token);
-                default_flags.push(default_continuation.collect(my_token));
+                default_flags.push(type_flags[j] ?? false);
                 j++;
               }
               default_value = this.reconstruct_value_tokens(
