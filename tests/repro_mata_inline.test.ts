@@ -136,4 +136,51 @@ end
             expect(out).toContain(') ;');
         }
     );
+
+    for_each_formatter_mode(
+        'formatter does not drop a trailing inline statement overlapping the terminator line (issue #309)',
+        (mode) => {
+            // The mata range (lines 1-2) and the trailing python range
+            // (lines 2-3) overlap on line 2. The formatter must not
+            // double-replace line 2 and drop the python continuation.
+            const source = `#delimit ;
+mata: st_local("b",
+"2"); python: x = (1+
+2);
+#delimit cr
+display "done"
+`;
+
+            const lexer = new StataLexer();
+            const lex_result = lexer.tokenize(source);
+            const parser = new StataParser();
+            const parse_result = parser.parse(lex_result.tokens);
+
+            const context_tracker = new ContextTracker();
+            context_tracker.initialize_from_tokens(lex_result.tokens, source);
+            const context_ranges = context_tracker.get_all_context_ranges();
+
+            const config = create_formatter_config(mode);
+            const formatter = new CodeFormatter(config);
+            const document_state = {
+                content: source,
+                tokens: lex_result.tokens,
+                ast: parse_result.ast,
+                line_offsets: lex_result.line_offsets,
+                context_ranges: context_ranges,
+            };
+
+            const edits = formatter.format(document_state as any, {
+                tabSize: 4,
+                insertSpaces: true,
+            });
+
+            expect(edits.length).toBeGreaterThan(0);
+            const out = edits[0].newText;
+            // No source text lost: both continuation lines survive.
+            expect(out).toContain('x = (1+');
+            expect(out).toContain('2);');
+            expect(out).toContain('display "done"');
+        }
+    );
 });

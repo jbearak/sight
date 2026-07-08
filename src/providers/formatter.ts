@@ -165,17 +165,17 @@ export class CodeFormatter {
             (a, b) => b.range.start.line - a.range.start.line
         );
 
+        // Smallest start line of a range already replaced. Ranges are
+        // processed in descending start-line order, so this only decreases;
+        // a later range whose end line reaches it shares a physical line with
+        // an already-replaced range (see the overlap guard below).
+        let my_min_replaced_start_line = Number.MAX_SAFE_INTEGER;
+
         for (const my_range of the_sorted_ranges) {
             // Prevent resource exhaustion from too many embedded blocks
             if (my_placeholder_counter >= MAX_EMBEDDED_BLOCKS) {
                 break;
             }
-            
-            const my_placeholder = `__EMBEDDED_BLOCK_${my_placeholder_counter}__`;
-            the_embedded_blocks.set(my_placeholder, {
-                content: this.extract_block_content(the_doc, my_range),
-                range: my_range
-            });
 
             // Calculate the actual range to replace
             // For single-line contexts (mata:, python:), use the range as-is
@@ -198,6 +198,23 @@ export class CodeFormatter {
                 };
             }
 
+            // Skip a range that shares a physical line with one already
+            // replaced. Whole-line embedded ranges can overlap when two
+            // embedded statements sit on one physical line (e.g. an inline
+            // `mata:` statement and a trailing `python:` under #delimit ;).
+            // Replacing both would double-cover the shared line and drop an
+            // already-inserted placeholder, deleting source text. The shared
+            // line's text is preserved verbatim inside the range that is kept.
+            if (actual_range.end.line >= my_min_replaced_start_line) {
+                continue;
+            }
+
+            const my_placeholder = `__EMBEDDED_BLOCK_${my_placeholder_counter}__`;
+            the_embedded_blocks.set(my_placeholder, {
+                content: this.extract_block_content(the_doc, my_range),
+                range: my_range
+            });
+
             // Replace the block with placeholder using the actual range
             my_modified_content = this.replace_range_in_content(
                 my_modified_content,
@@ -205,6 +222,10 @@ export class CodeFormatter {
                 my_placeholder
             );
 
+            my_min_replaced_start_line = Math.min(
+                my_min_replaced_start_line,
+                actual_range.start.line
+            );
             my_placeholder_counter++;
         }
 
