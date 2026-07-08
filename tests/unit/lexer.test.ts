@@ -1,4 +1,23 @@
 import { StataLexer } from '../../src/lexer';
+import { LanguageContext, LexerResult } from '../../src/types';
+
+function tokenizeWithMode(source: string, delimiterMode: 'cr' | 'semicolon'): LexerResult {
+  const lexer = new StataLexer();
+  return lexer.tokenize(source, {
+    delimiterMode,
+    line: 0,
+    column: 0,
+    language_context: LanguageContext.STATA,
+    context_stack: [LanguageContext.STATA],
+  });
+}
+
+function comparableTokenShapes(result: LexerResult): Array<{ type: string; value: string }> {
+  return result.tokens.map(token => ({
+    type: token.type,
+    value: token.type === 'STATEMENT_TERMINATOR' ? '<terminator>' : token.value,
+  }));
+}
 
 describe('StataLexer', () => {
   let lexer: StataLexer;
@@ -38,6 +57,53 @@ describe('StataLexer', () => {
       // Find the semicolon token
       const semicolonToken = result.tokens.find(t => t.value === ';' && t.type === 'STATEMENT_TERMINATOR');
       expect(semicolonToken).toBeDefined();
+    });
+
+    test('should skip Stata whitespace in semicolon mode', () => {
+      const source = 'generate\tage = 25\r\n  replace\tage = 26;\n';
+      const result = tokenizeWithMode(source, 'semicolon');
+
+      expect(result.errors).toHaveLength(0);
+      expect(result.tokens.some(t => t.type === 'WHITESPACE')).toBe(false);
+      expect(result.tokens.filter(t => t.type === 'STATEMENT_TERMINATOR').map(t => t.value)).toEqual([';']);
+      expect(result.tokens.map(t => t.value)).toEqual([
+        'generate',
+        'age',
+        '=',
+        '25',
+        'replace',
+        'age',
+        '=',
+        '26',
+        ';',
+        '',
+      ]);
+    });
+
+    test('should make cr and semicolon Stata streams differ only by terminator spelling', () => {
+      const cr_result = tokenizeWithMode('generate\tage = 25\n', 'cr');
+      const semicolon_result = tokenizeWithMode('generate\tage = 25;', 'semicolon');
+
+      expect(cr_result.errors).toHaveLength(0);
+      expect(semicolon_result.errors).toHaveLength(0);
+      expect(comparableTokenShapes(semicolon_result)).toEqual(comparableTokenShapes(cr_result));
+    });
+
+    test('should preserve exact-width embedded whitespace in both delimiter modes', () => {
+      const sources = ['mata\nx  \t= 1\nend', 'python\nx  \t= 1\nend'];
+
+      for (const source of sources) {
+        for (const mode of ['cr', 'semicolon'] as const) {
+          const result = tokenizeWithMode(source, mode);
+          const whitespace_values = result.tokens
+            .filter(t => t.type === 'WHITESPACE')
+            .map(t => t.value);
+
+          expect(result.errors).toHaveLength(0);
+          expect(whitespace_values).toContain('  \t');
+          expect(whitespace_values).toContain(' ');
+        }
+      }
     });
 
     test('should tokenize local macro reference', () => {
