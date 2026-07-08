@@ -32,6 +32,9 @@ function parse(source: string) {
 
 // Nodes present only because of the semicolon-mode wrapper; excluded from the
 // cross-mode comparison.
+// The `comment` wrapper currently covers only generated `#delimit` artifacts.
+// If this generator starts emitting real source comments, narrow this filter to
+// directive-line ranges so genuine comment AST differences remain visible.
 const WRAPPER_TYPES = new Set(['directive', 'comment']);
 
 function content_nodes(nodes: StataNode[]): StataNode[] {
@@ -160,10 +163,13 @@ type DelimiterMode = 'cr' | 'semicolon';
 type Statement =
   | { kind: 'simple'; body: string }
   | { kind: 'simple_pair'; cr_body: string; semi_body: string }
-  | { kind: 'brace_block'; header: string; body: Statement[] }
+  | { kind: 'brace_block'; header: string; open_gap: string; body: Statement[] }
   | {
       kind: 'if_else';
+      keyword_sep: string;
       condition: string;
+      open_gap: string;
+      else_gap: string;
       if_body: Statement[];
       else_body: Statement[];
     }
@@ -203,8 +209,8 @@ function render_statement(statement: Statement, mode: DelimiterMode): string {
     }
     case 'brace_block': {
       const opener = mode === 'semicolon'
-        ? `${statement.header} {;`
-        : `${statement.header} {`;
+        ? `${statement.header}${statement.open_gap}{;`
+        : `${statement.header}${statement.open_gap}{`;
       const closer = mode === 'semicolon' ? '};' : '}';
       return [
         opener,
@@ -214,9 +220,11 @@ function render_statement(statement: Statement, mode: DelimiterMode): string {
     }
     case 'if_else': {
       const if_opener = mode === 'semicolon'
-        ? `if ${statement.condition} {;`
-        : `if ${statement.condition} {`;
-      const else_opener = mode === 'semicolon' ? 'else {;' : 'else {';
+        ? `if${statement.keyword_sep}${statement.condition}${statement.open_gap}{;`
+        : `if${statement.keyword_sep}${statement.condition}${statement.open_gap}{`;
+      const else_opener = mode === 'semicolon'
+        ? `else${statement.else_gap}{;`
+        : `else${statement.else_gap}{`;
       const closer = mode === 'semicolon' ? '};' : '}';
       return [
         if_opener,
@@ -248,11 +256,16 @@ function render_source_pair(label: string, statements: Statement[]): SourcePair 
 
 const simple_statement_body = fc.oneof(
   command_source,
+  fc
+    .tuple(sep, identifier, gap, gap, gap, expression)
+    .map(([s1, byvar, g1, g2, g3, rhs]) => `by${s1}${byvar}${g1}:${g2}gen x${g3}=${g3}${rhs}`),
+  fc
+    .tuple(sep, identifier, gap, gap, gap, expression)
+    .map(([s1, byvar, g1, g2, g3, rhs]) => `bysort${s1}${byvar}${g1}:${g2}gen x${g3}=${g3}${rhs}`),
+  fc
+    .tuple(gap, gap, sep, gap, gap, expression)
+    .map(([g1, g2, s1, g3, g4, rhs]) => `quietly${g1}:${g2}replace${s1}y${g3}=${g4}${rhs}`),
   fc.constantFrom(
-    'by id: gen x = 1',
-    'bysort id: gen x = 1',
-    'quietly: gen x = 1',
-    'quietly : replace y = x[_n-1]',
     'frame create analysis',
     'frame change default',
     'gen lag_x = x[_n-1]',
@@ -301,68 +314,142 @@ const block_body_statement = fc.oneof(
   fc.constant<Statement>({ kind: 'simple', body: 'display "inside"' }),
   fc.constant<Statement>({ kind: 'simple', body: 'gen y = x[_n-1]' }),
   fc.constant<Statement>({ kind: 'simple', body: 'local n : word count a b c' }),
-  fc.constant<Statement>({ kind: 'simple', body: 'quietly: replace y = x + 1' })
+  fc
+    .tuple(gap, gap, sep, gap, gap)
+    .map(([g1, g2, s1, g3, g4]): Statement => ({
+      kind: 'simple',
+      body: `quietly${g1}:${g2}replace${s1}y${g3}=${g4}x + 1`,
+    }))
 );
 
 const loop_statement = fc
   .tuple(
-    fc.constantFrom('foreach i in a b c', 'forvalues i = 1/3'),
+    fc.oneof(
+      fc
+        .tuple(sep, sep, sep, sep, sep)
+        .map(([s1, s2, s3, s4, s5]) => `foreach${s1}i${s2}in${s3}a${s4}b${s5}c`),
+      fc
+        .tuple(sep, gap, gap, gap, gap)
+        .map(([s1, g1, g2, g3, g4]) => `forvalues${s1}i${g1}=${g2}1${g3}/${g4}3`)
+    ),
+    sep,
     fc.array(block_body_statement, { minLength: 1, maxLength: 3 })
   )
-  .map(([header, body]): Statement => ({ kind: 'brace_block', header, body }));
-
-const while_statement = fc
-  .tuple(
-    fc.constantFrom('x > 0', 'a///\nb', 'a ///\nb'),
-    fc.array(block_body_statement, { minLength: 1, maxLength: 2 })
-  )
-  .map(([condition, body]): Statement => ({
+  .map(([header, open_gap, body]): Statement => ({
     kind: 'brace_block',
-    header: `while ${condition}`,
+    header,
+    open_gap,
     body,
   }));
 
+const while_condition = fc.oneof(
+  fc.tuple(identifier, gap, binop, gap, term).map(([left, g1, op, g2, right]) =>
+    `${left}${g1}${op}${g2}${right}`
+  ),
+  fc.constantFrom('a///\nb', 'a ///\nb')
+);
+
+const while_statement = fc
+  .tuple(
+    sep,
+    while_condition,
+    sep,
+    fc.array(block_body_statement, { minLength: 1, maxLength: 2 })
+  )
+  .map(([s1, condition, open_gap, body]): Statement => ({
+    kind: 'brace_block',
+    header: `while${s1}${condition}`,
+    open_gap,
+    body,
+  }));
+
+const if_condition = fc.oneof(
+  fc.tuple(identifier, gap, binop, gap, term).map(([left, g1, op, g2, right]) =>
+    `${left}${g1}${op}${g2}${right}`
+  ),
+  fc.tuple(identifier, gap, gap, gap, binop, gap, term).map(([name, g1, g2, g3, op, g4, right]) =>
+    `${name}[${g1}_n${g2}-${g3}1]${g4}${op}${g4}${right}`
+  ),
+  fc.constantFrom('a///\nb', 'a ///\nb')
+);
+
 const if_else_statement = fc
   .tuple(
-    fc.constantFrom('x > 0', 'x[_n-1] != 0', 'a///\nb', 'a ///\nb'),
+    sep,
+    if_condition,
+    sep,
+    sep,
     fc.array(block_body_statement, { minLength: 1, maxLength: 2 }),
     fc.array(block_body_statement, { minLength: 1, maxLength: 2 })
   )
-  .map(([condition, if_body, else_body]): Statement => ({
+  .map(([keyword_sep, condition, open_gap, else_gap, if_body, else_body]): Statement => ({
     kind: 'if_else',
+    keyword_sep,
     condition,
+    open_gap,
+    else_gap,
     if_body,
     else_body,
   }));
 
 const frame_block_statement = fc
-  .array(block_body_statement, { minLength: 1, maxLength: 3 })
-  .map((body): Statement => ({
+  .tuple(
+    sep,
+    sep,
+    fc.array(block_body_statement, { minLength: 1, maxLength: 3 })
+  )
+  .map(([s1, open_gap, body]): Statement => ({
     kind: 'brace_block',
-    header: 'frame analysis',
+    header: `frame${s1}analysis`,
+    open_gap,
     body,
   }));
 
-const nested_block_statement = fc.constant<Statement>({
-  kind: 'brace_block',
-  header: 'forvalues i = 1/3',
-  body: [
-    {
-      kind: 'if_else',
-      condition: 'x[_n-1] > 0',
-      if_body: [{ kind: 'simple', body: 'display "positive"' }],
-      else_body: [{ kind: 'simple', body: 'display `"not positive"\'' }],
-    },
-  ],
-});
+const nested_block_statement = fc
+  .tuple(
+    sep,
+    gap,
+    gap,
+    gap,
+    gap,
+    sep,
+    sep,
+    if_condition
+  )
+  .map(([for_sep, eq_left, eq_right, slash_left, slash_right, outer_open, inner_open, condition]): Statement => ({
+    kind: 'brace_block',
+    header: `forvalues${for_sep}i${eq_left}=${eq_right}1${slash_left}/${slash_right}3`,
+    open_gap: outer_open,
+    body: [
+      {
+        kind: 'if_else',
+        keyword_sep: ' ',
+        condition,
+        open_gap: inner_open,
+        else_gap: ' ',
+        if_body: [{ kind: 'simple', body: 'display "positive"' }],
+        else_body: [{ kind: 'simple', body: 'display `"not positive"\'' }],
+      },
+    ],
+  }));
+
+const syntax_declaration = fc.oneof(
+  fc
+    .tuple(sep, sep, gap, gap, gap, gap, sep, gap, gap, gap)
+    .map(([s1, s2, opt_open, opt_inner, default_open, default_inner, value_sep, default_close, opt_close, cluster_open]) =>
+      `syntax${s1}varlist,${s2}opt${opt_open}(${opt_inner}string default${default_open}(${default_inner}a${value_sep}b${default_close})${opt_close}) cluster${cluster_open}(varname)`
+    ),
+  fc
+    .tuple(sep, sep, gap, gap, gap, gap, gap, gap)
+    .map(([s1, s2, label_open, label_inner, default_open, default_inner, default_close, label_close]) =>
+      `syntax${s1},${s2}flag(integer) label${label_open}(${label_inner}string default${default_open}(${default_inner}\`"hello \`foo'"'${default_close})${label_close})`
+    )
+);
 
 const program_statement = fc
   .tuple(
     fc.constantFrom('p', 'build_vars', 'summarize_sample'),
-    fc.constantFrom(
-      'syntax varlist, opt (string default(a b)) cluster(varname)',
-      'syntax , flag(integer) label (string default(`"hello `foo\'"\'))'
-    ),
+    syntax_declaration,
     fc.array(block_body_statement, { minLength: 1, maxLength: 3 })
   )
   .map(([name, syntax, body]): Statement => ({
