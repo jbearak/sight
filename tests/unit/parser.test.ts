@@ -1446,7 +1446,7 @@ end`;
       const source = 'rename (old1 old2\ndisplay 1\ndisplay 2';
 
       expect(command_names(source)).toEqual(['rename', 'display', 'display']);
-      expect(varlist_names(source)).toEqual(['(old1 old2)']);
+      expect(varlist_names(source)).toEqual(['(old1 old2']);
     });
 
     test('unterminated semicolon-mode parenthesized group does not consume the terminator', () => {
@@ -1454,7 +1454,7 @@ end`;
         '#delimit ;\nrename (old1 old2;\ndisplay 1;\n#delimit cr';
 
       expect(command_names(source)).toEqual(['rename', 'display']);
-      expect(varlist_names(source)).toEqual(['(old1 old2)']);
+      expect(varlist_names(source)).toEqual(['(old1 old2']);
     });
 
     test('unterminated assignment expression does not swallow following statements', () => {

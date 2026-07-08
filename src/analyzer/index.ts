@@ -2047,8 +2047,14 @@ export class SemanticAnalyzer {
         group_range: Range,
         symbols: SymbolTable
     ): void {
-        // Remove parentheses and split by whitespace
-        const inner = group_content.slice(1, -1).trim();
+        // Remove the source-authored wrapper. During parser recovery an
+        // unclosed group keeps the missing close paren out of `name`, so only
+        // strip a trailing close when one is actually present.
+        const inner = (
+            group_content.endsWith(')')
+                ? group_content.slice(1, -1)
+                : group_content.slice(1)
+        ).trim();
         const the_names = inner.split(/\s+/).filter(n => n.length > 0);
 
         for (const my_name of the_names) {

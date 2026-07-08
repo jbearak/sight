@@ -469,6 +469,14 @@ display \`result'
             expect(result.symbols.variables.get('new2')?.source).toBe('rename');
         });
 
+        it('should preserve final variable in unclosed grouped rename command', () => {
+            const result = analyze('rename (old1 old2) (new1 new2');
+
+            expect(result.symbols.variables.has('new1')).toBe(true);
+            expect(result.symbols.variables.has('new2')).toBe(true);
+            expect(result.symbols.variables.has('new')).toBe(false);
+        });
+
         it('should NOT register local macro references as variables in confirm variable', () => {
             const result = analyze('capture confirm variable `my_var\'');
             

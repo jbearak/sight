@@ -1408,11 +1408,12 @@ export class StataParser {
       inner_tokens,
       preceded_by_continuation
     );
-    const paren_end_pos = this.check('RPAREN')
+    const closed_group = paren_depth === 0 && this.check('RPAREN');
+    const paren_end_pos = closed_group
         ? this.peek().range.end
         : this.previous().range.end;
 
-    if (this.check('RPAREN')) {
+    if (closed_group) {
       this.advance(); // consume closing paren
     }
 
@@ -1421,8 +1422,16 @@ export class StataParser {
       return null;
     }
 
+    // If recovery stopped at a statement terminator or EOF, preserve only the
+    // text the user wrote. We intentionally do not emit an unbalanced-paren
+    // diagnostic here: like unclosed option arguments, this is usually an
+    // editor mid-typing state and warning on each keystroke is noisy.
+    const group_name = closed_group
+      ? `(${paren_content})`
+      : `(${paren_content}`;
+
     return {
-      name: `(${paren_content})`,
+      name: group_name,
       range: this.makeRange(paren_start.range.start, paren_end_pos),
     };
   }

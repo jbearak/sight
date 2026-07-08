@@ -74,6 +74,28 @@ function command_option_summary(
     };
 }
 
+function command_varlist_summary(
+    source: string,
+    lexer: StataLexer,
+    parser: StataParser
+): {
+    command_names: string[];
+    varlist_names: string[][];
+} {
+    const my_ast = parser.parse(lexer.tokenize(source).tokens).ast;
+    const the_commands = my_ast.nodes.filter(n => n.type === 'command') as {
+        name: string;
+        varlist?: { name: string }[];
+    }[];
+
+    return {
+        command_names: the_commands.map(c => c.name),
+        varlist_names: the_commands.map(c =>
+            (c.varlist ?? []).map(v => v.name)
+        ),
+    };
+}
+
 function expect_format_round_trip_stable(
     source: string,
     mode: FormatterMode,
@@ -178,6 +200,59 @@ display 1`;
 display 1
 `;
       expect(my_formatted).toBe(my_expected);
+    });
+
+    for_each_formatter_mode('should not synthesize close paren for unclosed varlist group', (mode) => {
+      const the_cases = [
+        {
+          source: `rename (old1 old2
+display 1`,
+          ast_expected: `rename (old1 old2
+display 1
+`,
+        },
+        {
+          source: `#delimit ;
+rename (old1 old2;
+display 1;
+#delimit cr`,
+          ast_expected: `#delimit ;;
+rename (old1 old2;
+display 1;
+#delimit cr
+`,
+        },
+      ];
+      const config = create_formatter_config(mode);
+      const mode_formatter = new CodeFormatter();
+
+      for (const my_case of the_cases) {
+        const my_formatted = format_document(
+          my_case.source,
+          lexer,
+          parser,
+          mode_formatter,
+          config
+        );
+        const my_expected = mode === 'source-preserving'
+          ? my_case.source
+          : my_case.ast_expected;
+
+        expect(my_formatted).toBe(my_expected);
+        expect(my_formatted).not.toContain('(old1 old2)');
+
+        const my_formatted_again = format_document(
+          my_formatted,
+          lexer,
+          parser,
+          mode_formatter,
+          config
+        );
+        expect(my_formatted_again).toBe(my_formatted);
+        expect(command_varlist_summary(my_formatted, lexer, parser)).toEqual(
+          command_varlist_summary(my_case.source, lexer, parser)
+        );
+      }
     });
 
     for_each_formatter_mode('should not delete inner option close paren during recovery', (mode) => {
