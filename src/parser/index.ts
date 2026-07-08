@@ -1270,6 +1270,13 @@ export class StataParser {
           continue;
         }
       }
+      if (this.check('COMMENT_LINE') || this.check('COMMENT_BLOCK')) {
+        if (this.has_matching_option_close_before_statement(paren_depth)) {
+          this.advance();
+          continue;
+        }
+        break;
+      }
       const t = this.advance();
       if (t.type === 'LPAREN') {
         paren_depth++;
@@ -1291,6 +1298,34 @@ export class StataParser {
       ? { start: arg_tokens[0].range.start, end: arg_tokens[arg_tokens.length - 1].range.end }
       : undefined;
     return { argument, argument_range, argument_unclosed };
+  }
+
+  /**
+   * Look ahead from a comment inside an option argument to determine whether
+   * the already-open option parenthesis is closed before the statement ends.
+   * Comments are trivia for the argument string, but a close paren after trivia
+   * still means the option is semantically closed.
+   */
+  private has_matching_option_close_before_statement(paren_depth: number):
+    boolean {
+    let scan_depth = paren_depth;
+    let index = this.current;
+    while (index < this.tokens.length && scan_depth > 0) {
+      const token = this.tokens[index];
+      if (token.type === 'STATEMENT_TERMINATOR') {
+        return false;
+      }
+      if (token.type === 'LPAREN') {
+        scan_depth++;
+      } else if (token.type === 'RPAREN') {
+        scan_depth--;
+        if (scan_depth === 0) {
+          return true;
+        }
+      }
+      index++;
+    }
+    return false;
   }
 
   /**

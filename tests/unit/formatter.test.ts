@@ -143,6 +143,85 @@ display 1
       expect(my_formatted_again).toBe(my_formatted);
     });
 
+    for_each_formatter_mode('should not format line comment as option argument text', (mode) => {
+      const my_source = `reg y x, vce(seed(123) // note
+display 1`;
+      const config = create_formatter_config(mode);
+      const mode_formatter = new CodeFormatter();
+      const my_formatted = format_document(my_source, lexer, parser, mode_formatter, config);
+
+      const my_expected = mode === 'source-preserving'
+        ? my_source
+        : `reg y x, vce(seed(123) // note
+display 1
+`;
+      expect(my_formatted).toBe(my_expected);
+      expect(my_formatted).not.toContain('/ / note');
+
+      const my_formatted_again = format_document(
+        my_formatted,
+        lexer,
+        parser,
+        mode_formatter,
+        config
+      );
+      expect(my_formatted_again).toBe(my_formatted);
+    });
+
+    for_each_formatter_mode('should not format block comment as option argument text', (mode) => {
+      const my_source = `reg y x, vce(seed(123) /* note */
+display 1`;
+      const config = create_formatter_config(mode);
+      const mode_formatter = new CodeFormatter();
+      const my_formatted = format_document(my_source, lexer, parser, mode_formatter, config);
+
+      const my_expected = mode === 'source-preserving'
+        ? my_source
+        : `reg y x, vce(seed(123) /* note */
+display 1
+`;
+      expect(my_formatted).toBe(my_expected);
+      expect(my_formatted).not.toContain('/ * note * /');
+
+      const my_formatted_again = format_document(
+        my_formatted,
+        lexer,
+        parser,
+        mode_formatter,
+        config
+      );
+      expect(my_formatted_again).toBe(my_formatted);
+    });
+
+    for_each_formatter_mode('should recover semicolon option argument before block comment', (mode) => {
+      const my_source = `#delimit ;
+reg y x, vce(seed(123) /* note */;
+display 1;
+#delimit cr`;
+      const config = create_formatter_config(mode);
+      const mode_formatter = new CodeFormatter();
+      const my_formatted = format_document(my_source, lexer, parser, mode_formatter, config);
+
+      const my_expected = mode === 'source-preserving'
+        ? my_source
+        : `#delimit ;;
+reg y x, vce(seed(123) /* note */;
+display 1;
+#delimit cr
+`;
+      expect(my_formatted).toBe(my_expected);
+      expect(my_formatted).not.toContain('/ * note * /');
+
+      const my_formatted_again = format_document(
+        my_formatted,
+        lexer,
+        parser,
+        mode_formatter,
+        config
+      );
+      expect(my_formatted_again).toBe(my_formatted);
+    });
+
     for_each_formatter_mode('should preserve unclosed option argument before continuation EOF', (mode) => {
       const my_source = 'reg y x, vce(seed(123) ///';
       const config = create_formatter_config(mode);

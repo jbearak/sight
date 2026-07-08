@@ -1625,6 +1625,7 @@ end`;
       parse(source).ast.nodes
         .filter(n => n.type === 'command')
         .map(n => (n as { name: string }).name);
+    const parse_errors = (source: string) => parse(source).errors;
 
     test('multi-token option argument matches across modes', () => {
       expect(option_arg('reg y x, absorb(firm year)', 'absorb')).toBe(
@@ -1660,6 +1661,24 @@ end`;
       expect(option_arg(source, 'vce')).toBe('seed(123)');
     });
 
+    test('line comment after unterminated cr-mode option argument is trivia', () => {
+      const source = 'reg y x, vce(seed(123) // note\ndisplay 1';
+      const options = command_options(source);
+
+      expect(command_names(source)).toEqual(['reg', 'display']);
+      expect(options.find(o => o.name === 'vce')?.argument).toBe('seed(123)');
+      expect(options.find(o => o.name === 'vce')?.argument_unclosed).toBe(true);
+    });
+
+    test('block comment after unterminated cr-mode option argument is trivia', () => {
+      const source = 'reg y x, vce(seed(123) /* note */\ndisplay 1';
+      const options = command_options(source);
+
+      expect(command_names(source)).toEqual(['reg', 'display']);
+      expect(options.find(o => o.name === 'vce')?.argument).toBe('seed(123)');
+      expect(options.find(o => o.name === 'vce')?.argument_unclosed).toBe(true);
+    });
+
     test('unterminated option argument is marked on the option node', () => {
       const unclosed = command_options('levelsof rep78, global(G\ndisplay $G');
       const closed = command_options('levelsof rep78, global(G)\ndisplay $G');
@@ -1675,6 +1694,41 @@ end`;
 
       expect(command_names(source)).toEqual(['reg', 'display']);
       expect(option_arg(source, 'vce')).toBe('seed(123)');
+    });
+
+    test('line comment after unterminated semicolon-mode option argument is trivia', () => {
+      const source =
+        '#delimit ;\nreg y x, vce(seed(123) // note\n;\ndisplay 1;\n#delimit cr';
+      const options = command_options(source);
+
+      expect(command_names(source)).toEqual(['reg', 'display']);
+      expect(options.find(o => o.name === 'vce')?.argument).toBe('seed(123)');
+      expect(options.find(o => o.name === 'vce')?.argument_unclosed).toBe(true);
+    });
+
+    test('balanced option block comment is omitted without making option unclosed', () => {
+      // Comments are trivia inside a syntactically closed parenthesized option:
+      // omit the comment text from the argument string, keep later argument
+      // tokens, and keep the option semantically closed.
+      const source = 'reg y x, vce(a /* x */ b)';
+      const options = command_options(source);
+
+      expect(command_names(source)).toEqual(['reg']);
+      expect(parse_errors(source)).toHaveLength(0);
+      expect(options.find(o => o.name === 'vce')?.argument).toBe('a b');
+      expect(options.find(o => o.name === 'vce')?.argument_unclosed).toBeUndefined();
+    });
+
+    test('balanced semicolon-mode option line comment keeps option closed', () => {
+      // Same as the block-comment case above, but the statement continues after
+      // the line comment because semicolon mode uses `;` as the terminator.
+      const source = semi('reg y x, vce(a // note\nb)');
+      const options = command_options(source);
+
+      expect(command_names(source)).toEqual(['reg']);
+      expect(parse_errors(source)).toHaveLength(0);
+      expect(options.find(o => o.name === 'vce')?.argument).toBe('a b');
+      expect(options.find(o => o.name === 'vce')?.argument_unclosed).toBeUndefined();
     });
 
     test('two-level nested option arguments are preserved', () => {

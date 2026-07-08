@@ -220,6 +220,19 @@ display \`result'
             expect(result.symbols.globalMacros.has('G')).toBe(true);
             expect(result.diagnostics.find(
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                d.message.includes('G')
+            )).toBeUndefined();
+        });
+
+        it('should register a closed levelsof global() option with inline comment', () => {
+            const result = analyze(
+                'levelsof rep78, global(G /* c */)\ndisplay $G',
+                { undefined_macro_enabled: true }
+            );
+
+            expect(result.symbols.globalMacros.has('G')).toBe(true);
+            expect(result.diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
                     d.message.includes('G')
             )).toBeUndefined();
         });
