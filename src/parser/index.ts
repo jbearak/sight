@@ -1250,7 +1250,12 @@ export class StataParser {
     const preceded_by_continuation: boolean[] = [];
     const continuation = new ContinuationTracker();
     let paren_depth = 1;
+    let stopped_at_terminator = false;
     while (!this.isAtEnd() && paren_depth > 0) {
+      if (this.check('STATEMENT_TERMINATOR')) {
+        stopped_at_terminator = true;
+        break;
+      }
       if (this.check('CONTINUATION')) {
         const cont_token = this.peek();
         if (this.skipContinuation()) {
@@ -1269,6 +1274,14 @@ export class StataParser {
       }
       arg_tokens.push(t);
       preceded_by_continuation.push(continuation.collect(t));
+    }
+    if (
+      stopped_at_terminator &&
+      paren_depth === 1 &&
+      arg_tokens[arg_tokens.length - 1]?.type === 'RPAREN'
+    ) {
+      arg_tokens.pop();
+      preceded_by_continuation.pop();
     }
     const argument = this.reconstruct_value_tokens(
       arg_tokens,

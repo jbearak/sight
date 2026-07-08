@@ -1620,6 +1620,10 @@ end`;
     };
     const semi = (body: string): string =>
       `#delimit ;\n${body};\n#delimit cr`;
+    const command_names = (source: string): string[] =>
+      parse(source).ast.nodes
+        .filter(n => n.type === 'command')
+        .map(n => (n as { name: string }).name);
 
     test('multi-token option argument matches across modes', () => {
       expect(option_arg('reg y x, absorb(firm year)', 'absorb')).toBe(
@@ -1648,6 +1652,20 @@ end`;
       }
     });
 
+    test('unterminated nested option argument recovers at cr-mode statement terminator', () => {
+      const source = 'reg y x, vce(seed(123)\ndisplay 1\ndisplay 2';
+
+      expect(command_names(source)).toEqual(['reg', 'display', 'display']);
+      expect(option_arg(source, 'vce')).toBe('seed(123');
+    });
+
+    test('unterminated nested option argument recovers at semicolon-mode statement terminator', () => {
+      const source = '#delimit ;\nreg y x, vce(seed(123);\ndisplay 1;\n#delimit cr';
+
+      expect(command_names(source)).toEqual(['reg', 'display']);
+      expect(option_arg(source, 'vce')).toBe('seed(123');
+    });
+
     test('two-level nested option arguments are preserved', () => {
       expect(option_arg('reg y x, absorb(f(a) g(b))', 'absorb')).toBe(
         'f(a) g(b)'
@@ -1655,6 +1673,20 @@ end`;
       expect(option_arg(semi('reg y x, absorb(f(a) g(b))'), 'absorb')).toBe(
         'f(a) g(b)'
       );
+    });
+
+    test('cr-mode option argument continues across slash continuation', () => {
+      const source = 'reg y x, vce(seed(123) ///\nrep(300))';
+
+      expect(command_names(source)).toEqual(['reg']);
+      expect(option_arg(source, 'vce')).toBe('seed(123) rep(300)');
+    });
+
+    test('cr-mode raw newline inside option argument ends the statement', () => {
+      const source = 'reg y x, vce(a\nb)';
+
+      expect(command_names(source)).toEqual(['reg', 'b']);
+      expect(option_arg(source, 'vce')).toBe('a');
     });
 
     test('nested option argument range spans the full argument content', () => {
