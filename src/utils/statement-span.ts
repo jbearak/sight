@@ -170,11 +170,18 @@ export interface InlineEmbeddedEnd {
  * contributes its own `end.line`). This equals the parser's
  * `previous().range.end.line`.
  *
- * `end_index` consumes the terminating `STATEMENT_TERMINATOR` (when present)
- * and, because the context range spans the WHOLE of `end_line`, every
- * remaining token that starts on `end_line`. That prevents a trailing
- * same-line opener (e.g. `"2"); python: x = 1;`) from producing a second
- * whole-line range overlapping this one.
+ * `end_index` consumes the terminating `STATEMENT_TERMINATOR` (when
+ * present); otherwise it is the last content token (EOF / ran off the end).
+ * The context tracker advances its main loop to this index, which skips
+ * every token BETWEEN the opener and the terminator (so an opener that the
+ * lexer re-triggers mid-statement cannot spawn an interior overlapping
+ * range) while still letting the main loop process anything AFTER the
+ * terminator on the same physical line — in particular a trailing block
+ * opener (`mata`/`python`) that opens a real multi-line block. A trailing
+ * inline opener sharing the terminator line still produces its own
+ * whole-line range (a documented same-physical-line limitation); it is NOT
+ * swallowed, because swallowing by line number alone would also drop a
+ * trailing block opener's entire body.
  *
  * Bounded: never scans past `EOF`; an unterminated inline in `;` mode ends
  * at the last content line, matching the AST.
@@ -198,19 +205,10 @@ export function inline_embedded_statement_end(
 
     // Consume the real terminator too (when there is one); otherwise resume
     // after the last content token (EOF / ran off the end).
-    let end_index =
+    const end_index =
         my_i < tokens.length && tokens[my_i].type === 'STATEMENT_TERMINATOR'
             ? my_i
             : my_last_content_index;
-
-    // The range covers all of `end_line`, so swallow every remaining token on
-    // that line to keep context ranges non-overlapping.
-    while (
-        end_index + 1 < tokens.length &&
-        tokens[end_index + 1].range.start.line <= end_line
-    ) {
-        end_index++;
-    }
 
     return { end_line, end_index };
 }

@@ -287,21 +287,21 @@ describe('inline_embedded_statement_end', () => {
         expect(my_end.end_line).toBe(parser_inline_end_line(my_source));
     });
 
-    it('consumes a trailing same-line embedded opener after the terminator', () => {
-        // `"2"); python: x = 1;` — the trailing python: on the terminator
-        // line must be swallowed into the mata whole-line span so it cannot
-        // spawn a second, overlapping context range.
+    it('stops at the terminator, not swallowing a trailing same-line token', () => {
+        // `"2"); python: x = 1;` — end_index is the mata statement's own `;`
+        // (index just before the trailing PYTHON_INLINE), so the context
+        // tracker's main loop still gets to process whatever follows on the
+        // terminator line rather than the helper swallowing it by line number
+        // (which would also drop a trailing block opener's body).
         const my_source =
             '#delimit ;\nmata: st_local("b",\n"2"); python: x = 1;\n';
         const { tokens } = lexer.tokenize(my_source);
         const my_opener = opener_index(tokens);
         const my_end = inline_embedded_statement_end(tokens, my_opener);
         expect(my_end.end_line).toBe(2);
-        // Every remaining token on line 2 (including the trailing PYTHON_INLINE)
-        // is consumed: no token after end_index starts on line 2.
-        const my_next = tokens[my_end.end_index + 1];
-        if (my_next && my_next.type !== 'EOF') {
-            expect(my_next.range.start.line).toBeGreaterThan(2);
-        }
+        expect(tokens[my_end.end_index].type).toBe('STATEMENT_TERMINATOR');
+        expect(tokens[my_end.end_index].value).toBe(';');
+        // The trailing PYTHON_INLINE is left for the caller, not consumed.
+        expect(tokens[my_end.end_index + 1].type).toBe('PYTHON_INLINE');
     });
 });
