@@ -1609,10 +1609,11 @@ end`;
       return my_cmd?.options?.find(o => o.name === name)?.argument;
     };
     const command_options = (source: string): { name: string; argument?: string;
+      argument_unclosed?: true;
       argument_range?: { start: { line: number; character: number };
         end: { line: number; character: number } } }[] => {
       const my_cmd = parse(source).ast.nodes.find(n => n.type === 'command') as
-        { options?: { name: string; argument?: string; argument_range?: {
+        { options?: { name: string; argument?: string; argument_unclosed?: true; argument_range?: {
           start: { line: number; character: number };
           end: { line: number; character: number };
         } }[] } | undefined;
@@ -1657,6 +1658,16 @@ end`;
 
       expect(command_names(source)).toEqual(['reg', 'display', 'display']);
       expect(option_arg(source, 'vce')).toBe('seed(123');
+    });
+
+    test('unterminated option argument is marked on the option node', () => {
+      const unclosed = command_options('levelsof rep78, global(G\ndisplay $G');
+      const closed = command_options('levelsof rep78, global(G)\ndisplay $G');
+
+      expect(unclosed.find(o => o.name === 'global')?.argument).toBe('G');
+      expect(unclosed.find(o => o.name === 'global')?.argument_unclosed).toBe(true);
+      expect(closed.find(o => o.name === 'global')?.argument).toBe('G');
+      expect(closed.find(o => o.name === 'global')?.argument_unclosed).toBeUndefined();
     });
 
     test('unterminated nested option argument recovers at semicolon-mode statement terminator', () => {

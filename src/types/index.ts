@@ -245,6 +245,7 @@ export interface OptionNode {
   fullName: string;
   argument?: string;
   argument_range?: Range;
+  argument_unclosed?: true;
   range: Range;
 }
 

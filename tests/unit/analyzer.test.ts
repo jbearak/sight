@@ -160,6 +160,70 @@ display \`result'
             )).toBeUndefined();
         });
 
+        it('should not register an unclosed levelsof global() option in cr mode', () => {
+            const source = 'levelsof rep78, global(G\ndisplay $G';
+            const { tokens } = lexer.tokenize(source);
+            const { ast } = parser.parse(tokens);
+            const commands = ast.nodes
+                .filter(n => n.type === 'command')
+                .map(n => n.name);
+
+            expect(commands).toEqual(['levelsof', 'display']);
+
+            const result = analyzer.analyze(
+                ast,
+                'test://file.do',
+                undefined,
+                { undefined_macro_enabled: true },
+                tokens
+            );
+
+            expect(result.symbols.globalMacros.has('G')).toBe(false);
+            expect(result.diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                    d.message.includes('G')
+            )).toBeDefined();
+        });
+
+        it('should not register an unclosed levelsof local() option in cr mode', () => {
+            const result = analyze(
+                'levelsof rep78, local(L\ndisplay `L\'',
+                { undefined_macro_enabled: true }
+            );
+
+            expect(result.symbols.localMacros.has('L')).toBe(false);
+            expect(result.diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                    d.message.includes('L')
+            )).toBeDefined();
+        });
+
+        it('should not register an unclosed levelsof global() option in semicolon mode', () => {
+            const result = analyze(
+                '#delimit ;\nlevelsof rep78, global(G;\ndisplay $G;\n#delimit cr',
+                { undefined_macro_enabled: true }
+            );
+
+            expect(result.symbols.globalMacros.has('G')).toBe(false);
+            expect(result.diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                    d.message.includes('G')
+            )).toBeDefined();
+        });
+
+        it('should still register a closed levelsof global() option', () => {
+            const result = analyze(
+                'levelsof rep78, global(G)\ndisplay $G',
+                { undefined_macro_enabled: true }
+            );
+
+            expect(result.symbols.globalMacros.has('G')).toBe(true);
+            expect(result.diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                    d.message.includes('G')
+            )).toBeUndefined();
+        });
+
         it('should fall back to command range when option argument_range is undefined', () => {
             // Per spec requirements 3.3 and 4.3: definition location should use
             // option argument span, and if unavailable fall back to command span

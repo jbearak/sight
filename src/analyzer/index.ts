@@ -2464,6 +2464,9 @@ export class SemanticAnalyzer {
             this.get_program_macro_creating_options(node.fullName, symbols);
         if (!builtin_cmd && !program_options) return false;
         for (const my_option of node.options) {
+            if (my_option.argument_unclosed) {
+                continue;
+            }
             let matches = false;
             if (builtin_cmd) {
                 for (const opt of builtin_cmd.local_options) {
@@ -2607,6 +2610,9 @@ export class SemanticAnalyzer {
             argument_range?: Range;
         }> = [];
         for (const option of node.options) {
+            if (option.argument_unclosed) {
+                continue;
+            }
             const parse_result = parse_option_argument(option.argument);
             if (!parse_result.is_literal || !parse_result.identifier) {
                 continue;

@@ -1212,6 +1212,9 @@ export class StataParser {
             const parsed = this.parse_option_argument_inside_parens();
             option.argument = parsed.argument;
             option.argument_range = parsed.argument_range;
+            if (parsed.argument_unclosed) {
+              option.argument_unclosed = true;
+            }
           }
 
           options.push(option);
@@ -1238,9 +1241,15 @@ export class StataParser {
   /**
    * Parse option argument inside parentheses.
    * Assumes LPAREN is next token. Consumes through RPAREN.
-   * Returns argument string and argument_range (span of non-whitespace tokens).
+   * Returns argument string, argument_range (span of non-whitespace tokens),
+   * and argument_unclosed when recovery stopped before consuming the outer
+   * closing paren.
    */
-  private parse_option_argument_inside_parens(): { argument: string; argument_range?: Range } {
+  private parse_option_argument_inside_parens(): {
+    argument: string;
+    argument_range?: Range;
+    argument_unclosed?: true;
+  } {
     this.advance(); // consume (
     // Collect argument tokens and reconstruct spacing from their ranges via
     // reconstruct_value_tokens, so delimiter modes produce the identical
@@ -1275,11 +1284,17 @@ export class StataParser {
       arg_tokens.push(t);
       preceded_by_continuation.push(continuation.collect(t));
     }
+    const argument_unclosed = paren_depth > 0 ? true : undefined;
     if (
       stopped_at_terminator &&
       paren_depth === 1 &&
       arg_tokens[arg_tokens.length - 1]?.type === 'RPAREN'
     ) {
+      // Recovery-only trim: a trailing inner `)` often belongs to the final
+      // nested call (`vce(seed(123)`) rather than to the option itself. Removing
+      // it keeps the recovered argument tidy, but this does NOT count as a
+      // closed outer option paren; downstream semantic effects must still see
+      // argument_unclosed.
       arg_tokens.pop();
       preceded_by_continuation.pop();
     }
@@ -1290,7 +1305,7 @@ export class StataParser {
     const argument_range = arg_tokens.length > 0
       ? { start: arg_tokens[0].range.start, end: arg_tokens[arg_tokens.length - 1].range.end }
       : undefined;
-    return { argument, argument_range };
+    return { argument, argument_range, argument_unclosed };
   }
 
   /**
@@ -1508,6 +1523,9 @@ export class StataParser {
             const parsed = this.parse_option_argument_inside_parens();
             option.argument = parsed.argument;
             option.argument_range = parsed.argument_range;
+            if (parsed.argument_unclosed) {
+              option.argument_unclosed = true;
+            }
           }
 
           options.push(option);
@@ -2655,6 +2673,9 @@ export class StataParser {
             const parsed = this.parse_option_argument_inside_parens();
             option.argument = parsed.argument;
             option.argument_range = parsed.argument_range;
+            if (parsed.argument_unclosed) {
+              option.argument_unclosed = true;
+            }
           }
           options.push(option);
         } else {
