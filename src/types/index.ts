@@ -251,6 +251,7 @@ export interface OptionNode {
 
 export interface IdentifierNode {
   name: string;
+  recovery_only?: true;
   range: Range;
 }
 

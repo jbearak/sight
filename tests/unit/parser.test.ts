@@ -1358,7 +1358,7 @@ end`;
     type CommandLike = {
       type: string;
       name?: string;
-      varlist?: { name: string }[];
+      varlist?: { name: string; recovery_only?: true }[];
       expression?: string;
       ifExpression?: string;
       inExpression?: string;
@@ -1373,6 +1373,8 @@ end`;
         .map(n => n.name ?? '');
     const varlist_names = (source: string): string[] =>
       command(source)?.varlist?.map(v => v.name) ?? [];
+    const varlist_items = (source: string): Array<{ name: string; recovery_only?: true }> =>
+      command(source)?.varlist ?? [];
     const semi = (body: string): string =>
       `#delimit ;\n${body};\n#delimit cr`;
 
@@ -1454,6 +1456,30 @@ end`;
 
       expect(command_names(source)).toEqual(['rename', 'display']);
       expect(varlist_names(source)).toEqual(['(']);
+    });
+
+    test('unterminated empty parenthesized group is marked recovery-only', () => {
+      expect(varlist_items('rename (\ndisplay 1')).toEqual([
+        expect.objectContaining({ name: '(', recovery_only: true }),
+      ]);
+      expect(varlist_items('#delimit ;\nrename (;\ndisplay 1;')).toEqual([
+        expect.objectContaining({ name: '(', recovery_only: true }),
+      ]);
+    });
+
+    test('non-empty unclosed and balanced parenthesized groups are not recovery-only', () => {
+      expect(varlist_items('rename (old1 old2\ndisplay 1')).toEqual([
+        expect.objectContaining({ name: '(old1 old2' }),
+      ]);
+      expect(varlist_items('rename (old1 old2\ndisplay 1')[0].recovery_only).toBeUndefined();
+
+      expect(varlist_items('rename (old1 old2) (new1 new2)')).toEqual([
+        expect.objectContaining({ name: '(old1 old2)' }),
+        expect.objectContaining({ name: '(new1 new2)' }),
+      ]);
+      expect(varlist_items('rename (old1 old2) (new1 new2)').some(
+        item => item.recovery_only
+      )).toBe(false);
     });
 
     test('unterminated semicolon-mode parenthesized group does not consume the terminator', () => {

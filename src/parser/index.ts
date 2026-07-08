@@ -1426,6 +1426,7 @@ export class StataParser {
       }
       return {
         name: '(',
+        recovery_only: true,
         range: this.makeRange(paren_start.range.start, paren_end_pos),
       };
     }
