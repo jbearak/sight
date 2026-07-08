@@ -174,15 +174,16 @@ export interface InlineEmbeddedEnd {
  * present); otherwise it is the last content token (EOF / ran off the end).
  * The context tracker advances its main loop to this index, which skips
  * every token BETWEEN the opener and the terminator (so an opener the lexer
- * re-triggers mid-statement cannot spawn an interior overlapping range).
- *
- * Because the context range spans the WHOLE of `end_line`, `end_index` then
- * also consumes any trailing tokens on `end_line` — INCLUDING a trailing
- * inline opener (`mata:`/`python:`), which would otherwise produce a second
- * whole-line range overlapping this one. It STOPS at a trailing block opener
- * (`mata`/`python`, i.e. `MATA_START`/`PYTHON_START`), so the main loop still
- * processes it and opens its real multi-line block: swallowing a block opener
- * by line number would silently drop its whole body's context.
+ * re-triggers mid-statement cannot spawn an interior overlapping range) but
+ * still lets the main loop process whatever follows the terminator on the
+ * same physical line — a trailing block opener (which must open its
+ * multi-line body) or a trailing inline opener (which the parser treats as
+ * its own embedded_block, so it gets its own range too). A second inline
+ * statement sharing the terminator line therefore keeps full context
+ * coverage; the two whole-line ranges overlap only on that shared line, an
+ * unavoidable and pre-existing limitation of line-granular context ranges
+ * (a physical line cannot hold two languages), consistent with the parser's
+ * overlapping single-line embedded_block spans.
  *
  * Bounded: never scans past `EOF`; an unterminated inline in `;` mode ends
  * at the last content line, matching the AST.
@@ -206,24 +207,10 @@ export function inline_embedded_statement_end(
 
     // Consume the real terminator too (when there is one); otherwise resume
     // after the last content token (EOF / ran off the end).
-    let end_index =
+    const end_index =
         my_i < tokens.length && tokens[my_i].type === 'STATEMENT_TERMINATOR'
             ? my_i
             : my_last_content_index;
-
-    // Swallow trailing tokens on end_line so a second inline statement sharing
-    // the line cannot spawn an overlapping whole-line range. Stop before a
-    // block opener, whose multi-line body the main loop must still process.
-    while (end_index + 1 < tokens.length) {
-        const my_next = tokens[end_index + 1];
-        if (my_next.range.start.line > end_line) {
-            break;
-        }
-        if (my_next.type === 'MATA_START' || my_next.type === 'PYTHON_START') {
-            break;
-        }
-        end_index++;
-    }
 
     return { end_index, end_line };
 }

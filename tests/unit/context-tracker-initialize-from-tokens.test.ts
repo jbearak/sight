@@ -459,26 +459,27 @@ mata: foo();
     ).toBe(LanguageContext.MATA);
   });
 
-  it('produces no overlapping range for a trailing same-line inline opener', () => {
+  it('keeps full context for a trailing inline opener that spills to a later line', () => {
+    // `"2"); python: x = (1+\n2);` — the trailing inline python: statement
+    // continues onto line 3. Its continuation content must NOT be dropped to
+    // stata: the tracker creates a separate python range covering it (matching
+    // the parser's separate embedded_block).
     const my_content = `#delimit ;
 mata: st_local("b",
-"2"); python: x = 1;
+"2"); python: x = (1+
+2);
 #delimit cr
 `;
     const my_lex_result = lexer.tokenize(my_content);
     tracker.initialize_from_tokens(my_lex_result.tokens, my_content);
 
-    const my_ranges = tracker.get_all_context_ranges();
-    // The trailing inline python: is swallowed into the mata whole-line span,
-    // so ranges stay non-overlapping and the mata continuation content on the
-    // terminator line still resolves to mata (not python).
-    for (let my_i = 1; my_i < my_ranges.length; my_i++) {
-      const my_prev = my_ranges[my_i - 1];
-      const my_curr = my_ranges[my_i];
-      expect(my_curr.range.start.line).toBeGreaterThan(my_prev.range.end.line);
-    }
+    // The spilled python continuation line is embedded python, not stata.
     expect(
-      tracker.get_context_at_position({ line: 2, character: 1 })
+      tracker.get_context_at_position({ line: 3, character: 0 })
+    ).toBe(LanguageContext.PYTHON);
+    // The mata continuation line before the trailing statement is still mata.
+    expect(
+      tracker.get_context_at_position({ line: 1, character: 0 })
     ).toBe(LanguageContext.MATA);
   });
 
