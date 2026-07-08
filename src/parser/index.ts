@@ -1417,9 +1417,17 @@ export class StataParser {
       this.advance(); // consume closing paren
     }
 
-    // Return null for empty/whitespace-only content
+    // Empty balanced groups are not useful varlist items. Empty unclosed
+    // groups still contain authored source text: keep the opener so AST-mode
+    // formatting does not delete user input while they are mid-statement.
     if (!paren_content.trim()) {
-      return null;
+      if (closed_group) {
+        return null;
+      }
+      return {
+        name: '(',
+        range: this.makeRange(paren_start.range.start, paren_end_pos),
+      };
     }
 
     // If recovery stopped at a statement terminator or EOF, preserve only the

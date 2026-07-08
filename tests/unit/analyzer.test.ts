@@ -477,6 +477,12 @@ display \`result'
             expect(result.symbols.variables.has('new')).toBe(false);
         });
 
+        it('should ignore bare open paren in unclosed grouped rename command', () => {
+            const result = analyze('rename (old1 old2) (');
+
+            expect(result.symbols.variables.size).toBe(0);
+        });
+
         it('should NOT register local macro references as variables in confirm variable', () => {
             const result = analyze('capture confirm variable `my_var\'');
             

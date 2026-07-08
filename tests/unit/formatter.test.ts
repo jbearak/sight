@@ -212,12 +212,30 @@ display 1
 `,
         },
         {
+          source: `rename (
+display 1`,
+          ast_expected: `rename (
+display 1
+`,
+        },
+        {
           source: `#delimit ;
 rename (old1 old2;
 display 1;
 #delimit cr`,
           ast_expected: `#delimit ;;
 rename (old1 old2;
+display 1;
+#delimit cr
+`,
+        },
+        {
+          source: `#delimit ;
+rename (;
+display 1;
+#delimit cr`,
+          ast_expected: `#delimit ;;
+rename (;
 display 1;
 #delimit cr
 `,

@@ -1449,12 +1449,30 @@ end`;
       expect(varlist_names(source)).toEqual(['(old1 old2']);
     });
 
+    test('unterminated empty cr-mode parenthesized group keeps authored opener', () => {
+      const source = 'rename (\ndisplay 1';
+
+      expect(command_names(source)).toEqual(['rename', 'display']);
+      expect(varlist_names(source)).toEqual(['(']);
+    });
+
     test('unterminated semicolon-mode parenthesized group does not consume the terminator', () => {
       const source =
         '#delimit ;\nrename (old1 old2;\ndisplay 1;\n#delimit cr';
 
       expect(command_names(source)).toEqual(['rename', 'display']);
       expect(varlist_names(source)).toEqual(['(old1 old2']);
+    });
+
+    test('unterminated empty semicolon-mode parenthesized group keeps authored opener', () => {
+      const source = '#delimit ;\nrename (;\ndisplay 1;\n#delimit cr';
+
+      expect(command_names(source)).toEqual(['rename', 'display']);
+      expect(varlist_names(source)).toEqual(['(']);
+    });
+
+    test('balanced empty parenthesized group is omitted from varlist', () => {
+      expect(varlist_names('mycmd () after')).toEqual(['after']);
     });
 
     test('unterminated assignment expression does not swallow following statements', () => {
