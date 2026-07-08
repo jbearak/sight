@@ -459,6 +459,29 @@ mata: foo();
     ).toBe(LanguageContext.MATA);
   });
 
+  it('produces no overlapping range for a trailing same-line inline opener', () => {
+    const my_content = `#delimit ;
+mata: st_local("b",
+"2"); python: x = 1;
+#delimit cr
+`;
+    const my_lex_result = lexer.tokenize(my_content);
+    tracker.initialize_from_tokens(my_lex_result.tokens, my_content);
+
+    const my_ranges = tracker.get_all_context_ranges();
+    // The trailing inline python: is swallowed into the mata whole-line span,
+    // so ranges stay non-overlapping and the mata continuation content on the
+    // terminator line still resolves to mata (not python).
+    for (let my_i = 1; my_i < my_ranges.length; my_i++) {
+      const my_prev = my_ranges[my_i - 1];
+      const my_curr = my_ranges[my_i];
+      expect(my_curr.range.start.line).toBeGreaterThan(my_prev.range.end.line);
+    }
+    expect(
+      tracker.get_context_at_position({ line: 2, character: 1 })
+    ).toBe(LanguageContext.MATA);
+  });
+
   it('still opens a real block opener trailing an inline terminator (regression #309)', () => {
     // A bare `mata:` block opener after an inline mata statement's `;` on the
     // same #delimit ; line must still open its multi-line block; the inline

@@ -287,21 +287,33 @@ describe('inline_embedded_statement_end', () => {
         expect(my_end.end_line).toBe(parser_inline_end_line(my_source));
     });
 
-    it('stops at the terminator, not swallowing a trailing same-line token', () => {
-        // `"2"); python: x = 1;` — end_index is the mata statement's own `;`
-        // (index just before the trailing PYTHON_INLINE), so the context
-        // tracker's main loop still gets to process whatever follows on the
-        // terminator line rather than the helper swallowing it by line number
-        // (which would also drop a trailing block opener's body).
+    it('swallows a trailing same-line INLINE opener to avoid an overlapping range', () => {
+        // `"2"); python: x = 1;` — the trailing inline python: shares the
+        // terminator line, so it is consumed into the mata whole-line span
+        // rather than spawning a second overlapping range.
         const my_source =
             '#delimit ;\nmata: st_local("b",\n"2"); python: x = 1;\n';
         const { tokens } = lexer.tokenize(my_source);
         const my_opener = opener_index(tokens);
         const my_end = inline_embedded_statement_end(tokens, my_opener);
         expect(my_end.end_line).toBe(2);
+        // Nothing after end_index starts on the terminator line.
+        const my_next = tokens[my_end.end_index + 1];
+        if (my_next && my_next.type !== 'EOF') {
+            expect(my_next.range.start.line).toBeGreaterThan(2);
+        }
+    });
+
+    it('stops before a trailing same-line BLOCK opener so its body is processed', () => {
+        // `st_local("a", "1"); mata:` — the trailing bare `mata:` is a block
+        // opener; it must NOT be swallowed, or the whole block would lose its
+        // context. end_index stays at the inline statement's own `;`.
+        const my_source =
+            '#delimit ;\nmata: st_local("a", "1"); mata:\nx = 1;\nend;\n';
+        const { tokens } = lexer.tokenize(my_source);
+        const my_opener = opener_index(tokens);
+        const my_end = inline_embedded_statement_end(tokens, my_opener);
         expect(tokens[my_end.end_index].type).toBe('STATEMENT_TERMINATOR');
-        expect(tokens[my_end.end_index].value).toBe(';');
-        // The trailing PYTHON_INLINE is left for the caller, not consumed.
-        expect(tokens[my_end.end_index + 1].type).toBe('PYTHON_INLINE');
+        expect(tokens[my_end.end_index + 1].type).toBe('MATA_START');
     });
 });

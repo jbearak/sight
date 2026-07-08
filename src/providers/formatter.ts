@@ -257,8 +257,17 @@ export class CodeFormatter {
                             if (index === 0) {
                                 // First line (opening delimiter): add placeholder indentation
                                 return leading_indent + line;
-                            } else if (index === block_lines.length - 1 && line.trim() === expected_end_delimiter) {
-                                // Last line is the end delimiter: add placeholder indentation
+                            } else if (
+                                !my_block_info.range.is_single_line &&
+                                index === block_lines.length - 1 &&
+                                line.trim() === expected_end_delimiter
+                            ) {
+                                // Last line is the end delimiter: add placeholder indentation.
+                                // Inline (`mata:`/`python:`) ranges have no `end`
+                                // delimiter line; under #delimit ; they can span
+                                // multiple physical lines, and a continuation line
+                                // that happens to trim to "end" must be preserved
+                                // as-is, not reindented as a block terminator.
                                 return leading_indent + line;
                             } else {
                                 // Middle lines (embedded content): preserve as-is

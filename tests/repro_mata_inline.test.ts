@@ -82,15 +82,58 @@ display "done"
                 insertSpaces: true,
             });
 
-            if (edits.length > 0) {
-                const out = edits[0].newText;
-                // Content preserved: both continuation lines survive intact and
-                // the terminator is not duplicated or dropped.
-                expect(out).toContain('mata: st_local("b",');
-                expect(out).toContain('"2");');
-                expect(out).not.toContain('"2");;');
-                expect(out).toContain('display "done"');
-            }
+            expect(edits.length).toBeGreaterThan(0);
+            const out = edits[0].newText;
+            // Content preserved: both continuation lines survive intact and
+            // the terminator is not duplicated or dropped.
+            expect(out).toContain('mata: st_local("b",');
+            expect(out).toContain('"2");');
+            expect(out).not.toContain('"2");;');
+            expect(out).toContain('display "done"');
+        }
+    );
+
+    for_each_formatter_mode(
+        'formatter preserves a bare `end` continuation line of a #delimit ; inline mata (issue #309)',
+        (mode) => {
+            // A continuation line trimming to exactly `end` must not be
+            // reindented as a block terminator: inline ranges have no `end`.
+            const source = `#delimit ;
+mata: foo(bar,
+end
+) ;
+#delimit cr
+`;
+
+            const lexer = new StataLexer();
+            const lex_result = lexer.tokenize(source);
+            const parser = new StataParser();
+            const parse_result = parser.parse(lex_result.tokens);
+
+            const context_tracker = new ContextTracker();
+            context_tracker.initialize_from_tokens(lex_result.tokens, source);
+            const context_ranges = context_tracker.get_all_context_ranges();
+
+            const config = create_formatter_config(mode);
+            const formatter = new CodeFormatter(config);
+            const document_state = {
+                content: source,
+                tokens: lex_result.tokens,
+                ast: parse_result.ast,
+                line_offsets: lex_result.line_offsets,
+                context_ranges: context_ranges,
+            };
+
+            const edits = formatter.format(document_state as any, {
+                tabSize: 4,
+                insertSpaces: true,
+            });
+
+            expect(edits.length).toBeGreaterThan(0);
+            const out = edits[0].newText;
+            expect(out).toContain('mata: foo(bar,');
+            expect(out).toContain('end');
+            expect(out).toContain(') ;');
         }
     );
 });
