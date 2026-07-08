@@ -37,15 +37,22 @@ describe('wrapped option context is stable (property, #310)', () => {
                         character: single.length,
                     });
 
-                    // (b) ;-mode wrap: comma ends line 1, option on line 2.
-                    const semi = `#delimit ;\n${command} ${variable},\n    ${option_fragment}`;
+                    // (b) ;-mode wrap, with a following statement so the cursor
+                    // sits before a REAL terminator (not EOF) — this also guards
+                    // the "cursor immediately before the statement terminator"
+                    // anchor case.
+                    const semi =
+                        `#delimit ;\n${command} ${variable},\n` +
+                        `    ${option_fragment} ;\ndisplay 1 ;`;
                     const semi_ctx = option_context(semi, {
                         line: 2,
                         character: 4 + option_fragment.length,
                     });
 
-                    // (c) cr-mode /// wrap.
-                    const cr = `${command} ${variable}, ///\n    ${option_fragment}`;
+                    // (c) cr-mode /// wrap, again with a following statement.
+                    const cr =
+                        `${command} ${variable}, ///\n` +
+                        `    ${option_fragment}\ndisplay 1`;
                     const cr_ctx = option_context(cr, {
                         line: 1,
                         character: 4 + option_fragment.length,

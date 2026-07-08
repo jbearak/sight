@@ -133,6 +133,41 @@ describe('detect_completion_context — wrapped statements (issue #310)', () => 
     });
 });
 
+describe('detect_completion_context — cursor before a mid-document terminator (#310)', () => {
+    it('detects option context with the cursor immediately before a following ; (semicolon mode)', () => {
+        // Content continues after the statement, so the token right after the
+        // cursor is a real STATEMENT_TERMINATOR, not EOF. The statement-start
+        // walk must not self-match that terminator as its own boundary.
+        const source = '#delimit ;\nregress y x ,\nrobust;\ndisplay 1 ;';
+        const context = context_of(source, { line: 2, character: 6 });
+        expect(context.type).toBe('option');
+        if (context.type === 'option') {
+            expect(context.command).toBe('regress');
+        }
+    });
+
+    it('detects option context with the cursor before a following newline terminator (/// wrap)', () => {
+        const source = 'regress y x, ///\n    nocon\ndisplay 1';
+        const context = context_of(source, { line: 1, character: 9 });
+        expect(context.type).toBe('option');
+        if (context.type === 'option') {
+            expect(context.command).toBe('regress');
+        }
+    });
+});
+
+describe('detect_completion_context — long wrapped varlist (#310)', () => {
+    it('still detects option context for a wrapped statement with hundreds of tokens', () => {
+        const the_vars = Array.from({ length: 800 }, (_, i) => `x${i}`).join(' ');
+        const source = `#delimit ;\nregress y ${the_vars},\n    `;
+        const context = context_of(source, { line: 2, character: 4 });
+        expect(context.type).toBe('option');
+        if (context.type === 'option') {
+            expect(context.command).toBe('regress');
+        }
+    });
+});
+
 describe('detect_completion_context — multiple statements on one line (#310)', () => {
     it('attributes option context to the second statement, not the first', () => {
         // `display 1; reg y x, |` on one physical line under #delimit ;

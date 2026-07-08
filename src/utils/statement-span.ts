@@ -1,7 +1,7 @@
 import { Position } from 'vscode-languageserver';
 import { Token } from '../types';
 import { is_swallowed_continuation_terminator } from './continuation';
-import { find_last_token_starting_at_or_before } from './token-utils';
+import { find_last_token_starting_before } from './token-utils';
 
 /**
  * Inclusive physical-line span, zero-based LSP line numbers.
@@ -250,14 +250,15 @@ const STATEMENT_LEADING_TRIVIA_TYPES: ReadonlySet<string> = new Set([
 /**
  * Upper bound on how many tokens the backward walk inspects before
  * giving up and reporting "no usable start" (caller then falls back to
- * physical-line behavior). A real wrapped statement never approaches
- * this; the cap only fires on pathological or embedded input — most
- * importantly a `#delimit ;` bare `mata`/`end` block, whose embedded
+ * physical-line behavior). A real wrapped statement — even a very long
+ * wrapped varlist (~2000 variables) — stays well under this; the cap
+ * only fires on pathological input, e.g. an unterminated `#delimit ;`
+ * statement, or a `#delimit ;` bare `mata`/`end` block whose embedded
  * content carries NO boundary token (no STATEMENT_TERMINATOR, no braces,
- * no DELIMIT_DIRECTIVE), so an uncapped walk would scan the whole block
- * on every keystroke.
+ * no DELIMIT_DIRECTIVE) reached via a non-STATA-gated caller. It bounds
+ * per-keystroke cost without truncating realistic statements.
  */
-const MAX_STATEMENT_TOKENS = 512;
+const MAX_STATEMENT_TOKENS = 4096;
 
 /**
  * The first token of the logical statement that contains `position`.
@@ -301,9 +302,14 @@ export function logical_statement_start(
         return undefined;
     }
 
-    let search_index = find_last_token_starting_at_or_before(tokens, position);
-    // Never anchor on EOF (it starts at or before every cursor at the
-    // end of the file); step back to the last real token.
+    // Anchor on the last token starting STRICTLY BEFORE the cursor, not
+    // at-or-before: a boundary token whose start equals the cursor (the
+    // common "cursor at end of a line, immediately before its `;`/newline
+    // terminator" position) is the current statement's terminator, not a
+    // token the cursor is inside. Anchoring at-or-before would self-match
+    // that terminator as the boundary and wrongly report "no statement".
+    let search_index = find_last_token_starting_before(tokens, position);
+    // Defensive: never anchor on EOF.
     while (search_index >= 0 && tokens[search_index].type === 'EOF') {
         search_index--;
     }
