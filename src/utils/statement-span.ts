@@ -1,5 +1,7 @@
+import { Position } from 'vscode-languageserver';
 import { Token } from '../types';
 import { is_swallowed_continuation_terminator } from './continuation';
+import { find_last_token_starting_at_or_before } from './token-utils';
 
 /**
  * Inclusive physical-line span, zero-based LSP line numbers.
@@ -213,4 +215,146 @@ export function inline_embedded_statement_end(
             : my_last_content_index;
 
     return { end_index, end_line };
+}
+
+/**
+ * Token types after which the next significant token begins a new
+ * statement (mirrors STATEMENT_BOUNDARY_TYPES in
+ * src/providers/command-position.ts): a real statement terminator, a
+ * `{`/`}` block delimiter, or a `#delimit` mode switch. A
+ * STATEMENT_TERMINATOR is only a boundary when it is a REAL end — a
+ * `\n` swallowed by a preceding `///` continuation is trivia, not a
+ * boundary (see `is_swallowed_continuation_terminator`).
+ */
+const LOGICAL_BOUNDARY_TYPES: ReadonlySet<string> = new Set([
+    'STATEMENT_TERMINATOR',
+    'LBRACE',
+    'RBRACE',
+    'DELIMIT_DIRECTIVE',
+]);
+
+/**
+ * Trivia skipped when locating the first real token of a statement
+ * (after a boundary). Same membership as LEADING_TRIVIA_TYPES minus the
+ * `#delimit` switch, which is itself a boundary and never leads a
+ * statement body.
+ */
+const STATEMENT_LEADING_TRIVIA_TYPES: ReadonlySet<string> = new Set([
+    'COMMENT_LINE',
+    'COMMENT_BLOCK',
+    'CONTINUATION',
+    'WHITESPACE',
+    'STATEMENT_TERMINATOR',
+]);
+
+/**
+ * Upper bound on how many tokens the backward walk inspects before
+ * giving up and reporting "no usable start" (caller then falls back to
+ * physical-line behavior). A real wrapped statement never approaches
+ * this; the cap only fires on pathological or embedded input — most
+ * importantly a `#delimit ;` bare `mata`/`end` block, whose embedded
+ * content carries NO boundary token (no STATEMENT_TERMINATOR, no braces,
+ * no DELIMIT_DIRECTIVE), so an uncapped walk would scan the whole block
+ * on every keystroke.
+ */
+const MAX_STATEMENT_TOKENS = 512;
+
+/**
+ * The first token of the logical statement that contains `position`.
+ */
+export interface LogicalStatementStart {
+    /** Index into `tokens` of the statement's first significant token. */
+    index: number;
+    /** Zero-based line of that token's start. */
+    line: number;
+    /** Zero-based character of that token's start. */
+    character: number;
+}
+
+/**
+ * Locate the first token of the logical statement containing the cursor
+ * `position`, walking backward over the token stream (issue #310).
+ *
+ * A logical statement can span several physical lines: `#delimit ;`
+ * makes newlines insignificant, and `///` continues a line under
+ * `#delimit cr`. Physical-line-only heuristics therefore lose the
+ * command on wrapped statements; this walk recovers it from the tokens.
+ *
+ * The cursor token is found in O(log n) via
+ * `find_last_token_starting_at_or_before` (shared with hover). The walk
+ * then scans backward to the nearest real boundary
+ * (LOGICAL_BOUNDARY_TYPES), skipping `///`-swallowed `\n` terminators,
+ * and returns the first non-trivia token after that boundary (or the
+ * first token of the file). The scan is bounded by MAX_STATEMENT_TOKENS.
+ *
+ * Returns `undefined` when there is no usable start — empty/undefined
+ * tokens, no token at or before the cursor, the cap is hit, or the
+ * boundary is immediately before the cursor with no statement token
+ * between them (e.g. a fresh blank line right after a terminator). The
+ * caller falls back to physical-line behavior in every such case.
+ */
+export function logical_statement_start(
+    tokens: Token[] | undefined,
+    position: Position
+): LogicalStatementStart | undefined {
+    if (tokens === undefined || tokens.length === 0) {
+        return undefined;
+    }
+
+    let search_index = find_last_token_starting_at_or_before(tokens, position);
+    // Never anchor on EOF (it starts at or before every cursor at the
+    // end of the file); step back to the last real token.
+    while (search_index >= 0 && tokens[search_index].type === 'EOF') {
+        search_index--;
+    }
+    if (search_index < 0) {
+        return undefined;
+    }
+
+    // Walk backward to the token index of the nearest real boundary, or
+    // -1 for the start of the file. Bounded by MAX_STATEMENT_TOKENS.
+    let boundary_index = -1;
+    let my_steps = 0;
+    for (let my_i = search_index; my_i >= 0; my_i--) {
+        if (++my_steps > MAX_STATEMENT_TOKENS) {
+            return undefined;
+        }
+        const my_token = tokens[my_i];
+        if (
+            is_swallowed_continuation_terminator(
+                my_token,
+                my_i > 0 && tokens[my_i - 1].type === 'CONTINUATION'
+            )
+        ) {
+            // Swallowed `///` newline: trivia, keep walking.
+            continue;
+        }
+        if (LOGICAL_BOUNDARY_TYPES.has(my_token.type)) {
+            boundary_index = my_i;
+            break;
+        }
+    }
+
+    // First non-trivia token after the boundary, not past the cursor.
+    for (
+        let my_i = boundary_index + 1;
+        my_i <= search_index;
+        my_i++
+    ) {
+        const my_token = tokens[my_i];
+        if (my_token.type === 'EOF') {
+            break;
+        }
+        if (!STATEMENT_LEADING_TRIVIA_TYPES.has(my_token.type)) {
+            return {
+                index: my_i,
+                line: my_token.range.start.line,
+                character: my_token.range.start.character,
+            };
+        }
+    }
+
+    // Boundary sits right before the cursor with only trivia between:
+    // no statement has started yet (blank line after a terminator).
+    return undefined;
 }
