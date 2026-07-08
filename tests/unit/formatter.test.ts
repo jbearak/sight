@@ -91,6 +91,45 @@ summarize age`;
       expect(my_formatted).toContain('age');
       expect(my_formatted).toContain('robust');
     });
+
+    for_each_formatter_mode('should preserve unclosed option argument at EOF', (mode) => {
+      const my_source = 'reg y x, vce(seed(123)';
+      const config = create_formatter_config(mode);
+      const mode_formatter = new CodeFormatter();
+      const my_formatted = format_document(my_source, lexer, parser, mode_formatter, config);
+
+      const my_expected = mode === 'source-preserving'
+        ? my_source
+        : 'reg y x, vce(seed(123)\n';
+      expect(my_formatted).toBe(my_expected);
+    });
+
+    for_each_formatter_mode('should preserve unclosed option argument before newline terminator', (mode) => {
+      const my_source = `reg y x, vce(seed(123)
+display 1`;
+      const config = create_formatter_config(mode);
+      const mode_formatter = new CodeFormatter();
+      const my_formatted = format_document(my_source, lexer, parser, mode_formatter, config);
+
+      const my_expected = mode === 'source-preserving'
+        ? my_source
+        : `reg y x, vce(seed(123
+display 1
+`;
+      expect(my_formatted).toBe(my_expected);
+    });
+
+    for_each_formatter_mode('should preserve unclosed option argument before continuation EOF', (mode) => {
+      const my_source = 'reg y x, vce(seed(123) ///';
+      const config = create_formatter_config(mode);
+      const mode_formatter = new CodeFormatter();
+      const my_formatted = format_document(my_source, lexer, parser, mode_formatter, config);
+
+      const my_expected = mode === 'source-preserving'
+        ? my_source
+        : 'reg y x, vce(seed(123)\n';
+      expect(my_formatted).toBe(my_expected);
+    });
   });
 
   describe('embedded content preservation', () => {

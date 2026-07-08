@@ -315,7 +315,8 @@ export class PrettyPrinter {
         let result = option.name;
 
         if (option.argument !== undefined) {
-            result += `(${format_expression_spacing(option.argument)})`;
+            const close_paren = option.argument_unclosed ? '' : ')';
+            result += `(${format_expression_spacing(option.argument)}${close_paren}`;
         }
 
         return result;
