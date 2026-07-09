@@ -62,6 +62,7 @@ const SERVER_TOP_LEVEL_KEYS = [
     'indexWorkspace',
     'adoPaths',
     'exclude',
+    'workspace',
     'lineCommentStyle',
     'debug',
     'diagnostics',
@@ -114,6 +115,20 @@ function warn_unknown_key(
         code: 'unknown-key',
         key_path,
         message: `Unknown project config key '${key_path}.${raw_key}'; ignoring`,
+    });
+}
+
+function warn_compat_collision(
+    canonical_path: string,
+    alias_path: string,
+    warn?: WarningSink
+): void {
+    warn?.({
+        code: 'normalized-key-collision',
+        key_path: canonical_path,
+        message:
+            `Both '${canonical_path}' and compatibility alias '${alias_path}' ` +
+            `are set; using '${canonical_path}'`,
     });
 }
 
@@ -295,7 +310,7 @@ function map_diagnostics(
 ): NonNullable<DeepPartial<StataLSPConfig>['diagnostics']> | undefined {
     warn_unknown_keys(
         raw,
-        ['enabled', 'indentation', 'severity'],
+        ['enabled', 'indentation', 'severity', 'undefinedVariableSeverity'],
         'diagnostics',
         warn
     );
@@ -317,6 +332,8 @@ function map_diagnostics(
         'diagnostics.severity',
         warn
     );
+    const mapped_severity: JsonObject = {};
+    let canonical_undefined_variable: unknown;
     if (severity) {
         warn_unknown_keys(
             severity,
@@ -324,7 +341,6 @@ function map_diagnostics(
             'diagnostics.severity',
             warn
         );
-        const mapped_severity: JsonObject = {};
         for (const my_key of DIAGNOSTIC_SEVERITY_KEYS) {
             const value = pick_key(
                 severity,
@@ -333,6 +349,9 @@ function map_diagnostics(
                 `diagnostics.severity.${my_key}`
             );
             if (value !== undefined) {
+                if (my_key === 'undefinedVariable') {
+                    canonical_undefined_variable = value;
+                }
                 const normalized = normalize_severity_value<Severity>(
                     value,
                     `diagnostics.severity.${my_key}`,
@@ -344,8 +363,34 @@ function map_diagnostics(
                 }
             }
         }
-        maybe_assign_object(mapped, 'severity', mapped_severity);
     }
+
+    const legacy_undefined_variable = pick_key(
+        raw,
+        'undefinedVariableSeverity',
+        warn,
+        'diagnostics.undefinedVariableSeverity'
+    );
+    if (legacy_undefined_variable !== undefined) {
+        if (canonical_undefined_variable !== undefined) {
+            warn_compat_collision(
+                'diagnostics.severity.undefinedVariable',
+                'diagnostics.undefinedVariableSeverity',
+                warn
+            );
+        } else {
+            const normalized = normalize_severity_value<Severity>(
+                legacy_undefined_variable,
+                'diagnostics.undefinedVariableSeverity',
+                SEVERITIES,
+                warn
+            );
+            if (normalized) {
+                mapped_severity.undefinedVariable = normalized;
+            }
+        }
+    }
+    maybe_assign_object(mapped, 'severity', mapped_severity);
 
     return Object.keys(mapped).length > 0
         ? mapped as NonNullable<DeepPartial<StataLSPConfig>['diagnostics']>
@@ -490,6 +535,8 @@ function map_cross_file(
             'maxCachedScopes',
             'maxCachedForwardClosures',
             'diagnostics',
+            'missingFileSeverity',
+            'caseMismatchSeverity',
         ],
         'crossFile',
         warn
@@ -593,6 +640,9 @@ function map_cross_file(
         'crossFile.diagnostics',
         warn
     );
+    const mapped_diagnostics: JsonObject = {};
+    let canonical_missing_file: unknown;
+    let canonical_case_mismatch: unknown;
     if (diagnostics) {
         warn_unknown_keys(
             diagnostics,
@@ -600,7 +650,6 @@ function map_cross_file(
             'crossFile.diagnostics',
             warn
         );
-        const mapped_diagnostics: JsonObject = {};
         for (const [public_key, internal_key] of [
             ['missingFile', 'missing_file'],
             ['maxDepth', 'max_depth'],
@@ -609,6 +658,9 @@ function map_cross_file(
             const key_path = `crossFile.diagnostics.${public_key}`;
             const value = pick_key(diagnostics, public_key, warn, key_path);
             if (value !== undefined) {
+                if (public_key === 'missingFile') {
+                    canonical_missing_file = value;
+                }
                 const normalized = normalize_severity_value<CrossFileSeverity>(
                     value,
                     key_path,
@@ -629,6 +681,7 @@ function map_cross_file(
             case_mismatch_key_path
         );
         if (case_mismatch_value !== undefined) {
+            canonical_case_mismatch = case_mismatch_value;
             const normalized = normalize_severity_value<CrossFileCaseMismatchSeverity>(
                 case_mismatch_value,
                 case_mismatch_key_path,
@@ -639,8 +692,60 @@ function map_cross_file(
                 mapped_diagnostics['case_mismatch'] = normalized;
             }
         }
-        maybe_assign_object(mapped, 'diagnostics', mapped_diagnostics);
     }
+
+    const legacy_missing_file = pick_key(
+        raw,
+        'missingFileSeverity',
+        warn,
+        'crossFile.missingFileSeverity'
+    );
+    if (legacy_missing_file !== undefined) {
+        if (canonical_missing_file !== undefined) {
+            warn_compat_collision(
+                'crossFile.diagnostics.missingFile',
+                'crossFile.missingFileSeverity',
+                warn
+            );
+        } else {
+            const normalized = normalize_severity_value<CrossFileSeverity>(
+                legacy_missing_file,
+                'crossFile.missingFileSeverity',
+                CROSS_FILE_SEVERITIES,
+                warn
+            );
+            if (normalized) {
+                mapped_diagnostics.missing_file = normalized;
+            }
+        }
+    }
+
+    const legacy_case_mismatch = pick_key(
+        raw,
+        'caseMismatchSeverity',
+        warn,
+        'crossFile.caseMismatchSeverity'
+    );
+    if (legacy_case_mismatch !== undefined) {
+        if (canonical_case_mismatch !== undefined) {
+            warn_compat_collision(
+                'crossFile.diagnostics.caseMismatch',
+                'crossFile.caseMismatchSeverity',
+                warn
+            );
+        } else {
+            const normalized = normalize_severity_value<CrossFileCaseMismatchSeverity>(
+                legacy_case_mismatch,
+                'crossFile.caseMismatchSeverity',
+                CROSS_FILE_CASE_MISMATCH_SEVERITIES,
+                warn
+            );
+            if (normalized) {
+                mapped_diagnostics.case_mismatch = normalized;
+            }
+        }
+    }
+    maybe_assign_object(mapped, 'diagnostics', mapped_diagnostics);
 
     return Object.keys(mapped).length > 0
         ? mapped as DeepPartial<StataLSPConfig>['cross_file']
@@ -680,13 +785,30 @@ export function map_public_config_to_partial_config(
         }
     }
 
-    const exclude = pick_key(raw, 'exclude', warn, 'exclude');
+    const workspace = object_value(raw, 'workspace', 'workspace', warn);
+    if (workspace) {
+        warn_unknown_keys(workspace, ['exclude'], 'workspace', warn);
+    }
+    const canonical_exclude = workspace
+        ? pick_key(workspace, 'exclude', warn, 'workspace.exclude')
+        : undefined;
+    const legacy_exclude = pick_key(raw, 'exclude', warn, 'exclude');
+    const exclude = canonical_exclude !== undefined
+        ? canonical_exclude
+        : legacy_exclude;
+    if (canonical_exclude !== undefined && legacy_exclude !== undefined) {
+        warn_compat_collision('workspace.exclude', 'exclude', warn);
+    }
     if (exclude !== undefined) {
         if (Array.isArray(exclude)
             && exclude.every((item) => typeof item === 'string')) {
             mapped.exclude = exclude;
         } else {
-            warn_invalid_value('exclude', exclude, warn);
+            warn_invalid_value(
+                canonical_exclude !== undefined ? 'workspace.exclude' : 'exclude',
+                exclude,
+                warn
+            );
         }
     }
 

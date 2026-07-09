@@ -173,10 +173,11 @@ source with generated output (for example, downloaded `.do` files under
 
 You can set this in two places:
 
-- **`sight.toml`** at the project root, as the top-level `exclude` key. This is
+- **`sight.toml`** at the project root, as `workspace.exclude`. This is
   read by both the editor (LSP server) and the `sight check` CLI:
 
   ```toml
+  [workspace]
   exclude = ["output/**", "**/_generated/**", "**/*.gen.do"]
   ```
 
@@ -312,9 +313,11 @@ canonical spelling wins.
 ```toml
 indexWorkspace = true
 adoPaths = []
-exclude = ["output/**"]
 lineCommentStyle = "//"
 debug = false
+
+[workspace]
+exclude = ["output/**"]
 
 [diagnostics]
 enabled = true
@@ -371,7 +374,7 @@ caseMismatch = "auto"
 | --------------------------------------- | -------------------- | --------------- | ----------------------------------------------------------------------- |
 | `indexWorkspace`                        | boolean              | `true`          | Global workspace-indexing switch                                        |
 | `adoPaths`                              | string array         | `[]`            | Additional ADO search paths                                             |
-| `exclude`                               | string array         | `[]`            | Workspace-relative globs to skip during `sight check` and indexing      |
+| `workspace.exclude`                     | string array         | `[]`            | Workspace-relative globs to skip during `sight check` and indexing      |
 | `lineCommentStyle`                      | `"//"` \| `"*"`      | `"//"`         | Line comment style used when formatting resolves `"line"`               |
 | `debug`                                 | boolean              | `false`         | Enable debug logging                                                    |
 | `diagnostics.enabled`                   | boolean              | `true`          | Enable diagnostics                                                      |
@@ -403,6 +406,9 @@ accepts `"auto"` (not valid for other cross-file severity keys).
 Both `indexWorkspace` and `crossFile.indexWorkspace` default to `true`.
 Workspace indexing runs only when both are enabled; setting either to `false`
 disables it.
+
+The shared canonical paths and permanent compatibility aliases are specified
+in [Shared project configuration schema](shared-config-schema.md).
 
 ## See Also
 

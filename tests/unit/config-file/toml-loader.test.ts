@@ -34,4 +34,33 @@ missingFile = "Info"
             expect(loaded.error).toContain('bad sight.toml');
         }
     });
+
+    it('loads canonical workspace exclusions', () => {
+        const loaded = load_toml_str(
+            '[workspace]\nexclude = ["generated/**"]\n',
+            'test sight.toml'
+        );
+
+        expect(loaded.kind).toBe('loaded');
+        if (loaded.kind === 'loaded') {
+            expect(loaded.partial_config.exclude).toEqual(['generated/**']);
+        }
+    });
+
+    it('honors the root exclude alias when workspace is malformed', () => {
+        const loaded = load_toml_str(
+            'workspace = "bad"\nexclude = ["generated/**"]\n',
+            'test sight.toml'
+        );
+
+        expect(loaded.kind).toBe('loaded');
+        if (loaded.kind === 'loaded') {
+            expect(loaded.partial_config.exclude).toEqual(['generated/**']);
+            expect(loaded.warnings).toContainEqual(expect.objectContaining({
+                code: 'invalid-value',
+                key_path: 'workspace',
+                path: 'test sight.toml',
+            }));
+        }
+    });
 });

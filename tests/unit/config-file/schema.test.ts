@@ -95,6 +95,62 @@ describe('map_public_config_to_partial_config', () => {
         expect(warnings.join('\n')).toContain('exclude');
     });
 
+    it('uses workspace.exclude canonically and keeps root exclude as an alias', () => {
+        const canonical = map_public_config_to_partial_config({
+            workspace: { exclude: ['canonical/**'] },
+        });
+        const legacy = map_public_config_to_partial_config({
+            exclude: ['legacy/**'],
+        });
+
+        expect(canonical.exclude).toEqual(['canonical/**']);
+        expect(legacy.exclude).toEqual(['legacy/**']);
+    });
+
+    it('prefers canonical shared paths over compatibility aliases', () => {
+        const warnings: string[] = [];
+        const result = map_public_config_to_partial_config(
+            {
+                workspace: { exclude: ['canonical/**'] },
+                exclude: ['legacy/**'],
+                diagnostics: {
+                    severity: { undefinedVariable: 'error' },
+                    undefinedVariableSeverity: 'warning',
+                },
+                crossFile: {
+                    diagnostics: {
+                        missingFile: 'off',
+                        caseMismatch: 'auto',
+                    },
+                    missingFileSeverity: 'error',
+                    caseMismatchSeverity: 'warning',
+                },
+            },
+            (warning) => warnings.push(warning.message)
+        );
+
+        expect(result.exclude).toEqual(['canonical/**']);
+        expect(result.diagnostics?.severity?.undefinedVariable).toBe('error');
+        expect(result.cross_file?.diagnostics?.missing_file).toBe('off');
+        expect(result.cross_file?.diagnostics?.case_mismatch).toBe('auto');
+        expect(warnings.filter((warning) => warning.includes('compatibility alias')))
+            .toHaveLength(4);
+    });
+
+    it('accepts Raven diagnostic paths as compatibility aliases', () => {
+        const result = map_public_config_to_partial_config({
+            diagnostics: { undefinedVariableSeverity: 'hint' },
+            crossFile: {
+                missingFileSeverity: 'information',
+                caseMismatchSeverity: 'warning',
+            },
+        });
+
+        expect(result.diagnostics?.severity?.undefinedVariable).toBe('hint');
+        expect(result.cross_file?.diagnostics?.missing_file).toBe('information');
+        expect(result.cross_file?.diagnostics?.case_mismatch).toBe('warning');
+    });
+
     it('warns and ignores colliding aliases when no canonical spelling exists', () => {
         const warnings: string[] = [];
         const result = map_public_config_to_partial_config(

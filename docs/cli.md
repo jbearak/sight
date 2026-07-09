@@ -17,11 +17,11 @@ chains resolve correctly. Positional `PATHS...` only filter which files report
 diagnostics. With no paths, Sight reports every `.do`, `.ado`, `.doh`, and
 `.mata` file under the workspace.
 
-Paths matching the `exclude` setting (see
+Paths matching the `workspace.exclude` setting (see
 [configuration](configuration.md#excluding-files-and-directories)) are skipped
 by both the index and the directory walk. An explicitly-named path
-(`sight check output/foo.do`) is always checked, even when it matches `exclude`;
-exclusion only filters directory walks.
+(`sight check output/foo.do`) is always checked, even when it matches
+`workspace.exclude`; exclusion only filters directory walks.
 
 Options:
 
