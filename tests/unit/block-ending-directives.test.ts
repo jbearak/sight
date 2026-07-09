@@ -59,6 +59,22 @@ describe('block-ending comment directives', () => {
         }
     });
 
+    test('block-ending @lsp-ignore-next on the last child of nested blocks targets the statement after all closers', () => {
+        // Lines: 0 `if 1 {`, 1 `while 1 {`, 2 `display 1`, 3 directive,
+        // 4 `}`, 5 `}`, 6 `list missing_var`. The while block is the last child
+        // of the if block, so the directive must reach line 6 (the statement
+        // after both closers), matching pre-#304 forward-flow behavior.
+        const source =
+            'if 1 {\n    while 1 {\n        display 1\n        // @lsp-ignore-next\n    }\n}\nlist missing_var\n';
+        for (const with_tokens of [true, false]) {
+            const result = analyze(source, { with_tokens });
+            expect(result.ignored_lines.has(6)).toBe(true);
+            expect(
+                result.diagnostics.filter(d => d.message.includes('missing_var'))
+            ).toHaveLength(0);
+        }
+    });
+
     test('@lsp-variables before a closer suppresses the later undefined-variable warning', () => {
         const with_directive =
             'if 1 {\n    display 1\n    // @lsp-variables income_usd\n}\nlist income_usd\n';
