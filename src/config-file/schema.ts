@@ -486,6 +486,9 @@ function map_cross_file(
             'maxForwardDepth',
             'maxChainDepth',
             'maxCalleeRevalidations',
+            'maxCachedFiles',
+            'maxCachedScopes',
+            'maxCachedForwardClosures',
             'diagnostics',
         ],
         'crossFile',
@@ -557,6 +560,30 @@ function map_cross_file(
         raw,
         'maxCalleeRevalidations',
         'crossFile.maxCalleeRevalidations',
+        warn
+    );
+    assign_number(
+        mapped,
+        'max_cached_files',
+        raw,
+        'maxCachedFiles',
+        'crossFile.maxCachedFiles',
+        warn
+    );
+    assign_number(
+        mapped,
+        'max_cached_scopes',
+        raw,
+        'maxCachedScopes',
+        'crossFile.maxCachedScopes',
+        warn
+    );
+    assign_number(
+        mapped,
+        'max_cached_forward_closures',
+        raw,
+        'maxCachedForwardClosures',
+        'crossFile.maxCachedForwardClosures',
         warn
     );
 

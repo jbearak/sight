@@ -310,6 +310,16 @@ export function validate_comment_formatting_config(
             validated_config.cross_file.max_callee_revalidations = cross_file.max_callee_revalidations;
         }
 
+        if (typeof cross_file.max_cached_files === 'number' && cross_file.max_cached_files > 0) {
+            validated_config.cross_file.max_cached_files = cross_file.max_cached_files;
+        }
+        if (typeof cross_file.max_cached_scopes === 'number' && cross_file.max_cached_scopes > 0) {
+            validated_config.cross_file.max_cached_scopes = cross_file.max_cached_scopes;
+        }
+        if (typeof cross_file.max_cached_forward_closures === 'number' && cross_file.max_cached_forward_closures > 0) {
+            validated_config.cross_file.max_cached_forward_closures = cross_file.max_cached_forward_closures;
+        }
+
         if (cross_file.diagnostics) {
             const valid_severities = ['error', 'warning', 'information', 'info', 'off'];
             const valid_case_mismatch_severities = [

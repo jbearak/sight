@@ -356,6 +356,9 @@ maxBackwardDepth = 10
 maxForwardDepth = 10
 maxChainDepth = 20
 maxCalleeRevalidations = 10
+maxCachedFiles = 2000
+maxCachedScopes = 1000
+maxCachedForwardClosures = 2000
 
 [crossFile.diagnostics]
 missingFile = "warning"
@@ -385,6 +388,9 @@ caseMismatch = "auto"
 | `crossFile.maxForwardDepth`             | number               | `10`            | Maximum recursion depth for forward scope resolution                    |
 | `crossFile.maxChainDepth`               | number               | `20`            | Maximum combined depth for forward + backward resolution                |
 | `crossFile.maxCalleeRevalidations`      | number               | `10`            | Maximum number of open callee documents to revalidate per caller change |
+| `crossFile.maxCachedFiles`              | number               | `2000`          | LRU capacity of the parsed-file cache. A memory-safety backstop: eviction only costs recomputation, never correctness. Very low values degrade performance on deep chains. |
+| `crossFile.maxCachedScopes`             | number               | `1000`          | LRU capacity of the resolved-scope cache                                 |
+| `crossFile.maxCachedForwardClosures`    | number               | `2000`          | LRU capacity of the forward-closure memo (see docs/cross-file.md)        |
 | `crossFile.assumeCallSite`              | `"end"` \| `"start"` | `"end"`         | Where to assume call site when not specified and inference fails        |
 | `crossFile.diagnostics.missingFile`     | severity             | `"warning"`     | Severity for missing directive file diagnostics                         |
 | `crossFile.diagnostics.callSiteIdentification` | severity      | `"information"` | Severity for call site identification diagnostics                       |

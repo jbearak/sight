@@ -168,6 +168,157 @@ export class LRUCache<K, V> implements ILRUCache<K, V> {
 }
 
 /**
+ * Options for BoundedLruMap.
+ */
+export interface BoundedLruMapOptions<K, V> {
+    /**
+     * Called synchronously for CAPACITY evictions only (a set() of a new
+     * key at capacity, or a set_max_size() shrink) — never for explicit
+     * delete()/clear(). Must be synchronous and must not re-enter this
+     * map: callers rely on eviction side effects completing before
+     * set()/set_max_size() return (e.g. secondary-index pruning read back
+     * immediately after a set()). Must not throw: there is deliberately
+     * no try/catch (fail-fast), so an exception propagates out of
+     * set()/set_max_size() AFTER the victim was removed but BEFORE the
+     * new entry was inserted — the write is lost. Keep hooks infallible
+     * (Map/Set deletes, counter bumps).
+     */
+    on_evict?: (key: K, value: V) => void;
+}
+
+/**
+ * Strict recency-LRU map with bounded capacity (issue #294).
+ *
+ * Unlike LRUCache above (generational scoring, O(n) eviction scan), this
+ * is a plain recency LRU over Map insertion order with O(1) eviction,
+ * plus an eviction callback for secondary-index cleanup. Used to bound
+ * the long-lived cross-file caches (ScopeResolver.file_cache /
+ * scope_cache, ForwardScopeResolver.forward_closure_memo).
+ *
+ * Recency contract: get() and touch() promote; peek()/has() and all
+ * iteration are recency-neutral, so validation/invalidation scans never
+ * perturb eviction order.
+ */
+export class BoundedLruMap<K, V> {
+    private map: Map<K, V> = new Map();
+    private max_size: number;
+    private readonly on_evict?: (key: K, value: V) => void;
+
+    constructor(max_size: number, options?: BoundedLruMapOptions<K, V>) {
+        this.max_size = Math.max(1, Math.floor(max_size));
+        this.on_evict = options?.on_evict;
+    }
+
+    /** Cache read that promotes the key to most-recently-used. */
+    get(key: K): V | undefined {
+        if (!this.map.has(key)) {
+            return undefined;
+        }
+        const value = this.map.get(key) as V;
+        this.map.delete(key);
+        this.map.set(key, value);
+        return value;
+    }
+
+    /** Recency-neutral read (probes, validation scans, bookkeeping). */
+    peek(key: K): V | undefined {
+        return this.map.get(key);
+    }
+
+    /** Recency-neutral membership check. */
+    has(key: K): boolean {
+        return this.map.has(key);
+    }
+
+    /**
+     * Promote an existing key to most-recently-used without reading it.
+     * Use after a peek() once the peeked entry is actually served.
+     * No-op for absent keys.
+     */
+    touch(key: K): void {
+        if (!this.map.has(key)) {
+            return;
+        }
+        const value = this.map.get(key) as V;
+        this.map.delete(key);
+        this.map.set(key, value);
+    }
+
+    /**
+     * Insert or update; promotes to most-recently-used. Inserting a NEW
+     * key at capacity first evicts the least-recently-used entry and
+     * fires on_evict for it. Updating an existing key never evicts.
+     */
+    set(key: K, value: V): this {
+        if (this.map.has(key)) {
+            this.map.delete(key);
+        } else if (this.map.size >= this.max_size) {
+            this.evict_oldest();
+        }
+        this.map.set(key, value);
+        return this;
+    }
+
+    /** Explicit removal — never fires on_evict. */
+    delete(key: K): boolean {
+        return this.map.delete(key);
+    }
+
+    /** Explicit bulk removal — never fires on_evict. */
+    clear(): void {
+        this.map.clear();
+    }
+
+    get size(): number {
+        return this.map.size;
+    }
+
+    get capacity(): number {
+        return this.max_size;
+    }
+
+    /**
+     * Change the capacity at runtime. Shrinking below the current size
+     * evicts LRU-first down to the new capacity, firing on_evict per
+     * evicted entry; growing only updates the limit.
+     */
+    set_max_size(new_max_size: number): void {
+        this.max_size = Math.max(1, Math.floor(new_max_size));
+        while (this.map.size > this.max_size) {
+            this.evict_oldest();
+        }
+    }
+
+    /** Recency-neutral iteration in LRU-first order. */
+    keys(): IterableIterator<K> {
+        return this.map.keys();
+    }
+
+    values(): IterableIterator<V> {
+        return this.map.values();
+    }
+
+    entries(): IterableIterator<[K, V]> {
+        return this.map.entries();
+    }
+
+    [Symbol.iterator](): IterableIterator<[K, V]> {
+        return this.map[Symbol.iterator]();
+    }
+
+    private evict_oldest(): void {
+        const oldest = this.map.keys().next();
+        if (oldest.done) {
+            return;
+        }
+        const oldest_key = oldest.value;
+        const oldest_value = this.map.get(oldest_key) as V;
+        this.map.delete(oldest_key);
+        this.on_evict?.(oldest_key, oldest_value);
+    }
+}
+
+/**
  * Completion Prefix Cache
  *
  * Specialized LRU cache for completion prefix lookups.

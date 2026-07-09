@@ -151,6 +151,17 @@ the resolver reads referenced parent files from disk (even if they are not
 open) and **recursively follows the chain** to build a scope. Results are
 cached and invalidated when relevant files change.
 
+The long-lived caches behind this (the parsed-file cache, the resolved-scope
+cache, and the forward-closure memo) are bounded LRUs (issue #294), sized by
+`crossFile.maxCachedFiles` / `maxCachedScopes` / `maxCachedForwardClosures`
+(defaults 2000 / 1000 / 2000). The bounds are memory-safety backstops for very
+large workspaces and long `sight check` runs: capacity eviction is
+correctness-neutral — an evicted entry is recomputed from disk (or the live
+editor buffer) on the next access, with secondary indexes pruned and the
+forward-closure memo kept consistent on every eviction. Setting the limits
+very low only degrades performance (more re-parsing/re-resolution), never
+results.
+
 Importantly, your editor tab state does not change the *meaning* of the
 analysis for a file: what you see for a given file is determined by that file's
 contents plus its parent chain (and, separately, whatever symbols exist in the
@@ -824,6 +835,9 @@ maxBackwardDepth = 10
 maxForwardDepth = 10
 maxChainDepth = 20
 maxCalleeRevalidations = 10
+maxCachedFiles = 2000
+maxCachedScopes = 1000
+maxCachedForwardClosures = 2000
 assumeCallSite = "end"
 
 [crossFile.diagnostics]
@@ -840,6 +854,9 @@ callSiteIdentification = "information"
 | `crossFile.maxForwardDepth`                   | number   | `10`            | Maximum recursion depth for forward scope resolution   |
 | `crossFile.maxChainDepth`                     | number   | `20`            | Maximum combined depth for forward + backward resolution |
 | `crossFile.maxCalleeRevalidations`            | number   | `10`            | Maximum open callee documents to revalidate per change |
+| `crossFile.maxCachedFiles`                    | number   | `2000`          | LRU capacity of the parsed-file cache (eviction is correctness-neutral) |
+| `crossFile.maxCachedScopes`                   | number   | `1000`          | LRU capacity of the resolved-scope cache               |
+| `crossFile.maxCachedForwardClosures`          | number   | `2000`          | LRU capacity of the forward-closure memo               |
 | `crossFile.assumeCallSite`                    | string   | `"end"`         | Where to assume call site when inference fails (`"end"` or `"start"`) |
 | `crossFile.diagnostics.missingFile`           | severity | `"warning"`     | Severity for missing directive file diagnostics        |
 | `crossFile.diagnostics.callSiteIdentification`| severity | `"information"` | Severity for call site identification diagnostics      |
