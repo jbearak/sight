@@ -384,10 +384,20 @@ export async function build_check_context(
             }
         },
         warn: (message) => console.error(message),
+    }, undefined, {
+        // Cache LRU capacities (#294): the CLI has its validated config in
+        // hand before construction, so pass capacities directly.
+        max_cached_files: config.cross_file.max_cached_files,
+        max_cached_scopes: config.cross_file.max_cached_scopes,
     });
     const forward_scope_resolver = new ForwardScopeResolver(scope_resolver, {
         max_forward_depth: config.cross_file.max_forward_depth,
     });
+    if (config.cross_file.max_cached_forward_closures !== undefined) {
+        forward_scope_resolver.set_forward_closure_memo_capacity(
+            config.cross_file.max_cached_forward_closures
+        );
+    }
     const diagnostics_provider = new DiagnosticsProvider({
         sendDiagnostics: () => undefined,
     });

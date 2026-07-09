@@ -19,6 +19,7 @@ import {
     OutOfScopeSymbol,
     ScopeCacheEntry,
     ScopeCacheMetrics,
+    ScopeCacheSizes,
     ScopeResolverLogger,
     ForwardCall,
     CdCommand,
@@ -42,6 +43,7 @@ import { StataParser } from '../parser';
 import { SemanticAnalyzer, create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
 import { logger } from '../utils/logger';
 import { error_message } from '../utils/error-message';
+import { BoundedLruMap } from '../utils/lru-cache';
 import { filter_dofile_locals, is_dofile_local } from '../utils/dofile-locals';
 import { get_line_text, get_line_count, compute_line_offsets } from '../utils/line-utils';
 import {
@@ -78,6 +80,12 @@ const DEFAULT_CONFIG: ScopeResolverConfig = {
     max_forward_depth: 10,
     max_chain_depth: 20,
 };
+
+// Default LRU capacities for the long-lived caches (#294). Memory-safety
+// backstops far above realistic workspace sizes — NOT working-set tuners.
+// Kept in sync with DEFAULT_SETTINGS.cross_file in server-handlers.ts.
+export const DEFAULT_MAX_CACHED_FILES = 2000;
+export const DEFAULT_MAX_CACHED_SCOPES = 1000;
 
 /**
  * Build a Partial<ScopeResolverConfig> with undefined values filtered out.
@@ -152,6 +160,12 @@ type RequestCache = Map<string, Promise<ParsedFileResult>>;
  * path only — see the working_directory_directive note from PR #278).
  */
 type FileCacheEntry = {
+    /**
+     * The entry's own URI (#294). Cache keys are "uri|working_directory",
+     * so the eviction hook stores the URI here instead of parsing it back
+     * out of the key.
+     */
+    uri: string;
     content: string;
     content_hash: string;
     mtimeMs?: number;
@@ -223,8 +237,8 @@ export class ScopeResolver {
     // by an 'auto'-mode resolution. Directive-less auto-mode hits re-sync
     // idempotently because registration is global per URI, not per
     // file_cache entry — see upgrade_registration_on_cache_hit.
-    private file_cache: Map<string, FileCacheEntry>;
-    private scope_cache: Map<string, ScopeCacheEntry>;
+    private file_cache: BoundedLruMap<string, FileCacheEntry>;
+    private scope_cache: BoundedLruMap<string, ScopeCacheEntry>;
     // Secondary index: uri -> Set<cache_keys> for O(1) scope cache invalidation by URI
     private uri_to_cache_keys: Map<string, Set<string>>;
     private cache_metrics: ScopeCacheMetrics;
@@ -240,13 +254,52 @@ export class ScopeResolver {
     // When undefined, resolve_path_rich uses the real Node fs.
     private resolve_fs?: RichResolveFs;
 
-    constructor(logger?: ScopeResolverLogger, content_provider?: ContentProvider) {
+    constructor(
+        logger?: ScopeResolverLogger,
+        content_provider?: ContentProvider,
+        cache_capacities?: {
+            max_cached_files?: number;
+            max_cached_scopes?: number;
+        }
+    ) {
         this.directive_parser = new DirectiveParser();
         this.lexer = new StataLexer();
         this.parser = new StataParser();
         this.analyzer = new SemanticAnalyzer();
-        this.file_cache = new Map();
-        this.scope_cache = new Map();
+        // Bounded caches (#294). Capacity eviction is correctness-neutral
+        // (a miss recomputes from disk/buffer), with one obligation each:
+        // - file_cache: the evicted URI's forward-closure memo entries must
+        //   be invalidated NOW, because the stale-content purges in
+        //   parse_file/_get_parsed_file_impl compare against the old cached
+        //   hash — once the entry is gone, that baseline is gone with it,
+        //   and a memo entry re-poisoned during a debounce window would
+        //   otherwise never be purged. This uses the normal invalidation
+        //   (epoch-bumping) semantics: an eviction during an in-flight
+        //   standalone build's await window makes that build skip its memo
+        //   store and fall back to the live walk (degraded, never wrong).
+        // - scope_cache: prune the uri_to_cache_keys secondary index so it
+        //   cannot leak keys for evicted entries.
+        // Both hooks run synchronously inside set()/set_max_size() and do
+        // not re-enter the evicting map.
+        this.file_cache = new BoundedLruMap(
+            cache_capacities?.max_cached_files ?? DEFAULT_MAX_CACHED_FILES,
+            {
+                on_evict: (_key, entry) => {
+                    this.cache_metrics.file.evictions++;
+                    this.forward_scope_resolver
+                        ?.invalidate_forward_closure_for_uri?.(entry.uri);
+                },
+            }
+        );
+        this.scope_cache = new BoundedLruMap(
+            cache_capacities?.max_cached_scopes ?? DEFAULT_MAX_CACHED_SCOPES,
+            {
+                on_evict: (key) => {
+                    this.cache_metrics.scope.evictions++;
+                    this.prune_uri_to_cache_keys_for_key(key);
+                },
+            }
+        );
         this.uri_to_cache_keys = new Map();
         this.cache_metrics = this.create_metrics();
         this.logger = logger;
@@ -396,8 +449,8 @@ export class ScopeResolver {
      */
     private create_metrics(): ScopeCacheMetrics {
         const metrics = {
-            scope: { hits: 0, misses: 0, invalidations: 0 },
-            file: { hits: 0, misses: 0, invalidations: 0 },
+            scope: { hits: 0, misses: 0, invalidations: 0, evictions: 0 },
+            file: { hits: 0, misses: 0, invalidations: 0, evictions: 0 },
         };
         return {
             ...metrics,
@@ -405,6 +458,42 @@ export class ScopeResolver {
             get misses() { return metrics.scope.misses; },
             get invalidations() { return metrics.scope.invalidations; },
         };
+    }
+
+    /**
+     * Update the LRU capacities of the long-lived caches (#294). Shrinking
+     * below the current size evicts LRU-first immediately (through the
+     * same on_evict hooks as normal capacity pressure, so secondary
+     * indexes and the forward-closure memo stay consistent).
+     */
+    set_cache_capacities(capacities: {
+        max_cached_files?: number;
+        max_cached_scopes?: number;
+    }): void {
+        if (capacities.max_cached_files !== undefined) {
+            this.file_cache.set_max_size(capacities.max_cached_files);
+        }
+        if (capacities.max_cached_scopes !== undefined) {
+            this.scope_cache.set_max_size(capacities.max_cached_scopes);
+        }
+    }
+
+    /**
+     * Remove one scope_cache key's reference from the uri_to_cache_keys
+     * secondary index (dropping the URI's Set when it empties). The single
+     * pruning idiom shared by explicit invalidation scans and the LRU
+     * eviction hook (#294) — the scope_cache entry itself must already be
+     * (or be about to be) removed by the caller.
+     */
+    private prune_uri_to_cache_keys_for_key(cache_key: string): void {
+        const key_uri = this.extract_uri_from_cache_key(cache_key);
+        const key_set = this.uri_to_cache_keys.get(key_uri);
+        if (key_set) {
+            key_set.delete(cache_key);
+            if (key_set.size === 0) {
+                this.uri_to_cache_keys.delete(key_uri);
+            }
+        }
     }
 
     /**
@@ -430,15 +519,7 @@ export class ScopeResolver {
 
         for (const my_key of keys_to_remove) {
             this.scope_cache.delete(my_key);
-            // Update secondary index
-            const key_uri = this.extract_uri_from_cache_key(my_key);
-            const key_set = this.uri_to_cache_keys.get(key_uri);
-            if (key_set) {
-                key_set.delete(my_key);
-                if (key_set.size === 0) {
-                    this.uri_to_cache_keys.delete(key_uri);
-                }
-            }
+            this.prune_uri_to_cache_keys_for_key(my_key);
         }
 
         return keys_to_remove.length;
@@ -1519,6 +1600,12 @@ export class ScopeResolver {
             ...config,
             backward_dependencies: 'explicit',
         };
+        // Probe-only reads (#294): the forced-'explicit' mode above exists
+        // for deterministic WD discovery, not to express registration
+        // intent — letting this walk register would let a post-capacity-
+        // eviction reparse wipe a directive-less file's auto-discovered
+        // parent edges (clear-then-register under 'explicit' with zero raw
+        // directives). Registration stays owned by genuine resolutions.
         return this.discover_working_directory(
             the_backward_directives,
             new Set<string>(),
@@ -1526,6 +1613,8 @@ export class ScopeResolver {
             my_config,
             new Map(),
             current_uri,
+            undefined,
+            /* skip_backward_registration */ true,
         );
     }
 
@@ -1550,7 +1639,8 @@ export class ScopeResolver {
         config: ScopeResolverConfig,
         request_cache: RequestCache,
         current_uri: string,
-        token?: CancellationToken
+        token?: CancellationToken,
+        skip_backward_registration?: boolean
     ): Promise<string | undefined> {
         // Check depth limit
         if (depth > config.max_backward_depth) {
@@ -1598,6 +1688,10 @@ export class ScopeResolver {
                         // mirrors get_effective_backward_directives.
                         backward_dependencies:
                             config.backward_dependencies ?? 'auto',
+                        // Probe-only when driven by the indexer's WD walk
+                        // (#294): its forced-'explicit' mode is a
+                        // determinism hack, not registration intent.
+                        skip_backward_registration,
                     }
                 );
             } catch (error) {
@@ -1673,7 +1767,8 @@ export class ScopeResolver {
                     config,
                     request_cache,
                     my_parent_uri,
-                    token
+                    token,
+                    skip_backward_registration
                 );
 
                 // Allow same file via different paths
@@ -2207,8 +2302,11 @@ export class ScopeResolver {
         diagnostics: DirectiveDiagnostic[];
     } {
         const content_hash = this.hash_content(content);
-        const cached = this.file_cache.get(uri);
+        // peek: this is a validation probe until the hash matches; only a
+        // served hit promotes (#294 recency contract).
+        const cached = this.file_cache.peek(uri);
         if (cached && cached.content_hash === content_hash) {
+            this.file_cache.touch(uri);
             return {
                 symbols: cached.symbols,
                 directives: cached.directives,
@@ -2237,6 +2335,7 @@ export class ScopeResolver {
             const my_parse_result = this.parse_content(uri, content);
 
             this.file_cache.set(uri, {
+                uri,
                 content,
                 content_hash,
                 size: Buffer.byteLength(content, 'utf8'),
@@ -2449,11 +2548,21 @@ export class ScopeResolver {
      *   thread the chain's mode (normalized with ?? 'auto', matching
      *   get_effective_backward_directives). Deliberately NOT part of any
      *   cache key: parsed content is mode-independent.
+     * @param options.skip_backward_registration - Probe-only read (#294):
+     *   perform NO backward-directive registration and write NO
+     *   registered_backward_mode stamp (hit paths also skip the
+     *   registration upgrade). Used by resolve_inherited_working_directory,
+     *   whose forced-'explicit' walk exists purely for deterministic WD
+     *   discovery — letting it register would let a post-eviction reparse
+     *   wipe auto-discovered parent edges, and letting it stamp would let
+     *   an entry claim a registration that never ran. An unstamped entry
+     *   is registered by the next real registering read's hit path (see
+     *   upgrade_registration_on_cache_hit).
      */
     async get_parsed_file(
         uri: string,
         fs_path: string,
-        options?: { skip_disk_if_cached?: boolean; working_directory?: string; request_cache?: RequestCache; backward_dependencies?: 'auto' | 'explicit' }
+        options?: { skip_disk_if_cached?: boolean; working_directory?: string; request_cache?: RequestCache; backward_dependencies?: 'auto' | 'explicit'; skip_backward_registration?: boolean }
     ): Promise<ParsedFileResult> {
         // Use request cache if available to avoid duplicate reads/parses in same request
         if (options?.request_cache) {
@@ -2507,21 +2616,26 @@ export class ScopeResolver {
     private async _get_parsed_file_impl(
         uri: string,
         fs_path: string,
-        options?: { skip_disk_if_cached?: boolean; working_directory?: string; request_cache?: RequestCache; backward_dependencies?: 'auto' | 'explicit' }
+        options?: { skip_disk_if_cached?: boolean; working_directory?: string; request_cache?: RequestCache; backward_dependencies?: 'auto' | 'explicit'; skip_backward_registration?: boolean }
     ): Promise<ParsedFileResult> {
         const inherited_wd = options?.working_directory;
         const cache_key = this.make_file_cache_key(uri, inherited_wd);
 
         // 1. Initial Cache/Stat Check (Avoid Disk Read if possible)
-        const cached = this.file_cache.get(cache_key);
+        // peek: a validation probe until one of the hit branches below
+        // decides to serve it; served hits touch() to promote (#294).
+        const cached = this.file_cache.peek(cache_key);
 
         // Cache-first mode: return cached entry without disk access if available
         if (options?.skip_disk_if_cached && cached) {
             this.log(`[get_parsed_file] file_cache HIT for ${cache_key} (skip_disk_if_cached)`);
             this.cache_metrics.file.hits++;
-            this.upgrade_registration_on_cache_hit(
-                uri, cached, options?.backward_dependencies
-            );
+            this.file_cache.touch(cache_key);
+            if (!options?.skip_backward_registration) {
+                this.upgrade_registration_on_cache_hit(
+                    uri, cached, options?.backward_dependencies
+                );
+            }
             return this.cache_entry_to_parsed_result(
                 cached, cached.content, cached.content_hash
             );
@@ -2541,9 +2655,12 @@ export class ScopeResolver {
                 cached.size !== undefined && cached.size === size) {
                 this.cache_metrics.file.hits++;
                 this.log(`[get_parsed_file] File cache HIT for ${uri} (mtime match, skipped read)`);
-                this.upgrade_registration_on_cache_hit(
-                    uri, cached, options?.backward_dependencies
-                );
+                this.file_cache.touch(cache_key);
+                if (!options?.skip_backward_registration) {
+                    this.upgrade_registration_on_cache_hit(
+                        uri, cached, options?.backward_dependencies
+                    );
+                }
                 return this.cache_entry_to_parsed_result(
                     cached, cached.content, cached.content_hash
                 );
@@ -2568,18 +2685,21 @@ export class ScopeResolver {
                         const fallback_mtimeMs = fallback_stats?.mtimeMs;
                         const fallback_size = fallback_stats?.size;
                         const fallback_cache_key = this.make_file_cache_key(fallback_uri, inherited_wd);
-                        const fallback_cached = this.file_cache.get(fallback_cache_key);
+                        const fallback_cached = this.file_cache.peek(fallback_cache_key);
 
                         if (fallback_cached && fallback_mtimeMs !== undefined && fallback_size !== undefined &&
                             fallback_cached.mtimeMs !== undefined && fallback_cached.mtimeMs === fallback_mtimeMs &&
                             fallback_cached.size !== undefined && fallback_cached.size === fallback_size) {
                             this.cache_metrics.file.hits++;
                             this.log(`[get_parsed_file] File cache HIT for ${fallback_uri} (mtime match, skipped read)`);
-                            this.upgrade_registration_on_cache_hit(
-                                fallback_uri,
-                                fallback_cached,
-                                options?.backward_dependencies
-                            );
+                            this.file_cache.touch(fallback_cache_key);
+                            if (!options?.skip_backward_registration) {
+                                this.upgrade_registration_on_cache_hit(
+                                    fallback_uri,
+                                    fallback_cached,
+                                    options?.backward_dependencies
+                                );
+                            }
                             return this.cache_entry_to_parsed_result(
                                 fallback_cached,
                                 fallback_cached.content,
@@ -2607,15 +2727,18 @@ export class ScopeResolver {
 
         // 3. Final Cache/Hash check (Defensive)
         const actual_cache_key = this.make_file_cache_key(actual_uri, inherited_wd);
-        const actual_cached = this.file_cache.get(actual_cache_key);
+        const actual_cached = this.file_cache.peek(actual_cache_key);
         const disk_hash = this.hash_content(content);
 
         if (actual_cached && actual_cached.content_hash === disk_hash) {
             this.cache_metrics.file.hits++;
             this.log(`[get_parsed_file] File cache HIT for ${actual_uri} (hash match)`);
-            this.upgrade_registration_on_cache_hit(
-                actual_uri, actual_cached, options?.backward_dependencies
-            );
+            this.file_cache.touch(actual_cache_key);
+            if (!options?.skip_backward_registration) {
+                this.upgrade_registration_on_cache_hit(
+                    actual_uri, actual_cached, options?.backward_dependencies
+                );
+            }
             // Return cached results with current content - don't mutate the
             // entry's cached content/symbols (the registration stamp above
             // is the one intentional entry mutation on this hit path)
@@ -2645,6 +2768,7 @@ export class ScopeResolver {
             }
 
             this.file_cache.set(actual_cache_key, {
+                uri: actual_uri,
                 content,
                 content_hash: disk_hash,
                 mtimeMs,
@@ -2659,9 +2783,14 @@ export class ScopeResolver {
                 diagnostics: parse_result.diagnostics,
                 // Stamp the mode the registration below runs under (and
                 // upgrade an 'explicit'-registered entry on later
-                // auto-mode cache hits (issue #286).
-                registered_backward_mode:
-                    options?.backward_dependencies ?? 'explicit',
+                // auto-mode cache hits (issue #286). A probe-only read
+                // (#294) performs no registration and therefore stamps
+                // nothing — an entry must never claim a registration that
+                // never ran; the next real registering read's hit path
+                // registers it (upgrade_registration_on_cache_hit).
+                registered_backward_mode: options?.skip_backward_registration
+                    ? undefined
+                    : (options?.backward_dependencies ?? 'explicit'),
             });
 
             // Register backward directive dependencies from cached file
@@ -2678,12 +2807,14 @@ export class ScopeResolver {
             // with one exception: a `sight: standalone` file's effective
             // directives are EMPTY (issue #208), so its raw done-by edges
             // are deliberately not registered.
-            this.apply_backward_directive_registration(
-                actual_uri,
-                parse_result.directives,
-                { backward_dependencies: options?.backward_dependencies ?? 'explicit' },
-                parse_result.is_standalone
-            );
+            if (!options?.skip_backward_registration) {
+                this.apply_backward_directive_registration(
+                    actual_uri,
+                    parse_result.directives,
+                    { backward_dependencies: options?.backward_dependencies ?? 'explicit' },
+                    parse_result.is_standalone
+                );
+            }
 
             // Register forward call relationships from cached file
             // This ensures callee_to_callers map includes relationships from cached files,
@@ -2705,7 +2836,8 @@ export class ScopeResolver {
             // recovered: a failed recovery must leave the previous
             // registrations unchanged (mirroring DocumentStore's
             // undefined-staged-effects semantics), never clear them.
-            if (my_recovered.recovered) {
+            if (my_recovered.recovered &&
+                !options?.skip_backward_registration) {
                 this.apply_backward_directive_registration(
                     actual_uri,
                     my_recovered.directives,
@@ -3173,6 +3305,17 @@ export class ScopeResolver {
     }
 
     /**
+     * Live entry-count gauges (#294). Read fresh from the caches at call
+     * time — a gauge, not a counter, so it is never reset.
+     */
+    get_cache_sizes(): ScopeCacheSizes {
+        return {
+            scope: this.scope_cache.size,
+            file: this.file_cache.size,
+        };
+    }
+
+    /**
      * Reset cache metrics.
      */
     reset_cache_metrics(): void {
@@ -3547,15 +3690,7 @@ export class ScopeResolver {
             }
             for (const my_key of keys_to_remove) {
                 this.scope_cache.delete(my_key);
-                // Update secondary index
-                const key_uri = this.extract_uri_from_cache_key(my_key);
-                const key_set = this.uri_to_cache_keys.get(key_uri);
-                if (key_set) {
-                    key_set.delete(my_key);
-                    if (key_set.size === 0) {
-                        this.uri_to_cache_keys.delete(key_uri);
-                    }
-                }
+                this.prune_uri_to_cache_keys_for_key(my_key);
                 this.cache_metrics.scope.invalidations++;
             }
         }
@@ -3671,10 +3806,13 @@ export class ScopeResolver {
     /**
      * Registration upgrade on file-cache hit (issue #286). Hit paths do
      * not re-parse, so an entry whose last parse-path registration ran
-     * under 'explicit' — e.g. primed by the indexer's forced-'explicit'
-     * working-directory walk — would leave a directive-less file's
+     * under 'explicit' would leave a directive-less file's
      * dependency-graph parents unregistered for as long as 'auto'-mode
      * resolutions keep hitting the cache (until the content changes).
+     * (The indexer's forced-'explicit' working-directory walk used to
+     * prime such entries; since #294 it is probe-only — it neither
+     * registers nor stamps, so entries it writes arrive here UNSTAMPED
+     * and are healed by the first real registering read of either mode.)
      * When an 'auto'-mode read hits such an entry, apply effective
      * registration and stamp the entry so repeat hits are free.
      * Effective ⊇ raw (except for `sight: standalone` files, whose
@@ -3703,6 +3841,22 @@ export class ScopeResolver {
         requested_mode: 'auto' | 'explicit' | undefined
     ): void {
         if (requested_mode !== 'auto') {
+            // Explicit-mode hits stay side-effect-free for STAMPED entries
+            // (never downgrade), as before. An UNSTAMPED entry, however,
+            // carries no proof any registration ever ran — it may have
+            // been written by a probe-only read (#294,
+            // skip_backward_registration) — so a genuine explicit-mode hit
+            // must self-heal it: register raw directives and stamp, the
+            // same effect an explicit-mode parse would have had.
+            if (requested_mode === 'explicit' &&
+                cached.registered_backward_mode === undefined) {
+                this.apply_backward_directive_registration(
+                    uri, cached.directives,
+                    { backward_dependencies: 'explicit' },
+                    cached.is_standalone
+                );
+                cached.registered_backward_mode = 'explicit';
+            }
             return;
         }
         if (cached.directives.length > 0 &&

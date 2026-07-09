@@ -141,6 +141,9 @@ export const DEFAULT_SETTINGS: StataLSPConfig = {
         max_forward_depth: 10,
         max_chain_depth: 20,
         max_callee_revalidations: 10,
+        max_cached_files: 2000,
+        max_cached_scopes: 1000,
+        max_cached_forward_closures: 2000,
         diagnostics: {
             missing_file: 'warning',
             max_depth: 'information',

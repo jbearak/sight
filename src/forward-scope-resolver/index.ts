@@ -33,6 +33,7 @@ import {
     type PathCaseOutcome,
 } from '../utils/file-path-utils';
 import { get_workspace_root_for_path } from '../utils/workspace-roots';
+import { BoundedLruMap } from '../utils/lru-cache';
 import { filter_dofile_locals, is_dofile_local } from '../utils/dofile-locals';
 import { clone_symbol_table } from '../scope-resolver/visible-symbols';
 
@@ -130,11 +131,16 @@ export function build_forward_closure_key(
  *                    miss that built it.
  * - `invalidations`  entries evicted (by URI invalidation, a graph-version
  *                    change, or a full clear).
+ * - `evictions`      entries dropped by LRU capacity pressure (#294) —
+ *                    counted separately from `invalidations` because
+ *                    capacity eviction is not a semantic invalidation (it
+ *                    does not bump the invalidation epoch).
  */
 export interface ForwardClosureMemoMetrics {
     hits: number;
     misses: number;
     invalidations: number;
+    evictions: number;
 }
 
 /**
@@ -185,6 +191,13 @@ const DEFAULT_CONFIG: ForwardScopeConfig = {
     max_forward_depth: 10,
 };
 
+// Default LRU capacity for the forward-closure memo (#294). A memory-
+// safety backstop far above realistic workspace sizes. Kept in sync with
+// DEFAULT_SETTINGS.cross_file in server-handlers.ts. NOT a
+// ForwardScopeConfig field: capacity is instance-lifetime resource state,
+// not per-resolve configuration.
+export const DEFAULT_MAX_CACHED_FORWARD_CLOSURES = 2000;
+
 export class ForwardScopeResolver {
     private scope_resolver: ScopeResolver;
     private default_config: ForwardScopeConfig;
@@ -206,7 +219,23 @@ export class ForwardScopeResolver {
     // scope_cache's index (which covers only each entry's OWN uri and needs
     // an O(N) scan for cascades), this index maps EVERY dependent URI to the
     // keys that depend on it.
-    private forward_closure_memo = new Map<string, ForwardClosureMemoEntry>();
+    // Bounded LRU (#294). Capacity eviction prunes memo_uri_to_keys via
+    // the on_evict hook but deliberately does NOT bump
+    // memo_invalidation_epoch: eviction carries no semantic information
+    // (nothing changed), and bumping would spuriously discard valid
+    // in-flight standalone builds. Contrast with ScopeResolver's
+    // file_cache eviction, which DOES invalidate this memo (epoch bump
+    // included) for the evicted URI — there the eviction destroys the
+    // stale-content hash baseline the defensive purges compare against.
+    private forward_closure_memo = new BoundedLruMap<string, ForwardClosureMemoEntry>(
+        DEFAULT_MAX_CACHED_FORWARD_CLOSURES,
+        {
+            on_evict: (key, entry) => {
+                this.memo_metrics.evictions++;
+                this.prune_memo_uri_to_keys_for_entry(key, entry);
+            },
+        }
+    );
     private memo_uri_to_keys = new Map<string, Set<string>>();
     // The dep-graph version the memo's entries were built against. A
     // version change makes EVERY existing entry dead by construction (all
@@ -224,6 +253,7 @@ export class ForwardScopeResolver {
         hits: 0,
         misses: 0,
         invalidations: 0,
+        evictions: 0,
     };
     // URIs whose standalone closure build is currently in flight. A memo
     // hook firing for one of these is a guaranteed re-entry (the build's
@@ -287,8 +317,15 @@ export class ForwardScopeResolver {
         return { ...this.memo_metrics };
     }
 
+    /** Live memo entry-count gauge (#294) — read fresh, never reset. */
+    get_forward_closure_memo_size(): number {
+        return this.forward_closure_memo.size;
+    }
+
     reset_forward_closure_metrics(): void {
-        this.memo_metrics = { hits: 0, misses: 0, invalidations: 0 };
+        this.memo_metrics = {
+            hits: 0, misses: 0, invalidations: 0, evictions: 0,
+        };
     }
 
     /**
@@ -331,12 +368,28 @@ export class ForwardScopeResolver {
      * Returns true when the key existed.
      */
     private delete_memo_entry(key: string): boolean {
-        const my_entry = this.forward_closure_memo.get(key);
+        // peek: invalidation-path read, must not promote (#294).
+        const my_entry = this.forward_closure_memo.peek(key);
         if (!my_entry) {
             return false;
         }
         this.forward_closure_memo.delete(key);
-        for (const my_dep_uri of my_entry.dependent_uris) {
+        this.prune_memo_uri_to_keys_for_entry(key, my_entry);
+        return true;
+    }
+
+    /**
+     * Remove every memo_uri_to_keys reference to `key`, given the entry's
+     * dependent_uris. The single index-pruning idiom shared by
+     * delete_memo_entry (explicit invalidation) and the LRU eviction hook
+     * (#294) — the memo entry itself must already be (or be about to be)
+     * removed by the caller.
+     */
+    private prune_memo_uri_to_keys_for_entry(
+        key: string,
+        entry: ForwardClosureMemoEntry
+    ): void {
+        for (const my_dep_uri of entry.dependent_uris) {
             const my_key_set = this.memo_uri_to_keys.get(my_dep_uri);
             if (my_key_set) {
                 my_key_set.delete(key);
@@ -345,7 +398,15 @@ export class ForwardScopeResolver {
                 }
             }
         }
-        return true;
+    }
+
+    /**
+     * Update the memo's LRU capacity (#294). Shrinking evicts LRU-first
+     * immediately through the same on_evict hook as normal capacity
+     * pressure (index pruned, no epoch bump).
+     */
+    set_forward_closure_memo_capacity(max_entries: number): void {
+        this.forward_closure_memo.set_max_size(max_entries);
     }
 
     /**
@@ -1353,6 +1414,15 @@ export class ForwardScopeResolver {
         key: string,
         entry: ForwardClosureMemoEntry
     ): ForwardClosureMemoEntry {
+        // Overwriting an existing key must first prune the OLD entry's
+        // index rows — its dependent_uris can differ (e.g. different
+        // missing-probe sets), and set() below fires no eviction hook for
+        // same-key replacement, so skipping this leaks dangling
+        // memo_uri_to_keys rows (#294; pre-existing lockstep gap).
+        const my_previous = this.forward_closure_memo.peek(key);
+        if (my_previous) {
+            this.prune_memo_uri_to_keys_for_entry(key, my_previous);
+        }
         this.forward_closure_memo.set(key, entry);
         for (const my_dep_uri of entry.dependent_uris) {
             let my_key_set = this.memo_uri_to_keys.get(my_dep_uri);

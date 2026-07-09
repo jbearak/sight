@@ -151,6 +151,17 @@ the resolver reads referenced parent files from disk (even if they are not
 open) and **recursively follows the chain** to build a scope. Results are
 cached and invalidated when relevant files change.
 
+The long-lived caches behind this (the parsed-file cache, the resolved-scope
+cache, and the forward-closure memo) are bounded LRUs (issue #294), sized by
+`crossFile.maxCachedFiles` / `maxCachedScopes` / `maxCachedForwardClosures`
+(defaults 2000 / 1000 / 2000). The bounds are memory-safety backstops for very
+large workspaces and long `sight check` runs: capacity eviction is
+correctness-neutral — an evicted entry is recomputed from disk (or the live
+editor buffer) on the next access, with secondary indexes pruned and the
+forward-closure memo kept consistent on every eviction. Setting the limits
+very low only degrades performance (more re-parsing/re-resolution), never
+results.
+
 Importantly, your editor tab state does not change the *meaning* of the
 analysis for a file: what you see for a given file is determined by that file's
 contents plus its parent chain (and, separately, whatever symbols exist in the

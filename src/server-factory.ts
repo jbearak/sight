@@ -760,6 +760,25 @@ export async function create_server(options: ServerOptions): Promise<void> {
         completion_provider?.configure_completion(settings.completion);
     }
 
+    // Apply the cross-file cache LRU capacities (#294). Capacity is
+    // instance-lifetime resource state on the long-lived resolvers (NOT
+    // per-document resolve config), so it is applied from the
+    // workspace-level settings paths: configure_workspace_indexing plus
+    // both non-indexing config-change branches. Shrinking evicts down
+    // immediately (correctness-neutral).
+    function apply_cache_capacities(settings: StataLSPConfig): void {
+        scope_resolver?.set_cache_capacities({
+            max_cached_files: settings.cross_file?.max_cached_files ??
+                DEFAULT_SETTINGS.cross_file.max_cached_files,
+            max_cached_scopes: settings.cross_file?.max_cached_scopes ??
+                DEFAULT_SETTINGS.cross_file.max_cached_scopes,
+        });
+        forward_scope_resolver?.set_forward_closure_memo_capacity(
+            settings.cross_file?.max_cached_forward_closures ??
+                DEFAULT_SETTINGS.cross_file.max_cached_forward_closures ?? 2000
+        );
+    }
+
     function reset_workspace_indexing_state(): void {
         workspace_indexer?.reset();
         dependency_graph?.reset();
@@ -787,6 +806,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
             indexing_affecting_signature(settings);
 
         configure_completion_provider(settings);
+        apply_cache_capacities(settings);
 
         if (workspace_indexer) {
             workspace_indexer.configure(settings);
@@ -884,6 +904,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
             // settings take effect, instead of tearing down and re-scanning the
             // whole workspace for a cosmetic edit.
             configure_completion_provider(settings);
+            apply_cache_capacities(settings);
             workspace_indexer?.configure(settings);
             revalidate_all_open_docs();
         }
@@ -1460,6 +1481,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
             // immediately against the live index. revalidate_all_open_docs
             // marks each document for forced republish and re-validates.
             configure_completion_provider(settings);
+            apply_cache_capacities(settings);
             workspace_indexer?.configure(settings);
             revalidate_all_open_docs();
         }

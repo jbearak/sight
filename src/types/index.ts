@@ -892,14 +892,25 @@ export interface ScopeCacheEntry {
 }
 
 export interface ScopeCacheMetrics {
-  // Nested counters for scope and file caches
-  scope: { hits: number; misses: number; invalidations: number };
-  file: { hits: number; misses: number; invalidations: number };
+  // Nested counters for scope and file caches. `evictions` counts
+  // capacity-driven LRU evictions only (#294) — explicit invalidations
+  // are counted separately in `invalidations`.
+  scope: { hits: number; misses: number; invalidations: number; evictions: number };
+  file: { hits: number; misses: number; invalidations: number; evictions: number };
 
   // Top-level aliases for backward compatibility (implemented as getters in actual object)
   readonly hits: number;         // alias for scope.hits
   readonly misses: number;       // alias for scope.misses
   readonly invalidations: number; // alias for scope.invalidations
+}
+
+/**
+ * Live entry-count gauges included in get_cache_metrics() snapshots
+ * (#294). Read from the caches at snapshot time, never stored counters.
+ */
+export interface ScopeCacheSizes {
+  scope: number;
+  file: number;
 }
 
 export type CrossFileCaseMismatchSeverity =
@@ -914,6 +925,13 @@ export interface CrossFileConfig {
   max_forward_depth: number;       // Limit forward-call recursion depth
   max_chain_depth: number;         // Overall limit for combined resolution
   max_callee_revalidations?: number;  // Maximum callees to revalidate per caller change (default: 10)
+  // LRU capacity limits for the long-lived cross-file caches (#294).
+  // Memory-safety backstops, not working-set tuners: capacity eviction is
+  // correctness-neutral (misses recompute), so defaults are far above
+  // realistic workspace sizes.
+  max_cached_files?: number;             // ScopeResolver.file_cache (default: 2000)
+  max_cached_scopes?: number;            // ScopeResolver.scope_cache (default: 1000)
+  max_cached_forward_closures?: number;  // ForwardScopeResolver memo (default: 2000)
   diagnostics: {
     missing_file: 'error' | 'warning' | 'information' | 'off';
     max_depth: 'error' | 'warning' | 'information' | 'off';
