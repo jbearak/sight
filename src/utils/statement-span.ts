@@ -296,6 +296,14 @@ export interface LogicalStatementStart {
  * and returns the first non-trivia token after that boundary (or the
  * first token of the file). The scan is bounded by MAX_STATEMENT_TOKENS.
  *
+ * `min_line` clamps the walk: it never inspects a token that starts on a
+ * line before `min_line`. Callers pass the first line of the cursor's
+ * contiguous Stata region (the line after the nearest `mata`/`python`
+ * block that ends above the cursor) so the logical statement can never
+ * absorb embedded-language tokens from a block above — including a
+ * nested `{ }` inside a `mata { ... }` block, which no token-type
+ * boundary alone distinguishes from a real Stata block.
+ *
  * Returns `undefined` when there is no usable start — empty/undefined
  * tokens, no token at or before the cursor, the cap is hit, or the
  * boundary is immediately before the cursor with no statement token
@@ -304,7 +312,8 @@ export interface LogicalStatementStart {
  */
 export function logical_statement_start(
     tokens: Token[] | undefined,
-    position: Position
+    position: Position,
+    min_line: number = 0
 ): LogicalStatementStart | undefined {
     if (tokens === undefined || tokens.length === 0) {
         return undefined;
@@ -326,7 +335,8 @@ export function logical_statement_start(
     }
 
     // Walk backward to the token index of the nearest real boundary, or
-    // -1 for the start of the file. Bounded by MAX_STATEMENT_TOKENS.
+    // -1 for the start of the file (or the region floor `min_line`).
+    // Bounded by MAX_STATEMENT_TOKENS.
     let boundary_index = -1;
     let my_steps = 0;
     for (let my_i = search_index; my_i >= 0; my_i--) {
@@ -334,6 +344,12 @@ export function logical_statement_start(
             return undefined;
         }
         const my_token = tokens[my_i];
+        if (my_token.range.start.line < min_line) {
+            // Reached the floor of the cursor's Stata region: an embedded
+            // block sits above. Do not absorb its tokens; stop here as if at
+            // the start of input.
+            break;
+        }
         if (
             is_swallowed_continuation_terminator(
                 my_token,
@@ -381,11 +397,17 @@ export function logical_statement_start(
     }
 
     // First non-trivia token after the boundary (the statement's head).
+    // Start at the boundary, or at the region floor when the walk stopped
+    // there (boundary_index === -1), whichever is later, and never accept a
+    // token below the floor.
     let first_index = -1;
     for (let my_i = boundary_index + 1; my_i < tokens.length; my_i++) {
         const my_token = tokens[my_i];
         if (my_token.type === 'EOF') {
             break;
+        }
+        if (my_token.range.start.line < min_line) {
+            continue;
         }
         if (!STATEMENT_LEADING_TRIVIA_TYPES.has(my_token.type)) {
             first_index = my_i;

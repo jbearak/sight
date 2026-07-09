@@ -200,6 +200,33 @@ const LOGICAL_FLATTEN_SKIP_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * First line of the cursor's contiguous Stata region: the line just after
+ * the nearest `mata`/`python` block that ends above the cursor (#310). The
+ * logical-statement walk is clamped to this floor so it never absorbs
+ * embedded-language tokens from a block above the cursor — including a
+ * nested `{ }` inside a `mata { ... }` block, which token types alone cannot
+ * tell apart from a real Stata block. Uses the per-document `context_ranges`
+ * (not the shared provider tracker), so it is unaffected by cross-document
+ * tracker caching. Returns 0 when there is no embedded block above.
+ */
+function stata_region_floor_line(document: DocumentState, position: Position): number {
+    const the_ranges = document.context_ranges;
+    if (!the_ranges || the_ranges.length === 0) {
+        return 0;
+    }
+    let floor_line = 0;
+    for (const my_range of the_ranges) {
+        if (my_range.context === LanguageContext.STATA) {
+            continue;
+        }
+        if (my_range.range.end.line < position.line) {
+            floor_line = Math.max(floor_line, my_range.range.end.line + 1);
+        }
+    }
+    return floor_line;
+}
+
+/**
  * Build the "logical statement" text before the cursor for the
  * statement-scoped detectors (command-path, subcommand, option, command,
  * variable) — issue #310.
@@ -306,7 +333,11 @@ export function detect_completion_context(
                 document,
                 position,
                 tokens,
-                logical_statement_start(tokens, position),
+                logical_statement_start(
+                    tokens,
+                    position,
+                    stata_region_floor_line(document, position)
+                ),
                 text_before_cursor
             );
         }
@@ -1833,7 +1864,11 @@ export class CompletionProvider {
             document,
             position,
             document.tokens,
-            logical_statement_start(document.tokens, position),
+            logical_statement_start(
+                document.tokens,
+                position,
+                stata_region_floor_line(document, position)
+            ),
             physical_text_before_cursor
         );
 

@@ -193,6 +193,16 @@ describe('detect_completion_context — mata/python block boundaries (#310)', ()
         expect(context.type).toBe('command');
     });
 
+    it('gives command context at the closer of a mata brace block containing nested braces', () => {
+        // The nested inner `}` must not stop the walk inside the embedded body:
+        // the walk is clamped to the cursor's Stata region, above which the
+        // whole `mata { ... }` block lives.
+        const source =
+            '#delimit ;\nmata {\n  for (i=1;i<=10;i++) {\n    x = x + i\n  }\n  y = 5\n}';
+        const context = context_of(source, { line: 6, character: 0 });
+        expect(context.type).toBe('command');
+    });
+
     it('still gives option context inside a regular Stata brace block wrapped statement', () => {
         // A non-embedded `{ }` block body is real Stata; option context for the
         // inner command must be preserved.
