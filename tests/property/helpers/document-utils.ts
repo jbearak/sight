@@ -171,6 +171,23 @@ function extract_comments_from_node(
     }
   }
 
+  // Extract block-ending trivia (a comment on its own line just before the
+  // block closer, owned by the block since issue #304). Without this the
+  // comment-preservation property would miss exactly the comments this feature
+  // moves off the following node's leading trivia.
+  if (my_node.blockEndingTrivia && Array.isArray(my_node.blockEndingTrivia)) {
+    for (const my_trivia of my_node.blockEndingTrivia) {
+      if (my_trivia.type === 'comment') {
+        my_comments.push({
+          content: my_trivia.content,
+          style: my_trivia.style,
+          line: my_trivia.range.start.line,
+          column: my_trivia.range.start.character,
+        });
+      }
+    }
+  }
+
   // Extract trailing trivia
   if (my_node.trailingTrivia && Array.isArray(my_node.trailingTrivia)) {
     for (const my_trivia of my_node.trailingTrivia) {

@@ -179,8 +179,23 @@ function command_nodes_equal(my_a: CommandNode, my_b: CommandNode): boolean {
     }
   }
 
+  // Compare brace-block body (e.g. capture { ... }), mirroring how
+  // program/control-flow bodies are compared, so a differing nested body cannot
+  // pass as equivalent.
+  if ((my_a.body?.length ?? 0) !== (my_b.body?.length ?? 0)) {
+    return false;
+  }
+  if (my_a.body && my_b.body) {
+    for (let my_i = 0; my_i < my_a.body.length; my_i++) {
+      if (!nodes_equal(my_a.body[my_i], my_b.body[my_i])) {
+        return false;
+      }
+    }
+  }
+
   // Compare trivia
   return trivia_equal(my_a.leadingTrivia, my_b.leadingTrivia) &&
+    trivia_equal(my_a.blockEndingTrivia, my_b.blockEndingTrivia) &&
     trivia_equal(my_a.trailingTrivia, my_b.trailingTrivia);
 }
 
@@ -200,6 +215,7 @@ function program_nodes_equal(my_a: ProgramNode, my_b: ProgramNode): boolean {
   }
 
   return trivia_equal(my_a.leadingTrivia, my_b.leadingTrivia) &&
+    trivia_equal(my_a.blockEndingTrivia, my_b.blockEndingTrivia) &&
     trivia_equal(my_a.trailingTrivia, my_b.trailingTrivia);
 }
 
@@ -234,6 +250,7 @@ function control_flow_nodes_equal(my_a: ControlFlowNode, my_b: ControlFlowNode):
   }
 
   return trivia_equal(my_a.leadingTrivia, my_b.leadingTrivia) &&
+    trivia_equal(my_a.blockEndingTrivia, my_b.blockEndingTrivia) &&
     trivia_equal(my_a.trailingTrivia, my_b.trailingTrivia);
 }
 

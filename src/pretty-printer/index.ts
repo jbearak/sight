@@ -275,6 +275,8 @@ export class PrettyPrinter {
                 the_parts.push(this.printNode(my_stmt));
             }
 
+            the_parts.push(this.printBlockEndingTrivia(node));
+
             // Decrease indent
             this.current_indent--;
 
@@ -340,6 +342,8 @@ export class PrettyPrinter {
         for (const my_stmt of node.body) {
             the_lines.push(this.printNode(my_stmt));
         }
+
+        the_lines.push(this.printBlockEndingTrivia(node));
 
         // Decrease indent
         this.current_indent--;
@@ -435,6 +439,8 @@ export class PrettyPrinter {
             the_lines.push(this.printNode(my_stmt));
         }
 
+        the_lines.push(this.printBlockEndingTrivia(node));
+
         // Decrease indent
         this.current_indent--;
 
@@ -528,6 +534,26 @@ export class PrettyPrinter {
             // Trailing trivia on same line - add space before
             the_parts.push(' ');
             the_parts.push(this.printTrivia(my_trivia));
+        }
+
+        return the_parts.join('');
+    }
+
+    /**
+     * Print comments that belong immediately before a block closer.
+     */
+    private printBlockEndingTrivia(node: CommandNode | ProgramNode | ControlFlowNode): string {
+        if (!node.blockEndingTrivia || node.blockEndingTrivia.length === 0) {
+            return '';
+        }
+
+        const the_parts: string[] = [];
+        for (const my_trivia of node.blockEndingTrivia) {
+            the_parts.push(this.getIndent());
+            the_parts.push(this.printTrivia(my_trivia));
+            // Block-ending comments are not statements and do not take `;` in
+            // semicolon-delimit mode, unlike leading trivia before statements.
+            the_parts.push('\n');
         }
 
         return the_parts.join('');

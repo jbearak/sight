@@ -933,6 +933,7 @@ end`;
     // in the tree, tolerant of union members that do not carry trivia.
     type MaybeTriviaNode = {
       leadingTrivia?: { content: string }[];
+      blockEndingTrivia?: { content: string }[];
       trailingTrivia?: { content: string }[];
       body?: MaybeTriviaNode[];
     };
@@ -941,6 +942,7 @@ end`;
       const walk = (the_nodes: MaybeTriviaNode[]): void => {
         for (const my_node of the_nodes) {
           for (const t of my_node.leadingTrivia ?? []) contents.push(t.content);
+          for (const t of my_node.blockEndingTrivia ?? []) contents.push(t.content);
           for (const t of my_node.trailingTrivia ?? []) contents.push(t.content);
           if (my_node.body) walk(my_node.body);
         }
@@ -1050,16 +1052,17 @@ end`;
       expect(codes).toContain('ORPHAN_CLOSE_BRACE');
     });
 
-    test('comment before } is preserved and not corrupted', () => {
+    test('comment before } is preserved as block-ending trivia', () => {
       // A comment on its own line just before the closing brace must survive in
-      // the AST (it must never be dropped). Its attachment point matches the
-      // pre-existing `#delimit cr` behavior; this fix does not reposition it.
+      // the AST (it must never be dropped) and belongs to the block body.
       const source =
         '#delimit ;\nforvalues i=1/3 {;\n    display 1;\n' +
         '    * inner;\n};\ndisplay 2;\n#delimit cr';
       const result = parse(source);
       const loop = result.ast.nodes.find(n => n.type === 'forvalues');
       expect(loop && loop.type === 'forvalues' && loop.body).toHaveLength(1);
+      expect(loop && loop.type === 'forvalues' && loop.blockEndingTrivia?.[0]?.content)
+        .toContain('* inner');
       expect(collect_all_trivia(result.ast.nodes).join('')).toContain('* inner');
     });
 

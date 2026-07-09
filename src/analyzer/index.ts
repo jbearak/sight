@@ -438,9 +438,7 @@ export class SemanticAnalyzer {
      * Handles @lsp-ignore-next and @lsp-variables directives.
      */
     private extract_comment_directives(ast: StataAST): void {
-        for (const node of ast.nodes) {
-            this.extract_directives_from_node(node);
-        }
+        this.extract_directives_from_nodes(ast.nodes);
     }
 
     /**
@@ -703,50 +701,115 @@ export class SemanticAnalyzer {
         }
     }
 
-    private extract_directives_from_node(node: StataNode): void {
-        // Check leading trivia for directives
-        if (this.has_trivia(node) && node.leadingTrivia) {
-            for (const trivia of node.leadingTrivia) {
-                this.parse_directive(trivia, node);
-            }
-        }
+    /**
+     * `outer_successor` is the statement that follows this whole node list in
+     * document order (undefined at the top level or when nothing follows the
+     * enclosing block). It lets a block-ending directive on the LAST child of a
+     * block target the statement after all the enclosing closers, matching the
+     * pre-#304 behavior where the comment flowed forward through pending trivia
+     * to that statement.
+     */
+    private extract_directives_from_nodes(
+        nodes: StataNode[],
+        outer_successor?: StataNode
+    ): void {
+        for (let my_index = 0; my_index < nodes.length; my_index++) {
+            const node = nodes[my_index];
 
-        // Recurse into nested nodes
-        if (node.type === 'program') {
-            for (const child of node.body) {
-                this.extract_directives_from_node(child);
+            // Check leading trivia for directives (target: this node).
+            if (this.has_trivia(node) && node.leadingTrivia) {
+                for (const trivia of node.leadingTrivia) {
+                    this.parse_directive(trivia, node);
+                }
             }
-        } else if (this.is_control_flow(node)) {
-            for (const child of node.body) {
-                this.extract_directives_from_node(child);
+
+            // The statement that follows this node in document order: its next
+            // sibling, or (when it is the last child) the statement after the
+            // enclosing block.
+            const following_node = nodes[my_index + 1] ?? outer_successor;
+
+            // Block-ending trivia (a comment on its own line just before this
+            // block's closer) targets that following statement — the same node
+            // that held the comment as leading trivia before issue #304 moved it
+            // into blockEndingTrivia. It is never this (block) node, so the
+            // block header line is never suppressed.
+            const node_with_block_ending_trivia = node as StataNode & {
+                blockEndingTrivia?: TriviaNode[];
+            };
+            if (node_with_block_ending_trivia.blockEndingTrivia) {
+                for (const trivia of node_with_block_ending_trivia.blockEndingTrivia) {
+                    this.parse_directive(trivia, following_node);
+                }
+            }
+
+            // Recurse into nested block bodies (program, control flow including
+            // frame, and prefix brace-command blocks). The body's successor is
+            // the statement after this block (following_node), so a directive on
+            // the body's last child still reaches past all enclosing closers.
+            const the_child_body = this.directive_recursion_body(node);
+            if (the_child_body) {
+                this.extract_directives_from_nodes(the_child_body, following_node);
             }
         }
     }
 
     /**
-     * AST-trivia fallback for comment directives. Ignore directives here
-     * add only the following node's FIRST line, by design: a control-flow
-     * node's range spans its whole block body, so marking the full range
-     * would over-suppress everything inside the block. Every production
-     * caller of analyze() passes tokens, making the token path
-     * (extract_comment_directives_from_tokens ->
-     * ignore_next_non_trivia_line) authoritative with full statement-span
-     * suppression; this narrower single-line contribution is a redundant
-     * subset when tokens are present, never a source of over-suppression.
-     * If a caller ever stops passing tokens, `@lsp-ignore-next` regresses
-     * to single-line suppression for that caller — keep tokens flowing.
+     * The child statement list to recurse into for directive extraction:
+     * program bodies, control-flow bodies (including `frame`, which
+     * is_control_flow excludes), and prefix brace-command blocks
+     * (`capture { ... }`). Other nodes have no nested statement list.
      */
-    private parse_directive(trivia: TriviaNode, following_node: StataNode): void {
+    private directive_recursion_body(node: StataNode): StataNode[] | undefined {
+        if (node.type === 'program') {
+            return node.body;
+        }
+        // Check `frame` via the discriminant before the is_control_flow type
+        // predicate: is_control_flow narrows to ControlFlowNode but excludes
+        // 'frame' at runtime, so `is_control_flow(node) || node.type === 'frame'`
+        // would leave TypeScript with no overlap for the 'frame' comparison.
+        if (node.type === 'frame') {
+            return node.body;
+        }
+        if (this.is_control_flow(node)) {
+            return node.body;
+        }
+        if (node.type === 'command' && node.body) {
+            return node.body;
+        }
+        return undefined;
+    }
+
+    /**
+     * AST-trivia path for comment directives. Ignore directives add only the
+     * following node's FIRST line, by design: a control-flow node's range spans
+     * its whole block body, so marking the full range would over-suppress
+     * everything inside the block. `following_node` is the node the comment
+     * precedes: the trivia's own node for leading trivia, or the statement after
+     * the block for block-ending trivia (undefined when nothing follows the
+     * enclosing scope — then the ignore directive has no statement to target and
+     * only `@lsp-variables` still applies).
+     *
+     * This path runs on every analyze() call and unions into the same
+     * `ignored_lines` set the token path uses. It is NOT purely redundant with
+     * the token path: for a comment sitting before a closer, the token path's
+     * `next_statement_line_span` stops at the closing brace, so only this path
+     * contributes the real post-block statement line. Over-suppression is still
+     * impossible because it adds at most a single, real following-statement line.
+     */
+    private parse_directive(trivia: TriviaNode, following_node: StataNode | undefined): void {
         const content = trivia.content.trim();
 
         // Standalone ignore directives target the following node.
-        if (has_ignore_directive(content) || has_ignore_next_directive(content)) {
+        if (
+            following_node &&
+            (has_ignore_directive(content) || has_ignore_next_directive(content))
+        ) {
             // Ignore the line of the following node
             const line_to_ignore = following_node.range.start.line;
             this.config.ignored_lines.add(line_to_ignore);
         }
 
-        // Check for @lsp-variables / @lsp-var directive
+        // Check for @lsp-variables / @lsp-var directive (keyed to its own line).
         const variables_match = content.match(VARIABLES_DIRECTIVE_PATTERN);
         if (variables_match) {
             const the_var_names = this.parse_identifier_list(
