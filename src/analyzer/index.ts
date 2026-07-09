@@ -711,6 +711,15 @@ export class SemanticAnalyzer {
             }
         }
 
+        const node_with_block_ending_trivia = node as StataNode & {
+            blockEndingTrivia?: TriviaNode[];
+        };
+        if (node_with_block_ending_trivia.blockEndingTrivia) {
+            for (const trivia of node_with_block_ending_trivia.blockEndingTrivia) {
+                this.parse_block_ending_directive(trivia);
+            }
+        }
+
         // Recurse into nested nodes
         if (node.type === 'program') {
             for (const child of node.body) {
@@ -719,6 +728,33 @@ export class SemanticAnalyzer {
         } else if (this.is_control_flow(node)) {
             for (const child of node.body) {
                 this.extract_directives_from_node(child);
+            }
+        }
+    }
+
+    /**
+     * Parse directives attached immediately before a block closer using only
+     * the trivia's own range. The token path is authoritative for
+     * `@lsp-ignore-next`; resolving that here through the block node would
+     * wrongly suppress the block header instead of the next statement.
+     */
+    private parse_block_ending_directive(trivia: TriviaNode): void {
+        const content = trivia.content.trim();
+
+        if (has_ignore_directive(content) && !has_ignore_next_directive(content)) {
+            this.config.ignored_lines.add(trivia.range.start.line);
+        }
+
+        const variables_match = content.match(VARIABLES_DIRECTIVE_PATTERN);
+        if (variables_match) {
+            const the_var_names = this.parse_identifier_list(
+                variables_match[1]
+            );
+            for (const my_var_name of the_var_names) {
+                this.register_declared_variable(
+                    my_var_name,
+                    trivia.range.start.line
+                );
             }
         }
     }

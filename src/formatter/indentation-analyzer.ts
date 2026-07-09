@@ -178,6 +178,8 @@ export class IndentationAnalyzer {
             }
         }
 
+        this.process_block_ending_trivia(node);
+
         this.current_depth--;
 
         if (end_line !== start_line) {
@@ -233,6 +235,8 @@ export class IndentationAnalyzer {
             }
         }
 
+        this.process_block_ending_trivia(node);
+
         // Decrease depth back to original
         this.current_depth--;
 
@@ -247,6 +251,24 @@ export class IndentationAnalyzer {
         const start_line = node.range.start.line;
         const { delta, original_indent } = this.calculate_indent_delta(start_line, this.current_depth);
         this.set_indentation(start_line, this.current_depth, false, false, false, false, delta, original_indent);
+    }
+
+    private process_block_ending_trivia(node: StataNode): void {
+        const node_with_trivia = node as StataNode & {
+            blockEndingTrivia?: TriviaNode[];
+        };
+
+        if (!node_with_trivia.blockEndingTrivia) return;
+
+        for (const my_trivia of node_with_trivia.blockEndingTrivia) {
+            if (my_trivia.type === 'comment') {
+                const trivia_line = my_trivia.range.start.line;
+                if (!this.indentation_map.has(trivia_line)) {
+                    const { delta, original_indent } = this.calculate_indent_delta(trivia_line, this.current_depth);
+                    this.set_indentation(trivia_line, this.current_depth, false, false, false, false, delta, original_indent);
+                }
+            }
+        }
     }
 
     private process_continuations(tokens: Token[]): void {
