@@ -763,8 +763,15 @@ export class SemanticAnalyzer {
         if (node.type === 'program') {
             return node.body;
         }
-        if (this.is_control_flow(node) || node.type === 'frame') {
-            return (node as ControlFlowNode).body;
+        // Check `frame` via the discriminant before the is_control_flow type
+        // predicate: is_control_flow narrows to ControlFlowNode but excludes
+        // 'frame' at runtime, so `is_control_flow(node) || node.type === 'frame'`
+        // would leave TypeScript with no overlap for the 'frame' comparison.
+        if (node.type === 'frame') {
+            return node.body;
+        }
+        if (this.is_control_flow(node)) {
+            return node.body;
         }
         if (node.type === 'command' && node.body) {
             return node.body;
