@@ -17,10 +17,7 @@ import { ScopeResolver } from '../../src/scope-resolver';
 import { ForwardScopeResolver } from '../../src/forward-scope-resolver';
 import type { ResolvedScope } from '../../src/types';
 import { create_test_scope_resolver_logger } from '../test-logger';
-
-const arbitrary_symbol_name = fc
-    .stringMatching(/^[a-z][a-z0-9_]{0,8}$/)
-    .filter((s) => !['if', 'in', 'do', 'run', 'end'].includes(s));
+import { arbitrary_non_reserved_identifier } from './generators';
 
 const observable = (r: ResolvedScope) => ({
     globals: Array.from(r.symbols.globalMacros.keys()).sort(),
@@ -36,7 +33,7 @@ describe('issue #294 — bounded-cache equivalence property', () => {
         await fc.assert(
             fc.asyncProperty(
                 fc.integer({ min: 2, max: 4 }),
-                fc.array(arbitrary_symbol_name, {
+                fc.array(arbitrary_non_reserved_identifier(), {
                     minLength: 4, maxLength: 4,
                 }),
                 async (chain_depth, the_names) => {
