@@ -142,6 +142,24 @@ describe('block-ending trivia ownership', () => {
         expect(inner.leadingTrivia ?? []).toHaveLength(0);
     });
 
+    test('a continuation before the comment leaves the group intact (no split)', () => {
+        // A `///` continuation interleaved with the trailing comment must NOT be
+        // split: draining only the comment would reorder the continuation
+        // relative to the comment across the closer. The whole group stays with
+        // the following statement, preserving pre-existing order.
+        const nodes = parse_nodes(
+            'if 1 {\n    display 1\n    ///\n    * keep\n}\ndisplay 2'
+        );
+        const block_node = as_block_node(nodes.find(n => n.type === 'if'));
+        const following_node = nodes[nodes.length - 1] as NodeWithBlockEndingTrivia;
+
+        expect(block_node.blockEndingTrivia).toBeUndefined();
+        expect((following_node.leadingTrivia ?? []).map(t => t.content)).toEqual([
+            '///',
+            '* keep',
+        ]);
+    });
+
     test('unclosed brace block does not populate blockEndingTrivia', () => {
         const result = parse_result('if 1 {\n    display 1\n    * keep');
         const block_node = as_block_node(result.ast.nodes.find(n => n.type === 'if'));

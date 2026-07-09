@@ -2828,28 +2828,28 @@ export class StataParser {
   }
 
   private drainBlockEndingTrivia(): TriviaNode[] | undefined {
-    const block_ending_trivia: TriviaNode[] = [];
-    const remaining_trivia: TriviaNode[] = [];
-
-    for (const my_trivia of this.pending_trivia) {
-      if (this.isBlockEndingCommentTrivia(my_trivia)) {
-        block_ending_trivia.push(my_trivia);
-      } else {
-        remaining_trivia.push(my_trivia);
-      }
+    if (this.pending_trivia.length === 0) {
+      return undefined;
     }
 
-    this.pending_trivia = remaining_trivia;
-    return block_ending_trivia.length > 0 ? block_ending_trivia : undefined;
-  }
-
-  private isBlockEndingCommentTrivia(trivia: TriviaNode): boolean {
-    return (
-      trivia.type === 'comment' &&
-      (trivia.style === 'star' ||
-        trivia.style === 'slash' ||
-        trivia.style === 'block')
+    // Only reposition a PURE run of comments into the block. If a `///`
+    // continuation is interleaved with the trailing comments, leave the whole
+    // group in pending_trivia untouched: draining only the comments would
+    // reorder the continuation relative to the comment across the closer (and
+    // a continuation is not a block-ending comment). The mixed case then keeps
+    // its pre-existing behavior (all pending trivia flows to the next
+    // statement, or to the end-of-parse flush).
+    const has_continuation = this.pending_trivia.some(
+      my_trivia =>
+        my_trivia.type === 'comment' && my_trivia.style === 'continuation'
     );
+    if (has_continuation) {
+      return undefined;
+    }
+
+    const block_ending_trivia = this.pending_trivia;
+    this.pending_trivia = [];
+    return block_ending_trivia;
   }
 
   // Skip trivia within a macro definition statement, bridging `///`

@@ -112,31 +112,26 @@ export class IndentationAnalyzer {
         };
 
         // Process leading trivia - these should be indented at the current depth
-        if (node_with_trivia.leadingTrivia) {
-            for (const my_trivia of node_with_trivia.leadingTrivia) {
-                if (my_trivia.type === 'comment') {
-                    const trivia_line = my_trivia.range.start.line;
-                    // Only set if not already set (don't override block markers)
-                    if (!this.indentation_map.has(trivia_line)) {
-                        const { delta, original_indent } = this.calculate_indent_delta(trivia_line, this.current_depth);
-                        this.set_indentation(trivia_line, this.current_depth, false, false, false, false, delta, original_indent);
-                    }
-                }
-            }
-        }
+        this.mark_comment_trivia_indentation(node_with_trivia.leadingTrivia);
 
         // Process trailing trivia - these should also be at current depth
-        if (node_with_trivia.trailingTrivia) {
-            for (const my_trivia of node_with_trivia.trailingTrivia) {
-                if (my_trivia.type === 'comment') {
-                    const trivia_line = my_trivia.range.start.line;
-                    // Only set if not already set
-                    if (!this.indentation_map.has(trivia_line)) {
-                        const { delta, original_indent } = this.calculate_indent_delta(trivia_line, this.current_depth);
-                        this.set_indentation(trivia_line, this.current_depth, false, false, false, false, delta, original_indent);
-                    }
-                }
-            }
+        this.mark_comment_trivia_indentation(node_with_trivia.trailingTrivia);
+    }
+
+    /**
+     * Mark each comment in a trivia list at the current depth, unless the line
+     * already has an indentation entry (never override a block marker). Shared
+     * by leading/trailing trivia and block-ending trivia so the "only set if
+     * not already set" contract lives in one place.
+     */
+    private mark_comment_trivia_indentation(the_trivia?: TriviaNode[]): void {
+        if (!the_trivia) return;
+        for (const my_trivia of the_trivia) {
+            if (my_trivia.type !== 'comment') continue;
+            const trivia_line = my_trivia.range.start.line;
+            if (this.indentation_map.has(trivia_line)) continue;
+            const { delta, original_indent } = this.calculate_indent_delta(trivia_line, this.current_depth);
+            this.set_indentation(trivia_line, this.current_depth, false, false, false, false, delta, original_indent);
         }
     }
 
@@ -257,18 +252,9 @@ export class IndentationAnalyzer {
         const node_with_trivia = node as StataNode & {
             blockEndingTrivia?: TriviaNode[];
         };
-
-        if (!node_with_trivia.blockEndingTrivia) return;
-
-        for (const my_trivia of node_with_trivia.blockEndingTrivia) {
-            if (my_trivia.type === 'comment') {
-                const trivia_line = my_trivia.range.start.line;
-                if (!this.indentation_map.has(trivia_line)) {
-                    const { delta, original_indent } = this.calculate_indent_delta(trivia_line, this.current_depth);
-                    this.set_indentation(trivia_line, this.current_depth, false, false, false, false, delta, original_indent);
-                }
-            }
-        }
+        // Emitted while current_depth is still body depth, so block-ending
+        // comments indent inside the block rather than at the outer scope.
+        this.mark_comment_trivia_indentation(node_with_trivia.blockEndingTrivia);
     }
 
     private process_continuations(tokens: Token[]): void {

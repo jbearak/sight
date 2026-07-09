@@ -745,17 +745,23 @@ export class SemanticAnalyzer {
             this.config.ignored_lines.add(trivia.range.start.line);
         }
 
+        this.register_variables_directive(content, trivia.range.start.line);
+    }
+
+    /**
+     * Register any `@lsp-variables` / `@lsp-var` declarations found in a
+     * comment's content, keyed to the comment's own line. Shared by the
+     * leading-trivia fallback (`parse_directive`) and the block-ending fallback
+     * (`parse_block_ending_directive`) so the parse contract lives in one place.
+     */
+    private register_variables_directive(content: string, line: number): void {
         const variables_match = content.match(VARIABLES_DIRECTIVE_PATTERN);
-        if (variables_match) {
-            const the_var_names = this.parse_identifier_list(
-                variables_match[1]
-            );
-            for (const my_var_name of the_var_names) {
-                this.register_declared_variable(
-                    my_var_name,
-                    trivia.range.start.line
-                );
-            }
+        if (!variables_match) {
+            return;
+        }
+        const the_var_names = this.parse_identifier_list(variables_match[1]);
+        for (const my_var_name of the_var_names) {
+            this.register_declared_variable(my_var_name, line);
         }
     }
 
@@ -783,18 +789,7 @@ export class SemanticAnalyzer {
         }
 
         // Check for @lsp-variables / @lsp-var directive
-        const variables_match = content.match(VARIABLES_DIRECTIVE_PATTERN);
-        if (variables_match) {
-            const the_var_names = this.parse_identifier_list(
-                variables_match[1]
-            );
-            for (const my_var_name of the_var_names) {
-                this.register_declared_variable(
-                    my_var_name,
-                    trivia.range.start.line
-                );
-            }
-        }
+        this.register_variables_directive(content, trivia.range.start.line);
     }
 
     private is_standalone_comment_token(tokens: Token[], comment_index: number): boolean {
