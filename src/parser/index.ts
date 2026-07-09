@@ -450,9 +450,7 @@ export class StataParser {
     this.inside_program = true;
 
     // Collect any leading trivia before re-checking `end`, mirroring
-    // parseBraceBody (issue #301). Carrying the trivia forward via
-    // pending_trivia so it attaches to the statement after the program matches
-    // how parseBraceBody handles a comment before `}`.
+    // parseBraceBody (issue #301).
     while (!this.isAtEnd()) {
       const my_trivia = this.collectTrivia();
       if (my_trivia.length > 0) {
@@ -466,6 +464,10 @@ export class StataParser {
         body.push(stmt);
       }
     }
+
+    const program_block_ending_trivia = this.checkWord('end')
+      ? this.drainBlockEndingTrivia()
+      : undefined;
 
     this.inside_program = was_inside_program;
 
@@ -488,6 +490,7 @@ export class StataParser {
         start_token.range.start,
         this.previous().range.end
       ),
+      blockEndingTrivia: program_block_ending_trivia,
     };
   }
 
@@ -913,7 +916,8 @@ export class StataParser {
       this.validate_open_brace(lbrace_token, lbrace_index, has_condition_before);
 
       const body: StataNode[] = [];
-      body.push(...this.parseBraceBody());
+      const { body: my_body, blockEndingTrivia } = this.parseBraceBody();
+      body.push(...my_body);
       if (this.check('RBRACE')) {
         const rbrace_index = this.current;
         const rbrace_token = this.advance(); // consume }
@@ -933,6 +937,7 @@ export class StataParser {
           start_token.range.start,
           this.previous().range.end
         ),
+        blockEndingTrivia,
       };
     }
 
@@ -2185,6 +2190,7 @@ export class StataParser {
 
     // Parse body
     const body: StataNode[] = [];
+    let blockEndingTrivia: TriviaNode[] | undefined;
     if (this.check('LBRACE')) {
       const lbrace_index = this.current;
       const lbrace_token = this.advance(); // consume {
@@ -2194,7 +2200,9 @@ export class StataParser {
       const has_condition_before = lbrace_token.range.start.line === condition_start_line;
       this.validate_open_brace(lbrace_token, lbrace_index, has_condition_before);
 
-      body.push(...this.parseBraceBody());
+      const { body: my_body, blockEndingTrivia: my_block_ending_trivia } = this.parseBraceBody();
+      body.push(...my_body);
+      blockEndingTrivia = my_block_ending_trivia;
 
       if (this.check('RBRACE')) {
         const rbrace_index = this.current;
@@ -2212,6 +2220,7 @@ export class StataParser {
       condition: condition.trim(),
       body,
       range: this.makeRange(ifToken.range.start, this.previous().range.end),
+      blockEndingTrivia,
     };
   }
 
@@ -2230,6 +2239,7 @@ export class StataParser {
 
     // Parse body
     const body: StataNode[] = [];
+    let blockEndingTrivia: TriviaNode[] | undefined;
     let is_brace_else = false;
     if (this.check('LBRACE')) {
       is_brace_else = true;
@@ -2241,7 +2251,9 @@ export class StataParser {
       const has_condition_before = lbrace_token.range.start.line === elseToken.range.start.line;
       this.validate_open_brace(lbrace_token, lbrace_index, has_condition_before);
 
-      body.push(...this.parseBraceBody());
+      const { body: my_body, blockEndingTrivia: my_block_ending_trivia } = this.parseBraceBody();
+      body.push(...my_body);
+      blockEndingTrivia = my_block_ending_trivia;
 
       if (this.check('RBRACE')) {
         const rbrace_index = this.current;
@@ -2275,6 +2287,7 @@ export class StataParser {
       type: 'else',
       body,
       range: this.makeRange(elseToken.range.start, end_position),
+      blockEndingTrivia,
     };
   }
 
@@ -2344,6 +2357,7 @@ export class StataParser {
 
     // Parse body
     const body: StataNode[] = [];
+    let blockEndingTrivia: TriviaNode[] | undefined;
     if (this.check('LBRACE')) {
       const lbrace_index = this.current;
       const lbrace_token = this.advance(); // consume {
@@ -2353,7 +2367,9 @@ export class StataParser {
       const has_condition_before = lbrace_token.range.start.line === loop_start_line;
       this.validate_open_brace(lbrace_token, lbrace_index, has_condition_before);
 
-      body.push(...this.parseBraceBody());
+      const { body: my_body, blockEndingTrivia: my_block_ending_trivia } = this.parseBraceBody();
+      body.push(...my_body);
+      blockEndingTrivia = my_block_ending_trivia;
 
       if (this.check('RBRACE')) {
         const rbrace_index = this.current;
@@ -2372,6 +2388,7 @@ export class StataParser {
       loopSpec,
       body,
       range: this.makeRange(loopToken.range.start, this.previous().range.end),
+      blockEndingTrivia,
     };
   }
 
@@ -2435,6 +2452,7 @@ export class StataParser {
 
     // Parse body
     const body: StataNode[] = [];
+    let blockEndingTrivia: TriviaNode[] | undefined;
     if (this.check('LBRACE')) {
       const lbrace_index = this.current;
       const lbrace_token = this.advance(); // consume {
@@ -2444,7 +2462,9 @@ export class StataParser {
       const has_condition_before = lbrace_token.range.start.line === while_start_line;
       this.validate_open_brace(lbrace_token, lbrace_index, has_condition_before);
 
-      body.push(...this.parseBraceBody());
+      const { body: my_body, blockEndingTrivia: my_block_ending_trivia } = this.parseBraceBody();
+      body.push(...my_body);
+      blockEndingTrivia = my_block_ending_trivia;
 
       if (this.check('RBRACE')) {
         const rbrace_index = this.current;
@@ -2462,6 +2482,7 @@ export class StataParser {
       condition: condition.trim(),
       body,
       range: this.makeRange(whileToken.range.start, this.previous().range.end),
+      blockEndingTrivia,
     };
   }
 
@@ -2575,7 +2596,7 @@ export class StataParser {
     this.validate_open_brace(lbrace_token, lbrace_index, has_condition_before);
 
     // Parse body
-    const body: StataNode[] = this.parseBraceBody();
+    const { body, blockEndingTrivia } = this.parseBraceBody();
 
     if (this.check('RBRACE')) {
       const rbrace_index = this.current;
@@ -2592,6 +2613,7 @@ export class StataParser {
       frameName: frame_name,
       body,
       range: this.makeRange(frame_token.range.start, this.previous().range.end),
+      blockEndingTrivia,
     };
   }
 
@@ -2777,14 +2799,12 @@ export class StataParser {
    * itself, so the closing brace is never handed to parseStatement, which
    * would misreport it as an orphan (issue #301).
    *
-   * A comment sitting between the last body statement and the closing brace is
-   * left in pending_trivia so it attaches to the statement after the block —
-   * identical to how the parser already handles that comment in `#delimit cr`
-   * mode. (Folding it into the last body node's trailing trivia instead makes
-   * the AST pretty-printer emit it inline on the preceding statement's line,
-   * corrupting output; repositioning block-ending comments is out of scope.)
+   * A comment sitting between the last body statement and a real closing brace
+   * belongs to the block body, not to the following statement. It is returned
+   * separately so printers and formatters can keep it before the closer at
+   * body indentation.
    */
-  private parseBraceBody(): StataNode[] {
+  private parseBraceBody(): { body: StataNode[]; blockEndingTrivia?: TriviaNode[] } {
     const body: StataNode[] = [];
     while (!this.isAtEnd()) {
       const my_trivia = this.collectTrivia();
@@ -2799,7 +2819,37 @@ export class StataParser {
         body.push(stmt);
       }
     }
-    return body;
+
+    const blockEndingTrivia = this.check('RBRACE')
+      ? this.drainBlockEndingTrivia()
+      : undefined;
+
+    return { body, blockEndingTrivia };
+  }
+
+  private drainBlockEndingTrivia(): TriviaNode[] | undefined {
+    const block_ending_trivia: TriviaNode[] = [];
+    const remaining_trivia: TriviaNode[] = [];
+
+    for (const my_trivia of this.pending_trivia) {
+      if (this.isBlockEndingCommentTrivia(my_trivia)) {
+        block_ending_trivia.push(my_trivia);
+      } else {
+        remaining_trivia.push(my_trivia);
+      }
+    }
+
+    this.pending_trivia = remaining_trivia;
+    return block_ending_trivia.length > 0 ? block_ending_trivia : undefined;
+  }
+
+  private isBlockEndingCommentTrivia(trivia: TriviaNode): boolean {
+    return (
+      trivia.type === 'comment' &&
+      (trivia.style === 'star' ||
+        trivia.style === 'slash' ||
+        trivia.style === 'block')
+    );
   }
 
   // Skip trivia within a macro definition statement, bridging `///`

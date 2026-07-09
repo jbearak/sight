@@ -269,6 +269,7 @@ export interface CommandNode {
   body?: StataNode[];  // For prefix command brace blocks (e.g., capture { })
   range: Range;
   leadingTrivia?: TriviaNode[];
+  blockEndingTrivia?: TriviaNode[];
   trailingTrivia?: TriviaNode[];
 }
 
@@ -279,6 +280,7 @@ export interface ProgramNode {
   signature?: ProgramSignature; // Extracted from syntax command
   range: Range;
   leadingTrivia?: TriviaNode[];
+  blockEndingTrivia?: TriviaNode[];
   trailingTrivia?: TriviaNode[];
 }
 
@@ -323,6 +325,7 @@ export interface ControlFlowNode {
   body: StataNode[];
   range: Range;
   leadingTrivia?: TriviaNode[];
+  blockEndingTrivia?: TriviaNode[];
   trailingTrivia?: TriviaNode[];
 }
 
