@@ -3848,6 +3848,20 @@ export class ScopeResolver {
             // skip_backward_registration) — so a genuine explicit-mode hit
             // must self-heal it: register raw directives and stamp, the
             // same effect an explicit-mode parse would have had.
+            //
+            // DELIBERATE asymmetry with the miss path's `?? 'explicit'`
+            // default: an UNSPECIFIED requested_mode does NOT self-heal.
+            // Every production caller threads a concrete mode (verified:
+            // discover_working_directory and follow_directives pass
+            // `config.backward_dependencies ?? 'auto'`, and
+            // ForwardScopeResolver normalizes before get_callee_scope), so
+            // undefined cannot reach this branch today. If a future
+            // unthreaded caller appears, healing under a defaulted
+            // 'explicit' would clear-then-register EMPTY raw directives
+            // for a directive-less file and wipe its auto-discovered
+            // parent edges under auto config — the exact #294 bug class
+            // the probe-only walk exists to prevent. Side-effect-free is
+            // the safe default for a mode nobody expressed.
             if (requested_mode === 'explicit' &&
                 cached.registered_backward_mode === undefined) {
                 this.apply_backward_directive_registration(
