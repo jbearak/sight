@@ -231,6 +231,14 @@ const LOGICAL_BOUNDARY_TYPES: ReadonlySet<string> = new Set([
     'LBRACE',
     'RBRACE',
     'DELIMIT_DIRECTIVE',
+    // A `mata`/`python` block opener and its `end` bound statements too:
+    // under `#delimit ;` the block body carries no STATEMENT_TERMINATOR, so
+    // without these a Stata statement right after `end` would walk back into
+    // the block and mis-read its command as `mata`/`python`.
+    'MATA_START',
+    'PYTHON_START',
+    'END_MATA',
+    'END_PYTHON',
 ]);
 
 /**
@@ -378,10 +386,18 @@ export function logical_statement_start(
     // line from just after the boundary (dropping any earlier statement that
     // shares the line) and treats it as a fresh — not continuation —
     // statement.
+    // Clamp to the cursor: when the cursor sits INSIDE a multi-character
+    // boundary token (e.g. editing within `#delimit ;` or a `mata` opener),
+    // the boundary's end is past the cursor, and an unclamped resume character
+    // would make the caller's `substring(resume, cursor)` reverse its
+    // arguments and splice in text after the cursor.
     const resume_character =
         boundary_index >= 0 &&
         tokens[boundary_index].range.end.line === position.line
-            ? tokens[boundary_index].range.end.character
+            ? Math.min(
+                  tokens[boundary_index].range.end.character,
+                  position.character
+              )
             : 0;
     return {
         index: first_index >= 0 ? first_index : boundary_index + 1,

@@ -159,6 +159,35 @@ describe('detect_completion_context — cursor before a mid-document terminator 
     });
 });
 
+describe('detect_completion_context — mata/python block boundaries (#310)', () => {
+    it('does not walk into a preceding bare mata/end block under #delimit ;', () => {
+        const source = '#delimit ;\nmata\nx=1\nend\nreg y x,\n robust';
+        const context = context_of(source, { line: 5, character: 7 });
+        expect(context.type).toBe('option');
+        if (context.type === 'option') {
+            expect(context.command).toBe('reg');
+        }
+    });
+
+    it('does not walk into a preceding bare python/end block under #delimit ;', () => {
+        const source = '#delimit ;\npython\nx=1\nend\nreg y x,\n robust';
+        const context = context_of(source, { line: 5, character: 7 });
+        expect(context.type).toBe('option');
+        if (context.type === 'option') {
+            expect(context.command).toBe('reg');
+        }
+    });
+});
+
+describe('detect_completion_context — cursor inside a multi-char boundary token (#310)', () => {
+    it('does not synthesize reversed text when the cursor is inside a #delimit directive', () => {
+        // Cursor mid-`#delimit ;`: must not slice substring(boundaryEnd, cursor)
+        // with boundaryEnd > cursor.
+        const context = context_of('#delimit ;', { line: 0, character: 5 });
+        expect(context.type).toBe('command');
+    });
+});
+
 describe('detect_completion_context — long wrapped varlist (#310)', () => {
     it('still detects option context for a wrapped statement with hundreds of tokens', () => {
         const the_vars = Array.from({ length: 800 }, (_, i) => `x${i}`).join(' ');
@@ -247,12 +276,6 @@ describe('detect_completion_context — statement-scoped detectors over logical 
         if (context.type === 'command_path') {
             expect(context.command).toBe('use');
         }
-    });
-
-    it('resolves an extended-macro function split across a /// continuation', () => {
-        const source = '#delimit ;\nlocal x : ///\n    list a b';
-        const context = context_of(source, { line: 2, character: 8 });
-        expect(context.type).toBe('macro');
     });
 
     it('resolves a subcommand split across a /// continuation', () => {

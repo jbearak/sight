@@ -358,11 +358,15 @@ export function create_completion_handler(
             // changes dynamically as the user types macro delimiters.
             // Non-macro contexts return isIncomplete=false so the client can cache results.
             // Tokens are intentionally omitted: this call only reads whether the
-            // context is macro, which is decided from the physical line before
-            // the logical-statement token walk is ever consulted (#310). Passing
-            // tokens here would make every keystroke redo the backward walk —
-            // including an unbounded scan through a `#delimit ;` `mata`/`end`
-            // block — purely to compute a flag the walk cannot change.
+            // context is macro, and BOTH macro-returning detectors
+            // (detect_macro_context and detect_extended_macro_context) run on
+            // the physical line — the logical-statement token walk (#310) only
+            // affects the non-macro option/command/variable/command_path/
+            // subcommand contexts. So the macro flag is identical with or
+            // without tokens, and omitting them keeps every keystroke from
+            // redoing the backward walk (including through a `#delimit ;`
+            // `mata`/`end` block) purely to compute a flag the walk cannot
+            // change.
             const completion_context = detect_completion_context(
                 document_state,
                 params.position

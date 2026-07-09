@@ -311,8 +311,13 @@ export function detect_completion_context(
         return cached_logical_text;
     };
 
-    // Check for extended macro function context (`: list`, `: word`, etc.)
-    const extended_macro_context = detect_extended_macro_context(get_logical_text(), position);
+    // Check for extended macro function context (`: list`, `: word`, etc.).
+    // Kept on the physical line, alongside detect_macro_context below: these
+    // are the only two detectors that return a `macro` context, and the
+    // server-handlers isIncomplete probe relies on macro-ness being decided
+    // without the logical-statement token walk. Extended macro functions are
+    // authored on one line in practice, so this costs no real coverage.
+    const extended_macro_context = detect_extended_macro_context(text_before_cursor, position);
     if (extended_macro_context) {
         return extended_macro_context;
     }
