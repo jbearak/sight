@@ -42,6 +42,7 @@ import { CodeFormatter } from './providers/formatter';
 import { WorkspaceIndexer } from './indexer';
 import { StataLSPConfig } from './types';
 import { ContextTracker } from './context-tracker';
+import { LanguageContext } from './context-tracker/types';
 import { ScopeResolver, scope_resolver_config_for } from './scope-resolver';
 import { ForwardScopeResolver } from './forward-scope-resolver';
 import { DependencyGraph } from './dependency-graph';
@@ -357,19 +358,26 @@ export function create_completion_handler(
             // Macro contexts need isIncomplete=true because the replacement range
             // changes dynamically as the user types macro delimiters.
             // Non-macro contexts return isIncomplete=false so the client can cache results.
-            // Tokens are intentionally omitted: this call only reads whether the
-            // context is macro, and BOTH macro-returning detectors
-            // (detect_macro_context and detect_extended_macro_context) run on
-            // the physical line — the logical-statement token walk (#310) only
-            // affects the non-macro option/command/variable/command_path/
-            // subcommand contexts. So the macro flag is identical with or
-            // without tokens, and omitting them keeps every keystroke from
-            // redoing the backward walk (including through a `#delimit ;`
-            // `mata`/`end` block) purely to compute a flag the walk cannot
-            // change.
+            // Mirror get_completions' token gating EXACTLY so this probe's
+            // context matches the one the real completion path used (#310).
+            // The logical-statement walk affects non-macro detectors too, and
+            // command_path detection (over the logical text) precedes macro
+            // detection — so a token-vs-no-token difference there can change
+            // whether macro detection is even reached, flipping isIncomplete.
+            // Passing the same tokens (only in STATA context, as
+            // get_completions does) keeps the two calls consistent. The walk is
+            // bounded by MAX_STATEMENT_TOKENS and skipped in embedded context.
+            const probe_context = document_state.context_tracker
+                ? document_state.context_tracker.get_context_at_position(
+                      params.position
+                  )
+                : LanguageContext.STATA;
             const completion_context = detect_completion_context(
                 document_state,
-                params.position
+                params.position,
+                probe_context === LanguageContext.STATA
+                    ? document_state.tokens
+                    : undefined
             );
             const is_macro_context = completion_context.type === 'macro';
 

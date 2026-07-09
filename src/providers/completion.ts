@@ -201,7 +201,8 @@ const LOGICAL_FLATTEN_SKIP_TYPES: ReadonlySet<string> = new Set([
 
 /**
  * Build the "logical statement" text before the cursor for the
- * statement-scoped detectors (option/command/variable) — issue #310.
+ * statement-scoped detectors (command-path, subcommand, option, command,
+ * variable) — issue #310.
  *
  * The text detectors historically saw only the current physical line, so a
  * statement wrapped across lines (via `#delimit ;` newlines or `///` in
@@ -295,8 +296,9 @@ export function detect_completion_context(
     // rather than just the current physical line. For a genuine single-line
     // statement the logical text equals the physical text (modulo leading
     // indentation, which every detector already trims), so single-line
-    // behavior is unchanged. Built once, lazily.
-    const logical_start = logical_statement_start(tokens, position);
+    // behavior is unchanged. Built once, lazily — including the backward token
+    // walk — so the extended-macro and directive checks below (which run
+    // first and use only the physical line) never pay for it.
     let cached_logical_text: string | undefined;
     const get_logical_text = (): string => {
         if (cached_logical_text === undefined) {
@@ -304,7 +306,7 @@ export function detect_completion_context(
                 document,
                 position,
                 tokens,
-                logical_start,
+                logical_statement_start(tokens, position),
                 text_before_cursor
             );
         }
@@ -556,9 +558,17 @@ function extract_command_name(text: string): string | null {
     }
     
     const the_words = working_text.split(/\s+/).filter(w => w.length > 0);
-    
+
     // Skip prefix commands to find the main command
     for (const my_word of the_words) {
+        // A lone `:` appears only when the logical-statement flattening (#310)
+        // joins a prefix command and its colon with a space
+        // (`capture : reg` from a wrapped `capture: reg`). It never begins a
+        // command, so skip it — otherwise it would be returned as the command
+        // name and no options would resolve.
+        if (my_word === ':') {
+            continue;
+        }
         const lower_word = my_word.toLowerCase();
         if (!PREFIX_COMMANDS.includes(lower_word)) {
             return my_word;

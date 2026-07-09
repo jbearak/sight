@@ -20,6 +20,9 @@ import { CommandDatabase } from '../../src/commands';
 import { StataLexer } from '../../src/lexer';
 import { logical_statement_start } from '../../src/utils/statement-span';
 import { create_real_document_state } from '../test-context-helper';
+import { DocumentStore } from '../../src/document-store';
+import { create_completion_handler } from '../../src/server-handlers';
+import type { HandlerDependencies } from '../../src/server-handlers';
 
 function tokens_of(source: string) {
     return new StataLexer().tokenize(source).tokens;
@@ -172,6 +175,29 @@ describe('detect_completion_context — mata/python block boundaries (#310)', ()
     it('does not walk into a preceding bare python/end block under #delimit ;', () => {
         const source = '#delimit ;\npython\nx=1\nend\nreg y x,\n robust';
         const context = context_of(source, { line: 5, character: 7 });
+        expect(context.type).toBe('option');
+        if (context.type === 'option') {
+            expect(context.command).toBe('reg');
+        }
+    });
+
+    it('gives command context at column 0 of a bare mata block closer (end)', () => {
+        const source = 'generate foo = 1;\n#delimit ;\nmata\nx=1\nend';
+        const context = context_of(source, { line: 4, character: 0 });
+        expect(context.type).toBe('command');
+    });
+
+    it('gives command context at column 0 of a mata brace-block closer (})', () => {
+        const source = '#delimit ;\nmata {\n x=1\n}';
+        const context = context_of(source, { line: 3, character: 0 });
+        expect(context.type).toBe('command');
+    });
+
+    it('still gives option context inside a regular Stata brace block wrapped statement', () => {
+        // A non-embedded `{ }` block body is real Stata; option context for the
+        // inner command must be preserved.
+        const source = '#delimit ;\nforeach v of varlist a b {\n    reg y `v\',\n        vce(';
+        const context = context_of(source, { line: 3, character: 12 });
         expect(context.type).toBe('option');
         if (context.type === 'option') {
             expect(context.command).toBe('reg');
@@ -354,6 +380,63 @@ describe('get_completions — wrapped option completions (#310)', () => {
         const labels = completions.map(c => c.label);
         expect(labels).toContain('noconstant');
         expect(labels).not.toContain('vce');
+    });
+});
+
+describe('detect_completion_context — colon-suffixed prefix wrapped (#310)', () => {
+    it('resolves the command past a wrapped capture: prefix', () => {
+        const source = '#delimit ;\ncapture: regress y x,\n    vce(';
+        const context = context_of(source, { line: 2, character: 8 });
+        expect(context.type).toBe('option');
+        if (context.type === 'option') {
+            expect(context.command).toBe('regress');
+        }
+    });
+});
+
+describe('create_completion_handler — isIncomplete matches the real context on wrapped statements (#310)', () => {
+    async function is_incomplete_for(source: string, position: Position): Promise<boolean> {
+        const uri = 'file:///wrapped-isincomplete.do';
+        const document_store = new DocumentStore();
+        try {
+            await document_store.open(uri, source, 1);
+            const deps: HandlerDependencies = {
+                debounce_manager: null,
+                document_store,
+                diagnostics_provider: null,
+                completion_provider: { get_completions: async () => [] },
+                hover_provider: null,
+                definition_provider: null,
+                references_provider: null,
+                symbol_provider: null,
+                formatter_provider: null,
+                workspace_indexer: null,
+                scope_resolver: null,
+                forward_scope_resolver: null,
+                dependency_graph: null,
+                rename_handler: null,
+                get_document_settings: async () => ({}) as any,
+                connection: { sendDiagnostics: () => {}, console: { log: () => {} } },
+            } as any;
+            const handler = create_completion_handler(deps);
+            const result = await handler(
+                { textDocument: { uri }, position },
+                undefined
+            );
+            return result.isIncomplete;
+        } finally {
+            await document_store.dispose();
+        }
+    }
+
+    it('reports isIncomplete=true for a macro context on a /// continuation line, where the tokenless physical line alone would look like a file command', async () => {
+        // `foo ///` then `  use ` + a local-macro backtick. The real completion
+        // path (tokens) sees a macro context (dynamic range -> isIncomplete);
+        // the current physical line alone (`  use ` + backtick) would look like
+        // a `use` file command. The probe must gate tokens by context exactly
+        // like the real path so the two agree.
+        const source = 'foo ///\n  use `';
+        expect(await is_incomplete_for(source, Position.create(1, 7))).toBe(true);
     });
 });
 

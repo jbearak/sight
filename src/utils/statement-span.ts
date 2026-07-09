@@ -349,6 +349,37 @@ export function logical_statement_start(
         }
     }
 
+    // Whether the tokens after the boundary are a `mata`/`python` block BODY
+    // (embedded content), not a Stata statement: the boundary is the block
+    // opener itself, or the `{` of a `mata { ... }` / `python { ... }` block.
+    // Reached only when the cursor sits at/just before the block's closer
+    // (`end` / `}`) on a line the context tracker calls Stata — the backward
+    // walk then lands inside the block body. Treating that body as a Stata
+    // statement would offer variable/command completions built from embedded
+    // code, so fall through to the fresh-position Case B instead.
+    let boundary_opens_embedded_body = false;
+    if (boundary_index >= 0) {
+        const my_boundary_type = tokens[boundary_index].type;
+        if (
+            my_boundary_type === 'MATA_START' ||
+            my_boundary_type === 'PYTHON_START'
+        ) {
+            boundary_opens_embedded_body = true;
+        } else if (my_boundary_type === 'LBRACE') {
+            for (let my_j = boundary_index - 1; my_j >= 0; my_j--) {
+                const my_prev_type = tokens[my_j].type;
+                if (CONTINUATION_NEUTRAL_TYPES.has(my_prev_type) ||
+                    my_prev_type === 'WHITESPACE') {
+                    continue;
+                }
+                boundary_opens_embedded_body =
+                    my_prev_type === 'MATA_START' ||
+                    my_prev_type === 'PYTHON_START';
+                break;
+            }
+        }
+    }
+
     // First non-trivia token after the boundary (the statement's head).
     let first_index = -1;
     for (let my_i = boundary_index + 1; my_i < tokens.length; my_i++) {
@@ -363,7 +394,7 @@ export function logical_statement_start(
     }
 
     // Case A: the statement has a real head token at or before the cursor.
-    if (first_index !== -1) {
+    if (first_index !== -1 && !boundary_opens_embedded_body) {
         const my_start = tokens[first_index].range.start;
         const at_or_before_cursor =
             my_start.line < position.line ||
