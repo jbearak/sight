@@ -75,6 +75,34 @@ describe('block-ending comment directives', () => {
         }
     });
 
+    test('block-ending directive recurses through a prefix brace-command block', () => {
+        // capture { if 1 { ... // @lsp-ignore-next } } / list missing_var
+        // Lines: 0 capture {, 1 if 1 {, 2 display 1, 3 directive, 4 }, 5 }, 6 stmt.
+        const source =
+            'capture {\n    if 1 {\n        display 1\n        // @lsp-ignore-next\n    }\n}\nlist missing_var\n';
+        for (const with_tokens of [true, false]) {
+            const result = analyze(source, { with_tokens });
+            expect(result.ignored_lines.has(6)).toBe(true);
+            expect(
+                result.diagnostics.filter(d => d.message.includes('missing_var'))
+            ).toHaveLength(0);
+        }
+    });
+
+    test('block-ending directive recurses through a frame block', () => {
+        // frame scratch { if 1 { ... // @lsp-ignore-next } list missing_var }
+        // Lines: 0 frame {, 1 if {, 2 display, 3 directive, 4 }, 5 list, 6 }.
+        const source =
+            'frame scratch {\n    if 1 {\n        display 1\n        // @lsp-ignore-next\n    }\n    list missing_var\n}\n';
+        for (const with_tokens of [true, false]) {
+            const result = analyze(source, { with_tokens });
+            expect(result.ignored_lines.has(5)).toBe(true);
+            expect(
+                result.diagnostics.filter(d => d.message.includes('missing_var'))
+            ).toHaveLength(0);
+        }
+    });
+
     test('@lsp-variables before a closer suppresses the later undefined-variable warning', () => {
         const with_directive =
             'if 1 {\n    display 1\n    // @lsp-variables income_usd\n}\nlist income_usd\n';

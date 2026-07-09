@@ -742,14 +742,34 @@ export class SemanticAnalyzer {
                 }
             }
 
-            // Recurse into nested node bodies. The body's successor is the
-            // statement after this block (following_node).
-            if (node.type === 'program') {
-                this.extract_directives_from_nodes(node.body, following_node);
-            } else if (this.is_control_flow(node)) {
-                this.extract_directives_from_nodes(node.body, following_node);
+            // Recurse into nested block bodies (program, control flow including
+            // frame, and prefix brace-command blocks). The body's successor is
+            // the statement after this block (following_node), so a directive on
+            // the body's last child still reaches past all enclosing closers.
+            const the_child_body = this.directive_recursion_body(node);
+            if (the_child_body) {
+                this.extract_directives_from_nodes(the_child_body, following_node);
             }
         }
+    }
+
+    /**
+     * The child statement list to recurse into for directive extraction:
+     * program bodies, control-flow bodies (including `frame`, which
+     * is_control_flow excludes), and prefix brace-command blocks
+     * (`capture { ... }`). Other nodes have no nested statement list.
+     */
+    private directive_recursion_body(node: StataNode): StataNode[] | undefined {
+        if (node.type === 'program') {
+            return node.body;
+        }
+        if (this.is_control_flow(node) || node.type === 'frame') {
+            return (node as ControlFlowNode).body;
+        }
+        if (node.type === 'command' && node.body) {
+            return node.body;
+        }
+        return undefined;
     }
 
     /**
