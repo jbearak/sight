@@ -259,7 +259,9 @@ const STATEMENT_LEADING_TRIVIA_TYPES: ReadonlySet<string> = new Set([
  * Upper bound on how many tokens the backward walk inspects before
  * giving up and reporting "no usable start" (caller then falls back to
  * physical-line behavior). A real wrapped statement — even a very long
- * wrapped varlist (~2000 variables) — stays well under this; the cap
+ * wrapped varlist (roughly 4000 variables, since Stata context emits no
+ * WHITESPACE tokens so each identifier costs one token) — stays under this;
+ * the cap
  * only fires on pathological input, e.g. an unterminated `#delimit ;`
  * statement, or a `#delimit ;` bare `mata`/`end` block whose embedded
  * content carries NO boundary token (no STATEMENT_TERMINATOR, no braces,

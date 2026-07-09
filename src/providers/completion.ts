@@ -219,6 +219,16 @@ function stata_region_floor_line(document: DocumentState, position: Position): n
         if (my_range.context === LanguageContext.STATA) {
             continue;
         }
+        // Only true BLOCK regions (`mata`/`python` ... `end`, or `mata { }`)
+        // wall off the lines above the cursor. An inline `mata:`/`python:`
+        // statement (start delimiter ending in `:`) shares its physical line
+        // with any trailing Stata after its `;`/newline terminator and never
+        // traps the backward walk (that terminator is itself a boundary), so
+        // it must not raise the floor — otherwise a wrapped statement after an
+        // inline `mata:` on the same line would be clamped away (#310).
+        if (my_range.start_delimiter?.command?.endsWith(':')) {
+            continue;
+        }
         if (my_range.range.end.line < position.line) {
             floor_line = Math.max(floor_line, my_range.range.end.line + 1);
         }

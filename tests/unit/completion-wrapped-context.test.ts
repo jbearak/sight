@@ -193,6 +193,26 @@ describe('detect_completion_context — mata/python block boundaries (#310)', ()
         expect(context.type).toBe('command');
     });
 
+    it('resolves trailing Stata after an inline mata: on the same physical line (wrapped)', () => {
+        // An inline `mata:` statement shares its line with the trailing
+        // `regress y x,`; the region floor must not clamp that away.
+        const source = '#delimit ;\nmata: x = 1 ; regress y x,\n    vce(';
+        const context = context_of(source, { line: 2, character: 8 });
+        expect(context.type).toBe('option');
+        if (context.type === 'option') {
+            expect(context.command).toBe('regress');
+        }
+    });
+
+    it('resolves trailing Stata after an inline python: on the same physical line (wrapped)', () => {
+        const source = '#delimit ;\npython: x = 1 ; regress y x,\n    vce(';
+        const context = context_of(source, { line: 2, character: 8 });
+        expect(context.type).toBe('option');
+        if (context.type === 'option') {
+            expect(context.command).toBe('regress');
+        }
+    });
+
     it('gives command context at the closer of a mata brace block containing nested braces', () => {
         // The nested inner `}` must not stop the walk inside the embedded body:
         // the walk is clamped to the cursor's Stata region, above which the
