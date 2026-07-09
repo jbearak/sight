@@ -438,9 +438,7 @@ export class SemanticAnalyzer {
      * Handles @lsp-ignore-next and @lsp-variables directives.
      */
     private extract_comment_directives(ast: StataAST): void {
-        for (const node of ast.nodes) {
-            this.extract_directives_from_node(node);
-        }
+        this.extract_directives_from_nodes(ast.nodes);
     }
 
     /**
@@ -703,65 +701,39 @@ export class SemanticAnalyzer {
         }
     }
 
-    private extract_directives_from_node(node: StataNode): void {
-        // Check leading trivia for directives
-        if (this.has_trivia(node) && node.leadingTrivia) {
-            for (const trivia of node.leadingTrivia) {
-                this.parse_directive(trivia, node);
+    private extract_directives_from_nodes(nodes: StataNode[]): void {
+        for (let my_index = 0; my_index < nodes.length; my_index++) {
+            const node = nodes[my_index];
+
+            // Check leading trivia for directives (target: this node).
+            if (this.has_trivia(node) && node.leadingTrivia) {
+                for (const trivia of node.leadingTrivia) {
+                    this.parse_directive(trivia, node);
+                }
             }
-        }
 
-        const node_with_block_ending_trivia = node as StataNode & {
-            blockEndingTrivia?: TriviaNode[];
-        };
-        if (node_with_block_ending_trivia.blockEndingTrivia) {
-            for (const trivia of node_with_block_ending_trivia.blockEndingTrivia) {
-                this.parse_block_ending_directive(trivia);
+            // Block-ending trivia (a comment on its own line just before this
+            // block's closer) targets the statement AFTER the block — the same
+            // node that held the comment as leading trivia before issue #304
+            // moved it into blockEndingTrivia. That is this node's next sibling,
+            // NOT this (block) node: using the block node would wrongly suppress
+            // the block header line.
+            const node_with_block_ending_trivia = node as StataNode & {
+                blockEndingTrivia?: TriviaNode[];
+            };
+            if (node_with_block_ending_trivia.blockEndingTrivia) {
+                const following_node = nodes[my_index + 1];
+                for (const trivia of node_with_block_ending_trivia.blockEndingTrivia) {
+                    this.parse_directive(trivia, following_node);
+                }
             }
-        }
 
-        // Recurse into nested nodes
-        if (node.type === 'program') {
-            for (const child of node.body) {
-                this.extract_directives_from_node(child);
+            // Recurse into nested node bodies.
+            if (node.type === 'program') {
+                this.extract_directives_from_nodes(node.body);
+            } else if (this.is_control_flow(node)) {
+                this.extract_directives_from_nodes(node.body);
             }
-        } else if (this.is_control_flow(node)) {
-            for (const child of node.body) {
-                this.extract_directives_from_node(child);
-            }
-        }
-    }
-
-    /**
-     * Parse directives attached immediately before a block closer using only
-     * the trivia's own range. The token path is authoritative for
-     * `@lsp-ignore-next`; resolving that here through the block node would
-     * wrongly suppress the block header instead of the next statement.
-     */
-    private parse_block_ending_directive(trivia: TriviaNode): void {
-        const content = trivia.content.trim();
-
-        if (has_ignore_directive(content) && !has_ignore_next_directive(content)) {
-            this.config.ignored_lines.add(trivia.range.start.line);
-        }
-
-        this.register_variables_directive(content, trivia.range.start.line);
-    }
-
-    /**
-     * Register any `@lsp-variables` / `@lsp-var` declarations found in a
-     * comment's content, keyed to the comment's own line. Shared by the
-     * leading-trivia fallback (`parse_directive`) and the block-ending fallback
-     * (`parse_block_ending_directive`) so the parse contract lives in one place.
-     */
-    private register_variables_directive(content: string, line: number): void {
-        const variables_match = content.match(VARIABLES_DIRECTIVE_PATTERN);
-        if (!variables_match) {
-            return;
-        }
-        const the_var_names = this.parse_identifier_list(variables_match[1]);
-        for (const my_var_name of the_var_names) {
-            this.register_declared_variable(my_var_name, line);
         }
     }
 
@@ -769,8 +741,12 @@ export class SemanticAnalyzer {
      * AST-trivia fallback for comment directives. Ignore directives here
      * add only the following node's FIRST line, by design: a control-flow
      * node's range spans its whole block body, so marking the full range
-     * would over-suppress everything inside the block. Every production
-     * caller of analyze() passes tokens, making the token path
+     * would over-suppress everything inside the block. `following_node` is the
+     * node the comment precedes: the trivia's own node for leading trivia, or
+     * the block's next sibling for block-ending trivia (undefined when the
+     * block is the last statement in its scope — then the ignore directive has
+     * no statement to target and only `@lsp-variables` still applies). Every
+     * production caller of analyze() passes tokens, making the token path
      * (extract_comment_directives_from_tokens ->
      * ignore_next_non_trivia_line) authoritative with full statement-span
      * suppression; this narrower single-line contribution is a redundant
@@ -778,18 +754,32 @@ export class SemanticAnalyzer {
      * If a caller ever stops passing tokens, `@lsp-ignore-next` regresses
      * to single-line suppression for that caller — keep tokens flowing.
      */
-    private parse_directive(trivia: TriviaNode, following_node: StataNode): void {
+    private parse_directive(trivia: TriviaNode, following_node: StataNode | undefined): void {
         const content = trivia.content.trim();
 
         // Standalone ignore directives target the following node.
-        if (has_ignore_directive(content) || has_ignore_next_directive(content)) {
+        if (
+            following_node &&
+            (has_ignore_directive(content) || has_ignore_next_directive(content))
+        ) {
             // Ignore the line of the following node
             const line_to_ignore = following_node.range.start.line;
             this.config.ignored_lines.add(line_to_ignore);
         }
 
-        // Check for @lsp-variables / @lsp-var directive
-        this.register_variables_directive(content, trivia.range.start.line);
+        // Check for @lsp-variables / @lsp-var directive (keyed to its own line).
+        const variables_match = content.match(VARIABLES_DIRECTIVE_PATTERN);
+        if (variables_match) {
+            const the_var_names = this.parse_identifier_list(
+                variables_match[1]
+            );
+            for (const my_var_name of the_var_names) {
+                this.register_declared_variable(
+                    my_var_name,
+                    trivia.range.start.line
+                );
+            }
+        }
     }
 
     private is_standalone_comment_token(tokens: Token[], comment_index: number): boolean {

@@ -32,6 +32,25 @@ function block_comment_contents(node: NodeWithBlockEndingTrivia): string[] {
     return (node.blockEndingTrivia ?? []).map(t => t.content);
 }
 
+// Collect every comment's content anywhere in the tree (leading, trailing, or
+// block-ending), so a "comment must never be dropped" assertion is independent
+// of which owner the parser chose.
+function collect_all_trivia(nodes: StataNode[]): string[] {
+    const the_contents: string[] = [];
+    const walk = (the_nodes: (StataNode | undefined)[]): void => {
+        for (const my_node of the_nodes) {
+            if (!my_node) continue;
+            const my_typed = my_node as NodeWithBlockEndingTrivia;
+            for (const t of my_typed.leadingTrivia ?? []) the_contents.push(t.content);
+            for (const t of my_typed.blockEndingTrivia ?? []) the_contents.push(t.content);
+            for (const t of my_typed.trailingTrivia ?? []) the_contents.push(t.content);
+            if (my_typed.body) walk(my_typed.body);
+        }
+    };
+    walk(nodes);
+    return the_contents;
+}
+
 function expect_block_ending_comment(
     node: StataNode | undefined,
     expected_comments: string[]
@@ -160,17 +179,20 @@ describe('block-ending trivia ownership', () => {
         ]);
     });
 
-    test('unclosed brace block does not populate blockEndingTrivia', () => {
+    test('unclosed brace block does not populate blockEndingTrivia but keeps the comment', () => {
         const result = parse_result('if 1 {\n    display 1\n    * keep');
         const block_node = as_block_node(result.ast.nodes.find(n => n.type === 'if'));
 
         expect(block_node.blockEndingTrivia).toBeUndefined();
+        // The comment must never be dropped on the recovery path.
+        expect(collect_all_trivia(result.ast.nodes)).toContain('* keep');
     });
 
-    test('program missing end does not populate blockEndingTrivia', () => {
+    test('program missing end does not populate blockEndingTrivia but keeps the comment', () => {
         const result = parse_result('program define p\n    display 1\n    * keep');
         const program = as_block_node(result.ast.nodes.find(n => n.type === 'program'));
 
         expect(program.blockEndingTrivia).toBeUndefined();
+        expect(collect_all_trivia(result.ast.nodes)).toContain('* keep');
     });
 });
