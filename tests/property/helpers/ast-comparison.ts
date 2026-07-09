@@ -181,6 +181,7 @@ function command_nodes_equal(my_a: CommandNode, my_b: CommandNode): boolean {
 
   // Compare trivia
   return trivia_equal(my_a.leadingTrivia, my_b.leadingTrivia) &&
+    trivia_equal(my_a.blockEndingTrivia, my_b.blockEndingTrivia) &&
     trivia_equal(my_a.trailingTrivia, my_b.trailingTrivia);
 }
 
@@ -200,6 +201,7 @@ function program_nodes_equal(my_a: ProgramNode, my_b: ProgramNode): boolean {
   }
 
   return trivia_equal(my_a.leadingTrivia, my_b.leadingTrivia) &&
+    trivia_equal(my_a.blockEndingTrivia, my_b.blockEndingTrivia) &&
     trivia_equal(my_a.trailingTrivia, my_b.trailingTrivia);
 }
 
@@ -234,6 +236,7 @@ function control_flow_nodes_equal(my_a: ControlFlowNode, my_b: ControlFlowNode):
   }
 
   return trivia_equal(my_a.leadingTrivia, my_b.leadingTrivia) &&
+    trivia_equal(my_a.blockEndingTrivia, my_b.blockEndingTrivia) &&
     trivia_equal(my_a.trailingTrivia, my_b.trailingTrivia);
 }
 
