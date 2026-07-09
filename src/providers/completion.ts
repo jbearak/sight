@@ -68,6 +68,10 @@ import {
 } from './completion/macro-completion';
 import { get_line_text, get_line_count } from '../utils/line-utils';
 import { format_help_link } from '../utils/help-link';
+import {
+    logical_statement_start,
+    LogicalStatementStart,
+} from '../utils/statement-span';
 
 // Directive at the start of its own comment line, applied to the comment body
 // after the `//`/`*` marker has been stripped. Capture group 1 is the
@@ -179,11 +183,132 @@ export interface CompletionClientCapabilities {
 }
 
 /**
+ * Token types dropped when flattening a wrapped statement's prior physical
+ * lines into logical text (#310): whitespace, comments, `///` continuations,
+ * statement terminators, `#delimit` mode switches, and EOF. Their values carry
+ * no command/punctuation the text-based detectors need, and dropping comments
+ * avoids leaking a `,` from a `// note` on an earlier wrapped line.
+ */
+const LOGICAL_FLATTEN_SKIP_TYPES: ReadonlySet<string> = new Set([
+    'WHITESPACE',
+    'COMMENT_LINE',
+    'COMMENT_BLOCK',
+    'CONTINUATION',
+    'STATEMENT_TERMINATOR',
+    'DELIMIT_DIRECTIVE',
+    'EOF',
+]);
+
+/**
+ * First line of the cursor's contiguous Stata region: the line just after
+ * the nearest `mata`/`python` block that ends above the cursor (#310). The
+ * logical-statement walk is clamped to this floor so it never absorbs
+ * embedded-language tokens from a block above the cursor — including a
+ * nested `{ }` inside a `mata { ... }` block, which token types alone cannot
+ * tell apart from a real Stata block. Uses the per-document `context_ranges`
+ * (not the shared provider tracker), so it is unaffected by cross-document
+ * tracker caching. Returns 0 when there is no embedded block above.
+ */
+function stata_region_floor_line(document: DocumentState, position: Position): number {
+    const the_ranges = document.context_ranges;
+    if (!the_ranges || the_ranges.length === 0) {
+        return 0;
+    }
+    let floor_line = 0;
+    for (const my_range of the_ranges) {
+        if (my_range.context === LanguageContext.STATA) {
+            continue;
+        }
+        // Only true BLOCK regions (`mata`/`python` ... `end`, or `mata { }`)
+        // wall off the lines above the cursor. An inline `mata:`/`python:`
+        // statement (start delimiter ending in `:`) shares its physical line
+        // with any trailing Stata after its `;`/newline terminator and never
+        // traps the backward walk (that terminator is itself a boundary), so
+        // it must not raise the floor — otherwise a wrapped statement after an
+        // inline `mata:` on the same line would be clamped away (#310).
+        if (my_range.start_delimiter?.command?.endsWith(':')) {
+            continue;
+        }
+        if (my_range.range.end.line < position.line) {
+            floor_line = Math.max(floor_line, my_range.range.end.line + 1);
+        }
+    }
+    return floor_line;
+}
+
+/**
+ * Build the "logical statement" text before the cursor for the
+ * statement-scoped detectors (command-path, subcommand, option, command,
+ * variable) — issue #310.
+ *
+ * The text detectors historically saw only the current physical line, so a
+ * statement wrapped across lines (via `#delimit ;` newlines or `///` in
+ * `#delimit cr`) lost its command and thus its option context. This flattens
+ * the wrapped statement into one line: the prior physical lines come from the
+ * token stream (trivia/comments/continuations dropped), and the current
+ * physical line is taken verbatim so the partial word being typed is preserved.
+ *
+ * When the statement begins on the cursor's own physical line the current line
+ * is sliced from the statement-start character — that both preserves today's
+ * single-line behavior (only leading indentation is trimmed, which every
+ * detector already `.trim()`s) and fixes multiple statements sharing one
+ * physical line (`display 1; reg y x,` resolves to `reg`, not `display`).
+ *
+ * `start` is `logical_statement_start(...)`; when it is `undefined` (no tokens,
+ * cursor past all tokens, walk cap hit, or a blank line after a terminator) the
+ * physical line is returned unchanged.
+ */
+function build_logical_text_before_cursor(
+    document: DocumentState,
+    position: Position,
+    tokens: Token[] | undefined,
+    start: LogicalStatementStart | undefined,
+    physical_text_before_cursor: string
+): string {
+    if (start === undefined || tokens === undefined) {
+        return physical_text_before_cursor;
+    }
+
+    const current_line = get_line_text(document, position.line);
+    const physical_current = current_line.substring(
+        start.line === position.line ? start.character : 0,
+        position.character
+    );
+
+    if (start.line === position.line) {
+        // No prior physical lines: single statement (or the last of several)
+        // beginning on this line.
+        return physical_current;
+    }
+
+    // Flatten the prior physical lines of the wrapped statement.
+    const the_parts: string[] = [];
+    for (
+        let my_i = start.index;
+        my_i < tokens.length &&
+        tokens[my_i].range.start.line < position.line;
+        my_i++
+    ) {
+        const my_token = tokens[my_i];
+        if (LOGICAL_FLATTEN_SKIP_TYPES.has(my_token.type)) {
+            continue;
+        }
+        the_parts.push(my_token.value);
+    }
+    const prior_text = the_parts.join(' ');
+    return prior_text === ''
+        ? physical_current
+        : prior_text + ' ' + physical_current;
+}
+
+/**
  * Detect the completion context at a given position in the document.
  *
  * @param document - The document state
  * @param position - The cursor position
- * @param tokens - Optional token stream for more accurate detection
+ * @param tokens - Optional token stream for more accurate detection. When
+ *   provided, statement-scoped detectors (option/command/variable) see the
+ *   whole logical statement, not just the current physical line (#310).
  * @param command_db - Optional command database for subcommand detection
  * @returns The detected completion context
  */
@@ -201,50 +326,88 @@ export function detect_completion_context(
     const current_line = get_line_text(document, position.line);
     const text_before_cursor = current_line.substring(0, position.character);
 
-    // Check for extended macro function context (`: list`, `: word`, etc.)
+    // Logical statement text before the cursor (#310). The statement-scoped
+    // detectors below run over the whole logical statement (wrapped across
+    // physical lines via `#delimit ;` newlines or `///` continuations, and
+    // correctly sliced when several statements share one physical line),
+    // rather than just the current physical line. For a genuine single-line
+    // statement the logical text equals the physical text (modulo leading
+    // indentation, which every detector already trims), so single-line
+    // behavior is unchanged. Built once, lazily — including the backward token
+    // walk — so the extended-macro and directive checks below (which run
+    // first and use only the physical line) never pay for it.
+    let cached_logical_text: string | undefined;
+    const get_logical_text = (): string => {
+        if (cached_logical_text === undefined) {
+            cached_logical_text = build_logical_text_before_cursor(
+                document,
+                position,
+                tokens,
+                logical_statement_start(
+                    tokens,
+                    position,
+                    stata_region_floor_line(document, position)
+                ),
+                text_before_cursor
+            );
+        }
+        return cached_logical_text;
+    };
+
+    // Check for extended macro function context (`: list`, `: word`, etc.).
+    // Kept on the physical line, alongside detect_macro_context below: these
+    // are the only two detectors that return a `macro` context, and the
+    // server-handlers isIncomplete probe relies on macro-ness being decided
+    // without the logical-statement token walk. Extended macro functions are
+    // authored on one line in practice, so this costs no real coverage.
     const extended_macro_context = detect_extended_macro_context(text_before_cursor, position);
     if (extended_macro_context) {
         return extended_macro_context;
     }
 
     // Check for directive path context (e.g., @lsp-done-by:). Directives are
-    // inert inside `/* ... */` block comments, so skip block-commented lines.
+    // read from the raw physical line: they are their own comment line, never
+    // a wrapped code statement, and are inert inside `/* ... */` block
+    // comments, so skip block-commented lines.
     const directive_context = detect_directive_context(text_before_cursor);
     if (directive_context && !is_cursor_in_block_comment(document, position)) {
         return directive_context;
     }
 
-    // Check for command path context (e.g., do file.do)
-    const command_path_context = detect_command_path_context(text_before_cursor);
+    // Check for command path context (e.g., do file.do). Over the logical
+    // statement so a wrapped/second-on-line `do`/`use`/... resolves, while a
+    // wrapped option statement (whose logical text carries the comma) bails
+    // here and falls through to option context.
+    const command_path_context = detect_command_path_context(get_logical_text());
     if (command_path_context) {
         return command_path_context;
     }
 
-    // Check for macro context first (highest priority)
+    // Check for macro context (cursor-local `` ` `` / `$` on the physical line).
     const macro_context = detect_macro_context(text_before_cursor, document, position);
     if (macro_context) {
         return macro_context;
     }
 
-    // Check for option context (after comma)
-    const option_context = detect_option_context(text_before_cursor, document, position);
+    // Check for option context (after comma) — over the logical statement.
+    const option_context = detect_option_context(get_logical_text(), document, position);
     if (option_context) {
         return option_context;
     }
 
-    // Check for subcommand context (after prefix command like 'frame ')
-    const subcommand_context = detect_subcommand_context(text_before_cursor, command_db);
+    // Check for subcommand context (after prefix command like 'frame ').
+    const subcommand_context = detect_subcommand_context(get_logical_text(), command_db);
     if (subcommand_context) {
         return subcommand_context;
     }
 
-    // Check for command context (start of statement)
-    if (is_command_context(text_before_cursor)) {
+    // Check for command context (start of statement) — over the logical statement.
+    if (is_command_context(get_logical_text())) {
         return { type: 'command' };
     }
 
-    // Check for variable context (after command name)
-    if (is_variable_context(text_before_cursor)) {
+    // Check for variable context (after command name) — over the logical statement.
+    if (is_variable_context(get_logical_text())) {
         return { type: 'variable' };
     }
 
@@ -436,9 +599,17 @@ function extract_command_name(text: string): string | null {
     }
     
     const the_words = working_text.split(/\s+/).filter(w => w.length > 0);
-    
+
     // Skip prefix commands to find the main command
     for (const my_word of the_words) {
+        // A lone `:` appears only when the logical-statement flattening (#310)
+        // joins a prefix command and its colon with a space
+        // (`capture : reg` from a wrapped `capture: reg`). It never begins a
+        // command, so skip it — otherwise it would be returned as the command
+        // name and no options would resolve.
+        if (my_word === ':') {
+            continue;
+        }
         const lower_word = my_word.toLowerCase();
         if (!PREFIX_COMMANDS.includes(lower_word)) {
             return my_word;
@@ -1019,8 +1190,20 @@ export class CompletionProvider {
                 return [];
             }
 
-            // Detect completion context (sync)
-            const context = detect_completion_context(document, position, undefined, this.command_db);
+            // Detect completion context (sync). Pass tokens (for logical
+            // wrapped-statement detection, #310) ONLY in STATA context: inside
+            // embedded Mata/Python the statement-scoped Stata detectors are
+            // suppressed below anyway, and skipping the token walk avoids an
+            // unbounded backward scan through a `#delimit ;` `mata`/`end` block
+            // whose embedded content carries no statement-boundary token.
+            const context = detect_completion_context(
+                document,
+                position,
+                my_current_context === LanguageContext.STATA
+                    ? document.tokens
+                    : undefined,
+                this.command_db
+            );
 
             // Fast path: embedded context with no macro - return early
             if (my_current_context !== LanguageContext.STATA && context.type !== 'macro') {
@@ -1680,10 +1863,25 @@ export class CompletionProvider {
         if (position.line >= get_line_count(document)) {
             return '';
         }
-        
+
         const current_line = get_line_text(document, position.line);
-        const text_before_cursor = current_line.substring(0, position.character);
-        
+        const physical_text_before_cursor = current_line.substring(0, position.character);
+        // Scan the logical statement, not just the physical line, so the
+        // last-comma / option-prefix search works on wrapped statements (#310).
+        // Same synthesis as detect_completion_context's option context, so the
+        // two never disagree about where the option region begins.
+        const text_before_cursor = build_logical_text_before_cursor(
+            document,
+            position,
+            document.tokens,
+            logical_statement_start(
+                document.tokens,
+                position,
+                stata_region_floor_line(document, position)
+            ),
+            physical_text_before_cursor
+        );
+
         // Find the last comma that's not inside quotes or parentheses
         let paren_depth = 0;
         let in_string = false;
