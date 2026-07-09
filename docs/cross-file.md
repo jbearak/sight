@@ -835,6 +835,9 @@ maxBackwardDepth = 10
 maxForwardDepth = 10
 maxChainDepth = 20
 maxCalleeRevalidations = 10
+maxCachedFiles = 2000
+maxCachedScopes = 1000
+maxCachedForwardClosures = 2000
 assumeCallSite = "end"
 
 [crossFile.diagnostics]
@@ -851,6 +854,9 @@ callSiteIdentification = "information"
 | `crossFile.maxForwardDepth`                   | number   | `10`            | Maximum recursion depth for forward scope resolution   |
 | `crossFile.maxChainDepth`                     | number   | `20`            | Maximum combined depth for forward + backward resolution |
 | `crossFile.maxCalleeRevalidations`            | number   | `10`            | Maximum open callee documents to revalidate per change |
+| `crossFile.maxCachedFiles`                    | number   | `2000`          | LRU capacity of the parsed-file cache (eviction is correctness-neutral) |
+| `crossFile.maxCachedScopes`                   | number   | `1000`          | LRU capacity of the resolved-scope cache               |
+| `crossFile.maxCachedForwardClosures`          | number   | `2000`          | LRU capacity of the forward-closure memo               |
 | `crossFile.assumeCallSite`                    | string   | `"end"`         | Where to assume call site when inference fails (`"end"` or `"start"`) |
 | `crossFile.diagnostics.missingFile`           | severity | `"warning"`     | Severity for missing directive file diagnostics        |
 | `crossFile.diagnostics.callSiteIdentification`| severity | `"information"` | Severity for call site identification diagnostics      |

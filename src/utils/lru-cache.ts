@@ -177,7 +177,11 @@ export interface BoundedLruMapOptions<K, V> {
      * delete()/clear(). Must be synchronous and must not re-enter this
      * map: callers rely on eviction side effects completing before
      * set()/set_max_size() return (e.g. secondary-index pruning read back
-     * immediately after a set()).
+     * immediately after a set()). Must not throw: there is deliberately
+     * no try/catch (fail-fast), so an exception propagates out of
+     * set()/set_max_size() AFTER the victim was removed but BEFORE the
+     * new entry was inserted — the write is lost. Keep hooks infallible
+     * (Map/Set deletes, counter bumps).
      */
     on_evict?: (key: K, value: V) => void;
 }

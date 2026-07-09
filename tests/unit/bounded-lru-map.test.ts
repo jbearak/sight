@@ -170,6 +170,22 @@ describe('BoundedLruMap', () => {
         expect(evict_seen_before_set_returned).toBe(true);
     });
 
+    it('a throwing on_evict propagates fail-fast out of set() (documented contract)', () => {
+        // No try/catch by design: hooks must be infallible. This pins the
+        // CURRENT contract so a future change (e.g. swallowing errors) is
+        // a conscious decision — the victim is already gone and the new
+        // write is lost when the hook throws.
+        const cache = new BoundedLruMap<string, number>(1, {
+            on_evict: () => {
+                throw new Error('hook failure');
+            },
+        });
+        cache.set('a', 1);
+        expect(() => cache.set('b', 2)).toThrow('hook failure');
+        expect(cache.has('a')).toBe(false);
+        expect(cache.has('b')).toBe(false);
+    });
+
     it('stores undefined-tolerant values without breaking has/get distinction', () => {
         const cache = new BoundedLruMap<string, number | undefined>(2);
         cache.set('a', undefined);

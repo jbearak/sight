@@ -343,6 +343,61 @@ describe('issue #294 — bounded cross-file caches', () => {
             }
         });
 
+        it('a genuine explicit-mode HIT on a walk-written unstamped entry registers it (self-heal)', async () => {
+            // Round-2 review gap: the miss-path test below never exercises
+            // upgrade_registration_on_cache_hit's explicit+undefined
+            // branch. Here the walk primes an UNSTAMPED cached entry for a
+            // file with its own explicit directive, and a later genuine
+            // explicit-mode resolution HITS that entry (content
+            // unchanged, no eviction) — the hit path must register the
+            // raw directives and stamp 'explicit', else the file's parent
+            // edge stays unregistered until a content change.
+            const scope = new ScopeResolver(
+                create_test_scope_resolver_logger());
+            const forward = new ForwardScopeResolver(scope);
+            scope.set_forward_scope_resolver(forward);
+
+            const parent_path = create_file(
+                'parent.do', 'global g_parent 1\n');
+            const parent_uri = to_uri(parent_path);
+            const b_path = create_file(
+                'b.do',
+                `// @lsp-done-by: "${parent_path}"\nglobal g_b 1\n`);
+            const b_uri = to_uri(b_path);
+
+            // Probe-only walk over a child of B primes B's cache entry:
+            // unstamped, unregistered.
+            const d_path = create_file(
+                'd.do', `// @lsp-done-by: "${b_path}"\ndisplay "d"\n`);
+            const parser = new DirectiveParser();
+            const d_parse = parser.parse(
+                fs.readFileSync(d_path, 'utf8'), to_uri(d_path));
+            await scope.resolve_inherited_working_directory(
+                d_parse.directives, to_uri(d_path), false);
+            expect(
+                scope.get_backward_directive_children(parent_uri).has(b_uri)
+            ).toBe(false);
+
+            // Genuine explicit-mode resolution of another child HITS B's
+            // cached entry and must self-heal the registration.
+            const c_uri = to_uri(path.join(temp_dir, 'c.do'));
+            await scope.resolve(
+                c_uri,
+                `// @lsp-done-by: "${b_path}"\ndisplay "c"\n`,
+                { backward_dependencies: 'explicit' }
+            );
+            expect(
+                scope.get_backward_directive_children(parent_uri).has(b_uri)
+            ).toBe(true);
+            const the_file_cache = (scope as unknown as {
+                file_cache: {
+                    peek(k: string): { registered_backward_mode?: string } | undefined;
+                };
+            }).file_cache;
+            expect(the_file_cache.peek(b_uri)?.registered_backward_mode)
+                .toBe('explicit');
+        });
+
         it('genuine explicit-mode resolution still clears vestigial auto edges (pinned self-heal)', async () => {
             const dependency_graph = new DependencyGraph();
             const scope = new ScopeResolver(
