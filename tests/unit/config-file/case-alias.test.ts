@@ -117,6 +117,9 @@ const PUBLIC_SETTINGS: ReadonlyArray<{ path: string[]; value: unknown }> = [
     { path: ['crossFile', 'maxForwardDepth'], value: 4 },
     { path: ['crossFile', 'maxChainDepth'], value: 5 },
     { path: ['crossFile', 'maxCalleeRevalidations'], value: 6 },
+    { path: ['crossFile', 'maxCachedFiles'], value: 101 },
+    { path: ['crossFile', 'maxCachedScopes'], value: 102 },
+    { path: ['crossFile', 'maxCachedForwardClosures'], value: 103 },
 
     // crossFile.diagnostics
     { path: ['crossFile', 'diagnostics', 'missingFile'], value: 'error' },
