@@ -662,6 +662,66 @@ describe('DiagnosticsProvider', () => {
             const sent_after = mock_connection.get_sent_diagnostics();
             expect(sent_after.length).toBe(1);
         });
+
+        it('should drop an in-flight publish that resumes after close', async () => {
+            const document = create_document_state(
+                'display `undefined\'\n',
+                1
+            );
+            const delayed_scope_resolver = new ScopeResolver();
+            let resolve_scope: (() => void) | undefined;
+            let resolve_started: (() => void) | undefined;
+            const scope_started = new Promise<void>(resolve => {
+                resolve_started = resolve;
+            });
+            const scope_delay = new Promise<void>(resolve => {
+                resolve_scope = resolve;
+            });
+
+            delayed_scope_resolver.resolve = async () => {
+                resolve_started?.();
+                await scope_delay;
+                return create_empty_resolved_scope();
+            };
+
+            const stale_publish = provider.publish_diagnostics(
+                document,
+                DEFAULT_CONFIG,
+                undefined,
+                delayed_scope_resolver
+            );
+            await scope_started;
+
+            provider.on_document_closed(document.uri);
+
+            const sent_after_close =
+                mock_connection.get_sent_diagnostics();
+            expect(sent_after_close).toHaveLength(1);
+            expect(sent_after_close[0].diagnostics).toEqual([]);
+
+            expect(resolve_scope).toBeDefined();
+            resolve_scope?.();
+            await stale_publish;
+
+            const sent_after_stale_publish =
+                mock_connection.get_sent_diagnostics();
+            expect(sent_after_stale_publish).toHaveLength(1);
+            expect(sent_after_stale_publish[0].diagnostics).toEqual([]);
+
+            const reopened_document = create_document_state(
+                'generate x = 1\n',
+                1
+            );
+            await provider.publish_diagnostics(
+                reopened_document,
+                DEFAULT_CONFIG
+            );
+
+            const sent_after_reopen =
+                mock_connection.get_sent_diagnostics();
+            expect(sent_after_reopen).toHaveLength(2);
+            expect(sent_after_reopen[1].diagnostics).toEqual([]);
+        });
     });
 
     describe('aggregation from multiple sources', () => {

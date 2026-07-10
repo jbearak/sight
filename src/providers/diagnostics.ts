@@ -736,10 +736,10 @@ export class DiagnosticsProvider {
         }
 
         // Cache the filtered diagnostics if no force epoch advanced mid-run.
-        if (
-            this.publish_gate.get_current_epoch(document.uri) ===
+        if (this.publish_gate.is_current_epoch(
+            document.uri,
             cache_epoch_at_start
-        ) {
+        )) {
             let cache_for_uri = this.filtered_cache.get(document.uri);
             if (!cache_for_uri) {
                 cache_for_uri = new Map();
