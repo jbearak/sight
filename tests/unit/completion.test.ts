@@ -195,6 +195,32 @@ describe('Completion Context Detection', () => {
             expect(context.type).toBe('variable');
         });
     });
+
+    describe('Command Path Context', () => {
+        it('should detect a file command path after separator whitespace', () => {
+            const source = 'do   scripts/setup.do';
+            const doc = create_test_document(source);
+            const context = detect_completion_context(doc, { line: 0, character: source.length });
+
+            expect(context).toEqual({
+                type: 'command_path',
+                command: 'do',
+                partial_path: 'scripts/setup.do',
+            });
+        });
+
+        it('should handle a long whitespace-only path without backtracking', () => {
+            const source = `do ${' '.repeat(100_000)}`;
+            const doc = create_test_document(source);
+            const context = detect_completion_context(doc, { line: 0, character: source.length });
+
+            expect(context).toEqual({
+                type: 'command_path',
+                command: 'do',
+                partial_path: '',
+            });
+        });
+    });
 });
 
 describe('Completion Provider', () => {
