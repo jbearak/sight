@@ -94,7 +94,7 @@ describe('DiagnosticsPublishGate', () => {
         expect(gate.try_consume_publish(uri, 1, my_epoch_2)).toBe(true);
     });
 
-    it('should forget all per-uri state', () => {
+    it('should retire the epoch when forgetting per-uri state', () => {
         const gate = new DiagnosticsPublishGate();
         const my_epoch_0 = gate.get_current_epoch(uri);
 
@@ -104,10 +104,15 @@ describe('DiagnosticsPublishGate', () => {
 
         gate.forget(uri);
 
-        expect(gate.get_current_epoch(uri)).toBe(0);
-        expect(gate.would_publish(uri, 1, 0)).toBe(true);
-        expect(gate.try_consume_publish(uri, 1, 0)).toBe(true);
-        expect(gate.try_consume_publish(uri, 1, 0)).toBe(false);
+        expect(gate.is_current_epoch(uri, my_epoch_0)).toBe(false);
+        expect(gate.would_publish(uri, 1, my_epoch_0)).toBe(false);
+        expect(gate.try_consume_publish(uri, 1, my_epoch_0)).toBe(false);
+
+        const my_reopened_epoch = gate.get_current_epoch(uri);
+        expect(my_reopened_epoch).not.toBe(my_epoch_0);
+        expect(gate.would_publish(uri, 1, my_reopened_epoch)).toBe(true);
+        expect(gate.try_consume_publish(uri, 1, my_reopened_epoch)).toBe(true);
+        expect(gate.try_consume_publish(uri, 1, my_reopened_epoch)).toBe(false);
     });
 
     it('should deny older same-version work after newer work consumes', () => {
