@@ -3,6 +3,7 @@ import * as fc from 'fast-check';
 import { StataParser } from '../../src/parser';
 import { StataLexer } from '../../src/lexer';
 import { ParseErrorCode } from '../../src/types';
+import { arbitrary_non_reserved_identifier } from './generators';
 
 /**
  * Property-based tests for Malformed Expression Error Handling
@@ -27,7 +28,7 @@ describe('Malformed Expression Error Handling Property Tests', () => {
      * Generator for variable names
      */
     function arbitrary_variable_name(): fc.Arbitrary<string> {
-        return fc.stringMatching(/^[a-zA-Z][a-zA-Z0-9_]{0,8}$/);
+        return arbitrary_non_reserved_identifier();
     }
 
     /**

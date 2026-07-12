@@ -660,13 +660,21 @@ function detect_command_path_context(text_before_cursor: string): CompletionCont
         return null;
     }
     
-    // Look for file command followed by space
-    const command_pattern = /^\s*(\w+)\s+(.*)$/;
-    const command_match = text_before_cursor.match(command_pattern);
-    
+    // Parse the command and separator independently. Keeping `\s+` next to a
+    // catch-all capture in one expression allows quadratic backtracking on a
+    // long whitespace-only path (CodeQL js/polynomial-redos).
+    const command_match = text_before_cursor.match(/^\s*(\w+)/);
+
     if (command_match) {
         const command = command_match[1];
-        const path_part = command_match[2];
+        const remainder = text_before_cursor.slice(command_match[0].length);
+        const separator_match = remainder.match(/^\s+/);
+
+        if (!separator_match) {
+            return null;
+        }
+
+        const path_part = remainder.slice(separator_match[0].length);
         
         // Check if this is a file command
         if (isFileCommand(command)) {
