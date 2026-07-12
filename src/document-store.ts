@@ -1,4 +1,8 @@
-import { TextDocumentContentChangeEvent, Diagnostic, DiagnosticSeverity } from 'vscode-languageserver';
+import {
+  TextDocumentContentChangeEvent,
+  Diagnostic,
+  DiagnosticSeverity,
+} from 'vscode-languageserver';
 import {
   StataAST,
   SymbolTable,
@@ -29,6 +33,7 @@ import {
   resolve_working_directory_directive,
 } from './utils/workspace-roots';
 import { build_cd_timeline, apply_cd_timeline } from './utils/file-path-utils';
+import { polling_cancellation_token } from './utils/polling-cancellation-token';
 
 import * as fs from 'fs';
 import * as path from 'path';
@@ -219,13 +224,16 @@ export class DocumentStore {
   /**
    * Open a document and parse it.
    * Async to support parse timeout wrapper.
+   * `is_operation_current` must be synchronous and side-effect-free; it is
+   * polled before expensive stages and once more at commit.
    */
   async open(
     uri: string,
     content: string,
     version: number,
     workspace_symbols?: SymbolTable,
-    scope_resolver_config?: Partial<ScopeResolverConfig>
+    scope_resolver_config?: Partial<ScopeResolverConfig>,
+    is_operation_current?: () => boolean
   ): Promise<void> {
     this.check_disposed();
     // Capture generation at start of operation (Req 16.2)
@@ -248,15 +256,22 @@ export class DocumentStore {
       if (this.disposed) {
         return;
       }
+      if (is_operation_current && !is_operation_current()) {
+        return;
+      }
       this.evict_if_needed(content.length);
       const outcome = await this.create_document_state(
         uri,
         content,
         version,
         workspace_symbols,
-        scope_resolver_config
+        scope_resolver_config,
+        is_operation_current
       );
-      this.commit_state(uri, outcome, generation);
+      if (!outcome) {
+        return;
+      }
+      this.commit_state(uri, outcome, generation, is_operation_current);
     };
 
     const promise = operation();
@@ -275,13 +290,16 @@ export class DocumentStore {
    * Update a document with text changes.
    * Async to support parse timeout wrapper.
    * Implements fast path for unchanged content.
+   * `is_operation_current` must be synchronous and side-effect-free; it is
+   * polled before expensive stages and once more at commit.
    */
   async update(
     uri: string,
     changes: TextDocumentContentChangeEvent[],
     version: number,
     workspace_symbols?: SymbolTable,
-    scope_resolver_config?: Partial<ScopeResolverConfig>
+    scope_resolver_config?: Partial<ScopeResolverConfig>,
+    is_operation_current?: () => boolean
   ): Promise<void> {
     this.check_disposed();
     // Capture generation at start of operation (Req 16.2)
@@ -302,6 +320,9 @@ export class DocumentStore {
         }
       }
       if (this.disposed) {
+        return;
+      }
+      if (is_operation_current && !is_operation_current()) {
         return;
       }
       const state = this.documents.get(uri);
@@ -351,9 +372,18 @@ export class DocumentStore {
         new_content,
         version,
         workspace_symbols,
-        scope_resolver_config
+        scope_resolver_config,
+        is_operation_current
       );
-      this.commit_state(uri, new_outcome, generation);
+      if (!new_outcome) {
+        return;
+      }
+      this.commit_state(
+        uri,
+        new_outcome,
+        generation,
+        is_operation_current
+      );
     };
 
     const promise = operation();
@@ -427,11 +457,18 @@ export class DocumentStore {
   private commit_state(
     uri: string,
     outcome: ParseOutcome,
-    generation: number
+    generation: number,
+    is_operation_current?: () => boolean
   ): boolean {
     // A parse that was already past the operation closure's disposed
     // check must not mutate shared resolver/indexer state mid-shutdown.
     if (this.disposed) {
+      return false;
+    }
+    // The server uses this guard to couple an async parse to the document and
+    // diagnostic trigger that scheduled it. It runs synchronously before any
+    // state or cross-file side effect is applied.
+    if (is_operation_current && !is_operation_current()) {
       return false;
     }
     const closed_gen = this.closed_generations.get(uri);
@@ -539,14 +576,20 @@ export class DocumentStore {
   private async recover_staged_effects_with_timeout(
     content: string,
     uri: string,
-    scope_resolver_config: Partial<ScopeResolverConfig>
+    scope_resolver_config: Partial<ScopeResolverConfig>,
+    is_operation_current?: () => boolean
   ): Promise<StagedCrossFileEffects | undefined> {
     try {
       const my_directive_parser = new DirectiveParser();
       const my_result = await with_parse_timeout(() =>
-        my_directive_parser.parse(content, uri)
+        is_operation_current?.() === false
+          ? null
+          : my_directive_parser.parse(content, uri)
       );
-      if (!my_result.success || my_result.timed_out || !my_result.result) {
+      if (is_operation_current?.() === false
+          || !my_result.success
+          || my_result.timed_out
+          || !my_result.result) {
         return undefined;
       }
       return this.stage_cross_file_effects(
@@ -756,10 +799,16 @@ export class DocumentStore {
     content: string,
     version: number,
     workspace_symbols?: SymbolTable,
-    scope_resolver_config?: Partial<ScopeResolverConfig>
-  ): Promise<ParseOutcome> {
+    scope_resolver_config?: Partial<ScopeResolverConfig>,
+    is_operation_current?: () => boolean
+  ): Promise<ParseOutcome | undefined> {
     const start_time = Date.now();
     this.metrics.parse_count++;
+    const operation_is_current = (): boolean =>
+      is_operation_current?.() !== false;
+    const cancellation_token = is_operation_current
+      ? polling_cancellation_token(is_operation_current)
+      : undefined;
 
     // Create fresh instances for thread safety (async execution means concurrent calls)
     const lexer = new StataLexer();
@@ -770,8 +819,11 @@ export class DocumentStore {
 
     // Lex with timeout
     const lex_result = await with_parse_timeout(() =>
-      lexer.tokenize(content)
+      operation_is_current() ? lexer.tokenize(content) : null
     );
+    if (!operation_is_current() || lex_result.result === null) {
+      return undefined;
+    }
 
     if (!lex_result.success || lex_result.timed_out) {
       // Recover header facts only when the lexer THREW (fast). On a
@@ -786,8 +838,13 @@ export class DocumentStore {
         : await this.recover_staged_effects_with_timeout(
             content,
             uri,
-            effective_scope_resolver_config
+            effective_scope_resolver_config,
+            is_operation_current
           );
+
+      if (!operation_is_current()) {
+        return undefined;
+      }
 
       // Return minimal state on timeout/error
       return {
@@ -812,8 +869,13 @@ export class DocumentStore {
 
     // Parse with timeout (pass context tracker to avoid re-creation)
     const parse_result = await with_parse_timeout(() =>
-      parser.parse(lex_result.result!.tokens, my_context_tracker)
+      operation_is_current()
+        ? parser.parse(lex_result.result!.tokens, my_context_tracker)
+        : null
     );
+    if (!operation_is_current() || parse_result.result === null) {
+      return undefined;
+    }
 
     if (!parse_result.success || parse_result.timed_out) {
       const recovered_staged_effects =
@@ -870,7 +932,7 @@ export class DocumentStore {
             uri,
             content,
             effective_scope_resolver_config,
-            undefined,
+            cancellation_token,
             { register_dependencies: false }
           );
           if (scope_result.inherited_working_directory) {
@@ -884,18 +946,28 @@ export class DocumentStore {
       // Invalid URI or other error - continue without working directory
     }
 
+    if (!operation_is_current()) {
+      return undefined;
+    }
+
     // Analyze with timeout and explicit parameters (no hidden defaults)
     const analyze_result = await with_parse_timeout(() =>
-      analyzer.analyze(
-        parse_result.result!.ast,
-        uri,
-        workspace_symbols,
-        {
-          working_directory: resolved_working_directory,
-        },
-        lex_result.result!.tokens
-      )
+      operation_is_current()
+        ? analyzer.analyze(
+            parse_result.result!.ast,
+            uri,
+            workspace_symbols,
+            {
+              working_directory: resolved_working_directory,
+            },
+            lex_result.result!.tokens
+          )
+        : null
     );
+
+    if (!operation_is_current() || analyze_result.result === null) {
+      return undefined;
+    }
 
     const elapsed_ms = Date.now() - start_time;
     this.metrics.parse_total_ms += elapsed_ms;

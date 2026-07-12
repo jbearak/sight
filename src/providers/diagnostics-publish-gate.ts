@@ -1,88 +1,144 @@
+/** Immutable diagnostic state captured when validation is scheduled. */
+export interface DiagnosticsTrigger {
+    readonly lifecycle_epoch: number;
+    readonly document_version: number;
+    readonly force_epoch: number;
+}
+
+interface DiagnosticsLifecycleState {
+    lifecycle_epoch: number;
+    document_version: number;
+    force_epoch: number;
+    last_published_version?: number;
+    last_published_force_epoch?: number;
+}
+
 /**
- * Gate diagnostics publication by document version and lifecycle/force epoch.
+ * Gate diagnostic publication by document version and explicit lifecycle.
  *
- * Epochs are allocated globally so a URI cannot reuse an epoch after
- * `forget()`. This makes a close a hard publication boundary: work that
- * captured the retired epoch before the close cannot publish after the URI is
- * forgotten or reopened.
+ * Only didOpen begins a lifecycle. Close and shutdown retire it, while normal
+ * edits advance its document version and dependency/configuration changes
+ * advance its force epoch. Publication never creates or advances lifecycle
+ * state, so old work fails closed at its final commit.
  */
 export class DiagnosticsPublishGate {
-    private last_published_version: Map<string, number> = new Map();
-    private last_published_epoch: Map<string, number> = new Map();
-    private current_epoch: Map<string, number> = new Map();
-    private next_epoch = 0;
+    private lifecycle_by_uri = new Map<string, DiagnosticsLifecycleState>();
+    private next_lifecycle_epoch = 0;
 
-    get_current_epoch(uri: string): number {
-        let my_epoch = this.current_epoch.get(uri);
-        if (my_epoch === undefined) {
-            my_epoch = this.allocate_epoch();
-            this.current_epoch.set(uri, my_epoch);
+    begin_lifecycle(uri: string, version: number): DiagnosticsTrigger {
+        const state: DiagnosticsLifecycleState = {
+            lifecycle_epoch: this.next_lifecycle_epoch++,
+            document_version: version,
+            force_epoch: 0,
+        };
+        this.lifecycle_by_uri.set(uri, state);
+        return this.trigger_from(state);
+    }
+
+    /**
+     * Record the newest version scheduled for validation and capture its
+     * trigger. Older versions never move the lifecycle backwards; their
+     * returned trigger is intentionally stale and will fail validation.
+     */
+    trigger_for_validation(
+        uri: string,
+        version: number
+    ): DiagnosticsTrigger | undefined {
+        const state = this.lifecycle_by_uri.get(uri);
+        if (!state) {
+            return undefined;
         }
-        return my_epoch;
+        if (version > state.document_version) {
+            state.document_version = version;
+        }
+        return {
+            lifecycle_epoch: state.lifecycle_epoch,
+            document_version: version,
+            force_epoch: state.force_epoch,
+        };
     }
 
-    is_current_epoch(uri: string, epoch: number): boolean {
-        return this.current_epoch.get(uri) === epoch;
+    is_current_trigger(
+        uri: string,
+        trigger: DiagnosticsTrigger | undefined
+    ): boolean {
+        return !!trigger && !!this.state_for_trigger(uri, trigger);
     }
 
-    would_publish(uri: string, version: number, epoch: number): boolean {
-        if (!this.is_current_epoch(uri, epoch)) {
+    would_publish(
+        uri: string,
+        version: number,
+        trigger: DiagnosticsTrigger
+    ): boolean {
+        const state = this.state_for_trigger(uri, trigger);
+        if (!state || version !== trigger.document_version) {
             return false;
         }
 
-        const my_last_version = this.last_published_version.get(uri);
-        if (my_last_version === undefined || version > my_last_version) {
+        if (state.last_published_version === undefined ||
+            version > state.last_published_version) {
             return true;
         }
-
-        if (version < my_last_version) {
+        if (version < state.last_published_version) {
             return false;
         }
-
-        const my_current_epoch = this.current_epoch.get(uri) ?? 0;
-        const my_last_epoch = this.last_published_epoch.get(uri) ?? 0;
-        return epoch === my_current_epoch && epoch > my_last_epoch;
+        return trigger.force_epoch >
+            (state.last_published_force_epoch ?? -1);
     }
 
-    try_consume_publish(uri: string, version: number, epoch: number): boolean {
-        if (!this.is_current_epoch(uri, epoch)) {
+    try_consume_publish(
+        uri: string,
+        version: number,
+        trigger: DiagnosticsTrigger
+    ): boolean {
+        if (!this.would_publish(uri, version, trigger)) {
             return false;
         }
+        const state = this.lifecycle_by_uri.get(uri)!;
+        state.last_published_version = version;
+        state.last_published_force_epoch = trigger.force_epoch;
+        return true;
+    }
 
-        const my_last_version = this.last_published_version.get(uri);
-        if (my_last_version === undefined || version > my_last_version) {
-            this.last_published_version.set(uri, version);
-            this.last_published_epoch.set(uri, epoch);
-            return true;
-        }
-
-        if (version < my_last_version) {
+    /** Authorize one same-version publication without creating a lifecycle. */
+    mark_force_republish(uri: string): boolean {
+        const state = this.lifecycle_by_uri.get(uri);
+        if (!state) {
             return false;
         }
+        state.force_epoch++;
+        return true;
+    }
 
-        const my_current_epoch = this.current_epoch.get(uri) ?? 0;
-        const my_last_epoch = this.last_published_epoch.get(uri) ?? 0;
-        if (epoch === my_current_epoch && epoch > my_last_epoch) {
-            this.last_published_epoch.set(uri, epoch);
-            return true;
+    retire_lifecycle(uri: string): void {
+        this.lifecycle_by_uri.delete(uri);
+    }
+
+    retire_all_lifecycles(): void {
+        this.lifecycle_by_uri.clear();
+    }
+
+    private trigger_from(
+        state: DiagnosticsLifecycleState
+    ): DiagnosticsTrigger {
+        return {
+            lifecycle_epoch: state.lifecycle_epoch,
+            document_version: state.document_version,
+            force_epoch: state.force_epoch,
+        };
+    }
+
+    private state_for_trigger(
+        uri: string,
+        trigger: DiagnosticsTrigger
+    ): DiagnosticsLifecycleState | undefined {
+        const state = this.lifecycle_by_uri.get(uri);
+        if (!state ||
+            state.lifecycle_epoch !== trigger.lifecycle_epoch ||
+            state.document_version !== trigger.document_version ||
+            state.force_epoch !== trigger.force_epoch) {
+            return undefined;
         }
-
-        return false;
-    }
-
-    mark_force_republish(uri: string): void {
-        this.current_epoch.set(uri, this.allocate_epoch());
-    }
-
-    forget(uri: string): void {
-        this.last_published_version.delete(uri);
-        this.last_published_epoch.delete(uri);
-        this.current_epoch.delete(uri);
-    }
-
-    private allocate_epoch(): number {
-        const my_epoch = this.next_epoch;
-        this.next_epoch++;
-        return my_epoch;
+        return state;
     }
 }

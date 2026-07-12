@@ -19,6 +19,7 @@ import {
 } from '../../src/types';
 import {
     CancellationToken,
+    CancellationTokenSource,
     Diagnostic,
     DiagnosticSeverity,
 } from 'vscode-languageserver';
@@ -156,6 +157,31 @@ function create_document_state(content: string, version: number = 1): DocumentSt
     };
 }
 
+function publish_current(
+    provider: DiagnosticsProvider,
+    document: DocumentState,
+    config: StataLSPConfig,
+    workspace_symbols?: SymbolTable,
+    scope_resolver?: ScopeResolver,
+    cancellation_token?: CancellationToken
+): ReturnType<DiagnosticsProvider['publish_diagnostics']> {
+    const trigger = provider.trigger_for_validation(
+        document.uri,
+        document.version
+    );
+    if (!trigger) {
+        throw new Error(`No live diagnostic lifecycle for ${document.uri}`);
+    }
+    return provider.publish_diagnostics(
+        document,
+        config,
+        trigger,
+        workspace_symbols,
+        scope_resolver,
+        cancellation_token
+    );
+}
+
 describe('DiagnosticsProvider', () => {
     let mock_connection: ReturnType<typeof create_mock_connection>;
     let provider: DiagnosticsProvider;
@@ -163,6 +189,7 @@ describe('DiagnosticsProvider', () => {
     beforeEach(() => {
         mock_connection = create_mock_connection();
         provider = new DiagnosticsProvider(mock_connection);
+        provider.on_document_opened('file:///test.do', 1);
     });
 
     describe('get_diagnostics', () => {
@@ -357,12 +384,39 @@ describe('DiagnosticsProvider', () => {
             expect(second_diagnostics).not.toBe(first_diagnostics);
             expect(second_diagnostics).toEqual(first_diagnostics);
         });
+
+        it('caches direct diagnostics without a publication lifecycle', async () => {
+            const direct_provider = new DiagnosticsProvider(mock_connection);
+            const document = create_document_state('gen x = 1\n', 1);
+            const scope_resolver = new ScopeResolver();
+            let resolve_count = 0;
+            scope_resolver.resolve = async () => {
+                resolve_count++;
+                return create_empty_resolved_scope();
+            };
+
+            const first = await direct_provider.get_diagnostics(
+                document,
+                DEFAULT_CONFIG,
+                undefined,
+                scope_resolver
+            );
+            const second = await direct_provider.get_diagnostics(
+                document,
+                DEFAULT_CONFIG,
+                undefined,
+                scope_resolver
+            );
+
+            expect(resolve_count).toBe(1);
+            expect(second).toBe(first);
+        });
     });
 
     describe('publish_diagnostics', () => {
         it('should publish diagnostics to connection', async () => {
             const document = create_document_state('gen x = 1\n');
-            await provider.publish_diagnostics(document, DEFAULT_CONFIG);
+            await publish_current(provider, document, DEFAULT_CONFIG);
             
             const sent = mock_connection.get_sent_diagnostics();
             expect(sent.length).toBe(1);
@@ -379,23 +433,109 @@ describe('DiagnosticsProvider', () => {
                 },
             };
             
-            await provider.publish_diagnostics(document, disabled_config);
+            await publish_current(provider, document, disabled_config);
             
             const sent = mock_connection.get_sent_diagnostics();
             expect(sent.length).toBe(1);
             expect(sent[0].diagnostics).toEqual([]);
         });
 
+        it(
+            'does not consume a trigger when the parent token is cancelled',
+            async () => {
+                const document = create_document_state(
+                    'display `undefined\'\n'
+                );
+                const disabled_config = {
+                    ...DEFAULT_CONFIG,
+                    diagnostics: {
+                        ...DEFAULT_CONFIG.diagnostics,
+                        enabled: false,
+                    },
+                };
+                const cancellation_source = new CancellationTokenSource();
+                cancellation_source.cancel();
+
+                await publish_current(
+                    provider,
+                    document,
+                    disabled_config,
+                    undefined,
+                    undefined,
+                    cancellation_source.token
+                );
+                expect(mock_connection.get_sent_diagnostics()).toHaveLength(0);
+
+                // Cancellation must not consume the same version/force
+                // trigger: an uncancelled retry still publishes the clear.
+                await publish_current(provider, document, disabled_config);
+                expect(mock_connection.get_sent_diagnostics()).toHaveLength(1);
+                cancellation_source.dispose();
+            }
+        );
+
+        it(
+            'does not publish an empty result when parent cancellation ' +
+                'lands during scope resolution',
+            async () => {
+                const document = create_document_state(
+                    'display `undefined\'\n'
+                );
+                const delayed_scope_resolver = new ScopeResolver();
+                const cancellation_source = new CancellationTokenSource();
+                let resolve_scope: (() => void) | undefined;
+                let resolve_started: (() => void) | undefined;
+                const scope_started = new Promise<void>(resolve => {
+                    resolve_started = resolve;
+                });
+                const scope_delay = new Promise<void>(resolve => {
+                    resolve_scope = resolve;
+                });
+
+                delayed_scope_resolver.resolve = async () => {
+                    resolve_started?.();
+                    await scope_delay;
+                    return create_empty_resolved_scope();
+                };
+
+                const cancelled_publish = publish_current(
+                    provider,
+                    document,
+                    DEFAULT_CONFIG,
+                    undefined,
+                    delayed_scope_resolver,
+                    cancellation_source.token
+                );
+                await scope_started;
+                cancellation_source.cancel();
+                resolve_scope?.();
+                await cancelled_publish;
+
+                expect(mock_connection.get_sent_diagnostics()).toHaveLength(0);
+
+                // The cancelled computation did not consume the trigger.
+                await publish_current(
+                    provider,
+                    document,
+                    DEFAULT_CONFIG,
+                    undefined,
+                    delayed_scope_resolver
+                );
+                expect(mock_connection.get_sent_diagnostics()).toHaveLength(1);
+                cancellation_source.dispose();
+            }
+        );
+
         it('should apply version gating', async () => {
             const document_v1 = create_document_state('gen x = 1\n', 1);
             const document_v2 = create_document_state('gen y = 2\n', 2);
             
             // Publish v2 first
-            await provider.publish_diagnostics(document_v2, DEFAULT_CONFIG);
+            await publish_current(provider, document_v2, DEFAULT_CONFIG);
             mock_connection.clear_sent_diagnostics();
             
             // Try to publish v1 (should be skipped due to version gating)
-            await provider.publish_diagnostics(document_v1, DEFAULT_CONFIG);
+            await publish_current(provider, document_v1, DEFAULT_CONFIG);
             
             const sent = mock_connection.get_sent_diagnostics();
             expect(sent.length).toBe(0);
@@ -440,16 +580,19 @@ describe('DiagnosticsProvider', () => {
                 );
             };
 
-            const publish_v1 = provider.publish_diagnostics(
+            const publish_v1 = publish_current(provider,
                 document_v1,
                 DEFAULT_CONFIG
             );
             await v1_started;
 
-            await provider.publish_diagnostics(document_v2, DEFAULT_CONFIG);
-            const sent_after_v2 = mock_connection.get_sent_diagnostics();
-            expect(sent_after_v2.length).toBe(1);
-            expect(sent_after_v2[0].diagnostics).toEqual([]);
+            // Receiving/scheduling v2 must retire v1 immediately; v2 need not
+            // finish publication before the old computation resumes.
+            const trigger_v2 = provider.trigger_for_validation(
+                document_v2.uri,
+                document_v2.version
+            );
+            expect(trigger_v2).toBeDefined();
 
             expect(resolve_v1).toBeDefined();
             resolve_v1?.();
@@ -457,24 +600,30 @@ describe('DiagnosticsProvider', () => {
 
             const sent_after_v1_resumes =
                 mock_connection.get_sent_diagnostics();
-            expect(sent_after_v1_resumes.length).toBe(1);
-            expect(sent_after_v1_resumes[0].diagnostics).toEqual([]);
+            expect(sent_after_v1_resumes).toHaveLength(0);
+
+            await provider.publish_diagnostics(
+                document_v2,
+                DEFAULT_CONFIG,
+                trigger_v2!
+            );
+            expect(mock_connection.get_sent_diagnostics()).toHaveLength(1);
         });
 
         it('should publish once for one same-version force epoch', async () => {
             const document = create_document_state('gen x = 1\n', 1);
 
-            await provider.publish_diagnostics(document, DEFAULT_CONFIG);
+            await publish_current(provider, document, DEFAULT_CONFIG);
             mock_connection.clear_sent_diagnostics();
 
             provider.mark_force_republish(document.uri);
-            await provider.publish_diagnostics(document, DEFAULT_CONFIG);
+            await publish_current(provider, document, DEFAULT_CONFIG);
 
             const sent_after_mark = mock_connection.get_sent_diagnostics();
             expect(sent_after_mark.length).toBe(1);
             mock_connection.clear_sent_diagnostics();
 
-            await provider.publish_diagnostics(document, DEFAULT_CONFIG);
+            await publish_current(provider, document, DEFAULT_CONFIG);
 
             const sent_without_mark = mock_connection.get_sent_diagnostics();
             expect(sent_without_mark.length).toBe(0);
@@ -500,7 +649,7 @@ describe('DiagnosticsProvider', () => {
                     resolve_a = resolve;
                 });
 
-                await provider.publish_diagnostics(document, DEFAULT_CONFIG);
+                await publish_current(provider, document, DEFAULT_CONFIG);
                 mock_connection.clear_sent_diagnostics();
 
                 provider.get_diagnostics = async (
@@ -528,14 +677,14 @@ describe('DiagnosticsProvider', () => {
                 };
 
                 provider.mark_force_republish(document.uri);
-                const publish_a = provider.publish_diagnostics(
+                const publish_a = publish_current(provider,
                     document,
                     DEFAULT_CONFIG
                 );
                 await a_started;
 
                 provider.mark_force_republish(document.uri);
-                await provider.publish_diagnostics(document, DEFAULT_CONFIG);
+                await publish_current(provider, document, DEFAULT_CONFIG);
 
                 const sent_after_b = mock_connection.get_sent_diagnostics();
                 expect(sent_after_b.length).toBe(1);
@@ -573,7 +722,7 @@ describe('DiagnosticsProvider', () => {
                 });
 
                 // Publish v1 so a same-version force is meaningful.
-                await provider.publish_diagnostics(document_v1, DEFAULT_CONFIG);
+                await publish_current(provider, document_v1, DEFAULT_CONFIG);
                 mock_connection.clear_sent_diagnostics();
 
                 provider.get_diagnostics = async (
@@ -603,7 +752,7 @@ describe('DiagnosticsProvider', () => {
                 // Forced same-version republish A captures epoch at v1 and
                 // stalls mid-compute.
                 provider.mark_force_republish(document_v1.uri);
-                const publish_a = provider.publish_diagnostics(
+                const publish_a = publish_current(provider,
                     document_v1,
                     DEFAULT_CONFIG
                 );
@@ -611,7 +760,7 @@ describe('DiagnosticsProvider', () => {
 
                 // The document advances to v2 and publishes to completion
                 // while A is still in flight.
-                await provider.publish_diagnostics(document_v2, DEFAULT_CONFIG);
+                await publish_current(provider, document_v2, DEFAULT_CONFIG);
 
                 const sent_after_v2 = mock_connection.get_sent_diagnostics();
                 expect(sent_after_v2.length).toBe(1);
@@ -645,7 +794,7 @@ describe('DiagnosticsProvider', () => {
             const document = create_document_state('gen x = 1\n', 1);
             
             // First publish
-            await provider.publish_diagnostics(document, DEFAULT_CONFIG);
+            await publish_current(provider, document, DEFAULT_CONFIG);
             mock_connection.clear_sent_diagnostics();
             
             // Close document
@@ -657,7 +806,8 @@ describe('DiagnosticsProvider', () => {
             
             // After closing, should be able to publish v1 again (version tracking cleared)
             mock_connection.clear_sent_diagnostics();
-            await provider.publish_diagnostics(document, DEFAULT_CONFIG);
+            provider.on_document_opened(document.uri, document.version);
+            await publish_current(provider, document, DEFAULT_CONFIG);
             
             const sent_after = mock_connection.get_sent_diagnostics();
             expect(sent_after.length).toBe(1);
@@ -669,6 +819,7 @@ describe('DiagnosticsProvider', () => {
                 1
             );
             const delayed_scope_resolver = new ScopeResolver();
+            let captured_token: CancellationToken | undefined;
             let resolve_scope: (() => void) | undefined;
             let resolve_started: (() => void) | undefined;
             const scope_started = new Promise<void>(resolve => {
@@ -678,13 +829,19 @@ describe('DiagnosticsProvider', () => {
                 resolve_scope = resolve;
             });
 
-            delayed_scope_resolver.resolve = async () => {
+            delayed_scope_resolver.resolve = async (
+                _uri,
+                _content,
+                _config,
+                token
+            ) => {
+                captured_token = token;
                 resolve_started?.();
                 await scope_delay;
                 return create_empty_resolved_scope();
             };
 
-            const stale_publish = provider.publish_diagnostics(
+            const stale_publish = publish_current(provider,
                 document,
                 DEFAULT_CONFIG,
                 undefined,
@@ -693,11 +850,23 @@ describe('DiagnosticsProvider', () => {
             await scope_started;
 
             provider.on_document_closed(document.uri);
+            expect(captured_token?.isCancellationRequested).toBe(true);
 
             const sent_after_close =
                 mock_connection.get_sent_diagnostics();
             expect(sent_after_close).toHaveLength(1);
             expect(sent_after_close[0].diagnostics).toEqual([]);
+
+            // Reopen at the identical version before the retired worker
+            // resumes. Lifecycle identity—not version—must reject it.
+            const reopened_document = create_document_state(
+                'generate x = 1\n',
+                1
+            );
+            provider.on_document_opened(
+                reopened_document.uri,
+                reopened_document.version
+            );
 
             expect(resolve_scope).toBeDefined();
             resolve_scope?.();
@@ -708,11 +877,7 @@ describe('DiagnosticsProvider', () => {
             expect(sent_after_stale_publish).toHaveLength(1);
             expect(sent_after_stale_publish[0].diagnostics).toEqual([]);
 
-            const reopened_document = create_document_state(
-                'generate x = 1\n',
-                1
-            );
-            await provider.publish_diagnostics(
+            await publish_current(provider,
                 reopened_document,
                 DEFAULT_CONFIG
             );
@@ -721,6 +886,57 @@ describe('DiagnosticsProvider', () => {
                 mock_connection.get_sent_diagnostics();
             expect(sent_after_reopen).toHaveLength(2);
             expect(sent_after_reopen[1].diagnostics).toEqual([]);
+        });
+    });
+
+    describe('on_shutdown', () => {
+        it('drops an in-flight publish that resumes after shutdown', async () => {
+            const document = create_document_state(
+                'display `undefined\'\n',
+                1
+            );
+            const delayed_scope_resolver = new ScopeResolver();
+            let captured_token: CancellationToken | undefined;
+            let resolve_scope: (() => void) | undefined;
+            let resolve_started: (() => void) | undefined;
+            const scope_started = new Promise<void>(resolve => {
+                resolve_started = resolve;
+            });
+            const scope_delay = new Promise<void>(resolve => {
+                resolve_scope = resolve;
+            });
+
+            delayed_scope_resolver.resolve = async (
+                _uri,
+                _content,
+                _config,
+                token
+            ) => {
+                captured_token = token;
+                resolve_started?.();
+                await scope_delay;
+                return create_empty_resolved_scope();
+            };
+
+            const stale_publish = publish_current(
+                provider,
+                document,
+                DEFAULT_CONFIG,
+                undefined,
+                delayed_scope_resolver
+            );
+            await scope_started;
+
+            provider.on_shutdown();
+            expect(captured_token?.isCancellationRequested).toBe(true);
+            resolve_scope?.();
+            await stale_publish;
+
+            expect(mock_connection.get_sent_diagnostics()).toHaveLength(0);
+            expect(provider.trigger_for_validation(
+                document.uri,
+                document.version
+            )).toBeUndefined();
         });
     });
 

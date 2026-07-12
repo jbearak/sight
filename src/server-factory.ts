@@ -1047,6 +1047,32 @@ export async function create_server(options: ServerOptions): Promise<void> {
         const snapshot_uri = text_document.uri;
         const snapshot_version = text_document.version;
         const snapshot_content = text_document.getText();
+        const diagnostics_trigger =
+            diagnostics_provider?.trigger_for_validation(
+                snapshot_uri,
+                snapshot_version
+            );
+
+        // TextDocuments mutates one object across changes but creates a new
+        // object for each open. Identity distinguishes close/reopen at the
+        // same version, while the version check catches a newer edit. Check
+        // both after each await before mutating shared state.
+        const snapshot_is_current = (): boolean =>
+            documents.get(snapshot_uri) === text_document &&
+            text_document.version === snapshot_version;
+        const validation_work_is_current = (): boolean => {
+            if (!snapshot_is_current()) {
+                return false;
+            }
+            if (!diagnostics_provider) {
+                return true;
+            }
+            return diagnostics_trigger !== undefined &&
+                diagnostics_provider.is_validation_current(
+                    snapshot_uri,
+                    diagnostics_trigger
+                );
+        };
 
         debounce_manager.schedule_validation(
             snapshot_uri,
@@ -1055,6 +1081,9 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 // Fetch settings inside debounce callback to avoid
                 // delaying the debounce timer start (Req 8.2, 8.3, 8.4)
                 const settings = await get_document_settings(snapshot_uri);
+                if (!validation_work_is_current()) {
+                    return;
+                }
                 const is_debug = settings.debug === true;
                 const my_scope_resolver_config =
                     scope_resolver_config_for(settings);
@@ -1070,7 +1099,8 @@ export async function create_server(options: ServerOptions): Promise<void> {
                         [{ text: snapshot_content }],
                         snapshot_version,
                         workspace_symbols,
-                        my_scope_resolver_config
+                        my_scope_resolver_config,
+                        validation_work_is_current
                     );
                 } else {
                     await document_store.open(
@@ -1078,8 +1108,13 @@ export async function create_server(options: ServerOptions): Promise<void> {
                         snapshot_content,
                         snapshot_version,
                         workspace_symbols,
-                        my_scope_resolver_config
+                        my_scope_resolver_config,
+                        validation_work_is_current
                     );
+                }
+
+                if (!validation_work_is_current()) {
+                    return;
                 }
 
                 // --- Cross-file revalidation scheduling (Req 3.1) ---
@@ -1177,6 +1212,9 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 }
 
                 // --- Diagnostic publication (Req 2.3) ---
+                if (!snapshot_is_current()) {
+                    return;
+                }
                 const document_state = document_store.get(snapshot_uri);
 
                 if (!document_state) {
@@ -1185,6 +1223,9 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 }
 
                 if (diagnostics_provider) {
+                    if (!diagnostics_trigger) {
+                        return;
+                    }
                     const diag_workspace_symbols = workspace_indexer
                         ? workspace_indexer.get_all_symbols()
                         : undefined;
@@ -1192,6 +1233,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
                     const result = await diagnostics_provider.publish_diagnostics(
                         document_state,
                         settings,
+                        diagnostics_trigger,
                         diag_workspace_symbols,
                         scope_resolver || undefined,
                         undefined
@@ -1517,6 +1559,10 @@ export async function create_server(options: ServerOptions): Promise<void> {
 
     // Document open handler - validate when a document is first opened
     documents.onDidOpen((e) => {
+        diagnostics_provider?.on_document_opened(
+            e.document.uri,
+            e.document.version
+        );
         validate_text_document(e.document);
     });
 
