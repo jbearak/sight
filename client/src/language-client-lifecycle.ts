@@ -3,6 +3,14 @@ export interface ManagedLanguageClient {
     stop(): Promise<void>;
 }
 
+export interface StateAwareManagedLanguageClient
+    extends ManagedLanguageClient {
+    readonly state: number;
+    onDidChangeState(
+        listener: (event: { newState: number }) => void
+    ): { dispose(): void };
+}
+
 export interface LifecycleLogger {
     appendLine(message: string): void;
 }
@@ -29,6 +37,48 @@ const DEFAULT_STOP_TIMEOUT_MS = 1000;
 
 function sleep(my_timeout_ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, my_timeout_ms));
+}
+
+/**
+ * Reconcile client-owned state after every initial start or automatic restart.
+ * The Running event can precede completion of start(), so reconciliation waits
+ * for that in-flight promise and verifies the transition is still current.
+ */
+export function register_running_state_reconciliation(
+    the_client: StateAwareManagedLanguageClient,
+    running_state: number,
+    reconcile: () => void | Promise<void>,
+    on_error: (error: unknown) => void = () => undefined
+): { dispose(): void } {
+    let transition_epoch = 0;
+    let disposed = false;
+    const state_subscription = the_client.onDidChangeState((event) => {
+        if (disposed) {
+            return;
+        }
+        const my_epoch = ++transition_epoch;
+        if (event.newState !== running_state) {
+            return;
+        }
+
+        void the_client.start().then(async () => {
+            if (my_epoch !== transition_epoch ||
+                the_client.state !== running_state) {
+                return;
+            }
+            await reconcile();
+        }).catch(on_error);
+    });
+    return {
+        dispose: () => {
+            if (disposed) {
+                return;
+            }
+            disposed = true;
+            transition_epoch++;
+            state_subscription.dispose();
+        },
+    };
 }
 
 export class LanguageClientLifecycle<TClient extends ManagedLanguageClient> {

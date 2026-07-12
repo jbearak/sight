@@ -5,6 +5,15 @@ unresolved macros, suspicious operators, and style issues. This page
 lists every diagnostic, shows how to silence individual reports, and
 documents the configuration keys that control severity.
 
+In VS Code, Sight keeps Problems entries only for files represented by real
+editor tabs or visible peek editors. A diff tab owns its modified side, not the
+original side. Text models opened invisibly by another extension remain
+synchronized and participate in cross-file analysis, but do not add background
+Problems entries. Closing and re-adding a tab starts a fresh diagnostic
+lifecycle, so an older in-flight result cannot reappear after the clear. Other
+LSP clients that do not send editor ownership metadata retain standard
+`didOpen`-scoped diagnostics.
+
 Diagnostics are deferred until the workspace scan completes, so
 cross-file warnings reflect the full project rather than just the open
 buffer. Each diagnostic carries a symbolic `code` (the rule IDs below)

@@ -48,6 +48,14 @@ import { DependencyGraph } from './dependency-graph';
 import { URI } from 'vscode-uri';
 import * as fs from 'fs';
 import { discover_stata_ado_paths } from './utils/stata-install-paths';
+import {
+    DIAGNOSTIC_RESOURCES_CHANGED_NOTIFICATION,
+    diagnostic_uri_set_changes,
+    diagnostic_uris_from_initialization_options,
+    diagnostic_uris_from_notification,
+    same_diagnostic_uri_set,
+    settings_initialization_options,
+} from './diagnostic-resources';
 
 // Import cache directly so it gets bundled into the binary
 import embedded_cache_raw from './command-database/caches/v18.json' with { type: 'json' };
@@ -317,6 +325,10 @@ export async function create_server(options: ServerOptions): Promise<void> {
 
     // Initialization options config
     let init_options_config: unknown = undefined;
+    // Undefined preserves ordinary LSP didOpen behavior for non-Sight clients;
+    // an explicit empty set means no editor resource currently owns Problems.
+    let editor_diagnostic_uris: Set<string> | undefined = undefined;
+    let shutdown_requested = false;
 
     // Most recent client-pushed `sight` settings from didChangeConfiguration,
     // for clients without `workspace/configuration` capability. Retained so the
@@ -331,6 +343,58 @@ export async function create_server(options: ServerOptions): Promise<void> {
     const log_config_warning = (message: string): void => {
         connection.console.log(`Configuration warning: ${message}`);
     };
+
+    function diagnostics_publish_allowed(uri: string): boolean {
+        return editor_diagnostic_uris?.has(uri) ?? true;
+    }
+
+    function update_editor_diagnostic_uris(next: Set<string>): void {
+        // Focus and visibility events commonly repeat the same full snapshot.
+        // Avoid walking every LSP-open model when policy did not change.
+        if (same_diagnostic_uri_set(editor_diagnostic_uris, next)) {
+            return;
+        }
+        // Replace policy before lifecycle transitions: every concurrently
+        // resumed validation observes the new eligibility synchronously.
+        const previous = editor_diagnostic_uris;
+        editor_diagnostic_uris = next;
+        if (!diagnostics_provider) {
+            return;
+        }
+
+        if (previous === undefined) {
+            // The fallback policy allowed every didOpen document. This one-time
+            // transition is the only case that requires an all-documents scan.
+            for (const document of documents.all()) {
+                if (!next.has(document.uri)) {
+                    diagnostics_provider.on_document_hidden(document.uri);
+                }
+            }
+            return;
+        }
+
+        const changes = diagnostic_uri_set_changes(previous, next);
+        for (const uri of changes.removed) {
+            const document = documents.get(uri);
+            if (document) {
+                diagnostics_provider.on_document_hidden(
+                    document.uri
+                );
+            }
+        }
+        for (const uri of changes.added) {
+            const document = documents.get(uri);
+            if (document) {
+                diagnostics_provider.on_document_opened(
+                    document.uri,
+                    document.version
+                );
+                // A background-open model does not emit another didOpen when
+                // its tab appears, so explicitly run the normal pipeline.
+                void validate_text_document(document);
+            }
+        }
+    }
 
     function log_project_config_warnings(loaded: LoadedProjectConfig): void {
         for (const my_warning of loaded.warnings) {
@@ -1061,10 +1125,16 @@ export async function create_server(options: ServerOptions): Promise<void> {
             documents.get(snapshot_uri) === text_document &&
             text_document.version === snapshot_version;
         const validation_work_is_current = (): boolean => {
-            if (!snapshot_is_current()) {
+            if (shutdown_requested || !snapshot_is_current()) {
                 return false;
             }
             if (!diagnostics_provider) {
+                return true;
+            }
+            // Hidden LSP-open documents remain parse/index inputs. If the
+            // resource is re-added before old work finishes, this becomes
+            // false again and the new lifecycle's validation owns the commit.
+            if (!diagnostics_publish_allowed(snapshot_uri)) {
                 return true;
             }
             return diagnostics_trigger !== undefined &&
@@ -1212,7 +1282,8 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 }
 
                 // --- Diagnostic publication (Req 2.3) ---
-                if (!snapshot_is_current()) {
+                if (!snapshot_is_current() ||
+                    !diagnostics_publish_allowed(snapshot_uri)) {
                     return;
                 }
                 const document_state = document_store.get(snapshot_uri);
@@ -1265,7 +1336,9 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 server_capabilities = caps;
             },
             (options: unknown) => {
-                init_options_config = options;
+                editor_diagnostic_uris =
+                    diagnostic_uris_from_initialization_options(options);
+                init_options_config = settings_initialization_options(options);
             },
             (root_uri: string | null) => {
                 init_root_uri = root_uri;
@@ -1559,10 +1632,12 @@ export async function create_server(options: ServerOptions): Promise<void> {
 
     // Document open handler - validate when a document is first opened
     documents.onDidOpen((e) => {
-        diagnostics_provider?.on_document_opened(
-            e.document.uri,
-            e.document.version
-        );
+        if (diagnostics_publish_allowed(e.document.uri)) {
+            diagnostics_provider?.on_document_opened(
+                e.document.uri,
+                e.document.version
+            );
+        }
         validate_text_document(e.document);
     });
 
@@ -1733,6 +1808,16 @@ export async function create_server(options: ServerOptions): Promise<void> {
         )
     );
 
+    connection.onNotification(
+        DIAGNOSTIC_RESOURCES_CHANGED_NOTIFICATION,
+        (params: unknown) => {
+            const next = diagnostic_uris_from_notification(params);
+            if (next !== undefined) {
+                update_editor_diagnostic_uris(next);
+            }
+        }
+    );
+
     // Request handlers — created once, registered once (Req 4.1, 4.2)
     const completion_handler = create_completion_handler(handler_deps);
     const hover_handler = create_hover_handler(handler_deps);
@@ -1761,7 +1846,12 @@ export async function create_server(options: ServerOptions): Promise<void> {
     connection.onExecuteCommand((params) => {
         return execute_command_handler(params.command, params.arguments || []);
     });
-    connection.onShutdown(shutdown_handler);
+    connection.onShutdown(() => {
+        // Hidden documents intentionally have no diagnostic lifecycle, so
+        // shutdown needs its own cancellation signal for in-flight analysis.
+        shutdown_requested = true;
+        return shutdown_handler();
+    });
     connection.onExit(create_exit_handler());
 
     // Custom request handlers

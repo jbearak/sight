@@ -1,6 +1,6 @@
 /**
- * Handler-level integration test for the onDidClose disk re-sync wiring
- * (issue #287, deferred from #184's review).
+ * Handler-level integration tests for document lifecycle wiring: onDidClose
+ * disk re-sync (#287) and editor diagnostic ownership (#602).
  *
  * All prior coverage of `resync_backward_directive_dependencies_from_disk`
  * is at the ScopeResolver unit level; nothing drove the REAL
@@ -32,7 +32,9 @@
  *      with TextDocuments still empty), and a vetoed re-sync does NOT
  *      revalidate open dependents. (The resolver-internal contract that
  *      the guard is consulted AFTER the disk read is unit-tested in
- *      tests/unit/document-store-commit-time-cross-file-effects.test.ts.)
+ *      tests/unit/document-store-commit-time-cross-file-effects.test.ts.);
+ *   5. hidden LSP-open models remain in DocumentStore while tab removal clears
+ *      their diagnostics and re-addition republishes without another didOpen.
  */
 
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
@@ -46,6 +48,7 @@ import type {
     DidOpenTextDocumentParams,
     DidCloseTextDocumentParams,
     PublishDiagnosticsParams,
+    CancellationToken,
 } from 'vscode-languageserver/node';
 import { create_server } from '../../src/server-factory';
 import { ScopeResolver } from '../../src/scope-resolver';
@@ -71,6 +74,9 @@ let captured_resolver: ScopeResolver | undefined;
 let captured_document_store: DocumentStore | undefined;
 let the_resync_calls: ResyncCall[] = [];
 let workspace_roots_seen: string[] = [];
+let scope_resolution_gate: Promise<void> | undefined;
+let scope_resolution_started: (() => void) | undefined;
+let captured_scope_cancellation_token: CancellationToken | undefined;
 // When set, the spied re-sync records its call, then holds before running
 // the real method until this promise resolves — letting a test create
 // race conditions deterministically (test 4). Undefined = no hold.
@@ -82,6 +88,7 @@ const original_set_workspace_roots =
     ScopeResolver.prototype.set_workspace_roots;
 const original_resync =
     ScopeResolver.prototype.resync_backward_directive_dependencies_from_disk;
+const original_resolve = ScopeResolver.prototype.resolve;
 const original_set_scope_resolver =
     DocumentStore.prototype.set_scope_resolver;
 
@@ -91,6 +98,9 @@ function install_resolver_spies(): void {
     the_resync_calls = [];
     workspace_roots_seen = [];
     resync_gate = undefined;
+    scope_resolution_gate = undefined;
+    scope_resolution_started = undefined;
+    captured_scope_cancellation_token = undefined;
     ScopeResolver.prototype.set_dependency_graph = function (
         ...args: Parameters<typeof original_set_dependency_graph>
     ) {
@@ -119,6 +129,17 @@ function install_resolver_spies(): void {
             });
             return result;
         };
+    ScopeResolver.prototype.resolve = async function (
+        ...args: Parameters<typeof original_resolve>
+    ) {
+        const gate = scope_resolution_gate;
+        if (gate) {
+            captured_scope_cancellation_token = args[3];
+            scope_resolution_started?.();
+            await gate;
+        }
+        return original_resolve.apply(this, args);
+    };
     DocumentStore.prototype.set_scope_resolver = function (
         ...args: Parameters<typeof original_set_scope_resolver>
     ) {
@@ -134,6 +155,7 @@ function restore_resolver_spies(): void {
         original_set_workspace_roots;
     ScopeResolver.prototype.resync_backward_directive_dependencies_from_disk =
         original_resync;
+    ScopeResolver.prototype.resolve = original_resolve;
     DocumentStore.prototype.set_scope_resolver =
         original_set_scope_resolver;
 }
@@ -148,6 +170,7 @@ interface CapturedHandlers {
     initialized?: () => void;
     did_open?: (params: DidOpenTextDocumentParams) => void;
     did_close?: (params: DidCloseTextDocumentParams) => void;
+    diagnostic_resources?: (params: unknown) => void;
     shutdown?: () => unknown;
 }
 
@@ -183,6 +206,15 @@ function make_stub_connection(options: StubConnectionOptions): {
         },
         onDidChangeConfiguration: capture_nothing,
         onDidChangeWatchedFiles: capture_nothing,
+        onNotification: (
+            method: string,
+            handler: CapturedHandlers['diagnostic_resources']
+        ) => {
+            if (method === 'sight/diagnosticResourcesChanged') {
+                handlers.diagnostic_resources = handler;
+            }
+            return noop_disposable();
+        },
         onCompletion: capture_nothing,
         onCompletionResolve: capture_nothing,
         onHover: capture_nothing,
@@ -200,6 +232,7 @@ function make_stub_connection(options: StubConnectionOptions): {
         onRequest: capture_nothing,
         sendDiagnostics: (params: PublishDiagnosticsParams) => {
             options.published_uris.push(params.uri);
+            published_diagnostics.push(params);
         },
         // Surface used by TextDocuments.listen(connection):
         onDidOpenTextDocument: (
@@ -250,6 +283,7 @@ const WAIT_TIMEOUT_MS = 10000;
 
 let tmp_dir: string;
 let published_uris: string[] = [];
+let published_diagnostics: PublishDiagnosticsParams[] = [];
 let active_handlers: CapturedHandlers | undefined;
 
 // Disable workspace indexing so no scan-time dependency-graph edges or
@@ -257,7 +291,8 @@ let active_handlers: CapturedHandlers | undefined;
 const GLOBAL_PUBLIC_CONFIG = { crossFile: { indexWorkspace: false } };
 
 async function start_test_server(
-    get_scoped_config: (scope_uri: string | undefined) => unknown
+    get_scoped_config: (scope_uri: string | undefined) => unknown,
+    initialization_options?: unknown
 ): Promise<CapturedHandlers> {
     const workspace_folder_uri = URI.file(tmp_dir).toString();
     const { connection, handlers } = make_stub_connection({
@@ -278,6 +313,7 @@ async function start_test_server(
         rootUri: workspace_folder_uri,
         capabilities: { workspace: { configuration: true } },
         workspaceFolders: null,
+        initializationOptions: initialization_options,
     } as InitializeParams);
     handlers.initialized!();
     // onInitialized creates the providers synchronously, then finishes
@@ -354,10 +390,11 @@ async function wait_for_publish_quiescence(): Promise<void> {
     }, 'diagnostic publishes to go quiescent', WAIT_TIMEOUT_MS, 150);
 }
 
-describe('server onDidClose disk re-sync wiring (#287)', () => {
+describe('server document lifecycle wiring', () => {
     beforeEach(() => {
         install_resolver_spies();
         published_uris = [];
+        published_diagnostics = [];
         active_handlers = undefined;
         tmp_dir = fs.realpathSync(
             fs.mkdtempSync(path.join(os.tmpdir(), 'close-resync-wiring-'))
@@ -710,5 +747,87 @@ describe('server onDidClose disk re-sync wiring (#287)', () => {
             published_uris
                 .filter((my_uri) => my_uri === grandchild_uri).length
         ).toBe(grandchild_publishes_before);
+    }, TEST_TIMEOUT_MS);
+
+    it('retains hidden LSP models while tab ownership clears and ' +
+        'restores diagnostics without another didOpen (#602)', async () => {
+        const child_uri = file_uri('child.do');
+        const source = 'display "unterminated\n';
+        const handlers = await start_test_server(
+            () => GLOBAL_PUBLIC_CONFIG,
+            { sight: {}, diagnosticUris: [] }
+        );
+        expect(handlers.diagnostic_resources).toBeDefined();
+
+        open_document(handlers, child_uri, source);
+        await wait_until(
+            () => captured_document_store?.get(child_uri)?.version === 1,
+            'hidden document to commit into DocumentStore',
+            WAIT_TIMEOUT_MS
+        );
+        await wait_for_publish_quiescence();
+        expect(
+            published_diagnostics.filter(
+                params => params.uri === child_uri
+            )
+        ).toHaveLength(0);
+
+        // Adding a tab starts a lifecycle and explicitly validates the
+        // already-open model; vscode-languageclient sends no second didOpen.
+        handlers.diagnostic_resources!({ diagnosticUris: [child_uri] });
+        await wait_until(
+            () => published_diagnostics.some(
+                params => params.uri === child_uri &&
+                    params.diagnostics.length > 0
+            ),
+            'newly owned document to publish diagnostics',
+            WAIT_TIMEOUT_MS
+        );
+
+        handlers.diagnostic_resources!({ diagnosticUris: [] });
+        const child_publications_after_remove = published_diagnostics
+            .filter(params => params.uri === child_uri);
+        expect(child_publications_after_remove.at(-1)?.diagnostics)
+            .toEqual([]);
+        // Removal is a diagnostic lifecycle transition, not didClose.
+        expect(captured_document_store?.get(child_uri)).toBeDefined();
+
+        const nonempty_before_readd = child_publications_after_remove
+            .filter(params => params.diagnostics.length > 0).length;
+        handlers.diagnostic_resources!({ diagnosticUris: [child_uri] });
+        await wait_until(
+            () => published_diagnostics.filter(
+                params => params.uri === child_uri &&
+                    params.diagnostics.length > 0
+            ).length > nonempty_before_readd,
+            're-added document to republish at the same version',
+            WAIT_TIMEOUT_MS
+        );
+        expect(captured_document_store?.get(child_uri)?.version).toBe(1);
+    }, TEST_TIMEOUT_MS);
+
+    it('cancels hidden analysis that is in flight during shutdown', async () => {
+        const child_uri = file_uri('child.do');
+        const handlers = await start_test_server(
+            () => GLOBAL_PUBLIC_CONFIG,
+            { sight: {}, diagnosticUris: [] }
+        );
+        let release_scope: (() => void) | undefined;
+        const scope_started = new Promise<void>(resolve => {
+            scope_resolution_started = resolve;
+        });
+        scope_resolution_gate = new Promise<void>(resolve => {
+            release_scope = resolve;
+        });
+
+        open_document(handlers, child_uri, 'display 1\n');
+        await scope_started;
+
+        const shutdown = Promise.resolve(handlers.shutdown?.());
+        expect(captured_scope_cancellation_token?.isCancellationRequested)
+            .toBe(true);
+        release_scope?.();
+        await shutdown;
+        active_handlers = undefined;
     }, TEST_TIMEOUT_MS);
 });
