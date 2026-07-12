@@ -45,7 +45,13 @@ import { OperatorSequenceAnalyzer } from './operator-sequence-diagnostics';
 import { MixedLogicalOperatorAnalyzer } from './mixed-logical-diagnostics';
 import { ChainedComparisonAnalyzer } from './chained-comparison-diagnostics';
 import { LiteralMacroAdjacencyAnalyzer } from './literal-macro-adjacency-diagnostics';
-import { DiagnosticsPublishGate } from './diagnostics-publish-gate';
+import {
+    DiagnosticsPublishGate,
+    DiagnosticsTrigger,
+} from './diagnostics-publish-gate';
+export type { DiagnosticsTrigger } from './diagnostics-publish-gate';
+import { polling_cancellation_token } from
+    '../utils/polling-cancellation-token';
 type SemanticDiagnostic = {
     message: string;
     range: Range;
@@ -170,6 +176,7 @@ export class DiagnosticsProvider {
 
     // Cache filtered diagnostics by (uri, version, config_hash)
     private filtered_cache: Map<string, Map<string, Diagnostic[]>> = new Map();
+    private cache_generation = 0;
 
     constructor(
         connection: DiagnosticsConnection,
@@ -210,13 +217,35 @@ export class DiagnosticsProvider {
         this.debounce_manager = debounce_manager;
     }
 
+    /** Begin a fresh diagnostic lifecycle for one LSP document open. */
+    on_document_opened(uri: string, version: number): void {
+        this.publish_gate.begin_lifecycle(uri, version);
+        this.clear_cache_for_document(uri);
+    }
+
+    /** Advance document freshness and capture the validation trigger. */
+    trigger_for_validation(
+        uri: string,
+        version: number
+    ): DiagnosticsTrigger | undefined {
+        return this.publish_gate.trigger_for_validation(uri, version);
+    }
+
+    /** Fast pre-compute check; publication repeats this atomically at commit. */
+    is_validation_current(
+        uri: string,
+        trigger: DiagnosticsTrigger | undefined
+    ): boolean {
+        return this.publish_gate.is_current_trigger(uri, trigger);
+    }
+
     /**
      * Mark a document for forced same-version republish.
      * Used when dependencies change and diagnostics need to be recomputed.
      */
     mark_force_republish(uri: string): void {
         this.publish_gate.mark_force_republish(uri);
-        this.filtered_cache.delete(uri);
+        this.clear_cache_for_document(uri);
     }
 
     /**
@@ -225,6 +254,7 @@ export class DiagnosticsProvider {
      * 
      * @param document - The document state to analyze (with cached parse results)
      * @param config - LSP configuration for diagnostic settings
+     * @param diagnostics_trigger - Version/lifecycle/force snapshot captured when validation was scheduled
      * @param workspace_symbols - Optional workspace-level symbols for cross-file resolution
      * @param scope_resolver - Optional scope resolver for cross-file awareness
      * @param cancellation_token - Optional cancellation token
@@ -233,17 +263,27 @@ export class DiagnosticsProvider {
     async publish_diagnostics(
         document: DocumentState,
         config: StataLSPConfig,
+        diagnostics_trigger: DiagnosticsTrigger,
         workspace_symbols?: SymbolTable,
         scope_resolver?: ScopeResolver,
         cancellation_token?: CancellationToken
     ): Promise<{ diagnostics: Diagnostic[]; pending: boolean }> {
-        const my_epoch = this.publish_gate.get_current_epoch(document.uri);
-
         if (!this.publish_gate.would_publish(
             document.uri,
             document.version,
-            my_epoch
+            diagnostics_trigger
         )) {
+            return { diagnostics: [], pending: false };
+        }
+
+        const computation_token = polling_cancellation_token(
+            () => this.publish_gate.is_current_trigger(
+                document.uri,
+                diagnostics_trigger
+            ),
+            cancellation_token
+        );
+        if (computation_token.isCancellationRequested) {
             return { diagnostics: [], pending: false };
         }
 
@@ -252,7 +292,7 @@ export class DiagnosticsProvider {
             if (!this.publish_gate.try_consume_publish(
                 document.uri,
                 document.version,
-                my_epoch
+                diagnostics_trigger
             )) {
                 return { diagnostics: [], pending: false };
             }
@@ -270,13 +310,19 @@ export class DiagnosticsProvider {
             config,
             workspace_symbols,
             scope_resolver,
-            cancellation_token
+            computation_token
         );
+
+        // Cancellation is not a successful empty result: do not clear the
+        // client or consume the trigger, so an uncancelled retry can publish.
+        if (computation_token.isCancellationRequested) {
+            return { diagnostics: [], pending: is_pending };
+        }
 
         if (!this.publish_gate.try_consume_publish(
             document.uri,
             document.version,
-            my_epoch
+            diagnostics_trigger
         )) {
             return { diagnostics: [], pending: is_pending };
         }
@@ -301,8 +347,11 @@ export class DiagnosticsProvider {
         scope_resolver?: ScopeResolver,
         cancellation_token?: CancellationToken
     ): Promise<Diagnostic[]> {
-        const cache_epoch_at_start =
-            this.publish_gate.get_current_epoch(document.uri);
+        if (cancellation_token?.isCancellationRequested) {
+            return [];
+        }
+
+        const cache_generation_at_start = this.cache_generation;
         // Generate config hash for cache key
         const config_hash = this.compute_config_hash(config);
         
@@ -360,6 +409,13 @@ export class DiagnosticsProvider {
             my_resolve_config,
             cancellation_token
         ) : undefined;
+
+        // Scope resolution is the only asynchronous diagnostic stage. A
+        // lifecycle/version change while it is pending must skip all later
+        // semantic and supplemental analyzers, not merely veto publication.
+        if (cancellation_token?.isCancellationRequested) {
+            return [];
+        }
         
         // Diagnostic deferral for auto backward dependency mode:
         // If workspace scan is not yet complete and the file has no explicit
@@ -735,11 +791,10 @@ export class DiagnosticsProvider {
             }
         }
 
-        // Cache the filtered diagnostics if no force epoch advanced mid-run.
-        if (this.publish_gate.is_current_epoch(
-            document.uri,
-            cache_epoch_at_start
-        )) {
+        // Direct/headless callers have no publication lifecycle, so cache
+        // freshness uses an independent generation invalidated by every
+        // document/config/dependency transition.
+        if (this.cache_generation === cache_generation_at_start) {
             let cache_for_uri = this.filtered_cache.get(document.uri);
             if (!cache_for_uri) {
                 cache_for_uri = new Map();
@@ -861,15 +916,23 @@ export class DiagnosticsProvider {
     clear_cache_for_document(uri: string): void {
         // Remove all cached diagnostics for this URI (all versions/configs)
         this.filtered_cache.delete(uri);
+        this.cache_generation++;
     }
 
     /**
      * Remove tracking for a closed document.
      */
     on_document_closed(uri: string): void {
-        this.publish_gate.forget(uri);
+        this.publish_gate.retire_lifecycle(uri);
         this.clear_cache_for_document(uri);
         this.clear_diagnostics(uri);
+    }
+
+    /** Retire every lifecycle so no work can publish after shutdown. */
+    on_shutdown(): void {
+        this.publish_gate.retire_all_lifecycles();
+        this.filtered_cache.clear();
+        this.cache_generation++;
     }
 
     /**

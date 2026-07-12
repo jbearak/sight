@@ -649,6 +649,11 @@ export function create_shutdown_handler(
     }
 ): () => Promise<void> {
     return async (): Promise<void> => {
+        // Retire publication lifecycles before awaiting any cleanup. Active
+        // diagnostic computations will fail their final trigger check and
+        // cannot publish after the shutdown response.
+        deps?.diagnostics_provider?.on_shutdown();
+
         // Cancel background indexing first to stop new work (Req 15.1)
         deps?.workspace_indexer?.cancel();
 

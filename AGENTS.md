@@ -251,6 +251,18 @@ This ensures that:
 **Concurrency Handling**:
 Completion requests are race-prone against document updates. The `server-handlers.ts` uses `document_store.wait_for_update(uri)` to ensure any pending `textDocument/didChange` processing completes before serving completions.
 
+Diagnostic publication uses an explicit per-open lifecycle trigger in
+`DiagnosticsPublishGate`. `didOpen` begins the lifecycle; `didClose` and
+shutdown retire it. Validation captures the trigger before debounce and the
+provider rechecks it after asynchronous computation, so retired work cannot
+publish into a close/reopen or after a newer edit is scheduled. The trigger
+carries the document version, lifecycle identity, and a separate force epoch
+that authorizes one same-version republish after dependency or configuration
+changes. The server also checks the
+`TextDocuments` object identity and version after awaited validation stages so
+an active stale callback cannot reopen or overwrite `DocumentStore` from its
+retired snapshot.
+
 **Find References — Three-Tier Scoping**: The references provider uses three
 distinct scoping tiers by design: (1) **local macros** — include-chain files
 only (Stata locals don't propagate through `do`/`run`); (2) **global macros,

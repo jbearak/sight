@@ -386,6 +386,39 @@ describe('server onDidClose disk re-sync wiring (#287)', () => {
         }
     });
 
+    it('does not let validation awaiting settings reopen a closed document', async () => {
+        const child_uri = file_uri('child.do');
+        let release_settings: (() => void) | undefined;
+        let settings_requested: (() => void) | undefined;
+        const settings_started = new Promise<void>(resolve => {
+            settings_requested = resolve;
+        });
+        const settings_gate = new Promise<void>(resolve => {
+            release_settings = resolve;
+        });
+
+        const handlers = await start_test_server((scope_uri) => {
+            if (scope_uri !== child_uri) {
+                return GLOBAL_PUBLIC_CONFIG;
+            }
+            settings_requested?.();
+            return settings_gate.then(() => GLOBAL_PUBLIC_CONFIG);
+        });
+
+        open_document(handlers, child_uri, CHILD_BUFFER_TEXT);
+        await settings_started;
+
+        handlers.did_close!({ textDocument: { uri: child_uri } });
+        const publishes_after_close = published_uris.length;
+        expect(publishes_after_close).toBeGreaterThan(0);
+
+        release_settings?.();
+        await wait_for_publish_quiescence();
+
+        expect(captured_document_store!.get(child_uri)).toBeUndefined();
+        expect(published_uris).toHaveLength(publishes_after_close);
+    }, TEST_TIMEOUT_MS);
+
     it('converges backward edges to disk on close, passing the closed ' +
         "document's URI and its URI-scoped settings", async () => {
         const child_uri = file_uri('child.do');

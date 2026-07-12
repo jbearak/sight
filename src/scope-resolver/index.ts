@@ -1158,6 +1158,16 @@ export class ScopeResolver {
         // perceives as a red-squiggly flicker.
         const scan_complete_at_resolve_time =
             this.dependency_graph?.is_scan_complete();
+        const cancelled_scope = (): ResolvedScope => ({
+            chain: the_chain,
+            symbols: create_empty_symbol_table(),
+            out_of_scope_symbols: the_out_of_scope,
+            diagnostics: [],
+            has_directives,
+            has_auto_parents,
+            is_standalone,
+            scan_complete_at_resolve_time,
+        });
 
         // Follow directive chain
         const normalized_directives = this.normalize_directives(
@@ -1191,16 +1201,7 @@ export class ScopeResolver {
 
         // Check cancellation after directive chain traversal
         if (token?.isCancellationRequested) {
-            return {
-                chain: the_chain,
-                symbols: create_empty_symbol_table(),
-                out_of_scope_symbols: the_out_of_scope,
-                diagnostics: [],
-                has_directives,
-                has_auto_parents,
-                is_standalone,
-                scan_complete_at_resolve_time,
-            };
+            return cancelled_scope();
         }
 
         // Merge symbols with shadowing
@@ -1274,6 +1275,12 @@ export class ScopeResolver {
                     },
                 }
             );
+
+            // A cancelled forward walk can contain a valid-looking partial
+            // result. Never expose or cache it as a completed scope.
+            if (token?.isCancellationRequested) {
+                return cancelled_scope();
+            }
 
             if (forward_result.call_sites.length > 0) {
                 forward_call_symbols = forward_result.call_sites;

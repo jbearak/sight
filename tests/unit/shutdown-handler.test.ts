@@ -31,6 +31,7 @@ function create_mock_deps(overrides?: Partial<{
     forward_scope_resolver_dispose: () => void;
     workspace_indexer_cancel: () => void;
     rename_handler_dispose: () => void;
+    diagnostics_provider_shutdown: () => void;
 }>) {
     const calls: string[] = [];
 
@@ -47,7 +48,11 @@ function create_mock_deps(overrides?: Partial<{
             close: () => {},
             wait_for_update: async () => {},
         },
-        diagnostics_provider: null,
+        diagnostics_provider: {
+            on_shutdown: overrides?.diagnostics_provider_shutdown ?? (() => {
+                calls.push('diagnostics_provider.on_shutdown');
+            }),
+        },
         completion_provider: null,
         hover_provider: null,
         definition_provider: null,
@@ -358,6 +363,7 @@ describe('Shutdown Handler', () => {
             await handler();
 
             expect(calls).toContain('document_store.dispose');
+            expect(calls).toContain('diagnostics_provider.on_shutdown');
             expect(calls).toContain('scope_resolver.dispose');
             expect(calls).toContain(
                 'forward_scope_resolver.dispose'
@@ -365,6 +371,8 @@ describe('Shutdown Handler', () => {
             expect(calls).toContain('workspace_indexer.cancel');
             expect(calls).toContain('rename_handler.dispose');
             expect(pending_revalidations.size).toBe(0);
+            expect(calls.indexOf('diagnostics_provider.on_shutdown'))
+                .toBeLessThan(calls.indexOf('document_store.dispose'));
         });
 
         it('handles undefined deps and disposables', async () => {

@@ -3,7 +3,12 @@ import { DocumentState, DocumentStore, ParseOutcome } from '../../src/document-s
 import { DependencyGraph } from '../../src/dependency-graph';
 import { WorkspaceIndexer } from '../../src/indexer';
 import { ScopeResolver } from '../../src/scope-resolver';
-import type { ContentProvider } from '../../src/types';
+import type {
+    ContentProvider,
+    ScopeResolverConfig,
+    SymbolTable,
+} from '../../src/types';
+import type { CancellationToken } from 'vscode-languageserver';
 import { URI } from 'vscode-uri';
 
 type InspectableDocumentStore = DocumentStore & {
@@ -12,13 +17,17 @@ type InspectableDocumentStore = DocumentStore & {
     commit_state(
         uri: string,
         outcome: ParseOutcome,
-        generation: number
+        generation: number,
+        is_operation_current?: () => boolean
     ): boolean;
     create_document_state(
         uri: string,
         content: string,
-        version: number
-    ): Promise<ParseOutcome>;
+        version: number,
+        workspace_symbols?: SymbolTable,
+        scope_resolver_config?: Partial<ScopeResolverConfig>,
+        is_operation_current?: () => boolean
+    ): Promise<ParseOutcome | undefined>;
 };
 
 describe('DocumentStore version guard', () => {
@@ -168,5 +177,105 @@ describe('DocumentStore version guard', () => {
         expect(state).toBeDefined();
         expect(state!.version).toBe(3);
         expect(state!.content).toBe('content v3');
+    });
+
+    it('stops parsing after awaited scope work when its guard retires', async () => {
+        const document_store = new DocumentStore();
+        const store = document_store as unknown as InspectableDocumentStore;
+        const scope_resolver = new ScopeResolver();
+        const uri = 'file:///lifecycle-parse-cancellation.do';
+        let lifecycle_is_current = true;
+        let captured_token: CancellationToken | undefined;
+        let release_scope: (() => void) | undefined;
+        let scope_started: (() => void) | undefined;
+        const scope_start = new Promise<void>(resolve => {
+            scope_started = resolve;
+        });
+        const scope_gate = new Promise<void>(resolve => {
+            release_scope = resolve;
+        });
+        const original_resolve = scope_resolver.resolve.bind(scope_resolver);
+
+        scope_resolver.resolve = async (...args) => {
+            captured_token = args[3];
+            scope_started?.();
+            await scope_gate;
+            return original_resolve(...args);
+        };
+        document_store.set_scope_resolver(scope_resolver);
+
+        const parse = store.create_document_state(
+            uri,
+            'display 1\n',
+            1,
+            undefined,
+            { backward_dependencies: 'auto' },
+            () => lifecycle_is_current
+        );
+        await scope_start;
+
+        lifecycle_is_current = false;
+        expect(captured_token?.isCancellationRequested).toBe(true);
+        release_scope?.();
+
+        expect(await parse).toBeUndefined();
+    });
+
+    it('rejects a completed parse when its lifecycle guard retires before commit', async () => {
+        const document_store = new DocumentStore();
+        const store = document_store as unknown as InspectableDocumentStore;
+        const uri = 'file:///lifecycle-commit-guard.do';
+        let lifecycle_is_current = true;
+        let release_parse: (() => void) | undefined;
+        let parse_started: (() => void) | undefined;
+        const parse_start = new Promise<void>(resolve => {
+            parse_started = resolve;
+        });
+        const parse_gate = new Promise<void>(resolve => {
+            release_parse = resolve;
+        });
+
+        await document_store.open(uri, 'content v1', 1);
+        const original_create_document_state =
+            store.create_document_state.bind(store);
+        store.create_document_state = async (
+            the_uri,
+            content,
+            version,
+            workspace_symbols,
+            scope_resolver_config,
+            is_operation_current
+        ) => {
+            const outcome = await original_create_document_state(
+                the_uri,
+                content,
+                version,
+                workspace_symbols,
+                scope_resolver_config,
+                is_operation_current
+            );
+            parse_started?.();
+            await parse_gate;
+            return outcome;
+        };
+
+        const retired_update = document_store.update(
+            uri,
+            [{ text: 'retired content v2' }],
+            2,
+            undefined,
+            { backward_dependencies: 'auto' },
+            () => lifecycle_is_current
+        );
+        await parse_start;
+
+        lifecycle_is_current = false;
+        release_parse?.();
+        await retired_update;
+
+        const state = document_store.get(uri);
+        expect(state).toBeDefined();
+        expect(state!.version).toBe(1);
+        expect(state!.content).toBe('content v1');
     });
 });

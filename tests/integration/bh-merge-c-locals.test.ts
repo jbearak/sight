@@ -127,10 +127,18 @@ describe('bh_merge c_locals integration test', () => {
         const mock_connection = { sendDiagnostics: () => {} };
         const debounce_manager = new DocumentDebounceManager();
         const diagnostics_provider = new DiagnosticsProvider(mock_connection as any, debounce_manager);
+        diagnostics_provider.on_document_opened(
+            doc_state!.uri,
+            doc_state!.version
+        );
         
         const result = await diagnostics_provider.publish_diagnostics(
             doc_state!,
             create_test_config(),
+            diagnostics_provider.trigger_for_validation(
+                doc_state!.uri,
+                doc_state!.version
+            )!,
             workspace_symbols,
             scope_resolver
         );
@@ -162,10 +170,18 @@ describe('bh_merge c_locals integration test', () => {
         const mock_connection = { sendDiagnostics: () => {} };
         const debounce_manager = new DocumentDebounceManager();
         const diagnostics_provider = new DiagnosticsProvider(mock_connection as any, debounce_manager);
+        diagnostics_provider.on_document_opened(
+            doc_state!.uri,
+            doc_state!.version
+        );
         
         const result = await diagnostics_provider.publish_diagnostics(
             doc_state!,
             create_test_config(),
+            diagnostics_provider.trigger_for_validation(
+                doc_state!.uri,
+                doc_state!.version
+            )!,
             undefined,
             scope_resolver
         );
@@ -198,10 +214,18 @@ describe('bh_merge c_locals integration test', () => {
         const mock_connection = { sendDiagnostics: () => {} };
         const debounce_manager = new DocumentDebounceManager();
         const diagnostics_provider = new DiagnosticsProvider(mock_connection as any, debounce_manager);
+        diagnostics_provider.on_document_opened(
+            doc_state!.uri,
+            doc_state!.version
+        );
         
         const result = await diagnostics_provider.publish_diagnostics(
             doc_state!,
             create_test_config(),
+            diagnostics_provider.trigger_for_validation(
+                doc_state!.uri,
+                doc_state!.version
+            )!,
             undefined,
             scope_resolver
         );
