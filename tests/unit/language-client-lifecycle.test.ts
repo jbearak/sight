@@ -2,6 +2,7 @@ import { describe, it, expect } from 'bun:test';
 import {
     LanguageClientLifecycle,
     ManagedLanguageClient,
+    register_running_state_reconciliation,
 } from '../../client/src/language-client-lifecycle';
 
 interface Deferred<T> {
@@ -244,5 +245,125 @@ describe('LanguageClientLifecycle', () => {
         await my_lifecycle.start_client(the_client);
 
         expect(started_hook_calls).toBe(1);
+    });
+});
+
+describe('running-state reconciliation', () => {
+    it('waits for every Running transition to finish starting', async () => {
+        const start_a = create_deferred<void>();
+        const start_b = create_deferred<void>();
+        const starts = [start_a.promise, start_b.promise];
+        const listeners = new Set<(event: { newState: number }) => void>();
+        let state = 1;
+        let start_calls = 0;
+        let reconcile_calls = 0;
+        const running_state = 2;
+        const the_client = {
+            get state(): number {
+                return state;
+            },
+            start: () => starts[start_calls++],
+            stop: async () => undefined,
+            onDidChangeState: (
+                listener: (event: { newState: number }) => void
+            ) => {
+                listeners.add(listener);
+                return { dispose: () => listeners.delete(listener) };
+            },
+        };
+        const emit = (new_state: number): void => {
+            state = new_state;
+            for (const listener of listeners) {
+                listener({ newState: new_state });
+            }
+        };
+
+        const disposable = register_running_state_reconciliation(
+            the_client,
+            running_state,
+            () => { reconcile_calls++; }
+        );
+
+        emit(running_state);
+        expect(reconcile_calls).toBe(0);
+        start_a.resolve();
+        await next_tick();
+        expect(reconcile_calls).toBe(1);
+
+        emit(1);
+        emit(running_state);
+        expect(reconcile_calls).toBe(1);
+        start_b.resolve();
+        await next_tick();
+        expect(reconcile_calls).toBe(2);
+        disposable.dispose();
+    });
+
+    it('drops reconciliation if Running is superseded during startup', async () => {
+        const start_deferred = create_deferred<void>();
+        let listener: ((event: { newState: number }) => void) | undefined;
+        let state = 1;
+        let reconcile_calls = 0;
+        const the_client = {
+            get state(): number {
+                return state;
+            },
+            start: () => start_deferred.promise,
+            stop: async () => undefined,
+            onDidChangeState: (
+                the_listener: (event: { newState: number }) => void
+            ) => {
+                listener = the_listener;
+                return { dispose: () => { listener = undefined; } };
+            },
+        };
+
+        register_running_state_reconciliation(
+            the_client,
+            2,
+            () => { reconcile_calls++; }
+        );
+        state = 2;
+        listener?.({ newState: 2 });
+        state = 1;
+        listener?.({ newState: 1 });
+        start_deferred.resolve();
+        await next_tick();
+
+        expect(reconcile_calls).toBe(0);
+    });
+
+    it('drops reconciliation pending when its subscription is disposed', async () => {
+        const start_deferred = create_deferred<void>();
+        let listener: ((event: { newState: number }) => void) | undefined;
+        let state = 1;
+        let reconcile_calls = 0;
+        const the_client = {
+            get state(): number {
+                return state;
+            },
+            start: () => start_deferred.promise,
+            stop: async () => undefined,
+            onDidChangeState: (
+                the_listener: (event: { newState: number }) => void
+            ) => {
+                listener = the_listener;
+                return { dispose: () => { listener = undefined; } };
+            },
+        };
+        const subscription = register_running_state_reconciliation(
+            the_client,
+            2,
+            () => { reconcile_calls++; }
+        );
+
+        state = 2;
+        listener?.({ newState: 2 });
+        subscription.dispose();
+        start_deferred.resolve();
+        await next_tick();
+
+        expect(reconcile_calls).toBe(0);
+        expect(listener).toBeUndefined();
     });
 });

@@ -919,13 +919,16 @@ export class DiagnosticsProvider {
         this.cache_generation++;
     }
 
-    /**
-     * Remove tracking for a closed document.
-     */
-    on_document_closed(uri: string): void {
+    /** Retire push diagnostics while retaining the document for analysis. */
+    on_document_hidden(uri: string): void {
         this.publish_gate.retire_lifecycle(uri);
         this.clear_cache_for_document(uri);
         this.clear_diagnostics(uri);
+    }
+
+    /** Remove diagnostic tracking for a closed document. */
+    on_document_closed(uri: string): void {
+        this.on_document_hidden(uri);
     }
 
     /** Retire every lifecycle so no work can publish after shutdown. */

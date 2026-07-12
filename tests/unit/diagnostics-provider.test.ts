@@ -889,6 +889,59 @@ describe('DiagnosticsProvider', () => {
         });
     });
 
+    describe('on_document_hidden', () => {
+        it(
+            'retire/re-add rejects stale work at the identical version',
+            async () => {
+                const document = create_document_state(
+                    'display `undefined\'\n',
+                    1
+                );
+                const delayed_scope_resolver = new ScopeResolver();
+                let resolve_scope: (() => void) | undefined;
+                let resolve_started: (() => void) | undefined;
+                const scope_started = new Promise<void>(resolve => {
+                    resolve_started = resolve;
+                });
+                const scope_delay = new Promise<void>(resolve => {
+                    resolve_scope = resolve;
+                });
+
+                delayed_scope_resolver.resolve = async () => {
+                    resolve_started?.();
+                    await scope_delay;
+                    return create_empty_resolved_scope();
+                };
+
+                const stale_publish = publish_current(
+                    provider,
+                    document,
+                    DEFAULT_CONFIG,
+                    undefined,
+                    delayed_scope_resolver
+                );
+                await scope_started;
+
+                provider.on_document_hidden(document.uri);
+                provider.on_document_opened(
+                    document.uri,
+                    document.version
+                );
+                resolve_scope?.();
+                await stale_publish;
+
+                const sent_after_stale =
+                    mock_connection.get_sent_diagnostics();
+                expect(sent_after_stale).toHaveLength(1);
+                expect(sent_after_stale[0].diagnostics).toEqual([]);
+
+                await publish_current(provider, document, DEFAULT_CONFIG);
+                expect(mock_connection.get_sent_diagnostics())
+                    .toHaveLength(2);
+            }
+        );
+    });
+
     describe('on_shutdown', () => {
         it('drops an in-flight publish that resumes after shutdown', async () => {
             const document = create_document_state(

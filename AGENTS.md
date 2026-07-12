@@ -251,17 +251,25 @@ This ensures that:
 **Concurrency Handling**:
 Completion requests are race-prone against document updates. The `server-handlers.ts` uses `document_store.wait_for_update(uri)` to ensure any pending `textDocument/didChange` processing completes before serving completions.
 
-Diagnostic publication uses an explicit per-open lifecycle trigger in
-`DiagnosticsPublishGate`. `didOpen` begins the lifecycle; `didClose` and
-shutdown retire it. Validation captures the trigger before debounce and the
-provider rechecks it after asynchronous computation, so retired work cannot
-publish into a close/reopen or after a newer edit is scheduled. The trigger
-carries the document version, lifecycle identity, and a separate force epoch
-that authorizes one same-version republish after dependency or configuration
-changes. The server also checks the
-`TextDocuments` object identity and version after awaited validation stages so
-an active stale callback cannot reopen or overwrite `DocumentStore` from its
-retired snapshot.
+Diagnostic publication uses an explicit per-open/per-tab lifecycle trigger in
+`DiagnosticsPublishGate`. For clients that provide editor diagnostic ownership,
+an eligible `didOpen` or tab re-addition begins the lifecycle; tab removal,
+`didClose`, and shutdown retire it. Clients without the ownership extension keep
+normal LSP behavior, where every `didOpen` is eligible. Validation captures the
+trigger before debounce and the provider rechecks it after asynchronous
+computation, so retired work cannot publish into a close/reopen, tab
+remove/re-add, or after a newer edit is scheduled. The trigger carries the
+document version, lifecycle identity, and a separate force epoch that authorizes
+one same-version republish after dependency or configuration changes.
+
+Tab removal does **not** close the LSP document or remove its `DocumentStore`,
+index, or dependency state. Hidden documents opened by other extensions remain
+parse/index inputs for cross-file analysis; only their own push diagnostics are
+suppressed. The validation-current predicate therefore permits hidden work but
+becomes fail-closed again if the URI is re-added under a new lifecycle. The
+server also checks `TextDocuments` object identity and version after awaited
+validation stages so an active stale callback cannot reopen or overwrite
+`DocumentStore` from its retired snapshot.
 
 **Find References — Three-Tier Scoping**: The references provider uses three
 distinct scoping tiers by design: (1) **local macros** — include-chain files

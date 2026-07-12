@@ -10,6 +10,7 @@ import {
     LanguageClient,
     LanguageClientOptions,
     ServerOptions,
+    State,
     TransportKind
 } from 'vscode-languageclient/node.js';
 import {
@@ -25,7 +26,18 @@ import { ConflictDetector } from './conflict-detector.js';
 import { register_send_to_stata_commands, initialize_cd_context, register_cd_commands, set_language_client, register_open_in_stata, register_stata_terminal } from './send-to-stata/index.js';
 import { register_smcl_preview } from './smcl-preview/index.js';
 import { register_data_browser } from './data-browser/index.js';
-import { LanguageClientLifecycle } from './language-client-lifecycle.js';
+import {
+    LanguageClientLifecycle,
+    register_running_state_reconciliation,
+} from './language-client-lifecycle.js';
+import {
+    current_diagnostic_resource_uris,
+} from './diagnostic-resources.js';
+import {
+    clear_ineligible_diagnostics,
+    diagnostics_for_resource,
+    same_diagnostic_resource_uris,
+} from './diagnostic-resources-core.js';
 import {
     apply_language_configuration,
     read_line_comment_style,
@@ -40,6 +52,8 @@ let output_channel: OutputChannel | null = window.createOutputChannel(
     'Sight Extension'
 );
 const DEACTIVATE_TIMEOUT_MS = 200;
+const DIAGNOSTIC_RESOURCES_CHANGED =
+    'sight/diagnosticResourcesChanged';
 
 function sleep(my_timeout_ms: number): Promise<void> {
     return new Promise(resolve => setTimeout(resolve, my_timeout_ms));
@@ -206,11 +220,33 @@ export function activate(context: ExtensionContext): void {
             // Synchronize the 'sight' configuration section with the server
             configurationSection: 'sight'
         },
+        // A function is required: vscode-languageclient reevaluates it on
+        // automatic restart, before replaying already-open didOpen messages.
+        initializationOptions: () => ({
+            // Keep protocol metadata separate from the server's settings
+            // mapper. An empty object survives JSON serialization; undefined
+            // would be dropped and expose diagnosticUris as a config key.
+            sight: {},
+            diagnosticUris: current_diagnostic_resource_uris(),
+        }),
         // Trust the `sight.openHelpTopic` command link that the server
         // emits in hover and completion markdown. VS Code strips
         // command URIs from LSP-provided markdown by default; this
         // middleware narrowly re-enables the single Sight command.
         middleware: {
+            handleDiagnostics: (uri, diagnostics, next) => {
+                const eligible = new Set(
+                    current_diagnostic_resource_uris()
+                );
+                // Client-side final gate for a publication already in transit
+                // when its tab disappeared.
+                next(
+                    uri,
+                    diagnostics_for_resource(
+                        uri.toString(), diagnostics, eligible
+                    )
+                );
+            },
             provideHover: async (document, position, token, next) => {
                 const my_hover = await next(document, position, token);
                 if (!my_hover) {
@@ -254,6 +290,83 @@ export function activate(context: ExtensionContext): void {
         'Sight Language Server',
         serverOptions,
         clientOptions
+    );
+
+    const the_client = client;
+    let last_notified_diagnostic_uris: string[] | undefined;
+    const synchronize_diagnostic_resources = async (
+        force_notification = false
+    ): Promise<void> => {
+        const diagnostic_uris = current_diagnostic_resource_uris();
+        clear_ineligible_diagnostics(
+            the_client.diagnostics,
+            new Set(diagnostic_uris)
+        );
+        // Clearing retained client diagnostics is useful even while stopped;
+        // only the wire notification requires a live connection.
+        if (the_client.state !== State.Running) {
+            return;
+        }
+        if (!force_notification && same_diagnostic_resource_uris(
+            last_notified_diagnostic_uris,
+            diagnostic_uris
+        )) {
+            return;
+        }
+
+        // Claim this snapshot before awaiting the transport so overlapping
+        // editor events cannot enqueue duplicate full-set notifications.
+        last_notified_diagnostic_uris = diagnostic_uris;
+        try {
+            await the_client.sendNotification(
+                DIAGNOSTIC_RESOURCES_CHANGED,
+                { diagnosticUris: diagnostic_uris }
+            );
+        } catch (error) {
+            if (same_diagnostic_resource_uris(
+                last_notified_diagnostic_uris,
+                diagnostic_uris
+            )) {
+                last_notified_diagnostic_uris = undefined;
+            }
+            throw error;
+        }
+    };
+
+    let activity_sync_scheduled = false;
+    const schedule_diagnostic_resource_sync = (): void => {
+        if (activity_sync_scheduled) {
+            return;
+        }
+        activity_sync_scheduled = true;
+        queueMicrotask(() => {
+            activity_sync_scheduled = false;
+            void synchronize_diagnostic_resources().catch((error) => {
+                output_channel?.appendLine(
+                    `Failed to synchronize diagnostic resources: ${error}`
+                );
+            });
+        });
+    };
+
+    context.subscriptions.push(
+        window.tabGroups.onDidChangeTabs(
+            schedule_diagnostic_resource_sync
+        ),
+        window.onDidChangeVisibleTextEditors(
+            schedule_diagnostic_resource_sync
+        ),
+        window.onDidChangeActiveTextEditor(
+            schedule_diagnostic_resource_sync
+        ),
+        register_running_state_reconciliation(
+            the_client,
+            State.Running,
+            () => synchronize_diagnostic_resources(true),
+            (error) => output_channel?.appendLine(
+                `Diagnostic restart reconciliation failed: ${error}`
+            )
+        )
     );
 
     // Start the client. This will also launch the server.
