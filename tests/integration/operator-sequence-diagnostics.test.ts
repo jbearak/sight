@@ -43,6 +43,35 @@ describe('Operator Sequence Diagnostics Integration', () => {
     });
 
     describe('Full Pipeline Integration', () => {
+        it('does not flag a mixed random-equation separator', async () => {
+            const my_content = [
+                'local rhs price',
+                "mixed log_supply `rhs' if esample || state_num:",
+            ].join('\n');
+            const my_uri = 'file:///test_mixed_double_bar.do';
+            await document_store.open(my_uri, my_content, 1);
+            const my_document = document_store.get(my_uri)!;
+
+            const the_diagnostics =
+                await diagnostics_provider.get_diagnostics(
+                    my_document,
+                    default_config
+                );
+            const the_operator_sequence = the_diagnostics.filter(
+                (my_diagnostic) =>
+                    my_diagnostic.code ===
+                        StataDiagnosticCode.MALFORMED_OPERATOR ||
+                    my_diagnostic.code ===
+                        StataDiagnosticCode.SPACED_COMPOUND_OPERATOR ||
+                    my_diagnostic.code ===
+                        StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE ||
+                    my_diagnostic.code ===
+                        StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW
+            );
+
+            expect(the_operator_sequence).toHaveLength(0);
+        });
+
         it('should emit spaced compound operator diagnostics alongside semantic diagnostics', async () => {
             // Code with both undefined macro and a spaced compound operator
             const my_content = `display \`undefined_macro'

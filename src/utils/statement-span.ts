@@ -242,6 +242,14 @@ const LOGICAL_BOUNDARY_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Whether a token bounds logical Stata statements. Continuation-swallowed
+ * terminators must be removed or checked separately by the caller.
+ */
+export function is_logical_statement_boundary(my_token: Token): boolean {
+    return LOGICAL_BOUNDARY_TYPES.has(my_token.type);
+}
+
+/**
  * Trivia skipped when locating the first real token of a statement
  * (after a boundary). Same membership as LEADING_TRIVIA_TYPES minus the
  * `#delimit` switch, which is itself a boundary and never leads a
@@ -361,7 +369,7 @@ export function logical_statement_start(
             // Swallowed `///` newline: trivia, keep walking.
             continue;
         }
-        if (LOGICAL_BOUNDARY_TYPES.has(my_token.type)) {
+        if (is_logical_statement_boundary(my_token)) {
             boundary_index = my_i;
             break;
         }
