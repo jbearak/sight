@@ -159,9 +159,11 @@ argument-bearing prefixes, user programs, and commands such as `menl`, `gsem`,
 `twoway`, and `svyset` fail closed. The exception also fails closed when any
 top-level comma appears before the first `||`, including a comma that introduces
 valid fixed-equation options. Sight deliberately does not parse command-specific
-`fe_options` for this exception. The bars themselves must be adjacent;
-whitespace, comments, or `///` between them preserve
-`INVALID_OPERATOR_SEQUENCE`.
+`fe_options` for this exception. Within one logical statement, whitespace,
+block comments, line comments under `#delimit ;`, and `///`-swallowed newlines
+preserve adjacency between the bars and therefore preserve
+`INVALID_OPERATOR_SEQUENCE`. A real statement terminator, including a newline
+under `#delimit cr`, breaks adjacency.
 
 These operator/expression rules are heuristic token-stream checks. Apart from
 the narrow mixed-effects separator exception, they do not parse per-command

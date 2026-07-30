@@ -25,7 +25,6 @@ const QUALIFIER_BREAKERS: Set<string> = new Set(['if', 'in']);
  */
 const EXPRESSION_BREAKERS: Set<string> = new Set([
     'STATEMENT_TERMINATOR',
-    'COMMENT_LINE',
     'LBRACE',
     'RBRACE',
 ]);
@@ -175,7 +174,12 @@ export class MixedLogicalOperatorAnalyzer {
                 continue;
             }
 
-            if (my_token.type === 'WHITESPACE') {
+            // A line comment is trivia, not a statement boundary. In CR
+            // mode, its following newline is the real terminator.
+            if (
+                my_token.type === 'WHITESPACE'
+                || my_token.type === 'COMMENT_LINE'
+            ) {
                 continue;
             }
 

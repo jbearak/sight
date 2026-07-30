@@ -273,6 +273,78 @@ describe('Operator Sequence Diagnostics Integration', () => {
             ]);
         });
 
+        it('reports a mix across a line comment in ; mode', async () => {
+            const my_content = [
+                '#delimit ;',
+                'keep if x & y // explanation',
+                '    | z ;',
+            ].join('\n');
+            const my_uri = 'file:///test_mixed_line_comment_semicolon.do';
+            await document_store.open(my_uri, my_content, 1);
+            const my_document = document_store.get(my_uri)!;
+
+            const the_diagnostics =
+                await diagnostics_provider.get_diagnostics(
+                    my_document,
+                    default_config
+                );
+            const the_mixed = the_diagnostics.filter(
+                (my_diagnostic) =>
+                    my_diagnostic.code ===
+                    StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
+            );
+
+            expect(the_mixed).toHaveLength(1);
+        });
+
+        it('reports a mix across a full-line * comment in ; mode', async () => {
+            const my_content = [
+                '#delimit ;',
+                'keep if x & y',
+                '* explanation',
+                '    | z ;',
+            ].join('\n');
+            const my_uri = 'file:///test_mixed_star_comment_semicolon.do';
+            await document_store.open(my_uri, my_content, 1);
+            const my_document = document_store.get(my_uri)!;
+
+            const the_diagnostics =
+                await diagnostics_provider.get_diagnostics(
+                    my_document,
+                    default_config
+                );
+            const the_mixed = the_diagnostics.filter(
+                (my_diagnostic) =>
+                    my_diagnostic.code ===
+                    StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
+            );
+
+            expect(the_mixed).toHaveLength(1);
+        });
+
+        it('does not mix operators across a line-comment CR terminator', async () => {
+            const my_content = [
+                'display x & y // explanation',
+                'display z | q',
+            ].join('\n');
+            const my_uri = 'file:///test_mixed_line_comment_cr_boundary.do';
+            await document_store.open(my_uri, my_content, 1);
+            const my_document = document_store.get(my_uri)!;
+
+            const the_diagnostics =
+                await diagnostics_provider.get_diagnostics(
+                    my_document,
+                    default_config
+                );
+            const the_mixed = the_diagnostics.filter(
+                (my_diagnostic) =>
+                    my_diagnostic.code ===
+                    StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
+            );
+
+            expect(the_mixed).toHaveLength(0);
+        });
+
         it('should emit spaced compound operator diagnostics alongside semantic diagnostics', async () => {
             // Code with both undefined macro and a spaced compound operator
             const my_content = `display \`undefined_macro'
