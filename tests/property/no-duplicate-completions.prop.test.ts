@@ -12,7 +12,7 @@
 import * as fc from 'fast-check';
 import { CompletionProvider } from '../../src/providers/completion';
 import { DocumentState, SymbolTable } from '../../src/types';
-import { command_database } from '../../src/command-database';
+import { CommandDatabase } from '../../src/command-database';
 import { BUILTIN_COMMANDS } from '../../src/commands/builtin-commands';
 import { ContextTracker } from '../../src/context-tracker';
 import { Position } from 'vscode-languageserver/node';
@@ -29,8 +29,9 @@ describe('Property 1: No Duplicate Commands in Completions', () => {
     };
 
     beforeAll(() => {
-        command_database.register_all(BUILTIN_COMMANDS);
-        completion_provider = new CompletionProvider(command_database);
+        const command_db = new CommandDatabase();
+        command_db.register_all(BUILTIN_COMMANDS);
+        completion_provider = new CompletionProvider(command_db);
     });
 
     function create_document(content: string): DocumentState {

@@ -143,8 +143,31 @@ turned off independently.
 | <a id="chained-comparison"></a>`CHAINED_COMPARISON` | warning | `chainedComparison` | Two or more comparisons chained without a logical connector (e.g., `a != b != c`, `a < b < c`). Stata evaluates these left-to-right — `a < b < c` is `(a < b) < c` — so a chain is usually a missing `&` / `\|` or missing parentheses. |
 | <a id="literal-macro-adjacency"></a>`LITERAL_MACRO_ADJACENCY` | hint | `literalMacroAdjacency` | A number or complete string literal placed directly against a following macro reference where the pair is an operand of a comparison/logical operator (e.g., `a == 1\`b'`, or `1\`b' == a`). Stata concatenates them during macro expansion — if `` `b' `` is `0`, `1\`b'` becomes `10`. Only flagged when a comparison/logical operator sits immediately before the literal or immediately after the macro, so intentional adjacency (`gen x\`i'`, function arguments, string interpolation) is left alone. |
 
-These operator/expression rules are heuristic token-stream checks: they do not
-parse per-command semantics, so they can fire inside text-storing commands
+Compact, top-level `|| levelvar:` random-equation separators are not treated as
+logical operators for these exact-case commands: `mixed`, `mecloglog`, `meglm`,
+`meintreg`, `melogit`, `menbreg`, `meologit`, `meoprobit`, `mepoisson`,
+`meprobit`, `meqrlogit`, `meqrpoisson`, `mestreg`, `metobit`, `xtmixed`,
+`xtmelogit`, and `xtmepoisson`. A plausible `levelvar:` must be the next
+significant content immediately after the compact bars. Fixed-effects model
+content must precede the first separator; only `mestreg` may omit it. Thus
+`mixed || id:` is flagged, while `mestreg || id:` is accepted. The same
+exception applies after exact-case simple prefix abbreviations from their
+documented minimum through the full command: `cap`–`capture`, `qui`–`quietly`,
+and `noi`–`noisily`. The exact-case, colon-required `xi:` prefix is also
+supported; bare `xi` is not. Mixed-command abbreviations, wrong-case commands,
+argument-bearing prefixes, user programs, and commands such as `menl`, `gsem`,
+`twoway`, and `svyset` fail closed. The exception also fails closed when any
+top-level comma appears before the first `||`, including a comma that introduces
+valid fixed-equation options. Sight deliberately does not parse command-specific
+`fe_options` for this exception. Within one logical statement, whitespace,
+block comments, line comments under `#delimit ;`, and `///`-swallowed newlines
+preserve adjacency between the bars and therefore preserve
+`INVALID_OPERATOR_SEQUENCE`. A real statement terminator, including a newline
+under `#delimit cr`, breaks adjacency.
+
+These operator/expression rules are heuristic token-stream checks. Apart from
+the narrow mixed-effects separator exception, they do not parse per-command
+semantics, so they can fire inside text-storing commands
 (e.g. `notes`, `char`, `local x <text>`) and do not cover every
 bare-expression command. `LITERAL_MACRO_ADJACENCY` additionally recognizes
 `assert` as a bare-boolean-expression command when it appears in command

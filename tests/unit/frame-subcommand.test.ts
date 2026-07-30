@@ -88,6 +88,19 @@ function create_test_command_db(): CommandDatabase {
     return db;
 }
 
+function detect_test_context(
+    source: string,
+    command_db: CommandDatabase
+) {
+    const doc = create_test_document(source);
+    return detect_completion_context(
+        doc,
+        { line: 0, character: source.length },
+        undefined,
+        command_db
+    );
+}
+
 describe('Frame Subcommand Completion', () => {
     let completion_provider: CompletionProvider;
     let command_db: CommandDatabase;
@@ -123,6 +136,101 @@ describe('Frame Subcommand Completion', () => {
             if (context.type === 'subcommand') {
                 expect(context.prefix_command).toBe('frame');
             }
+        });
+
+        it('accepts exact-case by and colon-suffixed execution prefixes', () => {
+            const the_sources = [
+                'by group: frame ',
+                'bysort group: frame ',
+                'capture: frame ',
+                'cap: frame ',
+                'quietly: frame ',
+                'qui: frame ',
+                'noisily: frame ',
+                'noi: frame ',
+            ];
+
+            for (const my_source of the_sources) {
+                const context = detect_test_context(my_source, command_db);
+                expect(context).toEqual({
+                    type: 'subcommand',
+                    prefix_command: 'frame',
+                });
+            }
+        });
+
+        it('accepts supported lowercase prefix chains', () => {
+            const the_sources = [
+                'quietly capture frame ',
+                'capture quietly: frame ',
+                'quietly: capture: frame ',
+                'by group: quietly frame ',
+                'quietly: by group: capture: frame ',
+            ];
+
+            for (const my_source of the_sources) {
+                const context = detect_test_context(my_source, command_db);
+                expect(context).toEqual({
+                    type: 'subcommand',
+                    prefix_command: 'frame',
+                });
+            }
+        });
+
+        it('requires a by varlist and colon before the command', () => {
+            const the_sources = [
+                'by frame ',
+                'bysort frame ',
+                'by: frame ',
+                'by group frame ',
+                'quietly by frame ',
+            ];
+
+            for (const my_source of the_sources) {
+                const context = detect_test_context(my_source, command_db);
+                expect(context.type).not.toBe('subcommand');
+            }
+        });
+
+        it('rejects wrong-case spellings in every hardcoded prefix branch', () => {
+            const the_sources = [
+                'BY group: frame ',
+                'BYSORT group: frame ',
+                'Quietly: frame ',
+                'QUI: frame ',
+                'Capture: frame ',
+                'CAP: frame ',
+                'Noisily: frame ',
+                'NOI: frame ',
+                'quietly: CAPTURE: frame ',
+            ];
+
+            for (const my_source of the_sources) {
+                const context = detect_test_context(my_source, command_db);
+                expect(context.type).not.toBe('subcommand');
+            }
+        });
+
+        it('rejects arbitrary and malformed colon syntax', () => {
+            const the_sources = [
+                'merge 1:m frame ',
+                'not_a_prefix: frame ',
+                'mi: frame ',
+                'quietly:: frame ',
+            ];
+
+            for (const my_source of the_sources) {
+                const context = detect_test_context(my_source, command_db);
+                expect(context.type).not.toBe('subcommand');
+            }
+        });
+
+        it('keeps the database candidate lookup case-insensitive', () => {
+            const context = detect_test_context('FRAME ', command_db);
+            expect(context).toEqual({
+                type: 'subcommand',
+                prefix_command: 'frame',
+            });
         });
 
         it('should NOT detect subcommand context after "frame create " (past subcommand)', () => {
@@ -171,6 +279,39 @@ describe('Frame Subcommand Completion', () => {
             const labels = completions.map(c => c.label);
             expect(labels).toContain('create');
             expect(labels).toContain('change');
+        });
+
+        it('suggests subcommands for an uppercase database candidate', async () => {
+            const source = 'FRAME ';
+            const doc = create_test_document(source);
+            const completions = await completion_provider.get_completions(
+                doc,
+                { line: 0, character: source.length }
+            );
+
+            const labels = completions.map(c => c.label);
+            expect(labels).toContain('create');
+            expect(labels).toContain('change');
+        });
+
+        it('does not leak subcommands past invalid source prefixes', async () => {
+            const the_sources = [
+                'BY group: frame ',
+                'CAPTURE: frame ',
+                'by frame ',
+                'quietly by frame ',
+            ];
+            for (const my_source of the_sources) {
+                const doc = create_test_document(my_source);
+                const completions = await completion_provider.get_completions(
+                    doc,
+                    { line: 0, character: my_source.length }
+                );
+
+                const labels = completions.map(c => c.label);
+                expect(labels).not.toContain('create');
+                expect(labels).not.toContain('change');
+            }
         });
     });
 });

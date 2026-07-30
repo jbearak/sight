@@ -590,8 +590,8 @@ function extract_command_name(text: string): string | null {
         // If the text before colon starts with "by" or "bysort", then it's "by varlist:" syntax
         const words_before = text_before_colon.split(/\s+/);
         
-        if (words_before.length >= 2 && 
-            ['by', 'bysort'].includes(words_before[0].toLowerCase()) &&
+        if (words_before.length >= 2 &&
+            ['by', 'bysort'].includes(words_before[0]) &&
             text_after_colon.length > 0) {
             working_text = text_after_colon;
         }
@@ -610,8 +610,7 @@ function extract_command_name(text: string): string | null {
         if (my_word === ':') {
             continue;
         }
-        const lower_word = my_word.toLowerCase();
-        if (!PREFIX_COMMANDS.includes(lower_word)) {
+        if (!PREFIX_COMMANDS.includes(my_word)) {
             return my_word;
         }
     }
@@ -699,68 +698,90 @@ function detect_subcommand_context(text_before_cursor: string, command_db?: Comm
     if (text_before_cursor.includes(',')) {
         return null;
     }
-    
+
     const trimmed = text_before_cursor.trim();
-    const the_words = trimmed.split(/\s+/).filter(w => w.length > 0);
-    
-    if (the_words.length === 0) {
+    // Colons are separate parts because logical-statement flattening inserts
+    // whitespace around them, while single-line source commonly does not.
+    const the_parts: string[] = trimmed.match(/:|[^\s:]+/g) ?? [];
+
+    if (the_parts.length === 0) {
         return null;
     }
-    
-    // Skip standard prefix commands (by, quietly, capture, etc.)
-    const STANDARD_PREFIXES = ['by', 'bysort', 'quietly', 'qui', 'capture', 'cap', 'noisily', 'noi'];
+
+    // Stata prefix syntax is case-sensitive. Walk it left-to-right instead of
+    // discarding everything before the last colon: a colon only exposes the
+    // following command when every preceding part is a supported prefix.
+    const STANDARD_PREFIXES = [
+        'by', 'bysort', 'quietly', 'qui',
+        'capture', 'cap', 'noisily', 'noi',
+    ];
+    const BY_PREFIXES = ['by', 'bysort'];
     let command_index = 0;
-    while (command_index < the_words.length && 
-           STANDARD_PREFIXES.includes(the_words[command_index].toLowerCase())) {
+    while (
+        command_index < the_parts.length &&
+        STANDARD_PREFIXES.includes(the_parts[command_index])
+    ) {
+        const my_prefix = the_parts[command_index];
         command_index++;
-    }
-    
-    // Handle "by varlist:" pattern - skip to after colon
-    if (trimmed.includes(':')) {
-        const after_colon = trimmed.split(':').pop()?.trim() || '';
-        const words_after_colon = after_colon.split(/\s+/).filter(w => w.length > 0);
-        if (words_after_colon.length > 0) {
-            const potential_prefix = words_after_colon[0].toLowerCase();
-            // Check if this command has subcommands using the database
-            if (command_db && command_db.has_subcommands(potential_prefix)) {
-                const words_after_prefix = words_after_colon.length - 1;
-                if (words_after_prefix === 0 && text_before_cursor.endsWith(' ')) {
-                    return { type: 'subcommand', prefix_command: potential_prefix };
-                }
-                if (words_after_prefix === 1 && !text_before_cursor.endsWith(' ')) {
-                    return { type: 'subcommand', prefix_command: potential_prefix };
-                }
+
+        if (BY_PREFIXES.includes(my_prefix)) {
+            const varlist_start = command_index;
+            while (
+                command_index < the_parts.length &&
+                the_parts[command_index] !== ':'
+            ) {
+                command_index++;
             }
+            if (
+                command_index === varlist_start ||
+                command_index >= the_parts.length
+            ) {
+                return null;
+            }
+            command_index++;
+            continue;
         }
+
+        // capture/quietly/noisily prefixes accept an optional colon.
+        if (the_parts[command_index] === ':') {
+            command_index++;
+        }
+    }
+
+    if (command_index >= the_parts.length) {
         return null;
     }
-    
-    if (command_index >= the_words.length) {
-        return null;
-    }
-    
-    const potential_prefix = the_words[command_index].toLowerCase();
-    
-    // Check if this command has subcommands using the database
+
+    // Command-database lookup is intentionally case-insensitive, unlike the
+    // hardcoded Stata prefix syntax above.
+    const potential_prefix = the_parts[command_index].toLowerCase();
+
     if (!command_db || !command_db.has_subcommands(potential_prefix)) {
         return null;
     }
-    
+
+    // Any colon left after the candidate belongs to command arguments or
+    // arbitrary syntax, not to the validated leading prefix chain.
+    const the_remaining_parts = the_parts.slice(command_index + 1);
+    if (the_remaining_parts.includes(':')) {
+        return null;
+    }
+
     // We're in subcommand context if:
     // 1. We're right after the prefix command with a space (e.g., "frame ")
     // 2. We're typing the subcommand (e.g., "frame cr")
-    const words_after_prefix = the_words.length - command_index - 1;
-    
+    const words_after_prefix = the_remaining_parts.length;
+
     if (words_after_prefix === 0 && text_before_cursor.endsWith(' ')) {
         // Right after "frame " - suggest subcommands
         return { type: 'subcommand', prefix_command: potential_prefix };
     }
-    
+
     if (words_after_prefix === 1 && !text_before_cursor.endsWith(' ')) {
         // Typing the subcommand (e.g., "frame cr") - suggest subcommands
         return { type: 'subcommand', prefix_command: potential_prefix };
     }
-    
+
     return null;
 }
 
@@ -791,7 +812,7 @@ function is_command_context(
         const after_colon = parts.slice(1).join(':').trim();
         
         // Check if before colon starts with a prefix command
-        const first_word = before_colon.split(/\s+/)[0].toLowerCase();
+        const first_word = before_colon.split(/\s+/)[0];
         if (PREFIX_COMMANDS.includes(first_word)) {
             // We're after "by varlist:" - check what's after the colon
             if (after_colon === '' || !after_colon.includes(' ')) {
@@ -804,8 +825,8 @@ function is_command_context(
     // If all words so far are prefix commands (without colon), we're still in command context
     let all_prefixes = true;
     for (const my_word of the_words) {
-        const lower_word = my_word.toLowerCase().replace(/:$/, ''); // Remove trailing colon
-        if (!PREFIX_COMMANDS.includes(lower_word)) {
+        const prefix_word = my_word.replace(/:$/, '');
+        if (!PREFIX_COMMANDS.includes(prefix_word)) {
             all_prefixes = false;
             break;
         }
@@ -819,9 +840,9 @@ function is_command_context(
     // This is true if there's only one word and no space after it
     if (the_words.length === 1 && !text_before_cursor.endsWith(' ')) {
         // Check if the word could be a prefix
-        const lower_word = the_words[0].toLowerCase();
+        const prefix_fragment = the_words[0];
         for (const prefix of PREFIX_COMMANDS) {
-            if (prefix.startsWith(lower_word)) {
+            if (prefix.startsWith(prefix_fragment)) {
                 return true;
             }
         }

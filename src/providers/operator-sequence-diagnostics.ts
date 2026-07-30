@@ -4,7 +4,12 @@ import { StataDiagnosticCode, StataLSPConfig, Token, StataAST, StataNode } from 
 import { diagnostic_code_description_fields } from '../utils/diagnostic-code-description';
 import { resolve_diagnostic_severity } from '../utils/diagnostic-severity';
 import { is_swallowed_continuation_terminator } from '../utils/continuation';
-import { is_diagnostic_range_ignored } from './diagnostic-token-stream';
+import { is_logical_statement_boundary } from '../utils/statement-span';
+import {
+    collect_significant_tokens,
+    is_adjacent,
+    is_diagnostic_range_ignored,
+} from './diagnostic-token-stream';
 
 /**
  * Spaced compound operators that Stata accepts as their compact form.
@@ -124,6 +129,471 @@ const ADJACENCY_BREAKERS: Set<string> = new Set([
 type OperatorContext = 'control_flow' | 'qualifier' | 'other';
 
 /**
+ * Commands whose documented grammar uses top-level compact
+ * `|| levelvar:` random-equation separators. Full names only: command
+ * abbreviations are not accepted without verified metadata.
+ */
+const MIXED_EFFECTS_SEPARATOR_COMMANDS: ReadonlySet<string> = new Set([
+    'mixed',
+    'mecloglog',
+    'meglm',
+    'meintreg',
+    'melogit',
+    'menbreg',
+    'meologit',
+    'meoprobit',
+    'mepoisson',
+    'meprobit',
+    'meqrlogit',
+    'meqrpoisson',
+    'mestreg',
+    'metobit',
+    'xtmixed',
+    'xtmelogit',
+    'xtmepoisson',
+]);
+
+const OMITTED_MODEL_HEAD_COMMANDS: ReadonlySet<string> = new Set([
+    'mestreg',
+]);
+
+const MIXED_COLON_OPTIONAL_PREFIX_COMMANDS: ReadonlySet<string> = new Set([
+    'cap', 'capt', 'captu', 'captur', 'capture',
+    'qui', 'quie', 'quiet', 'quietl', 'quietly',
+    'noi', 'nois', 'noisi', 'noisil', 'noisily',
+]);
+
+const MIXED_COLON_REQUIRED_PREFIX_COMMANDS: ReadonlySet<string> = new Set([
+    'xi',
+]);
+
+const NAME_FRAGMENT_TOKEN_TYPES: ReadonlySet<string> = new Set([
+    'WORD',
+    'MACRO_REF_LOCAL',
+    'MACRO_REF_GLOBAL',
+]);
+
+// Mirrors loop-expander/name-expander.ts: a numeric token may continue a
+// source-adjacent constructed name, but it cannot begin one.
+const NAME_CONTINUATION_TOKEN_TYPES: ReadonlySet<string> = new Set([
+    ...NAME_FRAGMENT_TOKEN_TYPES,
+    'NUMBER',
+]);
+
+/**
+ * Resolve the command used only by mixed-effects separator diagnostics.
+ * Capture/quietly/noisily prefixes accept all exact documented spellings and
+ * an optional colon; exact-case `xi` requires its colon. Argument-bearing and
+ * multiword prefixes remain unsupported. Source-constructed command names fail
+ * closed so they cannot inherit a built-in command's separator exception.
+ */
+function resolve_mixed_effects_command_head(
+    the_significant: Token[],
+    statement_start: number,
+    statement_end: number
+): { token: Token; index: number } | undefined {
+    let my_i = statement_start;
+    while (my_i < statement_end) {
+        const my_prefix = the_significant[my_i];
+        if (my_prefix.type !== 'WORD') {
+            break;
+        }
+
+        if (MIXED_COLON_OPTIONAL_PREFIX_COMMANDS.has(my_prefix.value)) {
+            my_i++;
+            if (
+                my_i < statement_end &&
+                the_significant[my_i].type === 'COLON'
+            ) {
+                my_i++;
+            }
+            continue;
+        }
+
+        if (
+            MIXED_COLON_REQUIRED_PREFIX_COMMANDS.has(my_prefix.value) &&
+            my_i + 1 < statement_end &&
+            the_significant[my_i + 1].type === 'COLON'
+        ) {
+            my_i += 2;
+            continue;
+        }
+        break;
+    }
+
+    const my_command = the_significant[my_i];
+    if (my_i >= statement_end || my_command?.type !== 'WORD') {
+        return undefined;
+    }
+
+    const my_continuation = the_significant[my_i + 1];
+    if (
+        my_i + 1 < statement_end &&
+        is_name_continuation_fragment(my_continuation) &&
+        is_adjacent(my_command, my_continuation)
+    ) {
+        return undefined;
+    }
+    return { token: my_command, index: my_i };
+}
+
+type GroupOpener = 'LPAREN' | 'LBRACKET';
+
+function is_matching_group_close(
+    my_opener: GroupOpener | undefined,
+    close_type: string
+): boolean {
+    return (
+        (my_opener === 'LPAREN' && close_type === 'RPAREN') ||
+        (my_opener === 'LBRACKET' && close_type === 'RBRACKET')
+    );
+}
+
+function is_name_fragment(
+    my_token: Token | undefined
+): my_token is Token {
+    return (
+        my_token !== undefined &&
+        NAME_FRAGMENT_TOKEN_TYPES.has(my_token.type)
+    );
+}
+
+function is_name_continuation_fragment(
+    my_token: Token | undefined
+): my_token is Token {
+    return (
+        my_token !== undefined &&
+        NAME_CONTINUATION_TOKEN_TYPES.has(my_token.type)
+    );
+}
+
+function is_plausible_model_head(
+    the_significant: Token[],
+    model_head_index: number,
+    statement_end: number
+): boolean {
+    const my_head = the_significant[model_head_index];
+    if (is_mixed_varlist_wildcard(my_head)) {
+        return true;
+    }
+    if (!is_name_fragment(my_head)) {
+        return false;
+    }
+    if (
+        my_head.type !== 'WORD' ||
+        (my_head.value !== 'if' && my_head.value !== 'in')
+    ) {
+        return true;
+    }
+
+    const my_continuation = the_significant[model_head_index + 1];
+    return (
+        model_head_index + 1 < statement_end &&
+        is_name_continuation_fragment(my_continuation) &&
+        is_adjacent(my_head, my_continuation)
+    );
+}
+
+function is_mixed_varlist_wildcard(
+    my_token: Token | undefined
+): boolean {
+    return (
+        (my_token?.type === 'OPERATOR' && my_token.value === '*') ||
+        ((my_token?.type === 'OPERATOR' || my_token?.type === 'WORD') &&
+            my_token.value === '?')
+    );
+}
+
+function is_mixed_constructed_name_fragment(
+    my_token: Token | undefined
+): boolean {
+    return (
+        is_name_continuation_fragment(my_token) ||
+        is_mixed_varlist_wildcard(my_token)
+    );
+}
+
+function is_standalone_mixed_qualifier(
+    the_significant: Token[],
+    token_index: number
+): boolean {
+    const my_token = the_significant[token_index];
+    if (
+        my_token.type !== 'WORD' ||
+        (my_token.value !== 'if' && my_token.value !== 'in')
+    ) {
+        return false;
+    }
+
+    const my_previous = the_significant[token_index - 1];
+    const my_next = the_significant[token_index + 1];
+    return !(
+        (is_mixed_constructed_name_fragment(my_previous) &&
+            is_adjacent(my_previous, my_token)) ||
+        (is_mixed_constructed_name_fragment(my_next) &&
+            is_adjacent(my_token, my_next))
+    );
+}
+
+function is_plausible_mixed_varlist_range_dash(
+    the_significant: Token[],
+    dash_index: number
+): boolean {
+    const my_dash = the_significant[dash_index];
+    const my_right_fragment = the_significant[dash_index + 1];
+    if (
+        my_dash.type !== 'OPERATOR' ||
+        my_dash.value !== '-' ||
+        !is_name_fragment(my_right_fragment) ||
+        !is_adjacent(my_dash, my_right_fragment)
+    ) {
+        return false;
+    }
+
+    let my_right_boundary = my_dash;
+    for (let my_i = dash_index - 1; my_i >= 0; my_i--) {
+        const my_left_fragment = the_significant[my_i];
+        if (
+            !is_name_continuation_fragment(my_left_fragment) ||
+            !is_adjacent(my_left_fragment, my_right_boundary)
+        ) {
+            return false;
+        }
+        if (is_name_fragment(my_left_fragment)) {
+            return true;
+        }
+        my_right_boundary = my_left_fragment;
+    }
+    return false;
+}
+
+function has_dangling_operator_before_mixed_separator(
+    the_significant: Token[],
+    first_bar_index: number,
+    mixed_varlist_is_open: boolean
+): boolean {
+    const my_previous = the_significant[first_bar_index - 1];
+    if (!is_mixed_varlist_wildcard(my_previous)) {
+        return my_previous?.type === 'OPERATOR';
+    }
+    if (!mixed_varlist_is_open) {
+        return true;
+    }
+
+    let my_i = first_bar_index - 2;
+    while (is_mixed_varlist_wildcard(the_significant[my_i])) {
+        my_i--;
+    }
+    return the_significant[my_i]?.type === 'OPERATOR';
+}
+
+function plausible_levelvar_colon_index(
+    the_significant: Token[],
+    first_bar_index: number,
+    statement_end: number
+): number | undefined {
+    const my_first_fragment_index = first_bar_index + 2;
+    const my_first_fragment = the_significant[my_first_fragment_index];
+    if (!is_name_fragment(my_first_fragment)) {
+        return undefined;
+    }
+
+    let my_fragment_count = 1;
+    let my_last_fragment_index = my_first_fragment_index;
+    while (my_last_fragment_index + 1 < statement_end) {
+        const my_last_fragment = the_significant[my_last_fragment_index];
+        const my_next_fragment =
+            the_significant[my_last_fragment_index + 1];
+        if (
+            !is_name_continuation_fragment(my_next_fragment) ||
+            !is_adjacent(my_last_fragment, my_next_fragment)
+        ) {
+            break;
+        }
+        my_fragment_count++;
+        my_last_fragment_index++;
+    }
+
+    const my_colon_index = my_last_fragment_index + 1;
+    const my_colon = the_significant[my_colon_index];
+    if (my_colon?.type !== 'COLON') {
+        return undefined;
+    }
+    if (
+        my_fragment_count === 1 &&
+        my_first_fragment.type === 'WORD' &&
+        (my_first_fragment.value === 'if' ||
+            my_first_fragment.value === 'in')
+    ) {
+        return undefined;
+    }
+    return my_colon_index;
+}
+
+function mark_mixed_effects_separators_in_statement(
+    the_significant: Token[],
+    statement_start: number,
+    statement_end: number,
+    the_separator_starts: Set<Token>
+): void {
+    const my_command_head = resolve_mixed_effects_command_head(
+        the_significant,
+        statement_start,
+        statement_end
+    );
+    if (
+        my_command_head === undefined ||
+        !MIXED_EFFECTS_SEPARATOR_COMMANDS.has(my_command_head.token.value)
+    ) {
+        return;
+    }
+
+    const my_group_stack: GroupOpener[] = [];
+    const my_has_required_model_content =
+        OMITTED_MODEL_HEAD_COMMANDS.has(my_command_head.token.value) ||
+        is_plausible_model_head(
+            the_significant,
+            my_command_head.index + 1,
+            statement_end
+        );
+    let my_saw_top_level_options_comma = false;
+    let my_saw_top_level_double_bar = false;
+    let my_has_marked_separator = false;
+    let my_separators_are_valid = true;
+    let my_mixed_varlist_is_open = true;
+
+    for (
+        let my_i = my_command_head.index + 1;
+        my_i < statement_end;
+        my_i++
+    ) {
+        const my_token = the_significant[my_i];
+        if (my_token.type === 'LPAREN' || my_token.type === 'LBRACKET') {
+            my_group_stack.push(my_token.type);
+            continue;
+        }
+        if (my_token.type === 'RPAREN' || my_token.type === 'RBRACKET') {
+            if (
+                !is_matching_group_close(
+                    my_group_stack[my_group_stack.length - 1],
+                    my_token.type
+                )
+            ) {
+                break;
+            }
+            my_group_stack.pop();
+            continue;
+        }
+
+        if (my_group_stack.length !== 0) {
+            continue;
+        }
+        if (my_token.type === 'COMMA') {
+            if (!my_has_marked_separator) {
+                my_saw_top_level_options_comma = true;
+            }
+            my_mixed_varlist_is_open = false;
+            continue;
+        }
+        if (is_standalone_mixed_qualifier(the_significant, my_i)) {
+            my_mixed_varlist_is_open = false;
+        }
+
+        const my_second_bar = the_significant[my_i + 1];
+        if (
+            my_token.type !== 'OPERATOR' ||
+            my_token.value !== '|' ||
+            my_second_bar?.type !== 'OPERATOR' ||
+            my_second_bar.value !== '|' ||
+            !is_adjacent(my_token, my_second_bar)
+        ) {
+            if (
+                my_token.type === 'OPERATOR' &&
+                !is_mixed_varlist_wildcard(my_token) &&
+                !(
+                    my_mixed_varlist_is_open &&
+                    is_plausible_mixed_varlist_range_dash(
+                        the_significant,
+                        my_i
+                    )
+                )
+            ) {
+                my_mixed_varlist_is_open = false;
+            }
+            continue;
+        }
+
+        if (!my_saw_top_level_double_bar) {
+            my_saw_top_level_double_bar = true;
+            if (!my_has_required_model_content) {
+                my_separators_are_valid = false;
+            }
+        }
+
+        const my_levelvar_colon_index = plausible_levelvar_colon_index(
+            the_significant,
+            my_i,
+            statement_end
+        );
+        if (
+            !my_separators_are_valid ||
+            (!my_has_marked_separator &&
+                my_saw_top_level_options_comma) ||
+            has_dangling_operator_before_mixed_separator(
+                the_significant,
+                my_i,
+                my_mixed_varlist_is_open
+            ) ||
+            my_levelvar_colon_index === undefined
+        ) {
+            my_mixed_varlist_is_open = false;
+            continue;
+        }
+
+        the_separator_starts.add(my_token);
+        my_has_marked_separator = true;
+        my_mixed_varlist_is_open = true;
+        my_i = my_levelvar_colon_index;
+    }
+}
+
+/**
+ * Return the first bar token of each recognized mixed-effects separator.
+ * Sibling token-stream analyzers use this shared classification so the
+ * command-specific grammar remains single-sourced.
+ */
+export function collect_mixed_effects_separator_starts(
+    tokens: Token[]
+): Set<Token> {
+    const the_significant = collect_significant_tokens(tokens);
+    const the_separator_starts = new Set<Token>();
+    let statement_start = 0;
+
+    for (let my_i = 0; my_i <= the_significant.length; my_i++) {
+        const my_token = the_significant[my_i];
+        const at_end = my_token === undefined || my_token.type === 'EOF';
+        if (!at_end && !is_logical_statement_boundary(my_token)) {
+            continue;
+        }
+
+        if (statement_start < my_i) {
+            mark_mixed_effects_separators_in_statement(
+                the_significant,
+                statement_start,
+                my_i,
+                the_separator_starts
+            );
+        }
+        if (at_end) {
+            break;
+        }
+        statement_start = my_i + 1;
+    }
+
+    return the_separator_starts;
+}
+
+/**
  * Internal classification result for an operator pair.
  */
 interface OperatorPairResult {
@@ -187,6 +657,8 @@ export class OperatorSequenceAnalyzer {
         // Get AST for context detection (may be undefined)
         const ast = document.ast;
 
+        const the_mixed_effects_separator_starts =
+            collect_mixed_effects_separator_starts(the_tokens);
         const the_diagnostics: Diagnostic[] = [];
         let i = 0;
 
@@ -210,8 +682,17 @@ export class OperatorSequenceAnalyzer {
 
             const { second_token, next_index } = adjacency_result;
 
+            if (the_mixed_effects_separator_starts.has(first_token)) {
+                i = next_index;
+                continue;
+            }
+
             // Classify the pair
-            const pair_result = this.classify_pair(first_token, second_token, ast ?? undefined);
+            const pair_result = this.classify_pair(
+                first_token,
+                second_token,
+                ast ?? undefined
+            );
 
             if (!pair_result) {
                 // Pair is allowed or unrecognized, skip

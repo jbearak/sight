@@ -3,7 +3,9 @@ import * as fc from 'fast-check';
 import { DiagnosticSeverity } from 'vscode-languageserver';
 import { StataLexer } from '../../src/lexer';
 import { OperatorSequenceAnalyzer } from '../../src/providers/operator-sequence-diagnostics';
+import { DEFAULT_SETTINGS } from '../../src/server-handlers';
 import { StataDiagnosticCode, StataLSPConfig } from '../../src/types';
+import { arbitrary_non_reserved_identifier } from './generators';
 import { arbitrary_identifier } from './generators/primitives';
 import { create_document_state } from './helpers/document-utils';
 
@@ -1451,6 +1453,421 @@ describe('Operator Sequence Diagnostics Property Tests', () => {
     });
 });
 
+describe('Mixed-effects separator properties (issue #320)', () => {
+    const the_mixed_effects_commands = [
+        'mixed',
+        'mecloglog',
+        'meglm',
+        'meintreg',
+        'melogit',
+        'menbreg',
+        'meologit',
+        'meoprobit',
+        'mepoisson',
+        'meprobit',
+        'meqrlogit',
+        'meqrpoisson',
+        'mestreg',
+        'metobit',
+        'xtmixed',
+        'xtmelogit',
+        'xtmepoisson',
+    ];
+    const arbitrary_macro_name_head =
+        arbitrary_non_reserved_identifier().chain((my_name) =>
+            fc.constantFrom(`\`${my_name}'`, `$${my_name}`)
+        );
+    const arbitrary_name_head = fc.oneof(
+        arbitrary_non_reserved_identifier(),
+        arbitrary_macro_name_head
+    );
+    const arbitrary_concatenated_name_head = fc.tuple(
+        arbitrary_non_reserved_identifier(),
+        arbitrary_non_reserved_identifier()
+    ).chain(([my_first, my_second]) =>
+        fc.constantFrom(
+            `${my_first}\`${my_second}'`,
+            '${' + my_first + '}' + my_second,
+            `\`${my_first}'\`${my_second}'`,
+            '${' + my_first + '}${' + my_second + '}'
+        )
+    );
+    const arbitrary_numeric_macro_base =
+        arbitrary_non_reserved_identifier().chain((my_name) =>
+            fc.constantFrom(
+                `\`${my_name}'`,
+                '${' + my_name + '}'
+            )
+        );
+    const arbitrary_numeric_macro_name_head = fc.tuple(
+        arbitrary_numeric_macro_base,
+        fc.integer({ min: 0, max: 999 })
+    ).map(([my_macro, my_suffix]) => `${my_macro}${my_suffix}`);
+    const arbitrary_levelvar_head = fc.oneof(
+        arbitrary_name_head,
+        arbitrary_concatenated_name_head,
+        arbitrary_numeric_macro_name_head
+    );
+    const my_analyzer = new OperatorSequenceAnalyzer();
+    const my_config: StataLSPConfig = { ...DEFAULT_SETTINGS };
+
+    const operator_sequence_diagnostics = (source: string) =>
+        my_analyzer.analyze(
+            create_document_state(source),
+            my_config
+        );
+
+    test('compact levelvar separators are accepted for the family', () => {
+        fc.assert(
+            fc.property(
+                fc.constantFrom(...the_mixed_effects_commands),
+                arbitrary_name_head,
+                arbitrary_non_reserved_identifier(),
+                arbitrary_levelvar_head,
+                (my_command, my_depvar, my_predictor, my_levelvar) => {
+                    const my_source =
+                        `${my_command} ${my_depvar} ${my_predictor} ` +
+                        `|| ${my_levelvar}:`;
+                    expect(
+                        operator_sequence_diagnostics(my_source)
+                    ).toHaveLength(0);
+                }
+            ),
+            { numRuns: 100 }
+        );
+    });
+
+    test('numeric fragments only continue macro levelvar heads', () => {
+        fc.assert(
+            fc.property(
+                arbitrary_numeric_macro_base,
+                fc.integer({ min: 0, max: 999 }),
+                (my_macro, my_number) => {
+                    const my_valid =
+                        `mixed y x || ${my_macro}${my_number}:`;
+                    expect(
+                        operator_sequence_diagnostics(my_valid)
+                    ).toHaveLength(0);
+
+                    const my_invalid =
+                        `mixed y x || ${my_number}${my_macro}:`;
+                    expect(
+                        operator_sequence_diagnostics(my_invalid)
+                    ).toHaveLength(1);
+                }
+            ),
+            { numRuns: 100 }
+        );
+    });
+
+    test('mestreg accepts an omitted fixed-effects varlist', () => {
+        fc.assert(
+            fc.property(
+                fc.constantFrom('none', 'if', 'in', 'weight'),
+                arbitrary_non_reserved_identifier(),
+                arbitrary_levelvar_head,
+                (my_form, my_sample, my_levelvar) => {
+                    let my_qualifier = '';
+                    if (my_form === 'if') {
+                        my_qualifier = ` if ${my_sample}`;
+                    } else if (my_form === 'in') {
+                        my_qualifier = ' in 1/10';
+                    } else if (my_form === 'weight') {
+                        my_qualifier = ' [pw=weight]';
+                    }
+                    const my_source =
+                        `mestreg${my_qualifier} || ${my_levelvar}:, ` +
+                        'distribution(weibull)';
+                    expect(
+                        operator_sequence_diagnostics(my_source)
+                    ).toHaveLength(0);
+                }
+            ),
+            { numRuns: 100 }
+        );
+    });
+
+    test('noncompact bars remain diagnostics', () => {
+        fc.assert(
+            fc.property(
+                fc.constantFrom(' | | ', ' |/* comment */| ', ' | ///\n| '),
+                arbitrary_non_reserved_identifier(),
+                arbitrary_non_reserved_identifier(),
+                arbitrary_non_reserved_identifier(),
+                (my_bars, my_depvar, my_predictor, my_levelvar) => {
+                    const my_source =
+                        `mixed ${my_depvar} ${my_predictor}` +
+                        `${my_bars}${my_levelvar}:`;
+                    expect(
+                        operator_sequence_diagnostics(my_source)
+                    ).toHaveLength(1);
+                }
+            ),
+            { numRuns: 100 }
+        );
+    });
+
+    test('levelvar fragments must be source-adjacent', () => {
+        fc.assert(
+            fc.property(
+                arbitrary_non_reserved_identifier(),
+                arbitrary_non_reserved_identifier(),
+                (my_first, my_second) => {
+                    const my_source =
+                        `mixed y x || ${my_first} ${my_second}:`;
+                    const the_diagnostics =
+                        operator_sequence_diagnostics(my_source);
+                    expect(the_diagnostics).toHaveLength(1);
+                    expect(the_diagnostics[0].range.start.character).toBe(
+                        my_source.indexOf('||')
+                    );
+                }
+            ),
+            { numRuns: 100 }
+        );
+    });
+
+    test('logical pairs stay diagnostic before a valid separator', () => {
+        fc.assert(
+            fc.property(
+                fc.boolean(),
+                arbitrary_non_reserved_identifier(),
+                arbitrary_non_reserved_identifier(),
+                arbitrary_non_reserved_identifier(),
+                arbitrary_non_reserved_identifier(),
+                arbitrary_non_reserved_identifier(),
+                (
+                    use_parentheses,
+                    my_depvar,
+                    my_predictor,
+                    my_lhs,
+                    my_rhs,
+                    my_levelvar
+                ) => {
+                    const my_condition = use_parentheses
+                        ? `(${my_lhs} || ${my_rhs})`
+                        : `${my_lhs} || ${my_rhs}`;
+                    const my_source =
+                        `mixed ${my_depvar} ${my_predictor} if ` +
+                        `${my_condition} || ${my_levelvar}:`;
+                    const the_diagnostics =
+                        operator_sequence_diagnostics(my_source);
+                    const my_invalid_start = my_source.indexOf('||');
+                    const my_valid_start = my_source.lastIndexOf('||');
+                    expect(the_diagnostics).toHaveLength(1);
+                    expect(the_diagnostics[0].code).toBe(
+                        StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
+                    );
+                    expect(the_diagnostics[0].range).toEqual({
+                        start: {
+                            line: 0,
+                            character: my_invalid_start,
+                        },
+                        end: {
+                            line: 0,
+                            character: my_invalid_start + 2,
+                        },
+                    });
+                    expect(my_invalid_start).not.toBe(my_valid_start);
+                }
+            ),
+            { numRuns: 100 }
+        );
+    });
+
+    test('leading mixed wildcard patterns stay valid', () => {
+        fc.assert(
+            fc.property(
+                fc.constantFrom('*', '?'),
+                fc.boolean(),
+                arbitrary_non_reserved_identifier(),
+                arbitrary_non_reserved_identifier(),
+                (my_wildcard, is_bare, my_suffix, my_levelvar) => {
+                    const my_model_head = is_bare
+                        ? my_wildcard
+                        : `${my_wildcard}${my_suffix}`;
+                    const my_source =
+                        `mixed ${my_model_head} || ${my_levelvar}:`;
+                    expect(
+                        operator_sequence_diagnostics(my_source)
+                    ).toHaveLength(0);
+                }
+            ),
+            { numRuns: 100 }
+        );
+    });
+
+    test('mixed varlist wildcard tails stay valid before separators', () => {
+        fc.assert(
+            fc.property(
+                fc.constantFrom('*', '?'),
+                fc.boolean(),
+                fc.boolean(),
+                arbitrary_non_reserved_identifier(),
+                arbitrary_non_reserved_identifier(),
+                arbitrary_non_reserved_identifier(),
+                arbitrary_non_reserved_identifier(),
+                arbitrary_non_reserved_identifier(),
+                (
+                    my_wildcard,
+                    is_attached,
+                    use_later_equation,
+                    my_depvar,
+                    my_predictor,
+                    my_levelvar,
+                    my_random_predictor,
+                    my_school_levelvar
+                ) => {
+                    const my_fixed_tail = is_attached
+                        ? `${my_predictor}${my_wildcard}`
+                        : my_wildcard;
+                    const my_random_tail = is_attached
+                        ? `${my_random_predictor}${my_wildcard}`
+                        : my_wildcard;
+                    const my_source = use_later_equation
+                        ? `mixed ${my_depvar} if sample || ` +
+                            `${my_levelvar}: ${my_random_tail} || ` +
+                            `${my_school_levelvar}:`
+                        : `mixed ${my_depvar} ${my_fixed_tail} || ` +
+                            `${my_levelvar}:`;
+                    expect(
+                        operator_sequence_diagnostics(my_source)
+                    ).toHaveLength(0);
+                }
+            ),
+            { numRuns: 100 }
+        );
+    });
+
+    test('source-adjacent ranges preserve mixed wildcard tails', () => {
+        fc.assert(
+            fc.property(
+                fc.constantFrom('*', '?'),
+                fc.boolean(),
+                fc.boolean(),
+                arbitrary_non_reserved_identifier(),
+                arbitrary_non_reserved_identifier(),
+                arbitrary_non_reserved_identifier(),
+                arbitrary_non_reserved_identifier(),
+                arbitrary_non_reserved_identifier(),
+                arbitrary_non_reserved_identifier(),
+                (
+                    my_wildcard,
+                    is_attached,
+                    use_later_equation,
+                    my_depvar,
+                    my_range_start,
+                    my_range_end,
+                    my_predictor,
+                    my_levelvar,
+                    my_school_levelvar
+                ) => {
+                    const my_wildcard_tail = is_attached
+                        ? `${my_predictor}${my_wildcard}`
+                        : my_wildcard;
+                    const my_equation =
+                        `${my_range_start}-${my_range_end} ` +
+                        my_wildcard_tail;
+                    const my_source = use_later_equation
+                        ? `mixed ${my_depvar} if sample || ` +
+                            `${my_levelvar}: ${my_equation} || ` +
+                            `${my_school_levelvar}:`
+                        : `mixed ${my_depvar} ${my_equation} || ` +
+                            `${my_levelvar}:`;
+                    expect(
+                        operator_sequence_diagnostics(my_source)
+                    ).toHaveLength(0);
+                }
+            ),
+            { numRuns: 100 }
+        );
+    });
+
+    test('dangling operators keep compact bars diagnostic', () => {
+        fc.assert(
+            fc.property(
+                fc.constantFrom('=', '+', '-', '^', '!', '~'),
+                arbitrary_non_reserved_identifier(),
+                arbitrary_non_reserved_identifier(),
+                arbitrary_non_reserved_identifier(),
+                (my_operator, my_depvar, my_predictor, my_levelvar) => {
+                    const my_source =
+                        `mixed ${my_depvar} ${my_predictor} ` +
+                        `${my_operator}|| ${my_levelvar}:`;
+                    const my_bar_start = my_source.indexOf('||');
+                    const the_diagnostics =
+                        operator_sequence_diagnostics(my_source);
+                    expect(the_diagnostics).toHaveLength(1);
+                    expect(the_diagnostics[0].code).toBe(
+                        StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
+                    );
+                    expect(the_diagnostics[0].range).toEqual({
+                        start: { line: 0, character: my_bar_start },
+                        end: { line: 0, character: my_bar_start + 2 },
+                    });
+                }
+            ),
+            { numRuns: 100 }
+        );
+    });
+
+    test('constructed supported command heads fail closed', () => {
+        const arbitrary_command_suffix = fc.oneof(
+            arbitrary_non_reserved_identifier().chain((my_name) =>
+                fc.constantFrom(
+                    `\`${my_name}'`,
+                    '${' + my_name + '}'
+                )
+            ),
+            arbitrary_non_reserved_identifier(),
+            fc.integer({ min: 0, max: 999 }).map(String)
+        );
+        fc.assert(
+            fc.property(arbitrary_command_suffix, (my_suffix) => {
+                const my_source =
+                    `mixed${my_suffix} y x || id:`;
+                const the_diagnostics =
+                    operator_sequence_diagnostics(my_source);
+                expect(the_diagnostics).toHaveLength(1);
+                expect(the_diagnostics[0].range.start.character).toBe(
+                    my_source.indexOf('||')
+                );
+            }),
+            { numRuns: 100 }
+        );
+    });
+
+    test('excluded and user commands remain diagnostics', () => {
+        const the_family = new Set(the_mixed_effects_commands);
+        const arbitrary_user_command =
+            arbitrary_non_reserved_identifier().filter(
+                (my_command) => !the_family.has(my_command)
+            );
+        fc.assert(
+            fc.property(
+                fc.oneof(
+                    fc.constantFrom(
+                        'menl',
+                        'gsem',
+                        'twoway',
+                        'svyset'
+                    ),
+                    arbitrary_user_command
+                ),
+                arbitrary_non_reserved_identifier(),
+                arbitrary_non_reserved_identifier(),
+                (my_command, my_depvar, my_levelvar) => {
+                    const my_source =
+                        `${my_command} ${my_depvar} || ${my_levelvar}:`;
+                    expect(
+                        operator_sequence_diagnostics(my_source)
+                    ).toHaveLength(1);
+                }
+            ),
+            { numRuns: 100 }
+        );
+    });
+});
 
 /**
  * Feature: malformed-operator-diagnostics, Property 3: Embedded context suppression
