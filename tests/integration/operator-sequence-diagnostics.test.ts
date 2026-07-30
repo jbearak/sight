@@ -72,6 +72,116 @@ describe('Operator Sequence Diagnostics Integration', () => {
             expect(the_operator_sequence).toHaveLength(0);
         });
 
+        it('preserves a mixed warning before a separator', async () => {
+            const my_content = 'mixed y x if a & b | c || id:';
+            const my_uri = 'file:///test_mixed_logical_before_separator.do';
+            await document_store.open(my_uri, my_content, 1);
+            const my_document = document_store.get(my_uri)!;
+
+            const the_diagnostics =
+                await diagnostics_provider.get_diagnostics(
+                    my_document,
+                    default_config
+                );
+            const the_invalid = the_diagnostics.filter(
+                (my_diagnostic) =>
+                    my_diagnostic.code ===
+                    StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
+            );
+            const the_mixed = the_diagnostics.filter(
+                (my_diagnostic) =>
+                    my_diagnostic.code ===
+                    StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
+            );
+
+            expect(the_invalid).toHaveLength(0);
+            expect(
+                the_mixed.map((my_diagnostic) => ({
+                    code: my_diagnostic.code,
+                    range: my_diagnostic.range,
+                }))
+            ).toEqual([
+                {
+                    code: StataDiagnosticCode.MIXED_LOGICAL_OPERATORS,
+                    range: {
+                        start: { line: 0, character: 15 },
+                        end: { line: 0, character: 20 },
+                    },
+                },
+            ]);
+        });
+
+        it('keeps unsupported-command double bars invalid', async () => {
+            const my_content =
+                'my_mixed_program y x if a & b | c || id:';
+            const my_uri = 'file:///test_unsupported_mixed_separator.do';
+            await document_store.open(my_uri, my_content, 1);
+            const my_document = document_store.get(my_uri)!;
+
+            const the_diagnostics =
+                await diagnostics_provider.get_diagnostics(
+                    my_document,
+                    default_config
+                );
+            const the_relevant = the_diagnostics.filter(
+                (my_diagnostic) =>
+                    my_diagnostic.code ===
+                        StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE ||
+                    my_diagnostic.code ===
+                        StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
+            );
+
+            expect(
+                the_relevant.map((my_diagnostic) => ({
+                    code: my_diagnostic.code,
+                    range: my_diagnostic.range,
+                }))
+            ).toEqual([
+                {
+                    code: StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE,
+                    range: {
+                        start: { line: 0, character: 34 },
+                        end: { line: 0, character: 36 },
+                    },
+                },
+            ]);
+        });
+
+        it('keeps ordinary expression double bars invalid', async () => {
+            const my_content = 'display a & b | c || d';
+            const my_uri = 'file:///test_ordinary_expression_double_bar.do';
+            await document_store.open(my_uri, my_content, 1);
+            const my_document = document_store.get(my_uri)!;
+
+            const the_diagnostics =
+                await diagnostics_provider.get_diagnostics(
+                    my_document,
+                    default_config
+                );
+            const the_relevant = the_diagnostics.filter(
+                (my_diagnostic) =>
+                    my_diagnostic.code ===
+                        StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE ||
+                    my_diagnostic.code ===
+                        StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
+            );
+
+            expect(
+                the_relevant.map((my_diagnostic) => ({
+                    code: my_diagnostic.code,
+                    range: my_diagnostic.range,
+                }))
+            ).toEqual([
+                {
+                    code: StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE,
+                    range: {
+                        start: { line: 0, character: 18 },
+                        end: { line: 0, character: 20 },
+                    },
+                },
+            ]);
+        });
+
         it('should emit spaced compound operator diagnostics alongside semantic diagnostics', async () => {
             // Code with both undefined macro and a spaced compound operator
             const my_content = `display \`undefined_macro'

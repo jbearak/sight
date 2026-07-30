@@ -153,6 +153,10 @@ const MIXED_EFFECTS_SEPARATOR_COMMANDS: ReadonlySet<string> = new Set([
     'xtmepoisson',
 ]);
 
+const OMITTED_MODEL_HEAD_COMMANDS: ReadonlySet<string> = new Set([
+    'mestreg',
+]);
+
 const MIXED_COLON_OPTIONAL_PREFIX_COMMANDS: ReadonlySet<string> = new Set([
     'cap', 'capt', 'captu', 'captur', 'capture',
     'qui', 'quie', 'quiet', 'quietl', 'quietly',
@@ -232,10 +236,6 @@ function resolve_mixed_effects_command_head(
     }
     return { token: my_command, index: my_i };
 }
-
-const OMITTED_MODEL_HEAD_COMMANDS: ReadonlySet<string> = new Set([
-    'mestreg',
-]);
 
 type GroupOpener = 'LPAREN' | 'LBRACKET';
 
@@ -392,34 +392,35 @@ function plausible_levelvar_colon_index(
     first_bar_index: number,
     statement_end: number
 ): number | undefined {
-    const first_fragment_index = first_bar_index + 2;
-    const my_first_fragment = the_significant[first_fragment_index];
+    const my_first_fragment_index = first_bar_index + 2;
+    const my_first_fragment = the_significant[my_first_fragment_index];
     if (!is_name_fragment(my_first_fragment)) {
         return undefined;
     }
 
-    let fragment_count = 1;
-    let last_fragment_index = first_fragment_index;
-    while (last_fragment_index + 1 < statement_end) {
-        const my_last_fragment = the_significant[last_fragment_index];
-        const my_next_fragment = the_significant[last_fragment_index + 1];
+    let my_fragment_count = 1;
+    let my_last_fragment_index = my_first_fragment_index;
+    while (my_last_fragment_index + 1 < statement_end) {
+        const my_last_fragment = the_significant[my_last_fragment_index];
+        const my_next_fragment =
+            the_significant[my_last_fragment_index + 1];
         if (
             !is_name_continuation_fragment(my_next_fragment) ||
             !is_adjacent(my_last_fragment, my_next_fragment)
         ) {
             break;
         }
-        fragment_count++;
-        last_fragment_index++;
+        my_fragment_count++;
+        my_last_fragment_index++;
     }
 
-    const my_colon_index = last_fragment_index + 1;
+    const my_colon_index = my_last_fragment_index + 1;
     const my_colon = the_significant[my_colon_index];
     if (my_colon?.type !== 'COLON') {
         return undefined;
     }
     if (
-        fragment_count === 1 &&
+        my_fragment_count === 1 &&
         my_first_fragment.type === 'WORD' &&
         (my_first_fragment.value === 'if' ||
             my_first_fragment.value === 'in')
@@ -447,18 +448,18 @@ function mark_mixed_effects_separators_in_statement(
         return;
     }
 
-    const the_group_stack: GroupOpener[] = [];
-    const has_required_model_content =
+    const my_group_stack: GroupOpener[] = [];
+    const my_has_required_model_content =
         OMITTED_MODEL_HEAD_COMMANDS.has(my_command_head.token.value) ||
         is_plausible_model_head(
             the_significant,
             my_command_head.index + 1,
             statement_end
         );
-    let saw_top_level_options_comma = false;
-    let saw_top_level_double_bar = false;
-    let has_marked_separator = false;
-    let separators_are_valid = true;
+    let my_saw_top_level_options_comma = false;
+    let my_saw_top_level_double_bar = false;
+    let my_has_marked_separator = false;
+    let my_separators_are_valid = true;
     let my_mixed_varlist_is_open = true;
 
     for (
@@ -468,28 +469,28 @@ function mark_mixed_effects_separators_in_statement(
     ) {
         const my_token = the_significant[my_i];
         if (my_token.type === 'LPAREN' || my_token.type === 'LBRACKET') {
-            the_group_stack.push(my_token.type);
+            my_group_stack.push(my_token.type);
             continue;
         }
         if (my_token.type === 'RPAREN' || my_token.type === 'RBRACKET') {
             if (
                 !is_matching_group_close(
-                    the_group_stack[the_group_stack.length - 1],
+                    my_group_stack[my_group_stack.length - 1],
                     my_token.type
                 )
             ) {
                 break;
             }
-            the_group_stack.pop();
+            my_group_stack.pop();
             continue;
         }
 
-        if (the_group_stack.length !== 0) {
+        if (my_group_stack.length !== 0) {
             continue;
         }
         if (my_token.type === 'COMMA') {
-            if (!has_marked_separator) {
-                saw_top_level_options_comma = true;
+            if (!my_has_marked_separator) {
+                my_saw_top_level_options_comma = true;
             }
             my_mixed_varlist_is_open = false;
             continue;
@@ -522,10 +523,10 @@ function mark_mixed_effects_separators_in_statement(
             continue;
         }
 
-        if (!saw_top_level_double_bar) {
-            saw_top_level_double_bar = true;
-            if (!has_required_model_content) {
-                separators_are_valid = false;
+        if (!my_saw_top_level_double_bar) {
+            my_saw_top_level_double_bar = true;
+            if (!my_has_required_model_content) {
+                my_separators_are_valid = false;
             }
         }
 
@@ -535,8 +536,9 @@ function mark_mixed_effects_separators_in_statement(
             statement_end
         );
         if (
-            !separators_are_valid ||
-            (!has_marked_separator && saw_top_level_options_comma) ||
+            !my_separators_are_valid ||
+            (!my_has_marked_separator &&
+                my_saw_top_level_options_comma) ||
             has_dangling_operator_before_mixed_separator(
                 the_significant,
                 my_i,
@@ -549,13 +551,20 @@ function mark_mixed_effects_separators_in_statement(
         }
 
         the_separator_starts.add(my_token);
-        has_marked_separator = true;
+        my_has_marked_separator = true;
         my_mixed_varlist_is_open = true;
         my_i = my_levelvar_colon_index;
     }
 }
 
-function collect_mixed_effects_separator_starts(tokens: Token[]): Set<Token> {
+/**
+ * Return the first bar token of each recognized mixed-effects separator.
+ * Sibling token-stream analyzers use this shared classification so the
+ * command-specific grammar remains single-sourced.
+ */
+export function collect_mixed_effects_separator_starts(
+    tokens: Token[]
+): Set<Token> {
     const the_significant = collect_significant_tokens(tokens);
     const the_separator_starts = new Set<Token>();
     let statement_start = 0;

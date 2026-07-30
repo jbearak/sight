@@ -179,6 +179,22 @@ describe('MixedLogicalOperatorAnalyzer Unit Tests', () => {
             );
             expect(mixed).toHaveLength(0);
         });
+
+        it('flushes and resets at a mixed-effects separator', () => {
+            const doc = create_document_state(
+                'mixed y x if a & b | c || id: z & q'
+            );
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const mixed = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.MIXED_LOGICAL_OPERATORS
+            );
+
+            expect(mixed).toHaveLength(1);
+            expect(mixed[0].range).toEqual({
+                start: { line: 0, character: 15 },
+                end: { line: 0, character: 20 },
+            });
+        });
     });
 
     describe('Explicit Grouping Suppresses Warning', () => {

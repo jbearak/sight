@@ -22,7 +22,56 @@ function option_context(source: string, position: Position) {
     return detect_completion_context(doc, position, doc.tokens);
 }
 
+function expect_command_in_all_wrappings(
+    statement_before_comma: string,
+    expected_command: string
+): void {
+    const single = `${statement_before_comma}, `;
+    const semi =
+        `#delimit ;\n${statement_before_comma},\n` +
+        '    ;\ndisplay 1 ;';
+    const cr = `${statement_before_comma}, ///\n    \ndisplay 1`;
+    const the_contexts = [
+        option_context(single, { line: 0, character: single.length }),
+        option_context(semi, { line: 2, character: 4 }),
+        option_context(cr, { line: 1, character: 4 }),
+    ];
+
+    for (const my_context of the_contexts) {
+        expect(my_context.type).toBe('option');
+        if (my_context.type === 'option') {
+            expect(my_context.command).toBe(expected_command);
+        }
+    }
+}
+
 describe('wrapped option context is stable (property, #310)', () => {
+    it('keeps wrong-case prefix spellings as command names in every rendering', () => {
+        const the_wrong_case_prefixes = [
+            'bY',
+            'By',
+            'BY',
+            'bySort',
+            'Quietly',
+            'qUi',
+            'Capture',
+            'cAp',
+            'Noisily',
+            'nOi',
+        ];
+
+        for (const my_prefix of the_wrong_case_prefixes) {
+            expect_command_in_all_wrappings(`${my_prefix} _`, my_prefix);
+        }
+    });
+
+    it('still unwraps an exact lowercase by prefix in every rendering', () => {
+        expect_command_in_all_wrappings(
+            'by group: regress y',
+            'regress'
+        );
+    });
+
     it('detects option context for the same command in single-line, ;-wrap, and ///-wrap renderings', () => {
         fc.assert(
             fc.property(

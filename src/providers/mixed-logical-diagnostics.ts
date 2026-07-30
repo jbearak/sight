@@ -5,6 +5,9 @@ import { diagnostic_code_description_fields } from '../utils/diagnostic-code-des
 import { resolve_diagnostic_severity } from '../utils/diagnostic-severity';
 import { is_swallowed_continuation_terminator } from '../utils/continuation';
 import { is_diagnostic_range_ignored } from './diagnostic-token-stream';
+import {
+    collect_mixed_effects_separator_starts,
+} from './operator-sequence-diagnostics';
 
 /**
  * Logical operator values tracked for mixed-operator detection.
@@ -99,6 +102,8 @@ export class MixedLogicalOperatorAnalyzer {
 
         const my_ignored_lines = document.ignored_lines ?? new Set<number>();
         const my_severity = resolve_diagnostic_severity(my_config_severity);
+        const the_mixed_effects_separator_starts =
+            collect_mixed_effects_separator_starts(the_tokens);
 
         const my_diagnostics: Diagnostic[] = [];
         let my_state = this.fresh_state();
@@ -114,6 +119,21 @@ export class MixedLogicalOperatorAnalyzer {
                 )
             ) {
                 my_in_continuation = false;
+                continue;
+            }
+
+            if (the_mixed_effects_separator_starts.has(my_token)) {
+                // A random-equation separator is an expression boundary,
+                // not a logical operator in either adjacent clause.
+                my_in_continuation = false;
+                this.flush(
+                    my_state,
+                    my_diagnostics,
+                    my_severity,
+                    my_ignored_lines
+                );
+                my_state = this.fresh_state();
+                i++;
                 continue;
             }
 

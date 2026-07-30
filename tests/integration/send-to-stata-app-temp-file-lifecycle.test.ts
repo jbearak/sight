@@ -13,6 +13,8 @@ import * as crypto from 'crypto';
 import * as os from 'os';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
+import * as real_applescript_module from
+    '../../client/src/send-to-stata/applescript';
 
 const SEND_TO_STATA_DIR = path.resolve(
     import.meta.dir,
@@ -28,6 +30,9 @@ const CD_CONTEXT_MODULE_URL = pathToFileURL(
 const APPLESCRIPT_MODULE_URL = pathToFileURL(
     path.join(SEND_TO_STATA_DIR, 'applescript.ts')
 ).href;
+// Bun updates cached module bindings when mock.module() runs. Snapshot the real
+// export shape first so unrelated tests keep the real helper implementations.
+const REAL_APPLESCRIPT_EXPORTS = { ...real_applescript_module };
 const STATA_DETECTOR_MODULE_URL = pathToFileURL(
     path.join(SEND_TO_STATA_DIR, 'stata-detector.ts')
 ).href;
@@ -406,11 +411,7 @@ describe.serial('Feature: send-to-stata app temp file lifecycle', () => {
         }));
 
         mock.module(APPLESCRIPT_MODULE_URL, () => ({
-            escape_for_applescript: (my_path: string) => {
-                return my_path
-                    .replace(/\\/g, '\\\\')
-                    .replace(/"/g, '\\"');
-            },
+            ...REAL_APPLESCRIPT_EXPORTS,
             send_to_stata_app: async (
                 _stata_app: string,
                 _command: string,

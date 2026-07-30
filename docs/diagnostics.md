@@ -147,14 +147,18 @@ Compact, top-level `|| levelvar:` random-equation separators are not treated as
 logical operators for these exact-case commands: `mixed`, `mecloglog`, `meglm`,
 `meintreg`, `melogit`, `menbreg`, `meologit`, `meoprobit`, `mepoisson`,
 `meprobit`, `meqrlogit`, `meqrpoisson`, `mestreg`, `metobit`, `xtmixed`,
-`xtmelogit`, and `xtmepoisson`. The same exception applies after exact-case
-simple prefix abbreviations from their documented minimum through the full
-command: `cap`–`capture`, `qui`–`quietly`, and `noi`–`noisily`. The exact-case,
-colon-required `xi:` prefix is also supported; bare `xi` is not.
-Mixed-command abbreviations, wrong-case commands, argument-bearing prefixes,
-user programs, and commands such as `menl`, `gsem`, `twoway`, and `svyset` fail
-closed. The bars themselves must be adjacent; whitespace, comments, or `///`
-between them preserve `INVALID_OPERATOR_SEQUENCE`.
+`xtmelogit`, and `xtmepoisson`. A plausible `levelvar:` must be the next
+significant content immediately after the compact bars. Fixed-effects model
+content must precede the first separator; only `mestreg` may omit it. Thus
+`mixed || id:` is flagged, while `mestreg || id:` is accepted. The same
+exception applies after exact-case simple prefix abbreviations from their
+documented minimum through the full command: `cap`–`capture`, `qui`–`quietly`,
+and `noi`–`noisily`. The exact-case, colon-required `xi:` prefix is also
+supported; bare `xi` is not. Mixed-command abbreviations, wrong-case commands,
+argument-bearing prefixes, user programs, and commands such as `menl`, `gsem`,
+`twoway`, and `svyset` fail closed. The bars themselves must be adjacent;
+whitespace, comments, or `///` between them preserve
+`INVALID_OPERATOR_SEQUENCE`.
 
 These operator/expression rules are heuristic token-stream checks. Apart from
 the narrow mixed-effects separator exception, they do not parse per-command

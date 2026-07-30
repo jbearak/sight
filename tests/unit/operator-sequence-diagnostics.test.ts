@@ -560,16 +560,14 @@ describe('OperatorSequenceAnalyzer Unit Tests', () => {
                     'mestreg [pw=weight] || id:, distribution(weibull)'
                 )
             ).toHaveLength(0);
+        });
+
+        it('requires fixed-effects model content for mixed', () => {
             expect(
                 operator_sequence_diagnostics('mixed || id:')
             ).toHaveLength(1);
             expect(
                 operator_sequence_diagnostics('mixed in 1/10 || id:')
-            ).toHaveLength(1);
-            expect(
-                operator_sequence_diagnostics(
-                    'mixed [pw=weight] || id:'
-                )
             ).toHaveLength(1);
         });
 

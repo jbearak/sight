@@ -1509,15 +1509,7 @@ describe('Mixed-effects separator properties (issue #320)', () => {
         arbitrary_numeric_macro_name_head
     );
     const my_analyzer = new OperatorSequenceAnalyzer();
-    const my_config: StataLSPConfig = {
-        ...DEFAULT_SETTINGS,
-        diagnostics: {
-            ...DEFAULT_SETTINGS.diagnostics,
-            severity: {
-                ...DEFAULT_SETTINGS.diagnostics.severity,
-            },
-        },
-    };
+    const my_config: StataLSPConfig = { ...DEFAULT_SETTINGS };
 
     const operator_sequence_diagnostics = (source: string) =>
         my_analyzer.analyze(

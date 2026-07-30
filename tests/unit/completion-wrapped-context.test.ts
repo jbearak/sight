@@ -343,6 +343,52 @@ describe('detect_completion_context — statement-scoped detectors over logical 
         }
     });
 
+    it('validates a lowercase prefix chain wrapped under #delimit ;', () => {
+        const source = '#delimit ;\nby group:\nquietly:\nframe ';
+        const context = context_of(
+            source,
+            { line: 3, character: 6 },
+            frame_command_db()
+        );
+        expect(context).toEqual({
+            type: 'subcommand',
+            prefix_command: 'frame',
+        });
+    });
+
+    it('validates a lowercase colon prefix across a true /// wrap', () => {
+        const source = 'capture: ///\n    frame ';
+        const context = context_of(
+            source,
+            { line: 1, character: 10 },
+            frame_command_db()
+        );
+        expect(context).toEqual({
+            type: 'subcommand',
+            prefix_command: 'frame',
+        });
+    });
+
+    it('rejects a wrong-case by prefix wrapped under #delimit ;', () => {
+        const source = '#delimit ;\nBY group:\nframe ';
+        const context = context_of(
+            source,
+            { line: 2, character: 6 },
+            frame_command_db()
+        );
+        expect(context.type).not.toBe('subcommand');
+    });
+
+    it('rejects a wrong-case colon prefix across a true /// wrap', () => {
+        const source = 'CAPTURE: ///\n    frame ';
+        const context = context_of(
+            source,
+            { line: 1, character: 10 },
+            frame_command_db()
+        );
+        expect(context.type).not.toBe('subcommand');
+    });
+
     it('still returns command_path for a genuine single-line file command', () => {
         const context = context_of('do myfile.do', { line: 0, character: 4 });
         expect(context.type).toBe('command_path');
