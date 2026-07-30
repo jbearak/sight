@@ -31,6 +31,17 @@ const EXPRESSION_BREAKERS: Set<string> = new Set([
 ]);
 
 /**
+ * Trivia skipped when checking whether a logical operator begins `||` or
+ * `&&`. Real statement terminators still stop the lookahead.
+ */
+const COMPOUND_LOGICAL_TRIVIA_TYPES: Set<string> = new Set([
+    'WHITESPACE',
+    'CONTINUATION',
+    'COMMENT_BLOCK',
+    'COMMENT_LINE',
+]);
+
+/**
  * State tracked for a single parenthesis group.
  */
 interface GroupState {
@@ -248,11 +259,10 @@ export class MixedLogicalOperatorAnalyzer {
         let my_in_continuation = false;
         for (let my_i = start_index + 1; my_i < the_tokens.length; my_i++) {
             const my_next_token = the_tokens[my_i];
-            if (my_next_token.type === 'WHITESPACE') {
-                continue;
-            }
-            if (my_next_token.type === 'CONTINUATION') {
-                my_in_continuation = true;
+            if (COMPOUND_LOGICAL_TRIVIA_TYPES.has(my_next_token.type)) {
+                if (my_next_token.type === 'CONTINUATION') {
+                    my_in_continuation = true;
+                }
                 continue;
             }
             if (

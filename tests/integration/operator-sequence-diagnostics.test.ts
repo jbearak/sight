@@ -182,6 +182,97 @@ describe('Operator Sequence Diagnostics Integration', () => {
             ]);
         });
 
+        it('reports only invalid bars separated by a block comment', async () => {
+            const my_content = 'display a & b |/* comment */| c';
+            const my_uri = 'file:///test_comment_separated_double_bar.do';
+            await document_store.open(my_uri, my_content, 1);
+            const my_document = document_store.get(my_uri)!;
+
+            const the_diagnostics =
+                await diagnostics_provider.get_diagnostics(
+                    my_document,
+                    default_config
+                );
+
+            expect(
+                the_diagnostics.map((my_diagnostic) => ({
+                    code: my_diagnostic.code,
+                    range: my_diagnostic.range,
+                }))
+            ).toEqual([
+                {
+                    code: StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE,
+                    range: {
+                        start: { line: 0, character: 14 },
+                        end: { line: 0, character: 29 },
+                    },
+                },
+            ]);
+        });
+
+        it('keeps line-comment-separated bars adjacent in ; mode', async () => {
+            const my_content = [
+                '#delimit ;',
+                'display a & b |// comment',
+                '| c ;',
+            ].join('\n');
+            const my_uri = 'file:///test_line_comment_double_bar_semicolon.do';
+            await document_store.open(my_uri, my_content, 1);
+            const my_document = document_store.get(my_uri)!;
+
+            const the_diagnostics =
+                await diagnostics_provider.get_diagnostics(
+                    my_document,
+                    default_config
+                );
+
+            expect(
+                the_diagnostics.map((my_diagnostic) => ({
+                    code: my_diagnostic.code,
+                    range: my_diagnostic.range,
+                }))
+            ).toEqual([
+                {
+                    code: StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE,
+                    range: {
+                        start: { line: 1, character: 14 },
+                        end: { line: 2, character: 1 },
+                    },
+                },
+            ]);
+        });
+
+        it('stops line-comment adjacency at a CR terminator', async () => {
+            const my_content = [
+                'display a & b |// comment',
+                '| c',
+            ].join('\n');
+            const my_uri = 'file:///test_line_comment_double_bar_cr.do';
+            await document_store.open(my_uri, my_content, 1);
+            const my_document = document_store.get(my_uri)!;
+
+            const the_diagnostics =
+                await diagnostics_provider.get_diagnostics(
+                    my_document,
+                    default_config
+                );
+
+            expect(
+                the_diagnostics.map((my_diagnostic) => ({
+                    code: my_diagnostic.code,
+                    range: my_diagnostic.range,
+                }))
+            ).toEqual([
+                {
+                    code: StataDiagnosticCode.MIXED_LOGICAL_OPERATORS,
+                    range: {
+                        start: { line: 0, character: 10 },
+                        end: { line: 0, character: 15 },
+                    },
+                },
+            ]);
+        });
+
         it('should emit spaced compound operator diagnostics alongside semantic diagnostics', async () => {
             // Code with both undefined macro and a spaced compound operator
             const my_content = `display \`undefined_macro'

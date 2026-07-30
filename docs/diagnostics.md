@@ -156,7 +156,10 @@ documented minimum through the full command: `cap`–`capture`, `qui`–`quietly
 and `noi`–`noisily`. The exact-case, colon-required `xi:` prefix is also
 supported; bare `xi` is not. Mixed-command abbreviations, wrong-case commands,
 argument-bearing prefixes, user programs, and commands such as `menl`, `gsem`,
-`twoway`, and `svyset` fail closed. The bars themselves must be adjacent;
+`twoway`, and `svyset` fail closed. The exception also fails closed when any
+top-level comma appears before the first `||`, including a comma that introduces
+valid fixed-equation options. Sight deliberately does not parse command-specific
+`fe_options` for this exception. The bars themselves must be adjacent;
 whitespace, comments, or `///` between them preserve
 `INVALID_OPERATOR_SEQUENCE`.
 
