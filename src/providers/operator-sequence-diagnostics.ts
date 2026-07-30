@@ -558,13 +558,54 @@ function mark_mixed_effects_separators_in_statement(
 }
 
 /**
+ * Memo shared by the sibling analyzers, keyed by token-array identity.
+ * Each lex produces a fresh token array, so identity is a sound cache key
+ * and stale entries are collected with their arrays.
+ */
+const mixed_effects_separator_starts_memo =
+    new WeakMap<Token[], Set<Token>>();
+
+function file_mentions_mixed_effects_command(tokens: Token[]): boolean {
+    for (const my_token of tokens) {
+        if (
+            my_token.type === 'WORD' &&
+            MIXED_EFFECTS_SEPARATOR_COMMANDS.has(my_token.value)
+        ) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
  * Return the first bar token of each recognized mixed-effects separator.
  * Sibling token-stream analyzers use this shared classification so the
- * command-specific grammar remains single-sourced.
+ * command-specific grammar remains single-sourced. Results are memoized
+ * per token array because both analyzers run on every diagnostics pass.
  */
 export function collect_mixed_effects_separator_starts(
     tokens: Token[]
 ): Set<Token> {
+    const my_memoized = mixed_effects_separator_starts_memo.get(tokens);
+    if (my_memoized !== undefined) {
+        return my_memoized;
+    }
+
+    const the_separator_starts =
+        compute_mixed_effects_separator_starts(tokens);
+    mixed_effects_separator_starts_memo.set(tokens, the_separator_starts);
+    return the_separator_starts;
+}
+
+function compute_mixed_effects_separator_starts(
+    tokens: Token[]
+): Set<Token> {
+    // Most files contain no mixed-effects command; skip the significant-
+    // token rebuild and statement walk entirely for them.
+    if (!file_mentions_mixed_effects_command(tokens)) {
+        return new Set<Token>();
+    }
+
     const the_significant = collect_significant_tokens(tokens);
     const the_separator_starts = new Set<Token>();
     let statement_start = 0;

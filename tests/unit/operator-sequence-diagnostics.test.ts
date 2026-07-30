@@ -17,7 +17,10 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { DiagnosticSeverity } from 'vscode-languageserver';
 import { StataLexer } from '../../src/lexer';
-import { OperatorSequenceAnalyzer } from '../../src/providers/operator-sequence-diagnostics';
+import {
+    OperatorSequenceAnalyzer,
+    collect_mixed_effects_separator_starts,
+} from '../../src/providers/operator-sequence-diagnostics';
 import { StataDiagnosticCode, StataLSPConfig } from '../../src/types';
 import { DEFAULT_SETTINGS } from '../../src/server-handlers';
 import { create_document_state } from '../property/helpers/document-utils';
@@ -1197,6 +1200,59 @@ describe('OperatorSequenceAnalyzer Unit Tests', () => {
             const diagnostics = analyzer.analyze(doc, default_config);
             expect(diagnostics).toHaveLength(1);
             expect(diagnostics[0].source).toBe('sight');
+        });
+    });
+
+    describe('Separator-start memoization', () => {
+        it('returns the same Set instance for the same token array', () => {
+            const doc = create_document_state('mixed y x || id:');
+            const first_result =
+                collect_mixed_effects_separator_starts(doc.tokens);
+            const second_result =
+                collect_mixed_effects_separator_starts(doc.tokens);
+            expect(second_result).toBe(first_result);
+            expect(first_result.size).toBe(1);
+        });
+
+        it('computes independently for distinct token arrays of equal source', () => {
+            const doc_a = create_document_state('mixed y x || id:');
+            const doc_b = create_document_state('mixed y x || id:');
+            const result_a =
+                collect_mixed_effects_separator_starts(doc_a.tokens);
+            const result_b =
+                collect_mixed_effects_separator_starts(doc_b.tokens);
+            expect(result_a).not.toBe(result_b);
+            expect(result_a.size).toBe(1);
+            expect(result_b.size).toBe(1);
+        });
+
+        it('returns an empty set for files without mixed-effects commands', () => {
+            const doc = create_document_state(
+                'display x || y\nregress y x || id:'
+            );
+            const result =
+                collect_mixed_effects_separator_starts(doc.tokens);
+            expect(result.size).toBe(0);
+        });
+
+        it('early exit does not suppress diagnostics for plain double bars', () => {
+            const doc = create_document_state('display x || y');
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const invalid = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
+            );
+            expect(invalid).toHaveLength(1);
+        });
+
+        it('still recognizes separators when another statement mentions the command', () => {
+            const doc = create_document_state(
+                'display "mixed models"\nmixed y x || id:'
+            );
+            const diagnostics = analyzer.analyze(doc, default_config);
+            const invalid = diagnostics.filter(
+                d => d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
+            );
+            expect(invalid).toHaveLength(0);
         });
     });
 });
