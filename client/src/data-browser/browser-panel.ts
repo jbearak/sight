@@ -43,6 +43,7 @@ import type { DataBrowserSortStateStore } from './sort-state.js';
 import type { DataBrowserFilterStateStore } from './filter-state.js';
 import { should_unlink_data_browser_path } from './opening.js';
 import { RowCache } from './row-cache.js';
+import { page_size_for_column_count } from './page-size.js';
 import { schema_hash } from './schema-hash.js';
 import type {
     WebviewMessage,
@@ -87,7 +88,12 @@ function is_timestamp_format(format: string): boolean {
     return /^%-?t[cC]/.test(format);
 }
 
-const PAGE_SIZE = 200;
+/**
+ * Rows per read when scanning one column for copy. Reads are a single
+ * column wide, so the chunk can be far larger than a viewport page
+ * while staying far below the parser's own chunk bound.
+ */
+const COPY_COLUMN_SCAN_ROWS = 16384;
 const MAX_CACHED_PAGES = 10;
 // Upper bound on value-label entries shipped per column to the webview.
 const MAX_SHIPPED_VALUE_LABELS = 10_000;
@@ -114,7 +120,7 @@ function can_compute_histogram(
 export class DataBrowserPanel implements vscode.Disposable {
     private panel: vscode.WebviewPanel;
     private dta_file: DtaFile | null = null;
-    private row_cache = new RowCache(MAX_CACHED_PAGES, PAGE_SIZE);
+    private row_cache = new RowCache(MAX_CACHED_PAGES);
     private disposables: vscode.Disposable[] = [];
     private sidecar: VviewSidecar;
     private dta_path: string;
@@ -669,6 +675,7 @@ export class DataBrowserPanel implements vscode.Disposable {
         const my_metadata: MetadataMessage = {
             type: 'metadata',
             nobs: this.dta_file.nobs,
+            page_size: page_size_for_column_count(this.dta_file.nvar),
             missing_value_style: missing_value_style,
             variables: variables,
             schema_hash: schema_hash_value,
@@ -1793,10 +1800,10 @@ export class DataBrowserPanel implements vscode.Disposable {
             for (
                 let my_offset = 0;
                 my_offset < my_nobs;
-                my_offset += PAGE_SIZE
+                my_offset += COPY_COLUMN_SCAN_ROWS
             ) {
                 const my_count = Math.min(
-                    PAGE_SIZE,
+                    COPY_COLUMN_SCAN_ROWS,
                     my_nobs - my_offset
                 );
                 const the_raw_rows =

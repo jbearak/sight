@@ -99,6 +99,12 @@ export interface MetadataMessage {
     type: 'metadata';
     nobs: number;
     variables: VariableDescription[];
+    /**
+     * Rows per page the webview should request; shrinks for wide
+     * datasets. Absent from older hosts, in which case the webview
+     * falls back to the default page size.
+     */
+    page_size?: number;
     name: string;
     dataset_key: string;
     schema_hash: string;

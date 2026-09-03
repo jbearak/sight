@@ -5,7 +5,8 @@ import type {
     VariableDescription,
 } from '../types.js';
 
-export const PAGE_SIZE = 200;
+export { PAGE_SIZE } from '../page-size.js';
+import { PAGE_SIZE } from '../page-size.js';
 export const MIN_COLUMN_WIDTH_PX = 72;
 export const MAX_COLUMN_WIDTH_PX = 280;
 export const HEADER_HORIZONTAL_PADDING_PX = 16;

@@ -164,11 +164,7 @@ describe('data browser smoke test', () => {
 
             await expect(
                 DtaFile.open(my_ancient_path)
-            ).rejects.toThrow(
-                'Unsupported .dta format: only ' +
-                'Stata 8+ files (formats 113-115 ' +
-                'and 117-119) are supported'
-            );
+            ).rejects.toThrow('Unsupported .dta format');
         } finally {
             fs.rmSync(my_temp_dir, {
                 recursive: true,

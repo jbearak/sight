@@ -10,7 +10,7 @@ export class RowCache {
     private readonly max_pages: number;
     private readonly cache: Map<number, Row[]>;
 
-    constructor(max_pages: number = 10, _page_size: number = 200) {
+    constructor(max_pages: number = 10) {
         this.max_pages = max_pages;
         // Map insertion order tracks recency: oldest first.
         this.cache = new Map();

@@ -5,7 +5,7 @@
     "": {
       "name": "@jbearak/sight",
       "dependencies": {
-        "@jbearak/dta-parser": "^0.3.0",
+        "@jbearak/dta-parser": "^0.6.0",
         "picomatch": "^4.0.2",
         "smol-toml": "^1.6.1",
         "vscode-languageserver": "^9.0.1",
@@ -32,10 +32,10 @@
     },
     "client": {
       "name": "sight",
-      "version": "0.9.0",
+      "version": "0.14.2",
       "dependencies": {
         "@glideapps/glide-data-grid": "^6.0.3",
-        "@jbearak/dta-parser": "^0.3.0",
+        "@jbearak/dta-parser": "^0.6.0",
         "react": "^18.3.1",
         "react-dom": "^18.3.1",
         "vscode-languageclient": "^8.1.0",
@@ -254,7 +254,7 @@
 
     "@istanbuljs/schema": ["@istanbuljs/schema@0.1.3", "", {}, "sha512-ZXRY4jNvVgSVQ8DL3LTcakaAtXwTVUxE81hslsyD2AtoXW/wVob10HkOJ1X/pAlcI7D+2YoZKg5do8G/w6RYgA=="],
 
-    "@jbearak/dta-parser": ["@jbearak/dta-parser@0.3.0", "", {}, "sha512-R0hZJfI/uCevvlOXr44U7Z/hUZHsUfyathkkJ3EBBx9+d7yEiugx9+cluUV2ApypLSmo9Tc3zjOf1eBb9syaNQ=="],
+    "@jbearak/dta-parser": ["@jbearak/dta-parser@0.6.0", "", {}, "sha512-MKY1Z301w5+jeKRM9jUBMlguviMqNqc9B1AQETamCdwpWNWNVNDB3cuP9bV07l3syly8DdZCnr0uZrim6NIhaA=="],
 
     "@jest/console": ["@jest/console@29.7.0", "", { "dependencies": { "@jest/types": "^29.6.3", "@types/node": "*", "chalk": "^4.0.0", "jest-message-util": "^29.7.0", "jest-util": "^29.7.0", "slash": "^3.0.0" } }, "sha512-5Ni4CU7XHQi32IJ398EEP4RrB8eV09sXP2ROqD4bksHrnTree52PsxvX8tpL8LvTZ3pFzXyPbNQReSN41CAhOg=="],
 

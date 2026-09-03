@@ -91,7 +91,7 @@ You can also open `.dta` files directly in the data browser without using `vview
 - Right-click a `.dta` file and select **Open in Sight Data Browser**
 - Run **Sight: Open Data Browser** from the Command Palette
 
-This supports Stata formats 113–119 (Stata 8 through Stata 18).
+This supports Stata formats 105–119 (Stata 5 through Stata 18).
 
 ## Features
 
