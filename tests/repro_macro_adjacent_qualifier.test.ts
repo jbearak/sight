@@ -21,7 +21,9 @@ describe('Macro-adjacent names in if-qualifier', () => {
     }
 
     function first_command(code: string) {
-        const node = parse(code).ast.nodes[0];
+        const result = parse(code);
+        expect(result.errors).toHaveLength(0);
+        const node = result.ast.nodes[0];
         if (!node || node.type !== 'command') {
             throw new Error(`Expected a command node for: ${code}`);
         }
@@ -29,8 +31,8 @@ describe('Macro-adjacent names in if-qualifier', () => {
     }
 
     it('accepts macro prefix on both sides of a comparison', () => {
-        const code =
-            "quietly count if `var'_wm != `var'_bh & survey_source_flag == 0";
+        const code = "quietly count if `var'_wm != `var'_bh " +
+            "& survey_source_flag == 0";
         expect(stray_errors(code)).toHaveLength(0);
     });
 
