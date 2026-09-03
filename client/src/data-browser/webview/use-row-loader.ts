@@ -170,13 +170,18 @@ export function use_row_loader(): UseRowLoaderResult {
         set_pending_filter(next_filter);
     }, []);
 
+    // Rows per page, taken from host metadata so wide datasets page in
+    // smaller windows. A ref keeps request/lookup math in sync without
+    // re-creating callbacks; the default covers pre-metadata calls.
+    const page_size_ref = useRef<number>(PAGE_SIZE);
+
     const request_page = useCallback(
         (page_start: number) => {
             const request_id = pending_pages.current.track(page_start);
             vscode_api.postMessage({
                 type: 'requestRows',
                 start: page_start,
-                count: PAGE_SIZE,
+                count: page_size_ref.current,
                 request_id,
             });
         },
@@ -216,7 +221,7 @@ export function use_row_loader(): UseRowLoaderResult {
         const the_page_starts = page_starts_to_refetch({
             viewport_start: my_viewport.start,
             viewport_end: my_viewport.end,
-            page_size: PAGE_SIZE,
+            page_size: page_size_ref.current,
             loaded_page_starts: my_loaded_page_starts,
         });
 
@@ -267,6 +272,7 @@ export function use_row_loader(): UseRowLoaderResult {
 
                 const my_pages = new Map<number, CellValue[][]>();
                 pages_ref.current = my_pages;
+                page_size_ref.current = my_msg.page_size ?? PAGE_SIZE;
                 set_metadata(my_msg);
                 set_pages(my_pages);
                 pending_pages.current.clear();
@@ -426,7 +432,7 @@ export function use_row_loader(): UseRowLoaderResult {
         const the_page_starts = get_needed_page_starts(
             start_row,
             end_row,
-            PAGE_SIZE
+            page_size_ref.current
         );
 
         for (const my_page_start of the_page_starts) {
@@ -451,8 +457,9 @@ export function use_row_loader(): UseRowLoaderResult {
     );
 
     function get_row(row_index: number): CellValue[] | undefined {
-        const my_page_start = Math.floor(row_index / PAGE_SIZE)
-            * PAGE_SIZE;
+        const my_page_size = page_size_ref.current;
+        const my_page_start = Math.floor(row_index / my_page_size)
+            * my_page_size;
         const my_page = pages.get(my_page_start);
         if (!my_page) {
             return undefined;
