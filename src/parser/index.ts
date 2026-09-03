@@ -2086,13 +2086,28 @@ export class StataParser {
   }
 
   /**
-   * Check if the token can be part of an operand in a qualifier
-   * expression: a word, number, string, or macro reference.
+   * Check if the token is a macro reference (local or global).
    */
-  private isOperandToken(token: Token): boolean {
-    return token.type === 'WORD' || token.type === 'NUMBER' ||
-           token.type === 'STRING' || token.type === 'MACRO_REF_LOCAL' ||
+  private isMacroRefToken(token: Token): boolean {
+    return token.type === 'MACRO_REF_LOCAL' ||
            token.type === 'MACRO_REF_GLOBAL';
+  }
+
+  /**
+   * Check if `token` continues the operand started by `prev_token`.
+   * The lexer splits a name at macro boundaries, so `var'_bh becomes a
+   * macro reference followed by a WORD with no gap between them. The two
+   * tokens are one operand when they are physically adjacent, both are
+   * operand-like (word, number, or macro reference), and at least one is
+   * a macro reference. Strings are excluded: "foo"bar is invalid Stata.
+   */
+  private isAdjacentOperandFragment(prev_token: Token, token: Token): boolean {
+    const is_operand_like = (t: Token): boolean =>
+      t.type === 'WORD' || t.type === 'NUMBER' || this.isMacroRefToken(t);
+    return is_operand_like(prev_token) &&
+           is_operand_like(token) &&
+           (this.isMacroRefToken(prev_token) || this.isMacroRefToken(token)) &&
+           this.isAdjacentToken(prev_token, token);
   }
 
   /**
@@ -3272,6 +3287,17 @@ export class StataParser {
         continue;
       }
 
+      // A name that mixes macro references and literal text, such as
+      // `var'_bh or y_`var', is lexed as several physically adjacent
+      // tokens. Those fragments form a single operand: a fragment that
+      // directly touches the previous operand is neither a stray token
+      // nor an `in` qualifier keyword. Plain adjacency without a macro
+      // reference (for example "foo"bar) is not a fragment, because the
+      // lexer only splits names at macro boundaries.
+      const is_operand_fragment =
+        prev_token !== null &&
+        this.isAdjacentOperandFragment(prev_token, token);
+
       // Stop at top-level separators (only when not inside brackets). A
       // statement terminator is always a hard stop and is handled before depth
       // accounting above.
@@ -3279,8 +3305,10 @@ export class StataParser {
         if (token.type === 'COMMA') {
           break;
         }
-        // Stop at 'in' keyword (only for if-qualifiers)
-        if (stop_at_in && token.type === 'WORD' && token.value === 'in') {
+        // Stop at 'in' keyword (only for if-qualifiers), unless it is
+        // the literal tail of a macro-built name such as `var'in.
+        if (stop_at_in && token.type === 'WORD' && token.value === 'in' &&
+            !is_operand_fragment) {
           break;
         }
         // Stop at opening brace (brace-style blocks)
@@ -3304,16 +3332,6 @@ export class StataParser {
 
       // Get current state for this paren level
       const current_state = state_stack[state_stack.length - 1];
-
-      // A name that mixes macro references and literal text, such as
-      // `var'_bh or y_`var', is lexed as several physically adjacent
-      // tokens. Those fragments form a single operand, so a fragment that
-      // directly touches the previous operand is never a stray token.
-      const is_operand_fragment =
-        prev_token !== null &&
-        this.isOperandToken(prev_token) &&
-        this.isOperandToken(token) &&
-        this.isAdjacentToken(prev_token, token);
 
       // Stray token and split literal detection - skip if in string context, inside brackets, or if this is a delimiter-only STRING
       // We also skip delimiter-only STRING tokens because they are part of the string literal structure
