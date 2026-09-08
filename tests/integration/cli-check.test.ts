@@ -47,6 +47,44 @@ describe('sight check integration', () => {
         );
     });
 
+    it('does not report diagnostics from automatically discovered hidden worktrees', async () => {
+        const root = temp_dir();
+        const hidden_dir = path.join(root, '.claude', 'worktrees', 'replica');
+        fs.mkdirSync(hidden_dir, { recursive: true });
+        fs.writeFileSync(path.join(root, 'main.do'), 'display 1\n');
+        fs.writeFileSync(
+            path.join(hidden_dir, 'hidden.do'),
+            "display \"`hidden_only_macro'\"\n"
+        );
+
+        const result = await run_capture(
+            ['--workspace', root, '--no-config', '--quiet'], root
+        );
+
+        expect(result.stderr).toBe('');
+        expect(result.stdout).toBe('');
+        expect(result.code).toBe(EXIT_OK);
+    });
+
+    it('still diagnoses an explicitly selected hidden worktree file', async () => {
+        const root = temp_dir();
+        const relative = '.claude/worktrees/replica/hidden.do';
+        const source_path = path.join(root, relative);
+        fs.mkdirSync(path.dirname(source_path), { recursive: true });
+        fs.writeFileSync(source_path, "display \"`hidden_only_macro'\"\n");
+
+        const result = await run_capture(
+            ['--workspace', root, '--no-config', '--quiet', relative], root
+        );
+
+        expect(result.stderr).toBe('');
+        expect(result.code).toBe(EXIT_CHECK_FAILED);
+        expect(result.stdout).toContain(`${relative}:1:`);
+        expect(result.stdout).toContain(
+            `[${StataDiagnosticCode.UNDEFINED_MACRO.toLowerCase()}]`
+        );
+    });
+
     it('honors sight: standalone in batch mode (issue #208)', async () => {
         // parent.do defines the macro and calls child.do; without the
         // standalone marker the auto-discovered parent would suppress the
@@ -306,6 +344,65 @@ describe('sight check integration', () => {
         expect(result.code).toBe(EXIT_CHECK_FAILED);
         expect(result.stdout).toContain('output/gen.do:1:');
         expect(result.stdout).not.toContain('was not indexed');
+    });
+
+    it('checks an explicit hidden file even at the max-indexed-files cap', async () => {
+        const root = temp_dir();
+        const relative = '.claude/worktrees/replica/hidden.do';
+        const source_path = path.join(root, relative);
+        fs.mkdirSync(path.dirname(source_path), { recursive: true });
+        fs.writeFileSync(
+            path.join(root, 'sight.toml'),
+            '[crossFile]\nmaxIndexedFiles = 1\n'
+        );
+        fs.writeFileSync(path.join(root, 'main.do'), 'display 1\n');
+        fs.writeFileSync(source_path, "display \"`hidden_only_macro'\"\n");
+
+        const config_result = load_check_config({
+            cwd: root,
+            workspace_root: root,
+            no_config: false,
+        });
+        expect(config_result.kind).toBe('loaded');
+        if (config_result.kind !== 'loaded') return;
+        const context = await build_check_context(root, config_result.config);
+        try {
+            expect(context.workspace_indexer.get_metrics().files_indexed).toBe(1);
+        } finally {
+            await context.document_store.dispose();
+        }
+
+        const result = await run_capture(
+            ['--workspace', root, '--quiet', relative], root
+        );
+
+        expect(result.code).toBe(EXIT_CHECK_FAILED);
+        expect(result.stdout).toContain(`${relative}:1:`);
+        expect(result.stdout).toContain(
+            `[${StataDiagnosticCode.UNDEFINED_MACRO.toLowerCase()}]`
+        );
+        expect(result.stdout).not.toContain('was not indexed');
+    });
+
+    it('preserves the index-cap warning for a selected hidden ADO root', async () => {
+        const root = fs.realpathSync.native(temp_dir());
+        const ado_root = path.join(root, '.ado');
+        fs.mkdirSync(ado_root);
+        fs.writeFileSync(
+            path.join(root, 'sight.toml'),
+            `adoPaths = [${JSON.stringify(ado_root)}]\n` +
+                '[crossFile]\nmaxIndexedFiles = 1\n'
+        );
+        fs.writeFileSync(path.join(root, 'main.do'), 'display 1\n');
+        fs.writeFileSync(path.join(ado_root, 'extra.ado'), 'display 2\n');
+
+        const result = await run_capture(
+            ['--workspace', root, '--quiet', '.ado/extra.ado'], root
+        );
+
+        expect(result.code).toBe(EXIT_CHECK_FAILED);
+        expect(result.stdout).toContain('.ado/extra.ado:1:');
+        expect(result.stdout).toContain('was not indexed');
     });
 
     it('reports explicit .mata files skipped by max indexed files', async () => {

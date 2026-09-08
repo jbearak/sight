@@ -52,11 +52,11 @@ import {
 } from '../utils/findalias-resolver';
 import {
     hasStataExtension,
-    VCS_METADATA_DIRS,
     build_cd_timeline,
     apply_cd_timeline,
 } from '../utils/file-path-utils';
 import { entry_is_file_async } from '../utils/symlink-aware-entry';
+import { is_hidden_source_path } from '../utils/source-discovery-policy';
 import {
     create_exclude_matcher,
     type ExcludeMatcher,
@@ -128,6 +128,7 @@ export class WorkspaceIndexer {
     private is_processing_queue = false;
     private on_graph_change_callback?: (changed_callees: Set<string>) => void;
     private workspace_roots: string[] = [];
+    private scan_roots: string[] = [];
     // Optional ScopeResolver used during indexing to resolve a file's
     // INHERITED working directory (#218). When unset, indexing stamps
     // only the file's own @lsp-cd / @lsp-wd directive.
@@ -303,6 +304,10 @@ export class WorkspaceIndexer {
         }
         this.ado_paths = ado_paths;
         this.workspace_roots = workspace_folders.map(f => path.resolve(f));
+        this.scan_roots = [
+            ...this.workspace_roots,
+            ...ado_paths.map(my_path => path.resolve(my_path)),
+        ];
         // Auto-detect Stata install / user ado directories for help
         // lookup. The discovery is cheap (a handful of `fs.statSync`
         // calls on well-known paths) and non-fatal if none exist.
@@ -364,11 +369,10 @@ export class WorkspaceIndexer {
                 // listing/lookup consumers (path completion, the .sthlp
                 // lookup), which keep no path-keyed analysis state.
                 if (entry.isDirectory()) {
-                    // Skip version-control metadata directories. They hold no
-                    // Stata source, can be very large, and recursing them is
-                    // pure scan overhead — the standard convention for code
-                    // indexers and language servers.
-                    if (VCS_METADATA_DIRS.has(entry.name)) {
+                    // Prune hidden directories before descent: caches and
+                    // worktrees must not consume scan time or index capacity.
+                    // Explicit scan roots are entered by initialize instead.
+                    if (entry.name.startsWith('.')) {
                         continue;
                     }
                     // Prune directories whose every descendant is excluded by
@@ -508,6 +512,11 @@ export class WorkspaceIndexer {
     ): Promise<void> {
         if (!this.is_active_generation(generation) || !this.enabled) return;
         const file_uri = URI.file(file_path).toString();
+        // Watcher, save, and close updates bypass scan_directory. Enforce
+        // the same discovery boundary before any file IO or cap accounting.
+        // Do not evict graph edges: an explicitly opened hidden document
+        // may own them even though it is not in the persistent index.
+        if (is_hidden_source_path(file_path, this.scan_roots)) return;
         // Honor workspace `exclude` patterns on the incremental update path
         // (issue #255): scan_directory already prunes excluded files on the
         // bulk scan, but schedule_update -> index_file bypasses it. Clearing a
@@ -784,7 +793,10 @@ export class WorkspaceIndexer {
      */
     schedule_update(file_path: string): void {
         if (!this.enabled) return;
-        
+        // Ignore hidden-worktree event bursts before allocating timers.
+        // Leave any explicitly opened document's dependency edges intact.
+        if (is_hidden_source_path(file_path, this.scan_roots)) return;
+
         // Cancel existing timer for this file
         const existing = this.pending_updates.get(file_path);
         if (existing) {

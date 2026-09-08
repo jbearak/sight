@@ -12,10 +12,22 @@ headless batch suitable for CI:
 sight check [OPTIONS] [PATHS...]
 ```
 
-`sight check` always indexes the whole workspace so `do`, `run`, and `include`
-chains resolve correctly. Positional `PATHS...` only filter which files report
-diagnostics. With no paths, Sight reports every `.do`, `.ado`, `.doh`, and
-`.mata` file under the workspace.
+`sight check` indexes the workspace so `do`, `run`, and `include` chains resolve
+correctly. Positional `PATHS...` only filter which files report diagnostics.
+With no paths, Sight reports discovered `.do`, `.ado`, `.doh`, and `.mata` files
+under the workspace.
+
+Automatic discovery skips dot-prefixed descendant directories, including
+`.claude/worktrees`, `.worktrees`, and version-control metadata, before scanning
+their contents. Dot-prefixed source filenames such as `.helper.do` are still
+included. A selected workspace root or explicit directory is entered even if
+its name or an ancestor is hidden; hidden directories below it are still
+skipped. An explicitly named file is always checked. For example:
+
+```text
+sight check .claude/worktrees/replica/main.do
+sight check --workspace .claude/worktrees/replica
+```
 
 Paths matching the `workspace.exclude` setting (see
 [configuration](configuration.md#excluding-files-and-directories)) are skipped

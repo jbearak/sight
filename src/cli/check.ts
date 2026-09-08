@@ -31,6 +31,7 @@ import {
     unreadable_diagnostic,
 } from './source-files';
 import { create_exclude_matcher } from '../utils/exclude-matcher';
+import { is_hidden_source_path } from '../utils/source-discovery-policy';
 import {
     ColorChoice,
     DiagnosticRecord,
@@ -503,6 +504,7 @@ export async function collect_check_diagnostics(
     const workspace_symbols = context.workspace_indexer.get_all_symbols();
     const files_indexed = context.workspace_indexer.get_metrics().files_indexed;
     const exclude_matcher = create_exclude_matcher(config.exclude);
+    const scan_roots = [workspace_root, ...config.adoPaths];
     const the_slots: DiagnosticRecord[][] = new Array(targets.length);
 
     async function collect_target_diagnostics(
@@ -548,14 +550,14 @@ export async function collect_check_diagnostics(
         // default `sight check .` surfaces the problem too) rather than emitting
         // silently-wrong results.
         //
-        // Excluded files are deliberately never indexed (not a cap casualty),
-        // and the only way one becomes a target is an explicit name on the CLI,
-        // which is always honored (#255). So skip this guard for them rather
-        // than emitting a misleading "not indexed" diagnostic.
+        // Excluded and hidden-descendant files are deliberately not indexed,
+        // rather than cap casualties. Explicit CLI inputs still select them,
+        // so do not emit a misleading "not indexed" diagnostic (#255).
         if (
             is_within_workspace(workspace_root, target.path) &&
             files_indexed >= config.cross_file.max_indexed_files &&
             !context.workspace_indexer.has_indexed_file(uri) &&
+            !is_hidden_source_path(target.path, scan_roots) &&
             !exclude_matcher.is_excluded_file(target.path, [workspace_root])
         ) {
             records.push(diagnostic_record(

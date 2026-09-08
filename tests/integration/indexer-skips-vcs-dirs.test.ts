@@ -5,7 +5,9 @@
  * indexed; a sibling `.do` outside it must be.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import {
+    describe, it, expect, beforeEach, afterEach, spyOn,
+} from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -74,6 +76,94 @@ describe('indexer skips VCS metadata directories', () => {
                 path.join(tmp_dir, vcs, 'hooks', 'buried.do'),
             ).toString();
             expect(indexed.has(buried_uri)).toBe(false);
+        }
+    });
+
+    it('prunes hidden worktrees before reading their directories', async () => {
+        const visible = path.join(tmp_dir, '.helper.do');
+        fs.writeFileSync(visible, 'program define visible\nend\n');
+        const the_hidden_dirs = ['.claude/worktrees/copy', 'src/.cache'];
+        for (const my_dir of the_hidden_dirs) {
+            const hidden_dir = path.join(tmp_dir, my_dir);
+            fs.mkdirSync(hidden_dir, { recursive: true });
+            fs.writeFileSync(
+                path.join(hidden_dir, 'buried.do'),
+                'program define hidden\nend\n'
+            );
+        }
+
+        const readdir_spy = spyOn(fs.promises, 'readdir');
+        const indexer = new WorkspaceIndexer();
+        indexer.configure(build_config());
+        try {
+            await indexer.initialize([tmp_dir]);
+            expect([...indexer.get_indexed_files().keys()]).toEqual([
+                URI.file(visible).toString(),
+            ]);
+            const the_reads = readdir_spy.mock.calls.map(
+                my_call => String(my_call[0])
+            );
+            expect(the_reads).not.toContain(path.join(tmp_dir, '.claude'));
+            expect(the_reads).not.toContain(path.join(tmp_dir, 'src/.cache'));
+        } finally {
+            readdir_spy.mockRestore();
+            indexer.cancel();
+        }
+    });
+
+    it('rejects hidden incremental updates before reading source', async () => {
+        const indexer = new WorkspaceIndexer();
+        indexer.configure(build_config());
+        await indexer.initialize([tmp_dir]);
+        const hidden_dir = path.join(tmp_dir, '.claude/worktrees/copy');
+        fs.mkdirSync(hidden_dir, { recursive: true });
+        const hidden_file = path.join(hidden_dir, 'buried.do');
+        fs.writeFileSync(hidden_file, 'program define hidden\nend\n');
+        const read_spy = spyOn(fs.promises, 'readFile');
+        try {
+            await indexer.index_file(hidden_file);
+            expect(indexer.get_indexed_files().size).toBe(0);
+            expect(read_spy).not.toHaveBeenCalled();
+        } finally {
+            read_spy.mockRestore();
+            indexer.cancel();
+        }
+    });
+
+    it('uses selected workspace and ado roots, not hidden ancestors', async () => {
+        const nested_root = path.join(tmp_dir, '.claude/worktrees/selected');
+        const ado_root = path.join(tmp_dir, '.ado/personal');
+        for (const my_root of [nested_root, ado_root]) {
+            fs.mkdirSync(path.join(my_root, '.cache'), { recursive: true });
+            fs.writeFileSync(
+                path.join(my_root, 'visible.do'),
+                'program define visible\nend\n'
+            );
+            fs.writeFileSync(
+                path.join(my_root, '.cache/hidden.do'),
+                'program define hidden\nend\n'
+            );
+        }
+        const indexer = new WorkspaceIndexer();
+        indexer.configure(build_config());
+        try {
+            // The selected worktree is also beneath another workspace root.
+            await indexer.initialize([tmp_dir, nested_root], [ado_root]);
+            for (const my_root of [nested_root, ado_root]) {
+                const visible = path.join(my_root, 'visible.do');
+                await indexer.index_file(visible);
+                expect(indexer.has_indexed_file(
+                    URI.file(visible).toString()
+                )).toBe(true);
+                const hidden_file = path.join(my_root, '.cache/hidden.do');
+                await indexer.index_file(hidden_file);
+                expect(indexer.has_indexed_file(
+                    URI.file(hidden_file).toString()
+                )).toBe(false);
+            }
+            expect(indexer.get_indexed_files().size).toBe(2);
+        } finally {
+            indexer.cancel();
         }
     });
 });

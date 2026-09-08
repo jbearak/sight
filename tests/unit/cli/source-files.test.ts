@@ -42,6 +42,78 @@ describe('sight check source files', () => {
         ]);
     });
 
+    it('prunes hidden directories but preserves hidden source filenames', () => {
+        const root = temp_dir();
+        const the_hidden_dirs = [
+            '.claude/worktrees/replica',
+            '.worktrees/replica',
+            'analysis/.cache',
+        ];
+        for (const my_dir of the_hidden_dirs) {
+            fs.mkdirSync(path.join(root, my_dir), { recursive: true });
+            fs.writeFileSync(path.join(root, my_dir, 'ignored.do'), 'bad\n');
+        }
+        fs.writeFileSync(path.join(root, '.helper.do'), 'display 1\n');
+        fs.writeFileSync(path.join(root, 'analysis', 'main.do'), 'display 2\n');
+
+        // Configured negation must not reopen automatically-pruned trees.
+        const result = collect_report_targets([], root, root, [
+            '**/ignored.do',
+            '!**/ignored.do',
+        ]);
+
+        expect(result.operator_errors).toEqual([]);
+        expect(result.targets.map((target) => target.relative_path)).toEqual([
+            '.helper.do',
+            'analysis/main.do',
+        ]);
+    });
+
+    it('honors an explicit file inside a hidden worktree', () => {
+        const root = temp_dir();
+        const relative = '.claude/worktrees/replica/main.do';
+        const source_path = path.join(root, relative);
+        fs.mkdirSync(path.dirname(source_path), { recursive: true });
+        fs.writeFileSync(source_path, 'display 1\n');
+
+        const result = collect_report_targets([relative], root, root);
+
+        expect(result.operator_errors).toEqual([]);
+        expect(result.targets.map((target) => target.relative_path)).toEqual([
+            relative,
+        ]);
+        expect(result.targets[0]?.explicit).toBe(true);
+    });
+
+    it('enters an explicit hidden directory but prunes hidden descendants', () => {
+        const root = temp_dir();
+        const selected_dir = '.worktrees/replica';
+        const selected_root = path.join(root, selected_dir);
+        fs.mkdirSync(path.join(selected_root, '.cache'), { recursive: true });
+        fs.writeFileSync(path.join(selected_root, 'main.do'), 'display 1\n');
+        fs.writeFileSync(path.join(selected_root, '.cache', 'ignored.do'), 'bad\n');
+
+        const result = collect_report_targets([selected_dir], root, root);
+
+        expect(result.operator_errors).toEqual([]);
+        expect(result.targets.map((target) => target.relative_path)).toEqual([
+            `${selected_dir}/main.do`,
+        ]);
+    });
+
+    it('scans a selected hidden workspace root normally', () => {
+        const root = path.join(temp_dir(), '.claude', '.workspace');
+        fs.mkdirSync(path.join(root, 'analysis'), { recursive: true });
+        fs.writeFileSync(path.join(root, 'analysis', 'main.do'), 'display 1\n');
+
+        const result = collect_report_targets([], root, root);
+
+        expect(result.operator_errors).toEqual([]);
+        expect(result.targets.map((target) => target.relative_path)).toEqual([
+            'analysis/main.do',
+        ]);
+    });
+
     it('resolves explicit paths from cwd and reports missing paths as operator errors', () => {
         const root = temp_dir();
         const cwd = temp_dir();

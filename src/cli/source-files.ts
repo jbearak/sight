@@ -2,7 +2,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { TextDecoder } from 'util';
 import { Diagnostic, DiagnosticSeverity } from 'vscode-languageserver';
-import { hasStataExtension, VCS_METADATA_DIRS } from '../utils/file-path-utils';
+import { hasStataExtension } from '../utils/file-path-utils';
 import {
     create_exclude_matcher,
     type ExcludeMatcher,
@@ -99,7 +99,9 @@ function walk_sources(
         // symlink following lives in the non-analyzing consumers (path
         // completion, the `.sthlp` lookup).
         if (entry.isDirectory()) {
-            if (VCS_METADATA_DIRS.has(entry.name)) continue;
+            // Hidden descendants can contain whole worktree copies. Prune
+            // before descent, but allow explicitly selected roots and files.
+            if (entry.name.startsWith('.')) continue;
             // Prune directories excluded by workspace `exclude` patterns
             // (issue #255). Explicitly-named files bypass exclusion (handled in
             // collect_report_targets); only walked descendants are filtered.
