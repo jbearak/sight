@@ -155,6 +155,22 @@ The leading `-` removes Tab from that command specifically.
 
 Configure workspace indexing behavior for cross-file features.
 
+Automatic workspace scanning skips dot-prefixed descendant directories before
+entering them. This keeps hidden worktrees (for example, `.claude/worktrees`)
+and caches out of both `sight check` and the editor's workspace index. The same
+rule applies to incremental indexing from file-watcher notifications. Hidden
+source filenames such as `.helper.do` remain eligible for indexing.
+
+The rule is relative to each selected workspace or configured ADO root: a root
+can itself be hidden or live below hidden ancestors. To work on a hidden
+worktree, open that worktree as a workspace folder or use it as the CLI's
+`--workspace`. An explicitly selected CLI directory is also entered, with hidden
+descendants skipped. Explicit CLI files, files opened directly in the editor,
+and explicitly resolved cross-file dependencies remain available for analysis.
+
+This automatic hidden-directory rule is independent of `exclude` patterns;
+negated patterns do not re-enable hidden directory scanning.
+
 | Setting                           | Type    | Default  | Description                                      |
 | --------------------------------- | ------- | -------- | ------------------------------------------------ |
 | `sight.indexWorkspace`            | boolean | `true`   | Enable workspace-wide symbol indexing            |
