@@ -32,6 +32,7 @@ import {
     CdCommand,
     IdentifierNode,
 } from '../types';
+import { unwrap_macval } from '../utils/local-macro';
 import { DirectiveParser } from '../directive-parser';
 import {
     build_static_value_env,
@@ -5352,7 +5353,7 @@ export class SemanticAnalyzer {
     private extract_local_macro_name(value: string): string | null {
         // Remove backtick prefix and apostrophe suffix
         if (value.startsWith('`') && value.endsWith("'")) {
-            return value.slice(1, -1);
+            return unwrap_macval(value.slice(1, -1));
         }
         return null;
     }

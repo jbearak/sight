@@ -23,6 +23,7 @@ import {
   OptionSpec,
 } from '../types';
 import { ContextTracker } from '../context-tracker';
+import { unwrap_macval } from '../utils/local-macro';
 import { isFileCommand } from '../utils/file-path-utils';
 import { is_swallowed_continuation_terminator } from '../utils/continuation';
 
@@ -807,7 +808,7 @@ export class StataParser {
   private extract_local_macro_name(value: string): string | null {
     // Remove backtick prefix and apostrophe suffix
     if (value.startsWith('`') && value.endsWith("'")) {
-      return value.slice(1, -1);
+      return unwrap_macval(value.slice(1, -1));
     }
     return null;
   }
@@ -1201,8 +1202,10 @@ export class StataParser {
     if (this.check('COMMA')) {
       this.advance(); // consume comma
 
-      // Stop at statement terminator, end of file, or comment (trivia)
-      while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd() && !this.isTrivia()) {
+      // Continuations join option lines; ordinary comments still end them.
+      while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
+        if (this.skipContinuation()) continue;
+        if (this.isTrivia()) break;
         if (this.check('WORD')) {
           const optionToken = this.advance();
           const option: OptionNode = {
@@ -1522,8 +1525,9 @@ export class StataParser {
     if (this.check('COMMA')) {
       this.advance(); // consume comma
 
-      while (!this.check('STATEMENT_TERMINATOR') &&
-             !this.isAtEnd() && !this.isTrivia()) {
+      while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
+        if (this.skipContinuation()) continue;
+        if (this.isTrivia()) break;
         if (this.check('WORD')) {
           const option_token = this.advance();
           const option: OptionNode = {
@@ -2716,8 +2720,9 @@ export class StataParser {
     const options: OptionNode[] = [];
     if (this.check('COMMA')) {
       this.advance();
-      while (!this.check('STATEMENT_TERMINATOR') &&
-             !this.isAtEnd() && !this.isTrivia()) {
+      while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
+        if (this.skipContinuation()) continue;
+        if (this.isTrivia()) break;
         if (this.check('WORD')) {
           const option_token = this.advance();
           const option: OptionNode = {
