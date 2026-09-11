@@ -11,6 +11,7 @@ import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { DiagnosticsProvider } from '../../src/providers/diagnostics';
 import { ScopeResolver } from '../../src/scope-resolver';
+import { ForwardScopeResolver } from '../../src/forward-scope-resolver';
 import { Token } from '../../src/types';
 import { StataDiagnosticCode, StataLSPConfig } from '../../src/types';
 
@@ -55,6 +56,9 @@ describe('Out-of-scope diagnostic cleanup integration', () => {
         diagnostics_provider = new DiagnosticsProvider(mock_connection);
         document_store = new DocumentStore();
         scope_resolver = new ScopeResolver();
+        scope_resolver.set_forward_scope_resolver(
+            new ForwardScopeResolver(scope_resolver, { max_forward_depth: 10 })
+        );
     });
 
     afterAll(() => {
@@ -169,6 +173,81 @@ describe('Out-of-scope diagnostic cleanup integration', () => {
         }
         return token_line_index;
     }
+
+    it('keeps an inherited local available before its fallback definition', async () => {
+        const diagnostics = await diagnose_target(
+            'denom_vars.do',
+            [
+                '// @lsp-included-by "vars.do"',
+                'if ("`declared_infecund\'" == "") {',
+                '    local declared_infecund (desire_more_child == 6)',
+                '}',
+                'display `declared_infecund\'',
+            ].join('\n'),
+            [
+                {
+                    filename: 'vars.do',
+                    content: [
+                        'include "adapter.do"',
+                        'include "denom_vars.do"',
+                    ].join('\n'),
+                },
+                {
+                    filename: 'adapter.do',
+                    content: 'local declared_infecund (desire_more_child == 4)',
+                },
+            ],
+        );
+
+        expect(diagnostics.filter(my_diag =>
+            my_diag.message.includes('declared_infecund')
+        )).toEqual([]);
+    });
+
+    it.each([
+        {
+            name: 'do boundary',
+            parent: 'local inherited 1\ndo "child.do"',
+        },
+        {
+            name: 'run boundary',
+            parent: 'local inherited 1\nrun "child.do"',
+        },
+        {
+            name: 'definition after the call site',
+            parent: 'include "child.do"\nlocal inherited 1',
+        },
+        {
+            name: 'program-scoped parent local',
+            parent: [
+                'program define helper',
+                '    local inherited 1',
+                'end',
+                'include "child.do"',
+            ].join('\n'),
+        },
+    ])('preserves forward warnings with $name', async ({ parent }) => {
+        const diagnostics = await diagnose_target(
+            'child.do',
+            [
+                '// @lsp-included-by "parent.do"',
+                'display `inherited\'',
+                'local inherited 2',
+            ].join('\n'),
+            [{ filename: 'parent.do', content: parent }],
+        );
+        const macro_diagnostics = diagnostics.filter(my_diag =>
+            my_diag.range.start.line === 1
+            && my_diag.message.includes('inherited')
+        );
+        expect(macro_diagnostics).toHaveLength(1);
+        expect(macro_diagnostics[0].code).toBe(
+            StataDiagnosticCode.OUT_OF_SCOPE_SYMBOL
+        );
+        expect(macro_diagnostics[0].message).toContain(
+            'used before it is defined (line 3)'
+        );
+    });
 
     it('rewrites same-file macro forward references to OUT_OF_SCOPE_SYMBOL', async () => {
         const diagnostics = await diagnose_target(

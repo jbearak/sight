@@ -19,6 +19,7 @@ import {
     find_enclosing_scope,
 } from '../utils/scope-position';
 import { get_visible_local_scopes } from '../utils/scoped-locals';
+import { collect_inherited_dofile_locals } from '../utils/dofile-locals';
 import {
     ScopeResolver,
     get_visible_forward_call_sites,
@@ -452,6 +453,14 @@ export class DiagnosticsProvider {
             !resolved_scope.has_auto_parents &&
             !resolved_scope.is_standalone;
 
+        // The merged table can hide an inherited local behind a later
+        // same-file definition. Recover entry-state locals from the chain
+        // once. Line zero excludes current-file forward includes; those
+        // retain their positional and program-scope checks below.
+        const inherited_entry_locals = collect_inherited_dofile_locals(
+            resolved_scope, 0, document.uri
+        );
+
         for (const my_diagnostic of this.extract_semantic_diagnostics(document)) {
             // Suppress Stata-specific semantic diagnostics in embedded contexts
             if (this.is_in_embedded_context(my_diagnostic.range.start, the_context_ranges)) {
@@ -478,6 +487,10 @@ export class DiagnosticsProvider {
             // Skip diagnostics when the symbol is truly available from
             // cross-file scope before attempting any out-of-scope rewrites.
             if (resolved_scope && symbol_name) {
+                if (reference_kind === 'local'
+                    && inherited_entry_locals.has(symbol_name)) {
+                    continue;
+                }
                 if (this.is_symbol_defined_in_scope(
                         symbol_name,
                         resolved_scope.symbols,
