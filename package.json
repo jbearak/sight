@@ -1,6 +1,6 @@
 {
   "name": "@jbearak/sight",
-  "version": "0.14.5",
+  "version": "0.14.6",
   "type": "module",
   "workspaces": [
     "client"
