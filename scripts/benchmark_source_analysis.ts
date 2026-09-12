@@ -413,6 +413,36 @@ function sample_comparison(options: Options, baseline: string) {
     };
 }
 
+function checkout_identity(checkout: string) {
+    const repository_root = spawnSync('git', ['rev-parse', '--show-toplevel'], {
+        cwd: checkout, encoding: 'utf8',
+    });
+    if (repository_root.status !== 0 ||
+        fs.realpathSync(repository_root.stdout.trim()) !==
+            fs.realpathSync(checkout)) {
+        // An archive nested in a repository must not borrow its parent's ID.
+        return { commit: null, source_dirty: null };
+    }
+    const commit = spawnSync('git', ['rev-parse', '--verify', 'HEAD'], {
+        cwd: checkout, encoding: 'utf8',
+    });
+    if (commit.status !== 0) {
+        // Source archives can still be benchmarked, but have no Git identity.
+        return { commit: null, source_dirty: null };
+    }
+    const source_status = spawnSync('git', [
+        'status', '--porcelain', '--untracked-files=normal', '--',
+        'src', 'package.json', 'bun.lock',
+    ], { cwd: checkout, encoding: 'utf8' });
+    return {
+        commit: commit.stdout.trim(),
+        // The benchmark script has its own content hash. Track changes to
+        // analysis source and dependency declarations separately.
+        source_dirty: source_status.status === 0
+            ? source_status.stdout.length > 0 : null,
+    };
+}
+
 async function main(): Promise<void> {
     const options = read_options();
     if (options.sample) {
@@ -422,14 +452,29 @@ async function main(): Promise<void> {
     const measurements = options.baseline
         ? sample_comparison(options, options.baseline)
         : sample_single_revision(options);
+    const checkout = path.dirname(path.dirname(import.meta.filename));
+    const the_cpus = os.cpus();
     const report = {
         runtime: `Bun ${process.versions.bun}`,
         node_compatibility_version: process.version,
         script_sha256: crypto.createHash('sha256')
             .update(fs.readFileSync(import.meta.filename)).digest('hex'),
         platform: `${process.platform}-${process.arch}`,
+        cpu_model: the_cpus[0]?.model ?? 'unknown',
+        logical_cpu_count: the_cpus.length,
+        revisions: {
+            ...(options.baseline
+                ? { before: checkout_identity(options.baseline) } : {}),
+            after: checkout_identity(checkout),
+        },
         read_count_scope: 'fs.promises.readFile calls; CLI sync reads excluded',
-        options,
+        options: {
+            runs: options.runs,
+            files: options.files,
+            edits: options.edits,
+            long_lines: options.long_lines,
+            mode: options.baseline ? 'comparison' : 'single',
+        },
         ...measurements,
     };
     const output = JSON.stringify(report, null, 2) + '\n';
