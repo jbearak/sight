@@ -1,14 +1,15 @@
 /**
  * Compare source-analysis work across revisions using identical workloads.
  *
- * Copy this script into both checkouts, then run in each:
- * bun scripts/benchmark_source_analysis.ts --output /tmp/sight-before.json
+ * Copy this script into both checkouts, then compare from the changed one:
+ * bun scripts/benchmark_source_analysis.ts --baseline /tmp/sight-before --runs 6
  *
  * Samples run sequentially in fresh Bun processes. Timings cover indexing
  * and diagnostics with one CLI worker, plus DocumentStore edits. They exclude
  * target discovery, config loading, output rendering, and LSP lifecycle work.
- * A warm-up sample is discarded. Compare output digests before comparing
- * timings. Filesystem caches are not flushed; "cold" means fresh Sight state.
+ * Comparison mode warms both revisions, then alternates their order within
+ * measured pairs. Output digests must match. Filesystem caches are not
+ * flushed; "cold" means fresh Sight state.
  */
 import * as crypto from 'crypto';
 import fs from 'fs';
@@ -33,6 +34,7 @@ interface Options {
     edits: number;
     long_lines: number;
     output?: string;
+    baseline?: string;
     sample: boolean;
 }
 
@@ -78,6 +80,10 @@ function read_options(): Options {
             options.output = value;
             continue;
         }
+        if (flag === '--baseline') {
+            options.baseline = path.resolve(value);
+            continue;
+        }
         const number = Number(value);
         if (!Number.isInteger(number) || number < 1) {
             throw new Error(`Expected positive integer for ${flag}`);
@@ -89,6 +95,9 @@ function read_options(): Options {
         else throw new Error(`Unknown option: ${flag}`);
     }
     if (options.files < 7) throw new Error('--files must be at least 7');
+    if (options.baseline && options.runs % 2 !== 0) {
+        throw new Error('--baseline requires even --runs to balance order');
+    }
     return options;
 }
 
@@ -310,31 +319,109 @@ function summarize_measurements(measurements: Measurement[]): Measurement {
     };
 }
 
+function spawn_sample(script: string, options: Options): Sample {
+    const child = spawnSync(process.execPath, [
+        script, '--sample', '--files', String(options.files),
+        '--edits', String(options.edits),
+        '--long-lines', String(options.long_lines),
+    ], {
+        cwd: path.dirname(path.dirname(script)),
+        encoding: 'utf8',
+        maxBuffer: 16 * 1024 * 1024,
+    });
+    if (child.status !== 0) {
+        throw new Error(child.stderr || child.error?.message || 'Sample failed');
+    }
+    return JSON.parse(child.stdout);
+}
+
+function assert_matching_outputs(samples: Sample[]): void {
+    const diagnostic_digests = new Set(samples.map(value => value.diagnostic_digest));
+    const edit_digests = new Set(samples.map(value => value.edit_digest));
+    const diagnostic_counts = new Set(samples.map(value => value.diagnostic_count));
+    const file_counts = new Set(samples.map(value => value.files));
+    if (diagnostic_digests.size !== 1 || edit_digests.size !== 1
+        || diagnostic_counts.size !== 1 || file_counts.size !== 1) {
+        throw new Error('Output changed between samples or revisions');
+    }
+}
+
+function summarize_samples(samples: Sample[]) {
+    return {
+        cold_index: summarize_measurements(samples.map(value => value.cold_index)),
+        first_diagnostics: summarize_measurements(samples.map(value => value.first_diagnostics)),
+        remaining_diagnostics: summarize_measurements(samples.map(value => value.remaining_diagnostics)),
+        cold_check_ms: median(samples.map(value => value.cold_check_ms)),
+        edit: summarize_measurements(samples.flatMap(value => value.edits)),
+        peak_rss_kib: median(samples.map(value => value.peak_rss_kib)),
+        diagnostic_digest: samples[0].diagnostic_digest,
+        edit_digest: samples[0].edit_digest,
+        diagnostic_count: samples[0].diagnostic_count,
+        files: samples[0].files,
+    };
+}
+
+function sample_single_revision(options: Options) {
+    const samples: Sample[] = [];
+    for (let i = 0; i <= options.runs; i++) {
+        const sample = spawn_sample(import.meta.filename, options);
+        if (i > 0) samples.push(sample);
+        process.stderr.write(`${i === 0 ? 'Warm-up' : `Sample ${i}`} complete\n`);
+    }
+    assert_matching_outputs(samples);
+    return { summary: summarize_samples(samples), samples };
+}
+
+function sample_comparison(options: Options, baseline: string) {
+    const baseline_script = path.join(
+        baseline, 'scripts', path.basename(import.meta.filename)
+    );
+    if (!fs.readFileSync(baseline_script).equals(
+        fs.readFileSync(import.meta.filename)
+    )) {
+        throw new Error('Copy the current benchmark script into the baseline');
+    }
+    type Revision = 'before' | 'after';
+    const scripts: Record<Revision, string> = {
+        before: baseline_script, after: import.meta.filename,
+    };
+    const samples: Record<Revision, Sample[]> = { before: [], after: [] };
+    const execution_order: {
+        pair: number;
+        revision: Revision;
+        warmup: boolean;
+    }[] = [];
+    for (let pair = 0; pair <= options.runs; pair++) {
+        const order: Revision[] = pair === 0 || pair % 2 === 1
+            ? ['before', 'after'] : ['after', 'before'];
+        for (const revision of order) {
+            const sample = spawn_sample(scripts[revision], options);
+            execution_order.push({ pair, revision, warmup: pair === 0 });
+            if (pair > 0) samples[revision].push(sample);
+            const label = pair === 0 ? 'Warm-up' : `Pair ${pair}`;
+            process.stderr.write(`${label} ${revision} complete\n`);
+        }
+    }
+    assert_matching_outputs([...samples.before, ...samples.after]);
+    return {
+        summary: {
+            before: summarize_samples(samples.before),
+            after: summarize_samples(samples.after),
+        },
+        execution_order,
+        samples,
+    };
+}
+
 async function main(): Promise<void> {
     const options = read_options();
     if (options.sample) {
         process.stdout.write(JSON.stringify(await run_sample(options)) + '\n');
         return;
     }
-    const samples: Sample[] = [];
-    for (let i = 0; i <= options.runs; i++) {
-        const child = spawnSync(process.execPath, [
-            import.meta.filename, '--sample', '--files', String(options.files),
-            '--edits', String(options.edits),
-            '--long-lines', String(options.long_lines),
-        ], { encoding: 'utf8', maxBuffer: 16 * 1024 * 1024 });
-        if (child.status !== 0) {
-            throw new Error(child.stderr || child.error?.message || 'Sample failed');
-        }
-        const sample: Sample = JSON.parse(child.stdout);
-        if (i > 0) samples.push(sample);
-        process.stderr.write(`${i === 0 ? 'Warm-up' : `Sample ${i}`} complete\n`);
-    }
-    const diagnostic_digests = new Set(samples.map(value => value.diagnostic_digest));
-    const edit_digests = new Set(samples.map(value => value.edit_digest));
-    if (diagnostic_digests.size !== 1 || edit_digests.size !== 1) {
-        throw new Error('Output changed between identical samples');
-    }
+    const measurements = options.baseline
+        ? sample_comparison(options, options.baseline)
+        : sample_single_revision(options);
     const report = {
         runtime: `Bun ${process.versions.bun}`,
         node_compatibility_version: process.version,
@@ -343,19 +430,7 @@ async function main(): Promise<void> {
         platform: `${process.platform}-${process.arch}`,
         read_count_scope: 'fs.promises.readFile calls; CLI sync reads excluded',
         options,
-        summary: {
-            cold_index: summarize_measurements(samples.map(value => value.cold_index)),
-            first_diagnostics: summarize_measurements(samples.map(value => value.first_diagnostics)),
-            remaining_diagnostics: summarize_measurements(samples.map(value => value.remaining_diagnostics)),
-            cold_check_ms: median(samples.map(value => value.cold_check_ms)),
-            edit: summarize_measurements(samples.flatMap(value => value.edits)),
-            peak_rss_kib: median(samples.map(value => value.peak_rss_kib)),
-            diagnostic_digest: samples[0].diagnostic_digest,
-            edit_digest: samples[0].edit_digest,
-            diagnostic_count: samples[0].diagnostic_count,
-            files: samples[0].files,
-        },
-        samples,
+        ...measurements,
     };
     const output = JSON.stringify(report, null, 2) + '\n';
     if (options.output) fs.writeFileSync(options.output, output);
