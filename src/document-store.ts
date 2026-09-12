@@ -907,12 +907,14 @@ export class DocumentStore {
     const directive_parser = new DirectiveParser();
     let resolved_working_directory: string | undefined;
     let staged_effects: StagedCrossFileEffects | undefined;
+    let parsed_directives: DirectiveParseResult | undefined;
     try {
       const directive_result = directive_parser.parse(
         content,
         uri,
         lex_result.result!.tokens
       );
+      parsed_directives = directive_result;
       staged_effects = this.stage_cross_file_effects(
         directive_result,
         effective_scope_resolver_config
@@ -928,16 +930,13 @@ export class DocumentStore {
         // File has no own working directory. Try to inherit one from parent
         // files via ScopeResolver, including auto-discovered parents.
         try {
-          const scope_result = await this.scope_resolver.resolve(
-            uri,
-            content,
-            effective_scope_resolver_config,
-            cancellation_token,
-            { register_dependencies: false }
-          );
-          if (scope_result.inherited_working_directory) {
-            resolved_working_directory = scope_result.inherited_working_directory;
-          }
+          resolved_working_directory = await this.scope_resolver
+            .resolve_document_working_directory(
+              uri,
+              directive_result,
+              effective_scope_resolver_config,
+              cancellation_token
+            );
         } catch {
           // ScopeResolver error - continue without inherited working directory
         }
@@ -1054,13 +1053,16 @@ export class DocumentStore {
     // (directive behavior is intentionally unchanged by cd tracking).
     let all_forward_calls = restamped_command_calls;
     try {
-      const directive_parser = new DirectiveParser();
-      const directive_result = directive_parser.parse_forward_call_directives(
-        content,
-        uri,
-        lex_result.result!.tokens
-      );
-      const directive_forward_calls: ForwardCall[] = directive_result.forward_calls.map(d => ({
+      // parse() already collected forward directives. Retain the narrower
+      // fallback when header parsing failed before producing that result.
+      const the_forward_directives = parsed_directives
+        ? parsed_directives.forward_calls ?? []
+        : directive_parser.parse_forward_call_directives(
+            content,
+            uri,
+            lex_result.result!.tokens
+          ).forward_calls;
+      const directive_forward_calls: ForwardCall[] = the_forward_directives.map(d => ({
         type: d.type,
         raw_path: d.raw_path,
         call_site_line: d.call_site_line,

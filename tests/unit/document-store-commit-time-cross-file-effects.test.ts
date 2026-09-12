@@ -329,7 +329,7 @@ describe('DocumentStore commit-time cross-file effects (issue #184)', () => {
         ).toBe(true);
     });
 
-    it('a registering resolve that cache-hits the probe-populated entry still observes registered edges', async () => {
+    it('the first full resolution after a directory probe preserves committed edges', async () => {
         const parent_path = '/tmp/sight-184-probe-parent.do';
         const parent_uri = URI.file(parent_path).toString();
         const child_uri = URI.file('/tmp/sight-184-probe-child.do').toString();
@@ -341,18 +341,21 @@ describe('DocumentStore commit-time cross-file effects (issue #184)', () => {
         const { document_store, scope_resolver } =
             make_harness(content_by_uri);
 
-        // open() runs the non-registering WD probe, which populates the
-        // scope cache for (child_uri, child_content, {}); commit_state then
-        // applies the effective registration.
+        // open() discovers the working directory without computing full
+        // scope; commit_state then applies the effective registration.
         await document_store.open(child_uri, child_content, 1);
 
         const hits_before = scope_resolver.get_cache_metrics().scope.hits;
         await scope_resolver.resolve(child_uri, child_content, {});
         const hits_after = scope_resolver.get_cache_metrics().scope.hits;
 
-        // The default resolve must have HIT the probe's cache entry (same
-        // key, no invalidation in between) — the sharp poisoning scenario.
-        expect(hits_after).toBe(hits_before + 1);
+        // Directory discovery no longer populates the full-scope cache.
+        // The first real resolution computes scope and keeps the root's
+        // commit-time registration; a later cache hit preserves it too.
+        expect(hits_after).toBe(hits_before);
+        await scope_resolver.resolve(child_uri, child_content, {});
+        expect(scope_resolver.get_cache_metrics().scope.hits)
+            .toBe(hits_before + 1);
         expect(
             scope_resolver.get_backward_directive_children(parent_uri)
                 .has(child_uri)

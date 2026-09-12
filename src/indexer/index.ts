@@ -24,14 +24,11 @@ import {
     WorkspaceSymbolMatch,
 } from '../types';
 import { DependencyGraph, type GraphUpdateResult } from '../dependency-graph';
-import { StataLexer } from '../lexer';
-import { StataParser } from '../parser';
 import {
-    SemanticAnalyzer,
     create_empty_symbol_table,
     merge_symbol_tables
 } from '../analyzer';
-import { DirectiveParser } from '../directive-parser';
+import { analyze_source } from '../source-analysis';
 import {
     ScopeResolver,
     build_scope_resolver_config,
@@ -85,10 +82,6 @@ export class WorkspaceIndexer {
     private token_index: Map<string, Token[]> = new Map();
     private context_ranges_index: Map<string, ContextRange[]> = new Map();
     private enabled = true;
-    private lexer = new StataLexer();
-    private parser = new StataParser();
-    private analyzer = new SemanticAnalyzer();
-    private directive_parser = new DirectiveParser();
     private ado_paths: string[] = [];
     // Auto-discovered Stata install / user ado directories used ONLY
     // for `.sthlp` help-file lookup. Deliberately kept separate from
@@ -574,22 +567,12 @@ export class WorkspaceIndexer {
                 return;
             }
 
-            // Parse directives
-            const directive_result = this.directive_parser.parse(content, file_uri);
-
-            // Parse and analyze
-            const lexResult = this.lexer.tokenize(content);
-            const parseResult = this.parser.parse(lexResult.tokens);
+            const source_analysis = analyze_source(content, file_uri);
+            const directive_result = source_analysis.directives;
+            const analyzeResult = source_analysis.analysis;
             const workspace_root = get_workspace_root_for_path(
                 this.workspace_roots,
                 file_path
-            );
-            const analyzeResult = this.analyzer.analyze(
-                parseResult.ast,
-                file_uri,
-                undefined,
-                undefined,
-                lexResult.tokens,
             );
 
             // Resolve effective working directory: own @lsp-cd / @lsp-wd
@@ -649,7 +632,10 @@ export class WorkspaceIndexer {
 
             // Compute context ranges for embedded language support
             const context_tracker = new ContextTracker();
-            context_tracker.initialize_from_tokens(lexResult.tokens, content);
+            context_tracker.initialize_from_tokens(
+                source_analysis.tokens,
+                content,
+            );
             const context_ranges = context_tracker.get_all_context_ranges();
             if (!this.is_active_generation(generation)) return;
 
@@ -686,7 +672,7 @@ export class WorkspaceIndexer {
             }
 
             // Store tokens, context ranges, and symbols
-            this.token_index.set(file_uri, lexResult.tokens);
+            this.token_index.set(file_uri, source_analysis.tokens);
             this.context_ranges_index.set(file_uri, context_ranges);
             // Recheck membership at commit time: `already_indexed` was sampled
             // before the stat/readFile awaits, so a concurrent index/remove of
