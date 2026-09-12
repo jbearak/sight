@@ -194,9 +194,10 @@ describe('DocumentStore version guard', () => {
         const scope_gate = new Promise<void>(resolve => {
             release_scope = resolve;
         });
-        const original_resolve = scope_resolver.resolve.bind(scope_resolver);
+        const original_resolve = scope_resolver
+            .resolve_document_working_directory.bind(scope_resolver);
 
-        scope_resolver.resolve = async (...args) => {
+        scope_resolver.resolve_document_working_directory = async (...args) => {
             captured_token = args[3];
             scope_started?.();
             await scope_gate;

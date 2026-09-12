@@ -9,6 +9,7 @@ import {
   Token,
   DocumentStoreMetrics,
   ForwardCall,
+  ForwardCallDirective,
   WorkingDirectoryDirective,
   Directive,
   DirectiveParseResult,
@@ -32,12 +33,10 @@ import {
   get_workspace_root_for_uri,
   resolve_working_directory_directive,
 } from './utils/workspace-roots';
-import { build_cd_timeline, apply_cd_timeline } from './utils/file-path-utils';
+import { prepare_forward_calls } from './source-analysis';
 import { polling_cancellation_token } from './utils/polling-cancellation-token';
 
 import * as fs from 'fs';
-import * as path from 'path';
-import { URI } from 'vscode-uri';
 
 export interface DocumentState {
   uri: string;
@@ -907,12 +906,14 @@ export class DocumentStore {
     const directive_parser = new DirectiveParser();
     let resolved_working_directory: string | undefined;
     let staged_effects: StagedCrossFileEffects | undefined;
+    let parsed_directives: DirectiveParseResult | undefined;
     try {
       const directive_result = directive_parser.parse(
         content,
         uri,
         lex_result.result!.tokens
       );
+      parsed_directives = directive_result;
       staged_effects = this.stage_cross_file_effects(
         directive_result,
         effective_scope_resolver_config
@@ -928,16 +929,13 @@ export class DocumentStore {
         // File has no own working directory. Try to inherit one from parent
         // files via ScopeResolver, including auto-discovered parents.
         try {
-          const scope_result = await this.scope_resolver.resolve(
-            uri,
-            content,
-            effective_scope_resolver_config,
-            cancellation_token,
-            { register_dependencies: false }
-          );
-          if (scope_result.inherited_working_directory) {
-            resolved_working_directory = scope_result.inherited_working_directory;
-          }
+          resolved_working_directory = await this.scope_resolver
+            .resolve_document_working_directory(
+              uri,
+              directive_result,
+              effective_scope_resolver_config,
+              cancellation_token
+            );
         } catch {
           // ScopeResolver error - continue without inherited working directory
         }
@@ -1023,60 +1021,33 @@ export class DocumentStore {
       analyze_result.result!.diagnostics
     );
 
-    // Re-stamp command-detected forward calls with the line-sensitive working
-    // directory implied by in-script `cd` commands (issue #252). The timeline
-    // starts from the file's resolved working directory (own/inherited) and
-    // resolves each top-level `cd` target in source order. Diagnostics from the
-    // helper are DISCARDED here — they are emitted only by ForwardScopeResolver
-    // for the diagnostic-owner file, to avoid double emission. Guard the whole
-    // block: a malformed URI (URI.parse throws) must not abort the parse — fall
-    // back to the analyzer's calls unchanged.
-    let restamped_command_calls = analyze_result.result!.forward_calls;
+    let the_forward_directives: ForwardCallDirective[] = [];
     try {
-      const my_caller_dir = path.dirname(URI.parse(uri).fsPath);
-      const { timeline: cd_timeline } = build_cd_timeline({
-        starting_wd: resolved_working_directory,
-        caller_dir: my_caller_dir,
-        cd_commands: analyze_result.result!.cd_commands,
-        workspace_roots: this.workspace_roots,
-      });
-      restamped_command_calls = apply_cd_timeline(
-        analyze_result.result!.forward_calls,
-        cd_timeline,
-      );
+      // parse() already collected forward directives. Retain the narrower
+      // fallback when header parsing failed before producing that result.
+      the_forward_directives = parsed_directives
+        ? parsed_directives.forward_calls ?? []
+        : directive_parser.parse_forward_call_directives(
+            content,
+            uri,
+            lex_result.result!.tokens
+          ).forward_calls;
     } catch {
-      // Malformed URI or resolution error - use analyzer calls unchanged.
+      // Invalid URI or header recovery error: retain command calls.
     }
 
-    // Parse directive-based forward calls and merge with analyzer's
-    // command-detected calls.  Stamp caller_uri and working_directory on
-    // directive calls; directive calls keep the file-wide working directory
-    // (directive behavior is intentionally unchanged by cd tracking).
-    let all_forward_calls = restamped_command_calls;
-    try {
-      const directive_parser = new DirectiveParser();
-      const directive_result = directive_parser.parse_forward_call_directives(
-        content,
-        uri,
-        lex_result.result!.tokens
-      );
-      const directive_forward_calls: ForwardCall[] = directive_result.forward_calls.map(d => ({
-        type: d.type,
-        raw_path: d.raw_path,
-        call_site_line: d.call_site_line,
-        range: d.range,
-        source: 'directive' as const,
-        is_static: true,
-        caller_uri: uri,
-        working_directory: resolved_working_directory,
-      }));
-      all_forward_calls = [
-        ...restamped_command_calls,
-        ...directive_forward_calls,
-      ];
-    } catch {
-      // Invalid URI or other error - use only analyzer's forward calls
-    }
+    // Command calls follow in-script cd; directive calls use the file-wide
+    // directory. A projection failure must still leave this document usable.
+    // Only ForwardScopeResolver emits cd diagnostics for the owning file.
+    const all_forward_calls = prepare_forward_calls({
+      uri,
+      command_calls: analyze_result.result!.forward_calls,
+      directive_calls: the_forward_directives,
+      cd_commands: analyze_result.result!.cd_commands,
+      working_directory: resolved_working_directory,
+      workspace_roots: this.workspace_roots,
+      recover_command_projection: true,
+    });
 
     return {
       state: {

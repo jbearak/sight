@@ -10,6 +10,7 @@ import { URI } from 'vscode-uri';
 import { CancellationToken } from 'vscode-languageserver';
 import {
     Directive,
+    DirectiveParseResult,
     DirectiveDiagnostic,
     SymbolTable,
     ScopeChainEntry,
@@ -38,9 +39,8 @@ import {
 } from '../types';
 import { Range } from 'vscode-languageserver-textdocument';
 import { DirectiveParser } from '../directive-parser';
-import { StataLexer } from '../lexer';
-import { StataParser } from '../parser';
-import { SemanticAnalyzer, create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
+import { create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
+import { analyze_source, prepare_forward_calls } from '../source-analysis';
 import { logger } from '../utils/logger';
 import { error_message } from '../utils/error-message';
 import { BoundedLruMap } from '../utils/lru-cache';
@@ -55,8 +55,6 @@ import {
     resolve_forward_call_rich,
     outcome_fs_path,
     is_resolvable_static_call,
-    build_cd_timeline,
-    apply_cd_timeline,
     type RichResolveFs,
 } from '../utils/file-path-utils';
 import {
@@ -225,9 +223,6 @@ interface ForwardScopeResolverInterface {
 
 export class ScopeResolver {
     private directive_parser: DirectiveParser;
-    private lexer: StataLexer;
-    private parser: StataParser;
-    private analyzer: SemanticAnalyzer;
     // Cache key is "uri|working_directory" (or just "uri" if no working directory)
     // registered_backward_mode: the backward_dependencies mode the entry's
     // last parse-path registration ran under (issue #286). Undefined for
@@ -263,9 +258,6 @@ export class ScopeResolver {
         }
     ) {
         this.directive_parser = new DirectiveParser();
-        this.lexer = new StataLexer();
-        this.parser = new StataParser();
-        this.analyzer = new SemanticAnalyzer();
         // Bounded caches (#294). Capacity eviction is correctness-neutral
         // (a miss recomputes from disk/buffer), with one obligation each:
         // - file_cache: the evicted URI's forward-closure memo entries must
@@ -1176,9 +1168,9 @@ export class ScopeResolver {
         );
 
         // Register backward directive dependencies for this file, unless the
-        // caller owns registration (DocumentStore's working-directory probe
-        // passes register_dependencies: false and applies the effective
-        // registration itself at commit time, issue #184).
+        // caller owns registration. Ancestor reads still register their own
+        // dependencies; the separate document directory probe suppresses
+        // registration throughout its walk.
         if (options?.register_dependencies ?? true) {
             this.apply_normalized_backward_directives(
                 file_uri, normalized_directives
@@ -1626,9 +1618,52 @@ export class ScopeResolver {
     }
 
     /**
-     * Discover the working directory from the directive chain using lightweight parsing.
-     * This method only parses directives (no full AST) to efficiently find the working
-     * directory before doing full parsing.
+     * Find an open document's inherited working directory from its parsed
+     * header. Uses the same effective parents, ordering, and depth as resolve,
+     * without resolving symbols or forward calls. Unlike the indexer's
+     * explicit-only probe, auto-discovered parents participate here.
+     *
+     * Ancestor reads skip backward registration. DocumentStore owns the root's
+     * commit-time registration; a later scope resolution registers ancestors
+     * even when this probe has already populated their parsed-file cache.
+     */
+    async resolve_document_working_directory(
+        file_uri: string,
+        directive_result: DirectiveParseResult,
+        config: Partial<ScopeResolverConfig> = {},
+        token?: CancellationToken,
+    ): Promise<string | undefined> {
+        if (token?.isCancellationRequested || directive_result.working_directory) {
+            return undefined;
+        }
+        const my_config = { ...DEFAULT_CONFIG, ...config };
+        const { directives: effective_directives } =
+            this.get_effective_backward_directives(
+                file_uri,
+                directive_result.directives,
+                my_config,
+                directive_result.standalone !== undefined,
+            );
+        const normalized_directives = this.normalize_directives(
+            effective_directives, [],
+        );
+        const working_directory = await this.discover_working_directory(
+            normalized_directives,
+            new Set([file_uri]),
+            1,
+            my_config,
+            new Map(),
+            file_uri,
+            token,
+            /* skip_backward_registration */ true,
+        );
+        return token?.isCancellationRequested ? undefined : working_directory;
+    }
+
+    /**
+     * Discover the working directory from the directive chain. Reuses
+     * parsed-file cache entries and reads each ancestor once per request.
+     * Cold misses analyze source facts but do not resolve forward scope.
      *
      * @param directives - Directives to follow
      * @param visited - Set of visited URIs for cycle detection
@@ -2453,9 +2488,10 @@ export class ScopeResolver {
         is_standalone: boolean;
         diagnostics: DirectiveDiagnostic[];
     } {
-        const my_directive_result = this.directive_parser.parse(content, uri);
-        const my_lex_result = this.lexer.tokenize(content);
-        const my_parse_result = this.parser.parse(my_lex_result.tokens);
+        const {
+            directives: my_directive_result,
+            analysis: my_analysis,
+        } = analyze_source(content, uri);
 
         // Resolve file's own working_directory (handling workspace-relative paths)
         const my_workspace_root = get_workspace_root_for_uri(this.workspace_roots, uri);
@@ -2474,50 +2510,17 @@ export class ScopeResolver {
         }
         const effective_working_directory = own_working_directory ?? inherited_working_directory;
 
-        // Stamp the effective working directory onto the analyzer's forward
-        // calls as resolution context; the analyzer no longer resolves paths.
-        const my_analysis = this.analyzer.analyze(my_parse_result.ast, uri, undefined, {
-            working_directory: effective_working_directory,
-        }, my_lex_result.tokens);
-
-        // Re-stamp command-detected forward calls with the line-sensitive
-        // working directory implied by in-script `cd` commands (issue #252),
-        // so the reverse-dependency keys this file feeds (resolve_callee_uri)
-        // agree with the dep-graph edges DocumentStore/Indexer build. The
-        // timeline starts from the file's effective WD. Diagnostics from the
-        // helper are discarded here — ForwardScopeResolver emits cd diagnostics
-        // for the owner file (single emission); see resolve().
-        const my_caller_dir = path.dirname(URI.parse(uri).fsPath);
-        const { timeline: cd_timeline } = build_cd_timeline({
-            starting_wd: effective_working_directory,
-            caller_dir: my_caller_dir,
+        // Use the same directory projection as DocumentStore and Indexer.
+        // ForwardScopeResolver emits cd diagnostics for the owner file.
+        const all_forward_calls = prepare_forward_calls({
+            uri,
+            command_calls: my_analysis.forward_calls,
+            directive_calls: my_directive_result.forward_calls ?? [],
             cd_commands: my_analysis.cd_commands,
+            working_directory: effective_working_directory,
             workspace_roots: this.workspace_roots,
             fs: this.resolve_fs,
         });
-        const restamped_command_calls = apply_cd_timeline(
-            my_analysis.forward_calls,
-            cd_timeline,
-        );
-
-        // Combine forward calls from commands and directives.
-        // Directive calls keep the file-wide working directory (directive
-        // behavior is intentionally unchanged by cd tracking).
-        const directive_forward_calls: ForwardCall[] = (my_directive_result.forward_calls ?? []).map(d => ({
-            type: d.type,
-            raw_path: d.raw_path,
-            call_site_line: d.call_site_line,
-            range: d.range,
-            source: 'directive' as const,
-            is_static: true,
-            caller_uri: uri,
-            working_directory: effective_working_directory,
-        }));
-
-        const all_forward_calls: ForwardCall[] = [
-            ...restamped_command_calls,
-            ...directive_forward_calls,
-        ];
 
         // Return effective working_directory (file's own or inherited)
         return {

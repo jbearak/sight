@@ -75,7 +75,6 @@ let captured_document_store: DocumentStore | undefined;
 let the_resync_calls: ResyncCall[] = [];
 let workspace_roots_seen: string[] = [];
 let scope_resolution_gate: Promise<void> | undefined;
-let scope_resolution_started: (() => void) | undefined;
 let captured_scope_cancellation_token: CancellationToken | undefined;
 // When set, the spied re-sync records its call, then holds before running
 // the real method until this promise resolves — letting a test create
@@ -88,7 +87,8 @@ const original_set_workspace_roots =
     ScopeResolver.prototype.set_workspace_roots;
 const original_resync =
     ScopeResolver.prototype.resync_backward_directive_dependencies_from_disk;
-const original_resolve = ScopeResolver.prototype.resolve;
+const original_directory_probe =
+    ScopeResolver.prototype.resolve_document_working_directory;
 const original_set_scope_resolver =
     DocumentStore.prototype.set_scope_resolver;
 
@@ -99,7 +99,6 @@ function install_resolver_spies(): void {
     workspace_roots_seen = [];
     resync_gate = undefined;
     scope_resolution_gate = undefined;
-    scope_resolution_started = undefined;
     captured_scope_cancellation_token = undefined;
     ScopeResolver.prototype.set_dependency_graph = function (
         ...args: Parameters<typeof original_set_dependency_graph>
@@ -129,16 +128,15 @@ function install_resolver_spies(): void {
             });
             return result;
         };
-    ScopeResolver.prototype.resolve = async function (
-        ...args: Parameters<typeof original_resolve>
+    ScopeResolver.prototype.resolve_document_working_directory = async function (
+        ...args: Parameters<typeof original_directory_probe>
     ) {
         const gate = scope_resolution_gate;
         if (gate) {
             captured_scope_cancellation_token = args[3];
-            scope_resolution_started?.();
             await gate;
         }
-        return original_resolve.apply(this, args);
+        return original_directory_probe.apply(this, args);
     };
     DocumentStore.prototype.set_scope_resolver = function (
         ...args: Parameters<typeof original_set_scope_resolver>
@@ -155,7 +153,8 @@ function restore_resolver_spies(): void {
         original_set_workspace_roots;
     ScopeResolver.prototype.resync_backward_directive_dependencies_from_disk =
         original_resync;
-    ScopeResolver.prototype.resolve = original_resolve;
+    ScopeResolver.prototype.resolve_document_working_directory =
+        original_directory_probe;
     DocumentStore.prototype.set_scope_resolver =
         original_set_scope_resolver;
 }
@@ -813,21 +812,26 @@ describe('server document lifecycle wiring', () => {
             { sight: {}, diagnosticUris: [] }
         );
         let release_scope: (() => void) | undefined;
-        const scope_started = new Promise<void>(resolve => {
-            scope_resolution_started = resolve;
-        });
         scope_resolution_gate = new Promise<void>(resolve => {
             release_scope = resolve;
         });
 
-        open_document(handlers, child_uri, 'display 1\n');
-        await scope_started;
+        try {
+            open_document(handlers, child_uri, 'display 1\n');
+            await wait_until(
+                () => captured_scope_cancellation_token !== undefined,
+                'hidden analysis to enter the working-directory probe',
+                WAIT_TIMEOUT_MS
+            );
 
-        const shutdown = Promise.resolve(handlers.shutdown?.());
-        expect(captured_scope_cancellation_token?.isCancellationRequested)
-            .toBe(true);
-        release_scope?.();
-        await shutdown;
-        active_handlers = undefined;
+            const shutdown = Promise.resolve(handlers.shutdown?.());
+            expect(captured_scope_cancellation_token?.isCancellationRequested)
+                .toBe(true);
+            release_scope?.();
+            await shutdown;
+            active_handlers = undefined;
+        } finally {
+            release_scope?.();
+        }
     }, TEST_TIMEOUT_MS);
 });

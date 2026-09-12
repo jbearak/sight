@@ -20,18 +20,14 @@ import {
     MatrixSymbol,
     Token,
     ContextRange,
-    ForwardCall,
     WorkspaceSymbolMatch,
 } from '../types';
 import { DependencyGraph, type GraphUpdateResult } from '../dependency-graph';
-import { StataLexer } from '../lexer';
-import { StataParser } from '../parser';
 import {
-    SemanticAnalyzer,
     create_empty_symbol_table,
     merge_symbol_tables
 } from '../analyzer';
-import { DirectiveParser } from '../directive-parser';
+import { analyze_source, prepare_forward_calls } from '../source-analysis';
 import {
     ScopeResolver,
     build_scope_resolver_config,
@@ -50,11 +46,7 @@ import {
     FindaliasResolver,
     HelpAliasResolver,
 } from '../utils/findalias-resolver';
-import {
-    hasStataExtension,
-    build_cd_timeline,
-    apply_cd_timeline,
-} from '../utils/file-path-utils';
+import { hasStataExtension } from '../utils/file-path-utils';
 import { entry_is_file_async } from '../utils/symlink-aware-entry';
 import { is_hidden_source_path } from '../utils/source-discovery-policy';
 import {
@@ -85,10 +77,6 @@ export class WorkspaceIndexer {
     private token_index: Map<string, Token[]> = new Map();
     private context_ranges_index: Map<string, ContextRange[]> = new Map();
     private enabled = true;
-    private lexer = new StataLexer();
-    private parser = new StataParser();
-    private analyzer = new SemanticAnalyzer();
-    private directive_parser = new DirectiveParser();
     private ado_paths: string[] = [];
     // Auto-discovered Stata install / user ado directories used ONLY
     // for `.sthlp` help-file lookup. Deliberately kept separate from
@@ -574,22 +562,12 @@ export class WorkspaceIndexer {
                 return;
             }
 
-            // Parse directives
-            const directive_result = this.directive_parser.parse(content, file_uri);
-
-            // Parse and analyze
-            const lexResult = this.lexer.tokenize(content);
-            const parseResult = this.parser.parse(lexResult.tokens);
+            const source_analysis = analyze_source(content, file_uri);
+            const directive_result = source_analysis.directives;
+            const analyzeResult = source_analysis.analysis;
             const workspace_root = get_workspace_root_for_path(
                 this.workspace_roots,
                 file_path
-            );
-            const analyzeResult = this.analyzer.analyze(
-                parseResult.ast,
-                file_uri,
-                undefined,
-                undefined,
-                lexResult.tokens,
             );
 
             // Resolve effective working directory: own @lsp-cd / @lsp-wd
@@ -627,54 +605,33 @@ export class WorkspaceIndexer {
                         );
             }
 
-            // Re-stamp command-detected forward calls with the line-sensitive
-            // working directory implied by in-script `cd` commands (issue #252).
-            // The timeline starts from the file's effective WD (own/inherited)
-            // and resolves each top-level `cd` in source order, so the dep-graph
-            // edges match what DocumentStore produces for the same source. The
-            // analyzer sets caller_uri (= file_uri); apply_cd_timeline sets the
-            // per-call working_directory. Diagnostics are discarded here (only
-            // ForwardScopeResolver emits cd diagnostics, for the owner file).
-            const my_caller_dir = path.dirname(file_path);
-            const { timeline: cd_timeline } = build_cd_timeline({
-                starting_wd: effective_working_directory,
-                caller_dir: my_caller_dir,
+            const all_forward_calls = prepare_forward_calls({
+                uri: file_uri,
+                command_calls: analyzeResult.forward_calls,
+                directive_calls: directive_result.forward_calls ?? [],
                 cd_commands: analyzeResult.cd_commands,
+                working_directory: effective_working_directory,
                 workspace_roots: this.workspace_roots,
             });
-            const stamped_analyzer_calls: ForwardCall[] = apply_cd_timeline(
-                analyzeResult.forward_calls,
-                cd_timeline,
-            );
 
             // Compute context ranges for embedded language support
             const context_tracker = new ContextTracker();
-            context_tracker.initialize_from_tokens(lexResult.tokens, content);
+            context_tracker.initialize_from_tokens(
+                source_analysis.tokens,
+                content,
+            );
             const context_ranges = context_tracker.get_all_context_ranges();
             if (!this.is_active_generation(generation)) return;
 
             if (!already_indexed
                 && this.should_skip_for_max_indexed_files(file_uri)) return;
 
-            // Combine forward calls from analyzer (command-detected)
-            // and directive parser (directive-detected).
-            // Stamp caller_uri and working_directory on all calls.
-            let all_forward_calls: ForwardCall[] = stamped_analyzer_calls;
-            if (directive_result.forward_calls && directive_result.forward_calls.length > 0) {
-                const directive_forward_calls: ForwardCall[] = directive_result.forward_calls.map(d => ({
-                    type: d.type,
-                    raw_path: d.raw_path,
-                    call_site_line: d.call_site_line,
-                    range: d.range,
-                    source: 'directive' as const,
-                    is_static: true,
-                    caller_uri: file_uri,
-                    working_directory: effective_working_directory,
-                }));
-                all_forward_calls = [
-                    ...stamped_analyzer_calls,
-                    ...directive_forward_calls,
-                ].sort((a, b) => a.call_site_line - b.call_site_line);
+            // The index has always sorted mixed command/directive calls.
+            // Command-only files retain the analyzer's ordering.
+            if ((directive_result.forward_calls?.length ?? 0) > 0) {
+                all_forward_calls.sort(
+                    (a, b) => a.call_site_line - b.call_site_line,
+                );
             }
 
             // Update dependency graph with forward calls
@@ -686,7 +643,7 @@ export class WorkspaceIndexer {
             }
 
             // Store tokens, context ranges, and symbols
-            this.token_index.set(file_uri, lexResult.tokens);
+            this.token_index.set(file_uri, source_analysis.tokens);
             this.context_ranges_index.set(file_uri, context_ranges);
             // Recheck membership at commit time: `already_indexed` was sampled
             // before the stat/readFile awaits, so a concurrent index/remove of

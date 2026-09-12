@@ -851,13 +851,11 @@ export interface ResolveOptions {
    * dependency edges as a side effect of this call. Ancestor-level
    * registration performed inside get_parsed_file is unaffected.
    *
-   * Passing false transfers registration ownership to the caller. The only
-   * intended such caller is DocumentStore's working-directory probe
-   * (issue #184): every accepted parse applies effective registration
-   * synchronously in commit_state, so a probe-populated scope-cache entry
-   * always corresponds to content that either committed (registration
-   * applied) or was discarded on close (not registering is the intent).
-   * Deliberately NOT part of generate_cache_key.
+   * Passing false transfers registration ownership to the caller, which
+   * must register accepted content before a later resolve can reuse its
+   * scope-cache entry. Deliberately NOT part of generate_cache_key.
+   * DocumentStore uses the separate directory-only probe, which does not
+   * populate the scope cache and skips ancestor backward registration too.
    *
    * Default: true.
    */
