@@ -3,6 +3,7 @@ import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { DiagnosticSeverity } from 'vscode-languageserver';
+import { URI } from 'vscode-uri';
 import {
     build_check_context,
     collect_check_diagnostics,
@@ -520,13 +521,13 @@ describe('sight check integration', () => {
         expect(result.stdout).toContain('byte offset');
     });
 
-    it('reuses the document-store scope resolve cache in diagnostics', async () => {
+    it('computes scope once for diagnostics and reuses it on later checks', async () => {
         const root = temp_dir();
         fs.writeFileSync(
             path.join(root, 'sight.toml'),
             '[crossFile]\nmaxForwardDepth = 4\n'
         );
-        fs.writeFileSync(path.join(root, 'main.do'), 'display 1\n');
+        fs.writeFileSync(path.join(root, 'main.do'), 'display $missing\n');
 
         const config_result = load_check_config({
             cwd: root,
@@ -541,7 +542,7 @@ describe('sight check integration', () => {
         try {
             context.scope_resolver.reset_cache_metrics();
 
-            await collect_check_diagnostics(
+            const first = await collect_check_diagnostics(
                 context,
                 root,
                 config_result.config,
@@ -550,9 +551,32 @@ describe('sight check integration', () => {
 
             const metrics = context.scope_resolver.get_cache_metrics();
             expect(metrics.scope.misses).toBe(1);
-            expect(metrics.scope.hits).toBe(1);
+            expect(metrics.scope.hits).toBe(0);
+            expect(first).toHaveLength(1);
+            expect(first[0].diagnostic.message).toContain('missing');
+
+            // Force diagnostic recomputation so this checks the scope cache,
+            // rather than returning the provider's filtered diagnostics.
+            for (const my_target of targets.targets) {
+                context.diagnostics_provider.clear_cache_for_document(
+                    URI.file(my_target.path).toString()
+                );
+            }
+            const second = await collect_check_diagnostics(
+                context,
+                root,
+                config_result.config,
+                targets.targets
+            );
+            expect(second).toEqual(first);
+            const repeated_metrics = context.scope_resolver.get_cache_metrics();
+            expect(repeated_metrics.scope.misses).toBe(1);
+            expect(repeated_metrics.scope.hits).toBe(1);
         } finally {
             await context.document_store.dispose();
+            context.workspace_indexer.cancel();
+            context.scope_resolver.dispose();
+            fs.rmSync(root, { recursive: true, force: true });
         }
     });
 

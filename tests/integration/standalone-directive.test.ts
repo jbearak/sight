@@ -9,7 +9,7 @@
  * calls FROM the standalone file keep working unchanged.
  */
 
-import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
+import { describe, it, expect, beforeEach, afterEach, spyOn } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -17,6 +17,7 @@ import { ScopeResolver } from '../../src/scope-resolver';
 import { ForwardScopeResolver } from '../../src/forward-scope-resolver';
 import { DependencyGraph } from '../../src/dependency-graph';
 import { WorkspaceIndexer } from '../../src/indexer';
+import { StataParser } from '../../src/parser';
 import { URI } from 'vscode-uri';
 import { make_fs_content_provider } from '../fs-content-provider';
 import type { RichResolveFs } from '../../src/utils/file-path-utils';
@@ -607,6 +608,22 @@ describe('Standalone directive (issue #208)', () => {
     });
 
     describe('parse-failure header-fact recovery', () => {
+        const the_restore_callbacks: Array<() => void> = [];
+        afterEach(() => {
+            for (const my_restore of the_restore_callbacks.splice(0)) {
+                my_restore();
+            }
+        });
+
+        function inject_parse_failure() {
+            const parse = spyOn(StataParser.prototype, 'parse')
+                .mockImplementation(() => {
+                    throw new Error('injected parse failure');
+                });
+            the_restore_callbacks.push(() => parse.mockRestore());
+            return parse;
+        }
+
         it('keeps standalone in force when the lex/parse pipeline throws', async () => {
             write_file(tmp_dir, 'parent.do', [
                 'global my_global "hello"',
@@ -627,16 +644,13 @@ describe('Standalone directive (issue #208)', () => {
             // independent of that failure and must still supply the
             // standalone marker (otherwise the file silently regains its
             // auto-discovered parent — #208 review round 1).
-            (resolver as unknown as {
-                parser: { parse: () => never };
-            }).parser.parse = () => {
-                throw new Error('injected parse failure');
-            };
+            const parse = inject_parse_failure();
 
             const scope = await resolver.resolve(
                 child_uri, child_content, { backward_dependencies: 'auto' }
             );
 
+            expect(parse).toHaveBeenCalled();
             expect(scope.is_standalone).toBe(true);
             expect(scope.has_auto_parents).toBe(false);
             expect(scope.symbols.globalMacros.has('my_global')).toBe(false);
@@ -676,14 +690,11 @@ describe('Standalone directive (issue #208)', () => {
                 });
                 expect(the_p_has_x()).toBe(true);
 
-                (resolver as unknown as {
-                    parser: { parse: () => never };
-                }).parser.parse = () => {
-                    throw new Error('injected parse failure');
-                };
+                const parse = inject_parse_failure();
 
                 await resolver.resolve(c_uri, c_content);
 
+                expect(parse).toHaveBeenCalled();
                 expect(the_p_has_x()).toBe(false);
             }
         );
@@ -732,11 +743,7 @@ describe('Standalone directive (issue #208)', () => {
                 // (A global directive-parser mock would blank c's
                 // directives too and the walk would never reach x,
                 // making the assertion vacuous.)
-                (resolver as unknown as {
-                    parser: { parse: () => never };
-                }).parser.parse = () => {
-                    throw new Error('injected parse failure');
-                };
+                const parse = inject_parse_failure();
                 const my_resolver_internals = resolver as unknown as {
                     directive_parser: {
                         parse: (
@@ -767,6 +774,7 @@ describe('Standalone directive (issue #208)', () => {
 
                 await resolver.resolve(c_uri, c_content);
 
+                expect(parse).toHaveBeenCalled();
                 // The failing recovery path was actually exercised …
                 expect(my_x_recovery_attempt_count).toBeGreaterThan(0);
                 // … and the stale edge survives — a failed recovery must

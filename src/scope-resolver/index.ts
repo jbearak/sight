@@ -40,7 +40,7 @@ import {
 import { Range } from 'vscode-languageserver-textdocument';
 import { DirectiveParser } from '../directive-parser';
 import { create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
-import { analyze_source } from '../source-analysis';
+import { analyze_source, prepare_forward_calls } from '../source-analysis';
 import { logger } from '../utils/logger';
 import { error_message } from '../utils/error-message';
 import { BoundedLruMap } from '../utils/lru-cache';
@@ -55,8 +55,6 @@ import {
     resolve_forward_call_rich,
     outcome_fs_path,
     is_resolvable_static_call,
-    build_cd_timeline,
-    apply_cd_timeline,
     type RichResolveFs,
 } from '../utils/file-path-utils';
 import {
@@ -2512,44 +2510,17 @@ export class ScopeResolver {
         }
         const effective_working_directory = own_working_directory ?? inherited_working_directory;
 
-        // Re-stamp command-detected forward calls with the line-sensitive
-        // working directory implied by in-script `cd` commands (issue #252),
-        // so the reverse-dependency keys this file feeds (resolve_callee_uri)
-        // agree with the dep-graph edges DocumentStore/Indexer build. The
-        // timeline starts from the file's effective WD. Diagnostics from the
-        // helper are discarded here — ForwardScopeResolver emits cd diagnostics
-        // for the owner file (single emission); see resolve().
-        const my_caller_dir = path.dirname(URI.parse(uri).fsPath);
-        const { timeline: cd_timeline } = build_cd_timeline({
-            starting_wd: effective_working_directory,
-            caller_dir: my_caller_dir,
+        // Use the same directory projection as DocumentStore and Indexer.
+        // ForwardScopeResolver emits cd diagnostics for the owner file.
+        const all_forward_calls = prepare_forward_calls({
+            uri,
+            command_calls: my_analysis.forward_calls,
+            directive_calls: my_directive_result.forward_calls ?? [],
             cd_commands: my_analysis.cd_commands,
+            working_directory: effective_working_directory,
             workspace_roots: this.workspace_roots,
             fs: this.resolve_fs,
         });
-        const restamped_command_calls = apply_cd_timeline(
-            my_analysis.forward_calls,
-            cd_timeline,
-        );
-
-        // Combine forward calls from commands and directives.
-        // Directive calls keep the file-wide working directory (directive
-        // behavior is intentionally unchanged by cd tracking).
-        const directive_forward_calls: ForwardCall[] = (my_directive_result.forward_calls ?? []).map(d => ({
-            type: d.type,
-            raw_path: d.raw_path,
-            call_site_line: d.call_site_line,
-            range: d.range,
-            source: 'directive' as const,
-            is_static: true,
-            caller_uri: uri,
-            working_directory: effective_working_directory,
-        }));
-
-        const all_forward_calls: ForwardCall[] = [
-            ...restamped_command_calls,
-            ...directive_forward_calls,
-        ];
 
         // Return effective working_directory (file's own or inherited)
         return {
