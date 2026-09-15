@@ -32,6 +32,35 @@ function create_null_deps(): HandlerDependencies {
 }
 
 describe('watched-files project config routing', () => {
+    it('routes ignore creation, changes, and deletion separately', () => {
+        const deps = create_null_deps();
+        const stata_changes: string[] = [];
+        const config_changes: string[] = [];
+        const ignore_changes: string[] = [];
+        const handler = create_did_change_watched_files_handler(
+            deps,
+            uri => uri.replace('file://', ''),
+            uri => stata_changes.push(uri),
+            uri => config_changes.push(uri),
+            uri => ignore_changes.push(uri)
+        );
+        handler({ changes: [
+            { uri: 'file:///tmp/.gitignore', type: FileChangeType.Created },
+            { uri: 'file:///tmp/sub/.gitignore', type: FileChangeType.Changed },
+            { uri: 'file:///tmp/old/.gitignore', type: FileChangeType.Deleted },
+            { uri: 'file:///tmp/sight.toml', type: FileChangeType.Changed },
+            { uri: 'file:///tmp/main.do', type: FileChangeType.Changed },
+            { uri: 'file:///tmp/not.gitignore', type: FileChangeType.Changed },
+        ] });
+        expect(ignore_changes).toEqual([
+            'file:///tmp/.gitignore',
+            'file:///tmp/sub/.gitignore',
+            'file:///tmp/old/.gitignore',
+        ]);
+        expect(config_changes).toEqual(['file:///tmp/sight.toml']);
+        expect(stata_changes).toEqual(['file:///tmp/main.do']);
+    });
+
     it('routes sight.toml and .sight.json to project config reload only', () => {
         const deps = create_null_deps();
         const stata_changes: string[] = [];

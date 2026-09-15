@@ -178,6 +178,59 @@ negated patterns do not re-enable hidden directory scanning.
 
 ## Excluding files and directories
 
+### Gitignore rules
+
+Sight respects `.gitignore` by default when discovering workspace files for
+`sight check`, the language server's symbol index, and automatic caller
+relationships. Files opened in the editor, explicitly named CLI files, and
+dependencies resolved through commands or Sight directives remain available
+for analysis.
+
+| Setting | Type | Default | Description |
+| ------- | ---- | ------- | ----------- |
+| `sight.workspace.respectGitignore` | boolean | `true` | Respect `.gitignore` during automatic workspace discovery |
+
+To disable this filtering for both the CLI and editor, set:
+
+```toml
+[workspace]
+respectGitignore = false
+```
+
+For the editor only, use VS Code's `settings.json`:
+
+```json
+{
+  "sight.workspace.respectGitignore": false
+}
+```
+
+An explicit value in `sight.toml` overrides the editor setting. In `sight.toml`,
+the `respect_gitignore` spelling is also accepted. Setting this to `false` keeps
+Sight's configured exclusions and hidden-directory rules in effect.
+
+Sight reads `.gitignore` at the workspace root and in descendant directories.
+If the workspace is inside a Git repository, it also reads ancestor
+`.gitignore` files up to the nearest directory containing a `.git` file or
+directory. Without repository metadata, it starts at the workspace root. A
+nested repository follows the selected workspace's ignore hierarchy unless
+you select it as a separate workspace root. In overlapping workspace folders,
+the deepest selected root determines the applicable rules.
+
+Patterns match case-sensitively and use Gitignore syntax, including anchored
+patterns, directory-only rules, and negation. A nested `.gitignore` cannot
+re-include files beneath an ignored parent directory. Sight does not require
+Git to be installed. It reads only `.gitignore`, ignores symlinked ignore
+files, and does not consult global Git exclusions, `.git/info/exclude`, or the
+tracked-file index. A matching file is skipped even if Git tracks it.
+
+The policy applies only inside workspace folders. Configured ADO paths outside
+the workspace keep their existing discovery behavior. Changes to relevant
+`.gitignore` files or this setting refresh the editor's workspace index and
+affected diagnostics.
+
+### Configured exclusions
+
 Exclude generated or vendored directories from analysis with workspace-relative
 glob patterns. This is most useful for repositories that mix hand-written Stata
 source with generated output (for example, downloaded `.do` files under
@@ -233,11 +286,10 @@ leading `!` re-includes a previously-excluded path (e.g.
 `["output/**", "!output/manifest.do"]`).
 
 `exclude` only applies to files inside your workspace folder. Sight also scans
-your configured ADO paths (and auto-detected Stata install directories), which
-normally live outside the workspace — `exclude` has no effect on those files, so
-you cannot use it to filter ADO scanning. (If you point an ADO path at a folder
-*inside* the workspace, it is in-workspace like any other file and `exclude`
-patterns do apply to it.)
+your configured ADO paths, which normally live outside the workspace.
+`exclude` has no effect on those external files. If an ADO path is inside the
+workspace, the patterns apply to it. Auto-detected Stata install directories
+support help lookups and are not scanned into the workspace symbol index.
 
 ## ADO Paths
 
@@ -334,6 +386,7 @@ debug = false
 
 [workspace]
 exclude = ["output/**"]
+respectGitignore = true
 
 [diagnostics]
 enabled = true
@@ -391,6 +444,7 @@ caseMismatch = "auto"
 | `indexWorkspace`                        | boolean              | `true`          | Global workspace-indexing switch                                        |
 | `adoPaths`                              | string array         | `[]`            | Additional ADO search paths                                             |
 | `workspace.exclude`                     | string array         | `[]`            | Workspace-relative globs to skip during `sight check` and indexing      |
+| `workspace.respectGitignore`             | boolean              | `true`          | Respect `.gitignore` during workspace discovery and indexing           |
 | `lineCommentStyle`                      | `"//"` \| `"*"`      | `"//"`         | Line comment style used when formatting resolves `"line"`               |
 | `debug`                                 | boolean              | `false`         | Enable debug logging                                                    |
 | `diagnostics.enabled`                   | boolean              | `true`          | Enable diagnostics                                                      |

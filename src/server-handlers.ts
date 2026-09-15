@@ -132,6 +132,9 @@ export const DEFAULT_SETTINGS: StataLSPConfig = {
     adoPaths: [],
     indexWorkspace: true,
     exclude: [],
+    workspace: {
+        respectGitignore: true,
+    },
     cross_file: {
         index_workspace: true,
         max_indexed_files: 1000,
@@ -710,6 +713,8 @@ export function create_exit_handler(
     };
 }
 
+const GITIGNORE_PATH = /(?:^|[/\\])\.gitignore$/;
+
 /**
  * Creates the did change watched files handler with atomic save detection.
  *
@@ -721,11 +726,17 @@ export function create_did_change_watched_files_handler(
     deps: HandlerDependencies,
     parse_uri: (uri: string) => string,
     on_file_changed?: (uri: string) => void,
-    on_project_config_changed?: (uri: string) => void
+    on_project_config_changed?: (uri: string) => void,
+    on_gitignore_changed?: (uri: string) => void
 ): (params: DidChangeWatchedFilesParams) => void {
     return (params: DidChangeWatchedFilesParams): void => {
         for (const my_event of params.changes) {
             const file_path = parse_uri(my_event.uri);
+
+            if (GITIGNORE_PATH.test(file_path)) {
+                on_gitignore_changed?.(my_event.uri);
+                continue;
+            }
 
             if (is_project_config_event_path(file_path)) {
                 on_project_config_changed?.(my_event.uri);

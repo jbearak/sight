@@ -621,6 +621,10 @@ export interface StataLSPConfig {
   };
   adoPaths: string[];
   indexWorkspace: boolean;
+  workspace: {
+    // Applies to automatic discovery, not explicit files or dependencies.
+    respectGitignore: boolean;
+  };
   cross_file: CrossFileConfig;
   // Workspace-relative glob patterns to exclude from `sight check` and the
   // workspace index (issue #255), e.g. ["output/**"]. In-editor open documents

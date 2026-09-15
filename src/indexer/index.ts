@@ -49,6 +49,7 @@ import {
 import { hasStataExtension } from '../utils/file-path-utils';
 import { entry_is_file_async } from '../utils/symlink-aware-entry';
 import { is_hidden_source_path } from '../utils/source-discovery-policy';
+import { create_gitignore_matcher } from '../utils/gitignore-matcher';
 import {
     create_exclude_matcher,
     type ExcludeMatcher,
@@ -104,6 +105,8 @@ export class WorkspaceIndexer {
     private cancelled = false;
     private size_threshold_bytes: number = 512 * 1024; // 500KB default
     private exclude_matcher: ExcludeMatcher = create_exclude_matcher([]);
+    private respect_gitignore = true;
+    private gitignore_matcher = create_gitignore_matcher([]);
     private skipped_files: Map<string, number> = new Map();
     private max_indexed_files: number = 1000;
     private max_files_reached = false;
@@ -286,16 +289,21 @@ export class WorkspaceIndexer {
         const generation = ++this.scan_generation;
         this.cancelled = false;
 
-        if (!this.enabled) {
-            this.dependency_graph?.mark_scan_complete();
-            return;
-        }
         this.ado_paths = ado_paths;
         this.workspace_roots = workspace_folders.map(f => path.resolve(f));
         this.scan_roots = [
             ...this.workspace_roots,
             ...ado_paths.map(my_path => path.resolve(my_path)),
         ];
+        // Ignore rules belong to this scan generation. Ordinary document
+        // configuration must not discard the cached directory hierarchy.
+        this.gitignore_matcher = create_gitignore_matcher(
+            this.workspace_roots, this.respect_gitignore
+        );
+        if (!this.enabled) {
+            this.dependency_graph?.mark_scan_complete();
+            return;
+        }
         // Auto-detect Stata install / user ado directories for help
         // lookup. The discovery is cheap (a handful of `fs.statSync`
         // calls on well-known paths) and non-fatal if none exist.
@@ -334,6 +342,7 @@ export class WorkspaceIndexer {
         generation: number
     ): Promise<void> {
         if (!this.is_active_generation(generation)) return;
+        if (this.gitignore_matcher.is_ignored(dir_path, 'directory')) return;
 
         try {
             const entries = await fs.promises.readdir(dir_path, {
@@ -380,6 +389,7 @@ export class WorkspaceIndexer {
                     entry.isFile() &&
                     hasStataExtension(entry.name)
                 ) {
+                    if (this.is_gitignored(entry_path)) continue;
                     if (
                         !this.exclude_matcher.is_empty &&
                         this.exclude_matcher.is_excluded_file(
@@ -505,6 +515,9 @@ export class WorkspaceIndexer {
         // Do not evict graph edges: an explicitly opened hidden document
         // may own them even though it is not in the persistent index.
         if (is_hidden_source_path(file_path, this.scan_roots)) return;
+        // Open buffers may own graph edges for ignored files. Filtering
+        // automatic indexing must leave those edges intact until close.
+        if (this.is_gitignored(file_path)) return;
         // Honor workspace `exclude` patterns on the incremental update path
         // (issue #255): scan_directory already prunes excluded files on the
         // bulk scan, but schedule_update -> index_file bypasses it. Clearing a
@@ -753,6 +766,7 @@ export class WorkspaceIndexer {
         // Ignore hidden-worktree event bursts before allocating timers.
         // Leave any explicitly opened document's dependency edges intact.
         if (is_hidden_source_path(file_path, this.scan_roots)) return;
+        if (this.is_gitignored(file_path)) return;
 
         // Cancel existing timer for this file
         const existing = this.pending_updates.get(file_path);
@@ -839,6 +853,7 @@ export class WorkspaceIndexer {
         this.version = 0;
         this.cancelled = false;
         this.workspace_roots = [];
+        this.gitignore_matcher = create_gitignore_matcher([]);
     }
 
     /**
@@ -851,6 +866,7 @@ export class WorkspaceIndexer {
         this.scope_resolver_config = scope_resolver_config_for(config);
 
         this.exclude_matcher = create_exclude_matcher(config.exclude ?? []);
+        this.respect_gitignore = config.workspace?.respectGitignore !== false;
 
         const threshold = config?.indexing?.maxFileSizeBytes;
         if (typeof threshold === 'number' && threshold > 0) {
@@ -871,6 +887,11 @@ export class WorkspaceIndexer {
         } else if (legacy_enabled === true || cross_file_enabled === true) {
             this.enabled = true;
         }
+    }
+
+    /** Whether a workspace source file is excluded by Git-ignore rules. */
+    is_gitignored(file_path: string): boolean {
+        return this.gitignore_matcher.is_ignored(file_path, 'file');
     }
 
     /**

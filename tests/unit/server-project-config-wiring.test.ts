@@ -92,6 +92,34 @@ describe('server-factory project config wiring', () => {
         expect(project_wins.cross_file.backward_dependencies).toBe('explicit');
     });
 
+    it('applies Gitignore settings in both LSP configuration modes', () => {
+        const pushed = build_non_capability_settings_from_sources({
+            init_options_config: {
+                sight: { workspace: { respectGitignore: true } },
+            },
+            last_client_settings: {
+                workspace: { respect_gitignore: false },
+            },
+        });
+        expect(pushed.workspace.respectGitignore).toBe(false);
+
+        const scoped = resolve_scoped_client_settings(
+            { sight: { workspace: { respectGitignore: false } } },
+            {}
+        );
+        expect(scoped.workspace.respectGitignore).toBe(false);
+
+        const project_wins = resolve_scoped_client_settings(
+            { workspace: { respectGitignore: false } },
+            {
+                project_file_config: {
+                    workspace: { respectGitignore: true },
+                },
+            }
+        );
+        expect(project_wins.workspace.respectGitignore).toBe(true);
+    });
+
     it('builds merged settings for clients without configuration capability', () => {
         // Regression guard: non-capability clients cannot be queried per
         // document, so the workspace refresh and config reload must seed

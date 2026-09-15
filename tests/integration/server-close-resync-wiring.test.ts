@@ -49,10 +49,17 @@ import type {
     DidCloseTextDocumentParams,
     PublishDiagnosticsParams,
     CancellationToken,
+    DidChangeConfigurationParams,
+    DidChangeWatchedFilesParams,
+    DidChangeWatchedFilesRegistrationOptions,
+    FileSystemWatcher,
 } from 'vscode-languageserver/node';
+import { FileChangeType } from 'vscode-languageserver/node';
 import { create_server } from '../../src/server-factory';
 import { ScopeResolver } from '../../src/scope-resolver';
 import { DocumentStore } from '../../src/document-store';
+import { WorkspaceIndexer } from '../../src/indexer';
+import { DependencyGraph } from '../../src/dependency-graph';
 import { Logger } from '../../src/utils/logger';
 import type { ScopeResolverConfig } from '../../src/types';
 import { wait_until } from '../wait-until';
@@ -72,6 +79,9 @@ interface ResyncCall {
 
 let captured_resolver: ScopeResolver | undefined;
 let captured_document_store: DocumentStore | undefined;
+let captured_indexer: WorkspaceIndexer | undefined;
+let captured_graph: DependencyGraph | undefined;
+let the_indexing_runs: Promise<void>[] = [];
 let the_resync_calls: ResyncCall[] = [];
 let workspace_roots_seen: string[] = [];
 let scope_resolution_gate: Promise<void> | undefined;
@@ -91,10 +101,14 @@ const original_directory_probe =
     ScopeResolver.prototype.resolve_document_working_directory;
 const original_set_scope_resolver =
     DocumentStore.prototype.set_scope_resolver;
+const original_initialize_indexer = WorkspaceIndexer.prototype.initialize;
 
 function install_resolver_spies(): void {
     captured_resolver = undefined;
     captured_document_store = undefined;
+    captured_indexer = undefined;
+    captured_graph = undefined;
+    the_indexing_runs = [];
     the_resync_calls = [];
     workspace_roots_seen = [];
     resync_gate = undefined;
@@ -104,6 +118,7 @@ function install_resolver_spies(): void {
         ...args: Parameters<typeof original_set_dependency_graph>
     ) {
         captured_resolver = this;
+        captured_graph = args[0];
         return original_set_dependency_graph.apply(this, args);
     };
     ScopeResolver.prototype.set_workspace_roots = function (
@@ -144,6 +159,14 @@ function install_resolver_spies(): void {
         captured_document_store = this;
         return original_set_scope_resolver.apply(this, args);
     };
+    WorkspaceIndexer.prototype.initialize = function (
+        ...args: Parameters<typeof original_initialize_indexer>
+    ) {
+        captured_indexer = this;
+        const result = original_initialize_indexer.apply(this, args);
+        the_indexing_runs.push(result);
+        return result;
+    };
 }
 
 function restore_resolver_spies(): void {
@@ -157,6 +180,7 @@ function restore_resolver_spies(): void {
         original_directory_probe;
     DocumentStore.prototype.set_scope_resolver =
         original_set_scope_resolver;
+    WorkspaceIndexer.prototype.initialize = original_initialize_indexer;
 }
 
 // ---------------------------------------------------------------------------
@@ -169,6 +193,8 @@ interface CapturedHandlers {
     initialized?: () => void;
     did_open?: (params: DidOpenTextDocumentParams) => void;
     did_close?: (params: DidCloseTextDocumentParams) => void;
+    did_change_configuration?: (params: DidChangeConfigurationParams) => void;
+    did_change_watched_files?: (params: DidChangeWatchedFilesParams) => void;
     diagnostic_resources?: (params: unknown) => void;
     shutdown?: () => unknown;
 }
@@ -203,8 +229,18 @@ function make_stub_connection(options: StubConnectionOptions): {
         onInitialized: (handler: CapturedHandlers['initialized']) => {
             handlers.initialized = handler;
         },
-        onDidChangeConfiguration: capture_nothing,
-        onDidChangeWatchedFiles: capture_nothing,
+        onDidChangeConfiguration: (
+            handler: CapturedHandlers['did_change_configuration']
+        ) => {
+            handlers.did_change_configuration = handler;
+            return noop_disposable();
+        },
+        onDidChangeWatchedFiles: (
+            handler: CapturedHandlers['did_change_watched_files']
+        ) => {
+            handlers.did_change_watched_files = handler;
+            return noop_disposable();
+        },
         onNotification: (
             method: string,
             handler: CapturedHandlers['diagnostic_resources']
@@ -251,7 +287,22 @@ function make_stub_connection(options: StubConnectionOptions): {
         onWillSaveTextDocumentWaitUntil: capture_nothing,
         onDidSaveTextDocument: capture_nothing,
         client: {
-            register: () => Promise.resolve(noop_disposable()),
+            register: (
+                _method: unknown,
+                registration?: DidChangeWatchedFilesRegistrationOptions
+            ) => {
+                if (!registration?.watchers) {
+                    return Promise.resolve(noop_disposable());
+                }
+                const record = {
+                    watchers: registration.watchers,
+                    disposed: false,
+                };
+                the_watch_registrations.push(record);
+                return Promise.resolve({
+                    dispose: () => { record.disposed = true; },
+                });
+            },
         },
         workspace: {
             getConfiguration: (item?: { scopeUri?: string }) =>
@@ -284,6 +335,10 @@ let tmp_dir: string;
 let published_uris: string[] = [];
 let published_diagnostics: PublishDiagnosticsParams[] = [];
 let active_handlers: CapturedHandlers | undefined;
+let the_watch_registrations: Array<{
+    watchers: FileSystemWatcher[];
+    disposed: boolean;
+}> = [];
 
 // Disable workspace indexing so no scan-time dependency-graph edges or
 // timers interfere; only explicit @lsp-done-by directives are in play.
@@ -291,9 +346,14 @@ const GLOBAL_PUBLIC_CONFIG = { crossFile: { indexWorkspace: false } };
 
 async function start_test_server(
     get_scoped_config: (scope_uri: string | undefined) => unknown,
-    initialization_options?: unknown
+    initialization_options?: unknown,
+    options: {
+        workspace_root?: string;
+        dynamic_watchers?: boolean;
+    } = {}
 ): Promise<CapturedHandlers> {
-    const workspace_folder_uri = URI.file(tmp_dir).toString();
+    const workspace_root = options.workspace_root ?? tmp_dir;
+    const workspace_folder_uri = URI.file(workspace_root).toString();
     const { connection, handlers } = make_stub_connection({
         workspace_folder_uri,
         get_scoped_config,
@@ -310,7 +370,14 @@ async function start_test_server(
     handlers.initialize!({
         processId: null,
         rootUri: workspace_folder_uri,
-        capabilities: { workspace: { configuration: true } },
+        capabilities: {
+            workspace: {
+                configuration: true,
+                didChangeWatchedFiles: {
+                    dynamicRegistration: options.dynamic_watchers ?? false,
+                },
+            },
+        },
         workspaceFolders: null,
         initializationOptions: initialization_options,
     } as InitializeParams);
@@ -320,7 +387,7 @@ async function start_test_server(
     // configure). Wait for both before opening documents.
     await wait_until(
         () => captured_resolver !== undefined &&
-            workspace_roots_seen.includes(tmp_dir),
+            workspace_roots_seen.includes(workspace_root),
         'server initialization to reach the workspace-roots refresh',
         WAIT_TIMEOUT_MS
     );
@@ -389,12 +456,75 @@ async function wait_for_publish_quiescence(): Promise<void> {
     }, 'diagnostic publishes to go quiescent', WAIT_TIMEOUT_MS, 150);
 }
 
+const DISCOVERED_CALLER_TEXT = [
+    'program define discovered_program',
+    'end',
+    'global discovered_value 1',
+    'do "analysis.do"',
+    '',
+].join('\n');
+const DISCOVERED_CALLEE_TEXT = 'display "$discovered_value"\n';
+
+function write_discovery_files(root = tmp_dir): void {
+    fs.mkdirSync(root, { recursive: true });
+    fs.writeFileSync(path.join(root, 'caller.do'), DISCOVERED_CALLER_TEXT);
+    fs.writeFileSync(path.join(root, 'analysis.do'), DISCOVERED_CALLEE_TEXT);
+}
+
+async function wait_for_index_run(previous_count: number): Promise<void> {
+    await wait_until(
+        () => the_indexing_runs.length > previous_count,
+        'a new workspace indexing run',
+        WAIT_TIMEOUT_MS
+    );
+    await the_indexing_runs.at(-1);
+    expect(captured_graph?.is_scan_complete()).toBe(true);
+}
+
+function notify_disk_change(
+    handlers: CapturedHandlers,
+    uri: string,
+    type: FileChangeType
+): void {
+    expect(handlers.did_change_watched_files).toBeDefined();
+    handlers.did_change_watched_files!({ changes: [{ uri, type }] });
+}
+
+function expect_discovered_caller(included: boolean, root = tmp_dir): void {
+    const caller_uri = URI.file(path.join(root, 'caller.do')).toString();
+    const callee_uri = URI.file(path.join(root, 'analysis.do')).toString();
+    expect(captured_indexer?.has_indexed_file(caller_uri)).toBe(included);
+    expect(captured_indexer?.get_all_symbols().programs.has(
+        'discovered_program'
+    )).toBe(included);
+    expect(captured_graph?.get_callees(caller_uri).has(callee_uri))
+        .toBe(included);
+}
+
+async function wait_for_macro_diagnostic(
+    uri: string,
+    undefined_macro: boolean
+): Promise<void> {
+    await wait_until(() => {
+        const latest = published_diagnostics
+            .filter(params => params.uri === uri).at(-1);
+        if (!latest) return false;
+        const has_undefined = latest.diagnostics.some(diagnostic =>
+            diagnostic.code === 'UNDEFINED_MACRO' &&
+            diagnostic.message.includes('discovered_value')
+        );
+        return has_undefined === undefined_macro;
+    }, `macro diagnostics to be ${undefined_macro ? 'present' : 'clear'}`,
+    WAIT_TIMEOUT_MS);
+}
+
 describe('server document lifecycle wiring', () => {
     beforeEach(() => {
         install_resolver_spies();
         published_uris = [];
         published_diagnostics = [];
         active_handlers = undefined;
+        the_watch_registrations = [];
         tmp_dir = fs.realpathSync(
             fs.mkdtempSync(path.join(os.tmpdir(), 'close-resync-wiring-'))
         );
@@ -803,6 +933,256 @@ describe('server document lifecycle wiring', () => {
             WAIT_TIMEOUT_MS
         );
         expect(captured_document_store?.get(child_uri)?.version).toBe(1);
+    }, TEST_TIMEOUT_MS);
+
+    it('refreshes Gitignore symbols, callers, and diagnostics on create, ' +
+        'change, and delete', async () => {
+        write_discovery_files();
+        const handlers = await start_test_server(() => ({}));
+        await wait_for_index_run(0);
+        expect_discovered_caller(true);
+        const callee_uri = file_uri('analysis.do');
+        open_document(handlers, callee_uri, DISCOVERED_CALLEE_TEXT);
+        await wait_for_macro_diagnostic(callee_uri, false);
+
+        const ignore_path = path.join(tmp_dir, '.gitignore');
+        const the_changes = [
+            { type: FileChangeType.Created, text: 'caller.do\n', included: false },
+            { type: FileChangeType.Changed, text: 'other.do\n', included: true },
+            { type: FileChangeType.Changed, text: 'caller.do\n', included: false },
+            { type: FileChangeType.Deleted, text: undefined, included: true },
+        ];
+        for (const my_change of the_changes) {
+            const previous_runs = the_indexing_runs.length;
+            if (my_change.text === undefined) {
+                fs.unlinkSync(ignore_path);
+            } else {
+                fs.writeFileSync(ignore_path, my_change.text);
+            }
+            notify_disk_change(handlers, file_uri('.gitignore'), my_change.type);
+            await wait_for_index_run(previous_runs);
+            expect_discovered_caller(my_change.included);
+            await wait_for_macro_diagnostic(callee_uri, !my_change.included);
+        }
+    }, TEST_TIMEOUT_MS);
+
+    it('refreshes Gitignore discovery for runtime and TOML setting changes',
+        async () => {
+        write_discovery_files();
+        fs.writeFileSync(path.join(tmp_dir, '.gitignore'), 'caller.do\n');
+        let respect_gitignore = true;
+        const handlers = await start_test_server(() => ({
+            workspace: { respectGitignore: respect_gitignore },
+        }));
+        await wait_for_index_run(0);
+        expect_discovered_caller(false);
+        const callee_uri = file_uri('analysis.do');
+        open_document(handlers, callee_uri, DISCOVERED_CALLEE_TEXT);
+        await wait_for_macro_diagnostic(callee_uri, true);
+
+        let previous_runs = the_indexing_runs.length;
+        respect_gitignore = false;
+        handlers.did_change_configuration!({ settings: {} });
+        await wait_for_index_run(previous_runs);
+        expect_discovered_caller(true);
+        await wait_for_macro_diagnostic(callee_uri, false);
+
+        // Project policy wins over the still-disabled editor setting.
+        previous_runs = the_indexing_runs.length;
+        fs.writeFileSync(
+            path.join(tmp_dir, 'sight.toml'),
+            '[workspace]\nrespectGitignore = true\n'
+        );
+        notify_disk_change(handlers, file_uri('sight.toml'), FileChangeType.Created);
+        await wait_for_index_run(previous_runs);
+        expect_discovered_caller(false);
+        await wait_for_macro_diagnostic(callee_uri, true);
+
+        previous_runs = the_indexing_runs.length;
+        fs.writeFileSync(
+            path.join(tmp_dir, 'sight.toml'),
+            '[workspace]\nrespect_gitignore = false\n'
+        );
+        notify_disk_change(handlers, file_uri('sight.toml'), FileChangeType.Changed);
+        await wait_for_index_run(previous_runs);
+        expect_discovered_caller(true);
+        await wait_for_macro_diagnostic(callee_uri, false);
+
+        respect_gitignore = true;
+        handlers.did_change_configuration!({ settings: {} });
+        await wait_for_publish_quiescence();
+        expect_discovered_caller(true);
+
+        previous_runs = the_indexing_runs.length;
+        fs.unlinkSync(path.join(tmp_dir, 'sight.toml'));
+        notify_disk_change(handlers, file_uri('sight.toml'), FileChangeType.Deleted);
+        await wait_for_index_run(previous_runs);
+        expect_discovered_caller(false);
+        await wait_for_macro_diagnostic(callee_uri, true);
+    }, TEST_TIMEOUT_MS);
+
+    it('preserves a Gitignore-excluded open caller across watched changes, ' +
+        'removes its edges on close, and restores them on reopen', async () => {
+        write_discovery_files();
+        fs.writeFileSync(path.join(tmp_dir, '.gitignore'), 'caller.do\n');
+        const handlers = await start_test_server(() => ({}));
+        await wait_for_index_run(0);
+        expect_discovered_caller(false);
+        const caller_uri = file_uri('caller.do');
+        const callee_uri = file_uri('analysis.do');
+        open_document(handlers, callee_uri, DISCOVERED_CALLEE_TEXT);
+        open_document(handlers, caller_uri, DISCOVERED_CALLER_TEXT);
+        await wait_until(
+            () => captured_graph!.get_callees(caller_uri).has(callee_uri),
+            'an explicitly opened ignored caller to register its callee',
+            WAIT_TIMEOUT_MS
+        );
+        await wait_for_macro_diagnostic(callee_uri, false);
+
+        notify_disk_change(handlers, caller_uri, FileChangeType.Changed);
+        expect(captured_graph!.get_callees(caller_uri).has(callee_uri)).toBe(true);
+        expect(captured_indexer!.has_indexed_file(caller_uri)).toBe(false);
+
+        const previous_runs = the_indexing_runs.length;
+        fs.writeFileSync(
+            path.join(tmp_dir, '.gitignore'), 'caller.do\n# Saved again\n'
+        );
+        notify_disk_change(handlers, file_uri('.gitignore'), FileChangeType.Changed);
+        await wait_for_index_run(previous_runs);
+        await wait_until(
+            () => captured_graph!.get_callees(caller_uri).has(callee_uri),
+            'the ignored open caller to register after the workspace refresh',
+            WAIT_TIMEOUT_MS
+        );
+        await wait_for_macro_diagnostic(callee_uri, false);
+
+        handlers.did_close!({ textDocument: { uri: caller_uri } });
+        expect(captured_graph!.get_callees(caller_uri).size).toBe(0);
+        await wait_for_macro_diagnostic(callee_uri, true);
+        expect(captured_graph!.get_callees(caller_uri).size).toBe(0);
+
+        open_document(handlers, caller_uri, DISCOVERED_CALLER_TEXT, 2);
+        await wait_until(
+            () => captured_graph!.get_callees(caller_uri).has(callee_uri),
+            'reopening the ignored caller to restore its graph edges',
+            WAIT_TIMEOUT_MS
+        );
+        await wait_for_macro_diagnostic(callee_uri, false);
+
+        let release_resync: (() => void) | undefined;
+        resync_gate = new Promise<void>(resolve => { release_resync = resolve; });
+        try {
+            handlers.did_close!({ textDocument: { uri: caller_uri } });
+            open_document(handlers, caller_uri, DISCOVERED_CALLER_TEXT, 3);
+            await wait_until(
+                () => captured_document_store!.get(caller_uri)?.version === 3 &&
+                    captured_graph!.get_callees(caller_uri).has(callee_uri),
+                'a quick reopen to restore the ignored caller',
+                WAIT_TIMEOUT_MS
+            );
+            release_resync?.();
+            await Promise.all(the_resync_calls.map(my_call => my_call.result));
+            await wait_for_publish_quiescence();
+            expect(captured_graph!.get_callees(caller_uri).has(callee_uri))
+                .toBe(true);
+            expect(captured_indexer!.has_indexed_file(caller_uri)).toBe(false);
+        } finally {
+            release_resync?.();
+        }
+    }, TEST_TIMEOUT_MS);
+
+    it('does not let delayed settings restore a caller after newer Gitignore ' +
+        'and settings events', async () => {
+        write_discovery_files();
+        let delayed_settings: Promise<unknown> | undefined;
+        let delayed_fetch_started = false;
+        const handlers = await start_test_server(scope_uri => {
+            if (scope_uri === undefined && delayed_settings) {
+                delayed_fetch_started = true;
+                return delayed_settings;
+            }
+            return { workspace: { respectGitignore: true } };
+        });
+        await wait_for_index_run(0);
+        expect_discovered_caller(true);
+
+        let release_settings: (() => void) | undefined;
+        delayed_settings = new Promise<void>(resolve => {
+            release_settings = resolve;
+        }).then(() => ({ workspace: { respectGitignore: false } }));
+        try {
+            handlers.did_change_configuration!({ settings: {} });
+            await wait_until(
+                () => delayed_fetch_started,
+                'the old runtime settings fetch to reach its gate',
+                WAIT_TIMEOUT_MS
+            );
+
+            fs.writeFileSync(path.join(tmp_dir, '.gitignore'), 'caller.do\n');
+            const previous_runs = the_indexing_runs.length;
+            notify_disk_change(
+                handlers, file_uri('.gitignore'), FileChangeType.Created
+            );
+            delayed_settings = undefined;
+            handlers.did_change_configuration!({ settings: {} });
+            await wait_for_index_run(previous_runs);
+            expect_discovered_caller(false);
+
+            const runs_before_release = the_indexing_runs.length;
+            release_settings?.();
+            await wait_for_publish_quiescence();
+            expect_discovered_caller(false);
+            expect(the_indexing_runs).toHaveLength(runs_before_release);
+        } finally {
+            release_settings?.();
+        }
+    }, TEST_TIMEOUT_MS);
+
+    it('registers Gitignore ancestor watchers and refreshes when an absent ' +
+        'ancestor ignore file appears', async () => {
+        fs.mkdirSync(path.join(tmp_dir, '.git'));
+        const workspace_root = path.join(tmp_dir, 'project', 'stata');
+        write_discovery_files(workspace_root);
+        const handlers = await start_test_server(
+            () => ({}), undefined,
+            { workspace_root, dynamic_watchers: true }
+        );
+        await wait_for_index_run(0);
+        expect_discovered_caller(true, workspace_root);
+
+        const active_watchers = the_watch_registrations
+            .filter(my_registration => !my_registration.disposed)
+            .flatMap(my_registration => my_registration.watchers);
+        for (const my_directory of [tmp_dir, path.join(tmp_dir, 'project')]) {
+            expect(active_watchers).toContainEqual({
+                globPattern: {
+                    baseUri: URI.file(my_directory).toString(),
+                    pattern: '.gitignore',
+                },
+                kind: 7,
+            });
+        }
+        expect(active_watchers).toContainEqual({
+            globPattern: {
+                baseUri: URI.file(workspace_root).toString(),
+                pattern: '**/.gitignore',
+            },
+            kind: 7,
+        });
+
+        let previous_runs = the_indexing_runs.length;
+        fs.writeFileSync(
+            path.join(tmp_dir, '.gitignore'), 'project/stata/caller.do\n'
+        );
+        notify_disk_change(handlers, file_uri('.gitignore'), FileChangeType.Created);
+        await wait_for_index_run(previous_runs);
+        expect_discovered_caller(false, workspace_root);
+
+        previous_runs = the_indexing_runs.length;
+        fs.unlinkSync(path.join(tmp_dir, '.gitignore'));
+        notify_disk_change(handlers, file_uri('.gitignore'), FileChangeType.Deleted);
+        await wait_for_index_run(previous_runs);
+        expect_discovered_caller(true, workspace_root);
     }, TEST_TIMEOUT_MS);
 
     it('cancels hidden analysis that is in flight during shutdown', async () => {

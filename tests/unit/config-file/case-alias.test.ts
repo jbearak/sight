@@ -65,6 +65,7 @@ const PUBLIC_SETTINGS: ReadonlyArray<{ path: string[]; value: unknown }> = [
     { path: ['indexWorkspace'], value: false },
     { path: ['adoPaths'], value: ['/custom/ado', '/more/ado'] },
     { path: ['exclude'], value: ['output/**', 'tmp/*.do'] },
+    { path: ['workspace', 'respectGitignore'], value: false },
     { path: ['lineCommentStyle'], value: '*' },
     { path: ['debug'], value: true },
 

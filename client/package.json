@@ -359,6 +359,11 @@
           "default": true,
           "description": "Enable workspace-wide symbol indexing"
         },
+        "sight.workspace.respectGitignore": {
+          "type": "boolean",
+          "default": true,
+          "description": "Respect .gitignore rules when discovering workspace files for checking, indexing, and automatic cross-file relationships. Explicitly opened files and directly referenced dependencies remain available for analysis."
+        },
         "sight.adoPaths": {
           "type": "array",
           "items": {

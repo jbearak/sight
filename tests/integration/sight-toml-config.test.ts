@@ -15,6 +15,38 @@ function make_temp_dir(): string {
 }
 
 describe('sight.toml server config precedence', () => {
+    it('uses project Gitignore policy over the editor and retains omitted keys', () => {
+        const root = make_temp_dir();
+        const the_cases = [
+            { client: undefined, project: undefined, expected: true },
+            { client: false, project: undefined, expected: false },
+            { client: true, project: false, expected: false },
+            { client: false, project: true, expected: true },
+        ];
+        try {
+            for (const my_case of the_cases) {
+                const project_text = my_case.project === undefined
+                    ? '[workspace]\nexclude = ["output/**"]\n'
+                    : `[workspace]\nrespectGitignore = ${my_case.project}\n`;
+                fs.writeFileSync(path.join(root, 'sight.toml'), project_text);
+                const loaded = discover_and_load_project_config(root);
+                expect(loaded.kind).toBe('loaded');
+                if (loaded.kind !== 'loaded') continue;
+
+                const client = map_public_config_to_partial_config({
+                    workspace: { respectGitignore: my_case.client },
+                });
+                const settings = validate_comment_formatting_config(
+                    deep_merge_config(client, loaded.partial_config)
+                );
+                expect(settings.workspace.respectGitignore)
+                    .toBe(my_case.expected);
+            }
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    });
+
     it('project config overrides client config while silent client keys survive', () => {
         const client = {
             formatting: {

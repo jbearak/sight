@@ -787,7 +787,19 @@ export function map_public_config_to_partial_config(
 
     const workspace = object_value(raw, 'workspace', 'workspace', warn);
     if (workspace) {
-        warn_unknown_keys(workspace, ['exclude'], 'workspace', warn);
+        warn_unknown_keys(
+            workspace, ['exclude', 'respectGitignore'], 'workspace', warn
+        );
+        const mapped_workspace: JsonObject = {};
+        assign_boolean(
+            mapped_workspace,
+            'respectGitignore',
+            workspace,
+            'respectGitignore',
+            'workspace.respectGitignore',
+            warn
+        );
+        maybe_assign_object(root, 'workspace', mapped_workspace);
     }
     const canonical_exclude = workspace
         ? pick_key(workspace, 'exclude', warn, 'workspace.exclude')

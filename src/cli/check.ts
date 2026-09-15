@@ -550,13 +550,14 @@ export async function collect_check_diagnostics(
         // default `sight check .` surfaces the problem too) rather than emitting
         // silently-wrong results.
         //
-        // Excluded and hidden-descendant files are deliberately not indexed,
+        // Excluded, ignored, and hidden-descendant files are not indexed,
         // rather than cap casualties. Explicit CLI inputs still select them,
         // so do not emit a misleading "not indexed" diagnostic (#255).
         if (
             is_within_workspace(workspace_root, target.path) &&
             files_indexed >= config.cross_file.max_indexed_files &&
             !context.workspace_indexer.has_indexed_file(uri) &&
+            !context.workspace_indexer.is_gitignored(target.path) &&
             !is_hidden_source_path(target.path, scan_roots) &&
             !exclude_matcher.is_excluded_file(target.path, [workspace_root])
         ) {
@@ -749,7 +750,8 @@ export async function run_check_with_cwd(
         result.args.paths,
         workspace_root,
         cwd,
-        config_result.config.exclude
+        config_result.config.exclude,
+        config_result.config.workspace.respectGitignore
     );
     if (target_result.operator_errors.length > 0) {
         for (const message of target_result.operator_errors) {
