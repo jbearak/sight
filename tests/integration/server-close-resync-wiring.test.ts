@@ -347,6 +347,7 @@ let the_watch_registrations: Array<{
 // timers interfere; only explicit @lsp-done-by directives are in play.
 const GLOBAL_PUBLIC_CONFIG = { crossFile: { indexWorkspace: false } };
 
+/** Initialize the real server with stubbed client settings and owned cleanup. */
 async function start_test_server(
     get_scoped_config: (scope_uri: string | undefined) => unknown,
     initialization_options?: unknown,

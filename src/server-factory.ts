@@ -207,30 +207,22 @@ export function resolve_scoped_client_settings(
     });
 }
 
-// The config keys that change WHICH files are indexed, or how their
-// indexed dependency-graph edges are keyed (and thus require a full
-// index teardown + re-scan). Most settings — severities, formatting,
-// completion, debug — only affect how open documents are
-// validated/resolved, which a revalidation pass handles without
-// re-scanning. `max_backward_depth` is included because the indexer's
-// inherited-WD walk (#218) uses it to key closed-file callee edges, so
-// a depth change must re-index for those edges to stay consistent with
-// the open-document path. (`backward_dependencies` is NOT included even
-// though, since #286, the mode steers the parse-path registration side
-// effect in get_parsed_file: a re-scan would not re-run that
-// registration anyway (the file cache is content-keyed and unaffected
-// by settings), so including it buys a costly teardown without the
-// convergence it implies. A mid-session flip instead self-heals per
-// file: explicit→auto is healed by the cache-hit registration upgrade
-// (see upgrade_registration_on_cache_hit) and each file's next
-// parse/commit; auto→explicit leaves vestigial auto edges until the
-// next parse — benign over-revalidation, never a false suppression.)
-//
-// This signature is compared on BOTH config-change paths against a
-// single shared `last_applied_indexing_signature`: the `sight.toml`
-// reload (`reload_project_config_once`) and the runtime client-settings
-// push (`onDidChangeConfiguration`). It is computed on the effective
-// merged `StataLSPConfig` so both paths are directly comparable (#223).
+/**
+ * Identify settings that require rebuilding indexed files or caller edges.
+ * Severities, formatting, completion, and debug only require revalidation.
+ * The inherited-working-directory walk uses `max_backward_depth` to key
+ * closed-file callee edges, so changing that depth requires reindexing (#218).
+ *
+ * `backward_dependencies` is excluded: rescanning would reuse content-keyed
+ * cached parses without rerunning their registration side effect (#286).
+ * Switching from explicit to auto mode instead upgrades registration on cache
+ * hits and later parse/commit operations. Switching to explicit mode leaves
+ * old auto edges until the next parse; these can cause extra revalidation but
+ * cannot suppress a diagnostic incorrectly.
+ *
+ * Project reloads and runtime settings changes compare this signature of the
+ * merged configuration against one `last_applied_indexing_signature` (#223).
+ */
 export function indexing_affecting_signature(
     config: DeepPartial<StataLSPConfig> | undefined
 ): string {
@@ -1687,13 +1679,10 @@ export async function create_server(options: ServerOptions): Promise<void> {
         })
     );
 
-    // Configuration change handler
-    // Apply an effective settings snapshot produced by a runtime
-    // onDidChangeConfiguration event. If an indexing-affecting key
-    // changed, tear down and re-scan the workspace so closed-file edges /
-    // indexed state match the new settings (mirrors the sight.toml reload
-    // path, #223); otherwise keep the index and just reconfigure providers
-    // + revalidate.
+    /**
+     * Apply merged runtime settings. Rebuild discovery when its policy changed
+     * or an ignore refresh is pending; otherwise reconfigure and revalidate.
+     */
     function apply_runtime_settings_change(settings: StataLSPConfig): void {
         const new_signature = indexing_affecting_signature(settings);
         if (gitignore_refresh_pending ||
