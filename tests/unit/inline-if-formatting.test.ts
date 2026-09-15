@@ -28,6 +28,20 @@ function format_source(source: string, mode: FormatterMode): string {
 }
 
 describe('single-statement if formatting', () => {
+    for_each_formatter_mode('preserves a nested brace body', mode => {
+        const source = [
+            'if 1 if 2 {',
+            '    local selected yes',
+            '}',
+            '* following comment',
+            'display "`selected\'"',
+            '',
+        ].join('\n');
+        const formatted = format_source(source, mode);
+        expect(formatted).toBe(source);
+        expect(format_source(formatted, mode)).toBe(formatted);
+    });
+
     const the_adjacent_names = ['L.foo', 'L2.foo', 'F.bar', 'D.foo', 'αβ'];
     for (const my_name of the_adjacent_names) {
         for_each_formatter_mode(`preserves ${my_name} in the condition`, mode => {

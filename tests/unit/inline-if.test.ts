@@ -118,6 +118,27 @@ describe('single-statement if', () => {
         expect(result.diagnostics).toEqual([]);
     });
 
+    const the_outer_conditions = [
+        '1', '(1)', '`enabled\'', 'flag `op\' 1', '`prefix\'if',
+    ];
+    for (const my_condition of the_outer_conditions) {
+        it(`assigns the nested brace after ${my_condition} to the inner if`, () => {
+            const { ast } = parse([
+                `if ${my_condition} if 2 {`,
+                '    local selected yes',
+                '}',
+                'display "`selected\'"',
+            ].join('\n'));
+            expect(ast.nodes[0]).toMatchObject({
+                type: 'if', condition: my_condition, is_single_statement: true,
+                body: [{ type: 'if', condition: '2', body: [{
+                    type: 'macro_def', name: 'selected',
+                }] }],
+            });
+            expect(ast.nodes).toHaveLength(2);
+        });
+    }
+
     it('does not treat uppercase Local as a macro definition', () => {
         const { ast } = parse('if 1 Local result yes');
         expect(ast.nodes[0]).toMatchObject({

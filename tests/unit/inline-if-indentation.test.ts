@@ -26,6 +26,7 @@ describe('single-statement if indentation diagnostics', () => {
     });
 
     const the_sources = [
+        '#delimit ;\nif 1 if 2 {;\nlocal x yes;\n};\n#delimit cr\n',
         '#delimit ;\nif (1)\n    local x yes;\n#delimit cr\n',
         '#delimit ;\nif (1)\nif (2)\n    local x yes;\n#delimit cr\n',
         [

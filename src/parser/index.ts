@@ -2226,7 +2226,12 @@ export class StataParser {
         previous_operand.type !== 'RBRACKET' &&
         (this.isAdjacentToken(previous_operand, token) ||
          (follows_continuation && token.range.start.character === 0));
-      if (!has_brace && paren_depth === 0 && bracket_depth === 0 &&
+      // A separated literal `if` starts a nested statement, so any brace
+      // ahead belongs to that statement. Unlike a macro, the keyword
+      // cannot expand to an operator or serve as a variable name.
+      const starts_nested_if = this.checkWord('if');
+      if ((!has_brace || starts_nested_if) &&
+          paren_depth === 0 && bracket_depth === 0 &&
           previous_operand && !joins_operand &&
           (token.type === 'WORD' || this.isMacroRefToken(token) ||
            token.type === 'MATA_INLINE' || token.type === 'PYTHON_INLINE')) {
