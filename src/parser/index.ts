@@ -159,6 +159,10 @@ export class StataParser {
     };
   }
 
+  /**
+   * Parse one statement and attach its comments.
+   * Inline if bodies leave the shared terminator for their enclosing if.
+   */
   private parseStatement(consume_terminator = true): StataNode | null {
     // Collect trivia at the beginning of the statement. Trivia-only lines (e.g. comment-only)
     // should attach to the next real node, so we carry it forward via pending_trivia.
@@ -2162,6 +2166,11 @@ export class StataParser {
     return false;
   }
 
+  /**
+   * Check for an opening brace before the logical statement ends.
+   * The brace may belong to a nested if; the condition parser decides
+   * ownership when it reaches a separated literal if keyword.
+   */
   private hasIfBrace(): boolean {
     // Nested inline ifs share the same logical statement. Reuse its scan
     // rather than rescanning the remaining tokens at each nesting level.
@@ -2183,6 +2192,7 @@ export class StataParser {
     return false;
   }
 
+  /** Parse an if condition and its braced or single-statement body. */
   private parseIfStatement(): ControlFlowNode {
     const ifToken = this.advance(); // consume 'if'
     // Keep brace conditions intact: macros can supply operators or other

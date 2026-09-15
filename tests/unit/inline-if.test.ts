@@ -11,6 +11,7 @@ import {
     for_each_formatter_mode,
 } from '../property/helpers/formatter-test-utils';
 
+/** Parse a fixture and fail the test on lexer or parser errors. */
 function parse(source: string) {
     const lex = new StataLexer().tokenize(source);
     const result = new StataParser().parse(lex.tokens);

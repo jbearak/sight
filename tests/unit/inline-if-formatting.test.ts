@@ -9,6 +9,7 @@ import {
     FormatterMode,
 } from '../property/helpers/formatter-test-utils';
 
+/** Format a fixture in the selected mode and return the resulting source. */
 function format_source(source: string, mode: FormatterMode): string {
     const lex_result = new StataLexer().tokenize(source);
     const parse_result = new StataParser().parse(lex_result.tokens);
