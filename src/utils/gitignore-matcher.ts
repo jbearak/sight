@@ -3,16 +3,25 @@ import * as path from 'path';
 import ignore, { type Ignore } from 'ignore';
 import { logger } from './logger';
 
+/** Where .gitignore changes require a fresh matcher and workspace scan. */
 export interface GitignoreWatchDirectory {
     directory: string;
+    /** Workspace roots include descendants; ancestor watches do not. */
     recursive: boolean;
 }
 
+/** Discovery policy; explicit documents and dependencies bypass it. */
 export interface GitignoreMatcher {
+    /**
+     * Test an absolute path without reading its source content. The kind
+     * distinguishes directory-only rules. Workspace roots and paths
+     * outside all workspaces remain eligible.
+     */
     is_ignored(
         absolute_path: string,
         kind: 'file' | 'directory'
     ): boolean;
+    /** Includes ancestor rule locations even when no ignore file exists. */
     readonly watch_directories: readonly GitignoreWatchDirectory[];
 }
 
@@ -82,12 +91,14 @@ function rebase_patterns(content: string, relative_directory: string): string[] 
     return the_patterns;
 }
 
+/** Missing rule files are expected and must not consume the warning limit. */
 function is_missing(error: unknown): boolean {
     return typeof error === 'object' && error !== null &&
         'code' in error &&
         (error.code === 'ENOENT' || error.code === 'ENOTDIR');
 }
 
+/** Check lexical containment without following symlinks or rejecting ..names. */
 function contains_path(root: string, target: string): boolean {
     const relative = path.relative(root, target);
     return relative !== '..' &&
@@ -104,6 +115,8 @@ function contains_path(root: string, target: string): boolean {
  * at the workspace root when no marker exists. Nested repositories do
  * not interrupt a selected workspace's hierarchy. Selecting a nested
  * repository as another workspace establishes its own rule scope.
+ * Unreadable rules retain available inherited rules and warn once per
+ * matcher. Disabled matching performs no filesystem reads.
  */
 export function create_gitignore_matcher(
     workspace_roots: readonly string[],
@@ -114,6 +127,7 @@ export function create_gitignore_matcher(
     }
 
     let warned = false;
+    /** Report one I/O failure per scan while allowing other rules to load. */
     function warn_unreadable(file_path: string, error: unknown): void {
         if (warned || is_missing(error)) return;
         warned = true;
@@ -124,6 +138,10 @@ export function create_gitignore_matcher(
         );
     }
 
+    /**
+     * Include ancestors only within the nearest repository. A .git file
+     * also counts, covering worktrees without reading their Git metadata.
+     */
     function find_rule_root(workspace_root: string): string {
         let directory = workspace_root;
         while (true) {
@@ -140,6 +158,10 @@ export function create_gitignore_matcher(
         }
     }
 
+    /**
+     * Append local rules without mutating the inherited matcher shared
+     * by sibling directories. Missing or unreadable files keep its rules.
+     */
     function read_rules(
         scope: WorkspaceScope,
         directory: string,
@@ -168,6 +190,10 @@ export function create_gitignore_matcher(
         return inherited_rules ?? ignore({ ignorecase: false });
     }
 
+    /**
+     * Evaluate a child against its complete rule hierarchy. The slash
+     * suffix preserves directory-only patterns without statting paths.
+     */
     function matches_rules(
         context: DirectoryContext,
         absolute_path: string,
@@ -184,6 +210,10 @@ export function create_gitignore_matcher(
         );
     }
 
+    /**
+     * Cache the rule hierarchy and reachability, including absent files.
+     * An ignored ancestor prevents reading rules beneath it.
+     */
     function directory_context(
         scope: WorkspaceScope,
         directory: string
@@ -233,6 +263,7 @@ export function create_gitignore_matcher(
             the_watch_directories,
             ([directory, recursive]) => ({ directory, recursive })
         ),
+        /** Select one workspace scope so overlapping roots do not mix rules. */
         is_ignored(absolute_path, kind) {
             const target = path.resolve(absolute_path);
             // The deepest explicitly selected workspace determines the

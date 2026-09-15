@@ -498,6 +498,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
         previous_registration?.dispose();
     }
 
+    /** Replace watch registrations without letting an older request win. */
     async function refresh_gitignore_watchers(): Promise<void> {
         const my_seq = ++gitignore_watch_seq;
         if (!server_capabilities
@@ -527,6 +528,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
         previous_registration?.dispose();
     }
 
+    /** Match workspace descendants and the exact ancestor watch locations. */
     function is_relevant_gitignore(uri: string): boolean {
         const directory = path.dirname(URI.parse(uri).fsPath);
         return gitignore_watch_directories.some((watch) => {
@@ -537,6 +539,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
         });
     }
 
+    /** Coalesce ignore events and rescan only with current effective settings. */
     function schedule_gitignore_refresh(): void {
         if (gitignore_refresh_scheduled || shutdown_requested) return;
         gitignore_refresh_scheduled = true;
@@ -569,6 +572,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
         });
     }
 
+    /** Cancel stale disk work immediately, then schedule replacement discovery. */
     function on_gitignore_changed(uri: string): void {
         if (shutdown_requested || !is_relevant_gitignore(uri)) return;
         gitignore_refresh_pending = true;
@@ -944,6 +948,10 @@ export async function create_server(options: ServerOptions): Promise<void> {
         scope_resolver?.reset_reverse_deps();
     }
 
+    /**
+     * Apply one workspace discovery generation and its watch scope. Revalidate
+     * open buffers when that generation finishes, unless a newer one replaced it.
+     */
     function configure_workspace_indexing(
         settings: StataLSPConfig,
         folder_paths: string[],
@@ -1034,6 +1042,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
         return b.every((value) => set_a.has(value));
     }
 
+    /** Reload project policy and rescan when its effective discovery rules change. */
     async function reload_project_config_once(): Promise<void> {
         const active_root = active_workspace_roots[0];
         if (!active_root) {

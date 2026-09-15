@@ -103,6 +103,7 @@ const original_set_scope_resolver =
     DocumentStore.prototype.set_scope_resolver;
 const original_initialize_indexer = WorkspaceIndexer.prototype.initialize;
 
+/** Capture real server components and expose gates for deterministic races. */
 function install_resolver_spies(): void {
     captured_resolver = undefined;
     captured_document_store = undefined;
@@ -169,6 +170,7 @@ function install_resolver_spies(): void {
     };
 }
 
+/** Restore every prototype hook so subsequent tests use the real methods. */
 function restore_resolver_spies(): void {
     ScopeResolver.prototype.set_dependency_graph =
         original_set_dependency_graph;
@@ -210,6 +212,7 @@ function noop_disposable(): { dispose: () => void } {
     return { dispose: () => { } };
 }
 
+/** Drive real server handlers while recording diagnostics and registrations. */
 function make_stub_connection(options: StubConnectionOptions): {
     connection: Connection;
     handlers: CapturedHandlers;
@@ -465,12 +468,14 @@ const DISCOVERED_CALLER_TEXT = [
 ].join('\n');
 const DISCOVERED_CALLEE_TEXT = 'display "$discovered_value"\n';
 
+/** Create a caller whose discovery supplies both a symbol and a macro scope. */
 function write_discovery_files(root = tmp_dir): void {
     fs.mkdirSync(root, { recursive: true });
     fs.writeFileSync(path.join(root, 'caller.do'), DISCOVERED_CALLER_TEXT);
     fs.writeFileSync(path.join(root, 'analysis.do'), DISCOVERED_CALLEE_TEXT);
 }
 
+/** Wait for a newly requested scan, including its graph-completion marker. */
 async function wait_for_index_run(previous_count: number): Promise<void> {
     await wait_until(
         () => the_indexing_runs.length > previous_count,
@@ -481,6 +486,7 @@ async function wait_for_index_run(previous_count: number): Promise<void> {
     expect(captured_graph?.is_scan_complete()).toBe(true);
 }
 
+/** Deliver a filesystem event through the handler registered by create_server. */
 function notify_disk_change(
     handlers: CapturedHandlers,
     uri: string,
@@ -490,6 +496,7 @@ function notify_disk_change(
     handlers.did_change_watched_files!({ changes: [{ uri, type }] });
 }
 
+/** Assert that persistent files, symbols, and caller edges agree on discovery. */
 function expect_discovered_caller(included: boolean, root = tmp_dir): void {
     const caller_uri = URI.file(path.join(root, 'caller.do')).toString();
     const callee_uri = URI.file(path.join(root, 'analysis.do')).toString();
@@ -501,6 +508,7 @@ function expect_discovered_caller(included: boolean, root = tmp_dir): void {
         .toBe(included);
 }
 
+/** Observe the callee's latest diagnostics after asynchronous scope refresh. */
 async function wait_for_macro_diagnostic(
     uri: string,
     undefined_macro: boolean
@@ -998,6 +1006,12 @@ describe('server document lifecycle wiring', () => {
         expect_discovered_caller(false);
         await wait_for_macro_diagnostic(callee_uri, true);
 
+        // Make the alias disagree with the editor before project reload.
+        respect_gitignore = true;
+        handlers.did_change_configuration!({ settings: {} });
+        await wait_for_publish_quiescence();
+        expect_discovered_caller(false);
+
         previous_runs = the_indexing_runs.length;
         fs.writeFileSync(
             path.join(tmp_dir, 'sight.toml'),
@@ -1007,11 +1021,6 @@ describe('server document lifecycle wiring', () => {
         await wait_for_index_run(previous_runs);
         expect_discovered_caller(true);
         await wait_for_macro_diagnostic(callee_uri, false);
-
-        respect_gitignore = true;
-        handlers.did_change_configuration!({ settings: {} });
-        await wait_for_publish_quiescence();
-        expect_discovered_caller(true);
 
         previous_runs = the_indexing_runs.length;
         fs.unlinkSync(path.join(tmp_dir, 'sight.toml'));

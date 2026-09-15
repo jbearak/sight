@@ -11,6 +11,7 @@ describe('workspace Gitignore matching', () => {
     let temp_dir: string;
     let workspace: string;
 
+    /** Paths start above the workspace so fixtures can supply ancestor rules. */
     function write(relative_path: string, content: string): string {
         const file_path = path.join(temp_dir, relative_path);
         fs.mkdirSync(path.dirname(file_path), { recursive: true });

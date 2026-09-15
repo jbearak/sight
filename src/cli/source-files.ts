@@ -70,6 +70,10 @@ export function is_within_workspace(
     return relative === '' || (relative.length > 0 && inside);
 }
 
+/**
+ * Collect real source files below a directory, pruning discovery exclusions
+ * before descent and reporting unreadable eligible directories to the caller.
+ */
 function walk_sources(
     dir_path: string,
     out: string[],
@@ -137,6 +141,10 @@ function walk_sources(
     }
 }
 
+/**
+ * Resolve CLI paths into sorted, deduplicated report targets. Explicit files
+ * bypass discovery exclusions; directories apply the workspace's policies.
+ */
 export function collect_report_targets(
     input_paths: string[],
     workspace_root: string,
