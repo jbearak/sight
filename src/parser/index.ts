@@ -116,6 +116,7 @@ export class StataParser {
   private static readonly OPENING_DELIMITER_PATTERN = /^(`")+$/;
   private static readonly CLOSING_DELIMITER_PATTERN = /^("')+$/;
 
+  /** Build a document AST and collect syntax errors from lexer tokens. */
   parse(tokens: Token[], context_tracker?: ContextTracker): ParseResult {
     this.tokens = tokens;
     this.current = 0;
@@ -2170,6 +2171,7 @@ export class StataParser {
    * Check for an opening brace before the logical statement ends.
    * The brace may belong to a nested if; the condition parser decides
    * ownership when it reaches a separated literal if keyword.
+   * @returns Whether a brace occurs before the next logical terminator.
    */
   private hasIfBrace(): boolean {
     // Nested inline ifs share the same logical statement. Reuse its scan
