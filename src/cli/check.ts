@@ -507,6 +507,11 @@ export async function collect_check_diagnostics(
     const scan_roots = [workspace_root, ...config.adoPaths];
     const the_slots: DiagnosticRecord[][] = new Array(targets.length);
 
+    /**
+     * Check one target with per-file read and size handling. Discovery exclusions
+     * exempt explicit files from index-cap errors. Any opened document is closed
+     * before its worker proceeds to another target.
+     */
     async function collect_target_diagnostics(
         target: ReportTarget,
         document_store: DocumentStore
@@ -686,6 +691,11 @@ OPTIONS:
 `.trim();
 }
 
+/**
+ * Run a CLI check using the supplied cwd for relative paths and the output sink
+ * for reports. Dispose analysis state before returning EXIT_OK,
+ * EXIT_CHECK_FAILED, or EXIT_OPERATOR_ERROR.
+ */
 export async function run_check_with_cwd(
     argv: string[],
     cwd: string,

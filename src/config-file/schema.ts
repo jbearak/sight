@@ -752,6 +752,11 @@ function map_cross_file(
         : undefined;
 }
 
+/**
+ * Map a public settings tree into internal config keys without adding defaults.
+ * Canonical keys take precedence over aliases; invalid values are warned about
+ * and omitted so the caller can merge the remaining configuration layers.
+ */
 export function map_public_config_to_partial_config(
     raw: unknown,
     warn?: WarningSink
