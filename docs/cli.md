@@ -17,6 +17,24 @@ correctly. Positional `PATHS...` only filter which files report diagnostics.
 With no paths, Sight reports discovered `.do`, `.ado`, `.doh`, and `.mata` files
 under the workspace.
 
+Workspace discovery respects `.gitignore` by default, both when indexing
+cross-file relationships and when selecting files to report. This also applies
+to explicitly named directories. An explicitly named file, such as
+`sight check local/analysis.do`, is checked even if ignored. Directly resolved
+dependencies remain available for cross-file analysis.
+
+To disable Gitignore filtering, set this in `sight.toml`:
+
+```toml
+[workspace]
+respectGitignore = false
+```
+
+This keeps Sight's other discovery rules in effect. `--no-config` uses the
+built-in default, which respects `.gitignore`. The CLI does not read VS Code's
+`settings.json`. See [Gitignore rules](configuration.md#gitignore-rules) for
+ancestor lookup, nested rules, and workspace scope.
+
 Automatic discovery skips dot-prefixed descendant directories, including
 `.claude/worktrees`, `.worktrees`, and version-control metadata, before scanning
 their contents. Dot-prefixed source filenames such as `.helper.do` are still

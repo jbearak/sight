@@ -91,6 +91,18 @@ describe('indexing_affecting_signature', () => {
         );
     });
 
+    it('changes when Gitignore discovery is disabled', () => {
+        const changed = with_change((c) => {
+            c.workspace = { respectGitignore: false };
+        });
+        expect(indexing_affecting_signature(changed)).not.toBe(
+            indexing_affecting_signature(base)
+        );
+        expect(indexing_affecting_signature({
+            ...base, workspace: { respectGitignore: true },
+        })).toBe(indexing_affecting_signature(base));
+    });
+
     it('is equal when only a non-indexing field changes', () => {
         // A severity / debug tweak must NOT trigger a re-index.
         const changed = with_change((c) => {

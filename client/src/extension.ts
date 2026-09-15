@@ -207,7 +207,7 @@ export function activate(context: ExtensionContext): void {
 
     // Options to control the language client
     const file_watcher = workspace.createFileSystemWatcher(
-        '**/{*.do,*.ado,*.doh,*.mata,sight.toml,.sight.json}'
+        '**/{*.do,*.ado,*.doh,*.mata,sight.toml,.sight.json,.gitignore}'
     );
     context.subscriptions.push(file_watcher);
 

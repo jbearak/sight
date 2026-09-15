@@ -268,6 +268,20 @@ export function validate_comment_formatting_config(
         validated_config.indexWorkspace = config.indexWorkspace;
     }
 
+    if (config.workspace?.respectGitignore !== undefined) {
+        if (typeof config.workspace.respectGitignore === 'boolean') {
+            validated_config.workspace.respectGitignore =
+                config.workspace.respectGitignore;
+        } else {
+            log_warning?.(
+                'Invalid workspace.respectGitignore: ' +
+                `${config.workspace.respectGitignore}. ` +
+                'Using default: ' +
+                `${DEFAULT_SETTINGS.workspace.respectGitignore}`
+            );
+        }
+    }
+
     if (typeof config.debug === 'boolean') {
         validated_config.debug = config.debug;
     }

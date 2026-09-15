@@ -47,6 +47,11 @@ import { is_resolvable_static_call } from './utils/file-path-utils';
 import { DependencyGraph } from './dependency-graph';
 import { URI } from 'vscode-uri';
 import * as fs from 'fs';
+import * as path from 'path';
+import {
+    create_gitignore_matcher,
+    type GitignoreWatchDirectory,
+} from './utils/gitignore-matcher';
 import { discover_stata_ado_paths } from './utils/stata-install-paths';
 import {
     DIAGNOSTIC_RESOURCES_CHANGED_NOTIFICATION,
@@ -202,36 +207,29 @@ export function resolve_scoped_client_settings(
     });
 }
 
-// The config keys that change WHICH files are indexed, or how their
-// indexed dependency-graph edges are keyed (and thus require a full
-// index teardown + re-scan). Most settings — severities, formatting,
-// completion, debug — only affect how open documents are
-// validated/resolved, which a revalidation pass handles without
-// re-scanning. `max_backward_depth` is included because the indexer's
-// inherited-WD walk (#218) uses it to key closed-file callee edges, so
-// a depth change must re-index for those edges to stay consistent with
-// the open-document path. (`backward_dependencies` is NOT included even
-// though, since #286, the mode steers the parse-path registration side
-// effect in get_parsed_file: a re-scan would not re-run that
-// registration anyway (the file cache is content-keyed and unaffected
-// by settings), so including it buys a costly teardown without the
-// convergence it implies. A mid-session flip instead self-heals per
-// file: explicit→auto is healed by the cache-hit registration upgrade
-// (see upgrade_registration_on_cache_hit) and each file's next
-// parse/commit; auto→explicit leaves vestigial auto edges until the
-// next parse — benign over-revalidation, never a false suppression.)
-//
-// This signature is compared on BOTH config-change paths against a
-// single shared `last_applied_indexing_signature`: the `sight.toml`
-// reload (`reload_project_config_once`) and the runtime client-settings
-// push (`onDidChangeConfiguration`). It is computed on the effective
-// merged `StataLSPConfig` so both paths are directly comparable (#223).
+/**
+ * Identify settings that require rebuilding indexed files or caller edges.
+ * Severities, formatting, completion, and debug only require revalidation.
+ * The inherited-working-directory walk uses `max_backward_depth` to key
+ * closed-file callee edges, so changing that depth requires reindexing (#218).
+ *
+ * `backward_dependencies` is excluded: rescanning would reuse content-keyed
+ * cached parses without rerunning their registration side effect (#286).
+ * Switching from explicit to auto mode instead upgrades registration on cache
+ * hits and later parse/commit operations. Switching to explicit mode leaves
+ * old auto edges until the next parse; these can cause extra revalidation but
+ * cannot suppress a diagnostic incorrectly.
+ *
+ * Project reloads and runtime settings changes compare this signature of the
+ * merged configuration against one `last_applied_indexing_signature` (#223).
+ */
 export function indexing_affecting_signature(
     config: DeepPartial<StataLSPConfig> | undefined
 ): string {
     return JSON.stringify({
         adoPaths: config?.adoPaths ?? null,
         exclude: config?.exclude ?? null,
+        respectGitignore: config?.workspace?.respectGitignore ?? true,
         indexWorkspace: config?.indexWorkspace ?? null,
         index_workspace: config?.cross_file?.index_workspace ?? null,
         max_indexed_files: config?.cross_file?.max_indexed_files ?? null,
@@ -301,6 +299,13 @@ export async function create_server(options: ServerOptions): Promise<void> {
     let project_config_candidate_dirs: string[] = [];
     let active_workspace_roots: string[] = [];
     let project_config_watch_registration: Disposable | undefined = undefined;
+    let gitignore_watch_registration: Disposable | undefined;
+    let gitignore_watch_seq = 0;
+    let gitignore_watch_directories: readonly GitignoreWatchDirectory[] = [];
+    let gitignore_refresh_pending = false;
+    let gitignore_refresh_scheduled = false;
+    let gitignore_change_seq = 0;
+    let workspace_indexing_seq = 0;
 
     // Single source of truth for "which indexing-affecting settings are
     // currently reflected in the workspace index" (#223). Compared on both
@@ -483,6 +488,91 @@ export async function create_server(options: ServerOptions): Promise<void> {
             );
         }
         previous_registration?.dispose();
+    }
+
+    /** Replace watch registrations without letting an older request win. */
+    async function refresh_gitignore_watchers(): Promise<void> {
+        const my_seq = ++gitignore_watch_seq;
+        if (!server_capabilities
+            .has_watched_files_dynamic_registration_capability) {
+            return;
+        }
+        const watchers: FileSystemWatcher[] = gitignore_watch_directories.map(
+            ({ directory, recursive }) => ({
+                globPattern: {
+                    baseUri: URI.file(directory).toString(),
+                    pattern: recursive ? '**/.gitignore' : '.gitignore',
+                },
+                kind: WatchKind.Create | WatchKind.Change | WatchKind.Delete,
+            })
+        );
+        const registration = watchers.length > 0
+            ? await connection.client.register(
+                DidChangeWatchedFilesNotification.type, { watchers }
+            )
+            : undefined;
+        if (my_seq !== gitignore_watch_seq || shutdown_requested) {
+            registration?.dispose();
+            return;
+        }
+        const previous_registration = gitignore_watch_registration;
+        gitignore_watch_registration = registration;
+        previous_registration?.dispose();
+    }
+
+    /** Match workspace descendants and the exact ancestor watch locations. */
+    function is_relevant_gitignore(uri: string): boolean {
+        const directory = path.dirname(URI.parse(uri).fsPath);
+        return gitignore_watch_directories.some((watch) => {
+            const relative = path.relative(watch.directory, directory);
+            return relative === '' || (watch.recursive &&
+                relative !== '..' && !relative.startsWith(`..${path.sep}`) &&
+                !path.isAbsolute(relative));
+        });
+    }
+
+    /** Coalesce ignore events and rescan only with current effective settings. */
+    function schedule_gitignore_refresh(): void {
+        if (gitignore_refresh_scheduled || shutdown_requested) return;
+        gitignore_refresh_scheduled = true;
+        // Coalesce a notification batch before fetching settings. A fresh
+        // matcher belongs to the replacement scan, never the cancelled scan.
+        queueMicrotask(() => {
+            const my_change_seq = gitignore_change_seq;
+            const my_config_seq = config_change_seq;
+            void get_document_settings('').then((settings) => {
+                if (shutdown_requested || !gitignore_refresh_pending ||
+                    my_change_seq !== gitignore_change_seq ||
+                    my_config_seq !== config_change_seq) {
+                    return;
+                }
+                configure_workspace_indexing(
+                    settings, active_workspace_roots, true
+                );
+            }).catch((error) => {
+                connection.console.log(
+                    `[indexer] Gitignore refresh failed: ${error_message(error)}`
+                );
+            }).finally(() => {
+                gitignore_refresh_scheduled = false;
+                if (gitignore_refresh_pending &&
+                    (my_change_seq !== gitignore_change_seq ||
+                        my_config_seq !== config_change_seq)) {
+                    schedule_gitignore_refresh();
+                }
+            });
+        });
+    }
+
+    /** Cancel stale disk work immediately, then schedule replacement discovery. */
+    function on_gitignore_changed(uri: string): void {
+        if (shutdown_requested || !is_relevant_gitignore(uri)) return;
+        gitignore_refresh_pending = true;
+        gitignore_change_seq++;
+        // Stop old disk reads from committing while a settings fetch waits.
+        workspace_indexing_seq++;
+        workspace_indexer?.cancel();
+        schedule_gitignore_refresh();
     }
 
     // Build merged settings for clients WITHOUT `workspace/configuration`
@@ -850,11 +940,17 @@ export async function create_server(options: ServerOptions): Promise<void> {
         scope_resolver?.reset_reverse_deps();
     }
 
+    /**
+     * Apply one workspace discovery generation and its watch scope. Revalidate
+     * open buffers when that generation finishes, unless a newer one replaced it.
+     */
     function configure_workspace_indexing(
         settings: StataLSPConfig,
         folder_paths: string[],
         reset_indexes: boolean
     ): void {
+        const my_indexing_seq = ++workspace_indexing_seq;
+        gitignore_refresh_pending = false;
         if (reset_indexes) {
             reset_workspace_indexing_state();
         }
@@ -868,6 +964,16 @@ export async function create_server(options: ServerOptions): Promise<void> {
         // likewise commits its new config regardless of scan success.
         last_applied_indexing_signature =
             indexing_affecting_signature(settings);
+
+        gitignore_watch_directories = create_gitignore_matcher(
+            folder_paths, settings.workspace.respectGitignore
+        ).watch_directories;
+        void refresh_gitignore_watchers().catch((error) => {
+            connection.console.log(
+                `[indexer] Gitignore watcher registration failed: ` +
+                error_message(error)
+            );
+        });
 
         configure_completion_provider(settings);
         apply_cache_capacities(settings);
@@ -883,12 +989,20 @@ export async function create_server(options: ServerOptions): Promise<void> {
             settings.indexWorkspace !== false &&
             settings.cross_file?.index_workspace !== false;
 
-        if (indexing_enabled && workspace_indexer
-            && folder_paths.length > 0) {
+        if (workspace_indexer && folder_paths.length > 0) {
+            if (!indexing_enabled) {
+                workspace_indexer.set_help_search_paths(
+                    discover_stata_ado_paths()
+                );
+            }
+            // initialize also establishes discovery policy when indexing is
+            // disabled, so closing an ignored buffer follows the same rules.
             workspace_indexer.initialize(
                 folder_paths,
                 settings.adoPaths || []
             ).then(() => {
+                if (my_indexing_seq !== workspace_indexing_seq ||
+                    shutdown_requested) return;
                 // Newly indexed files may satisfy previously-unresolvable
                 // sthlp topics. Drop the per-handler negative cache so
                 // those topics are re-probed.
@@ -920,6 +1034,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
         return b.every((value) => set_a.has(value));
     }
 
+    /** Reload project policy and rescan when its effective discovery rules change. */
     async function reload_project_config_once(): Promise<void> {
         const active_root = active_workspace_roots[0];
         if (!active_root) {
@@ -955,7 +1070,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
         // Compare the new effective settings against the shared last-applied
         // signature (the same variable the runtime onDidChangeConfiguration
         // path uses), so both paths agree on what is currently indexed (#223).
-        const indexing_changed =
+        const indexing_changed = gitignore_refresh_pending ||
             indexing_affecting_signature(settings) !==
             last_applied_indexing_signature;
 
@@ -1564,16 +1679,14 @@ export async function create_server(options: ServerOptions): Promise<void> {
         })
     );
 
-    // Configuration change handler
-    // Apply an effective settings snapshot produced by a runtime
-    // onDidChangeConfiguration event. If an indexing-affecting key
-    // changed, tear down and re-scan the workspace so closed-file edges /
-    // indexed state match the new settings (mirrors the sight.toml reload
-    // path, #223); otherwise keep the index and just reconfigure providers
-    // + revalidate.
+    /**
+     * Apply merged runtime settings. Rebuild discovery when its policy changed
+     * or an ignore refresh is pending; otherwise reconfigure and revalidate.
+     */
     function apply_runtime_settings_change(settings: StataLSPConfig): void {
         const new_signature = indexing_affecting_signature(settings);
-        if (new_signature !== last_applied_indexing_signature) {
+        if (gitignore_refresh_pending ||
+            new_signature !== last_applied_indexing_signature) {
             // Indexing-affecting change: full teardown + re-scan.
             // configure_workspace_indexing reconfigures the completion
             // provider synchronously, updates
@@ -1763,6 +1876,14 @@ export async function create_server(options: ServerOptions): Promise<void> {
             const affected_callees = new Set(
                 dependency_graph.get_callees(e.document.uri)
             );
+            // Ignored files have no automatic disk reindex to replace the
+            // closed buffer's caller edges. Remove them synchronously, before
+            // any reopen can install the new buffer's relationships.
+            if (workspace_indexer?.is_gitignored(
+                URI.parse(e.document.uri).fsPath
+            )) {
+                dependency_graph.remove_caller(e.document.uri);
+            }
             if (affected_callees.size > 0) {
                 invalidate_and_revalidate_callees(affected_callees);
             }
@@ -1804,7 +1925,8 @@ export async function create_server(options: ServerOptions): Promise<void> {
             },
             async () => {
                 await reload_project_config_from_active_root();
-            }
+            },
+            on_gitignore_changed
         )
     );
 
@@ -1850,6 +1972,9 @@ export async function create_server(options: ServerOptions): Promise<void> {
         // Hidden documents intentionally have no diagnostic lifecycle, so
         // shutdown needs its own cancellation signal for in-flight analysis.
         shutdown_requested = true;
+        gitignore_watch_seq++;
+        workspace_indexing_seq++;
+        gitignore_watch_registration?.dispose();
         return shutdown_handler();
     });
     connection.onExit(create_exit_handler());

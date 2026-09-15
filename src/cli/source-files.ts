@@ -8,6 +8,7 @@ import {
     type ExcludeMatcher,
 } from '../utils/exclude-matcher';
 import { diagnostic_code_description_fields } from '../utils/diagnostic-code-description';
+import { create_gitignore_matcher } from '../utils/gitignore-matcher';
 import { compare_strings, error_message } from './shared';
 
 export interface ReportTarget {
@@ -69,13 +70,21 @@ export function is_within_workspace(
     return relative === '' || (relative.length > 0 && inside);
 }
 
+/**
+ * Collect real source files below a directory, pruning discovery exclusions
+ * before descent and reporting unreadable eligible directories to the caller.
+ */
 function walk_sources(
     dir_path: string,
     out: string[],
     operator_errors: string[],
     workspace_roots: readonly string[],
-    exclude_matcher: ExcludeMatcher
+    exclude_matcher: ExcludeMatcher,
+    gitignore_matcher: ReturnType<typeof create_gitignore_matcher>
 ): void {
+    // Explicit directories still discover their contents automatically.
+    // Check before reading them so ignored trees are never traversed.
+    if (gitignore_matcher.is_ignored(dir_path, 'directory')) return;
     let entries: fs.Dirent[];
     try {
         entries = fs.readdirSync(dir_path, { withFileTypes: true });
@@ -116,9 +125,11 @@ function walk_sources(
                 out,
                 operator_errors,
                 workspace_roots,
-                exclude_matcher
+                exclude_matcher,
+                gitignore_matcher
             );
         } else if (entry.isFile() && hasStataExtension(entry.name)) {
+            if (gitignore_matcher.is_ignored(entry_path, 'file')) continue;
             if (
                 !exclude_matcher.is_empty &&
                 exclude_matcher.is_excluded_file(entry_path, workspace_roots)
@@ -130,11 +141,16 @@ function walk_sources(
     }
 }
 
+/**
+ * Resolve CLI paths into sorted, deduplicated report targets. Explicit files
+ * bypass discovery exclusions; directories apply the workspace's policies.
+ */
 export function collect_report_targets(
     input_paths: string[],
     workspace_root: string,
     cwd: string,
-    exclude_patterns: readonly string[] = []
+    exclude_patterns: readonly string[] = [],
+    respect_gitignore = true
 ): ReportTargetResult {
     const operator_errors: string[] = [];
     const source_paths: string[] = [];
@@ -146,6 +162,9 @@ export function collect_report_targets(
     }
     const exclude_matcher = create_exclude_matcher(exclude_patterns);
     const exclude_roots = [normalized_root];
+    const gitignore_matcher = create_gitignore_matcher(
+        exclude_roots, respect_gitignore
+    );
     const has_explicit_paths = input_paths.length > 0;
     const paths_to_collect = input_paths.length > 0
         ? input_paths
@@ -186,7 +205,8 @@ export function collect_report_targets(
                 source_paths,
                 operator_errors,
                 exclude_roots,
-                exclude_matcher
+                exclude_matcher,
+                gitignore_matcher
             );
         } else if (stat.isFile() && hasStataExtension(absolute_path)) {
             source_paths.push(absolute_path);

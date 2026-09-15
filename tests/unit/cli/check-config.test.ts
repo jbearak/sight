@@ -24,6 +24,57 @@ describe('sight check config loading', () => {
         expect(result.kind).toBe('loaded');
         if (result.kind === 'loaded') {
             expect(result.config.diagnostics.enabled).toBe(true);
+            expect(result.config.workspace.respectGitignore).toBe(true);
+        }
+    });
+
+    it('loads false for either spelling of workspace.respectGitignore', () => {
+        for (const my_setting of ['respectGitignore', 'respect_gitignore']) {
+            const root = temp_dir();
+            try {
+                fs.writeFileSync(
+                    path.join(root, 'sight.toml'),
+                    `[workspace]\n${my_setting} = false\n`
+                );
+                const result = load_check_config({
+                    cwd: root,
+                    workspace_root: root,
+                    no_config: false,
+                });
+
+                expect(result.kind).toBe('loaded');
+                if (result.kind === 'loaded') {
+                    expect(result.config.workspace.respectGitignore).toBe(false);
+                    expect(result.warnings).toEqual([]);
+                }
+            } finally {
+                fs.rmSync(root, { recursive: true, force: true });
+            }
+        }
+    });
+
+    it('warns and retains Gitignore defaults for an invalid TOML value', () => {
+        const root = temp_dir();
+        try {
+            fs.writeFileSync(
+                path.join(root, 'sight.toml'),
+                '[workspace]\nrespectGitignore = "false"\n'
+            );
+            const result = load_check_config({
+                cwd: root,
+                workspace_root: root,
+                no_config: false,
+            });
+
+            expect(result.kind).toBe('loaded');
+            if (result.kind === 'loaded') {
+                expect(result.config.workspace.respectGitignore).toBe(true);
+                expect(result.warnings).toHaveLength(1);
+                expect(result.warnings[0].key_path)
+                    .toBe('workspace.respectGitignore');
+            }
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
         }
     });
 

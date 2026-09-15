@@ -107,6 +107,51 @@ describe('map_public_config_to_partial_config', () => {
         expect(legacy.exclude).toEqual(['legacy/**']);
     });
 
+    it('maps workspace.respectGitignore without moving workspace.exclude', () => {
+        for (const respect_gitignore of [true, false]) {
+            const result = map_public_config_to_partial_config({
+                workspace: {
+                    respectGitignore: respect_gitignore,
+                    exclude: ['output/**'],
+                },
+            });
+
+            expect(result.workspace?.respectGitignore).toBe(respect_gitignore);
+            expect(result.exclude).toEqual(['output/**']);
+        }
+    });
+
+    it('warns and ignores a non-boolean workspace.respectGitignore', () => {
+        for (const my_value of ['false', 0, null, []]) {
+            const warnings: string[] = [];
+            const result = map_public_config_to_partial_config(
+                { workspace: { respectGitignore: my_value } },
+                warning => warnings.push(warning.message)
+            );
+
+            expect(result.workspace).toBeUndefined();
+            expect(warnings).toHaveLength(1);
+            expect(warnings[0]).toContain('workspace.respectGitignore');
+        }
+    });
+
+    it('prefers the canonical Gitignore setting over a snake_case collision', () => {
+        const warnings: string[] = [];
+        const result = map_public_config_to_partial_config(
+            {
+                workspace: {
+                    respectGitignore: false,
+                    respect_gitignore: true,
+                },
+            },
+            warning => warnings.push(warning.message)
+        );
+
+        expect(result.workspace?.respectGitignore).toBe(false);
+        expect(warnings).toHaveLength(1);
+        expect(warnings[0]).toContain('canonical');
+    });
+
     it('prefers canonical shared paths over compatibility aliases', () => {
         const warnings: string[] = [];
         const result = map_public_config_to_partial_config(

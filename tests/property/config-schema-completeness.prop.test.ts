@@ -166,6 +166,10 @@ const EXPECTED_CONFIG_FIELDS: ConfigFieldSpec[] = [
         path: 'sight.indexWorkspace',
         type: 'boolean',
     },
+    {
+        path: 'sight.workspace.respectGitignore',
+        type: 'boolean',
+    },
 ];
 
 describe('Configuration Schema Completeness Property Tests', () => {

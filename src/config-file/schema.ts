@@ -752,6 +752,11 @@ function map_cross_file(
         : undefined;
 }
 
+/**
+ * Map a public settings tree into internal config keys without adding defaults.
+ * Canonical keys take precedence over aliases; invalid values are warned about
+ * and omitted so the caller can merge the remaining configuration layers.
+ */
 export function map_public_config_to_partial_config(
     raw: unknown,
     warn?: WarningSink
@@ -787,7 +792,19 @@ export function map_public_config_to_partial_config(
 
     const workspace = object_value(raw, 'workspace', 'workspace', warn);
     if (workspace) {
-        warn_unknown_keys(workspace, ['exclude'], 'workspace', warn);
+        warn_unknown_keys(
+            workspace, ['exclude', 'respectGitignore'], 'workspace', warn
+        );
+        const mapped_workspace: JsonObject = {};
+        assign_boolean(
+            mapped_workspace,
+            'respectGitignore',
+            workspace,
+            'respectGitignore',
+            'workspace.respectGitignore',
+            warn
+        );
+        maybe_assign_object(root, 'workspace', mapped_workspace);
     }
     const canonical_exclude = workspace
         ? pick_key(workspace, 'exclude', warn, 'workspace.exclude')
