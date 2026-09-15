@@ -318,6 +318,7 @@ export interface MacroRefNode {
 
 export interface ControlFlowNode {
   type: 'if' | 'else' | 'foreach' | 'forvalues' | 'while' | 'frame';
+  is_single_statement?: boolean;
   condition?: string;
   loopVar?: string;
   loopSpec?: string;

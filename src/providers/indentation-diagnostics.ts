@@ -1,7 +1,7 @@
 import { Diagnostic, DiagnosticSeverity, Range, Position } from 'vscode-languageserver/node';
 import { DocumentState } from '../document-store';
 import { LanguageContext } from '../context-tracker/types';
-import { StataDiagnosticCode, StataLSPConfig, StataNode, StataAST, ControlFlowNode, ProgramNode, Token } from '../types';
+import { StataDiagnosticCode, StataLSPConfig, StataNode, StataAST, Token } from '../types';
 import { diagnostic_code_description_fields } from '../utils/diagnostic-code-description';
 
 const CONTROL_FLOW_RE = /^(if|foreach|while|program|mata|python)\b/;
@@ -471,15 +471,7 @@ export class IndentationDiagnosticAnalyzer {
       }
       
       // Check if this is a control flow block that increases depth
-      const is_control_flow = node.type === 'program' ||
-                              node.type === 'if' ||
-                              node.type === 'else' ||
-                              node.type === 'foreach' ||
-                              node.type === 'forvalues' ||
-                              node.type === 'while' ||
-                              node.type === 'frame';
-      
-      if (is_control_flow && node.body) {
+      if (this.is_block_node_type(node) && 'body' in node && node.body) {
         // Recurse into body with increased depth. Mirror the same-line
         // child rule in compute_expected_depths: a block child that
         // starts on the parent's line (e.g. the `if` of an `else if`)
@@ -571,11 +563,9 @@ export class IndentationDiagnosticAnalyzer {
       }
       
       // Check if this is a block node that increases depth
-      if (this.is_block_node_type(node)) {
-        const block_node = node as ControlFlowNode | ProgramNode;
-        
+      if (this.is_block_node_type(node) && 'body' in node && node.body) {
         // Process body nodes with increased depth
-        for (const my_child of block_node.body) {
+        for (const my_child of node.body) {
           // A child that starts on the parent's physical line shares that
           // line's indentation, so it stays at the parent's depth. Handles
           // "else if", "else capture {", and "else display 2" (a plain command
@@ -594,6 +584,12 @@ export class IndentationDiagnosticAnalyzer {
           if (!expected_depths.has(end_line)) {
             expected_depths.set(end_line, depth);
           }
+        }
+      } else if ('body' in node && node.body) {
+        // A single-statement if shares its body's indentation, even when
+        // semicolon mode places that command on another physical line.
+        for (const my_child of node.body) {
+          walk_node(my_child, depth);
         }
       }
     };
@@ -615,12 +611,13 @@ export class IndentationDiagnosticAnalyzer {
 
   /**
    * Check if a node is a block node that increases indentation depth.
+   * Single-statement ifs do not introduce another indentation level.
    * Note: Command brace blocks (e.g., capture { }) are handled separately
    * by compute_brace_block_depths, not here.
    */
   private is_block_node_type(node: StataNode): boolean {
     return node.type === 'program' ||
-           node.type === 'if' ||
+           (node.type === 'if' && !node.is_single_statement) ||
            node.type === 'else' ||
            node.type === 'foreach' ||
            node.type === 'forvalues' ||

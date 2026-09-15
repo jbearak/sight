@@ -402,6 +402,18 @@ export class PrettyPrinter {
      * Print a control flow statement (if, else, foreach, forvalues, while).
      */
     private printControlFlow(node: ControlFlowNode): string {
+        if (node.type === 'if' && node.is_single_statement) {
+            const body_node = node.body[0];
+            const body = body_node ? this.printNode(body_node) : '';
+            // The enclosing node supplies indentation and the one statement
+            // terminator shared by the condition and its inline command.
+            const inline_body = body
+                .trimStart()
+                .slice(0, -this.getStatementTerminator().length);
+            // Preserve expression fragments, comments, and Unicode names.
+            return `${this.getIndent()}if ${node.condition || ''} ${inline_body}`;
+        }
+
         const the_lines: string[] = [];
 
         // Print the control flow header
@@ -468,7 +480,7 @@ export class PrettyPrinter {
     private printEmbeddedBlock(node: EmbeddedLanguageBlockNode): string {
         if (node.is_single_line) {
             // For single-line embedded blocks, print everything on one line
-            return `${this.getIndent()}${node.start_command} ${node.content}${this.getStatementTerminator()}`;
+            return `${this.getIndent()}${node.start_command} ${node.content}`;
         }
 
         const the_lines: string[] = [];

@@ -1697,9 +1697,9 @@ end`;
 
     test('/// continuation in a condition joins only the next line', () => {
       // Column-0 join matches Stata (`if a///` then `b` executes `if ab`); a
-      // space before `///` separates.
+      // space before `///` separates the condition from an inline command.
       expect(condition('if a///\nb {\n  display 1\n}')).toBe('ab');
-      expect(condition('if a ///\nb {\n  display 1\n}')).toBe('a b');
+      expect(condition('if a ///\ndisplay 1')).toBe('a');
       expect(condition('while a///\nb {\n  display 1\n}')).toBe('ab');
     });
   });
