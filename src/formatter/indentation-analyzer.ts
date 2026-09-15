@@ -84,6 +84,16 @@ export class IndentationAnalyzer {
             return;
         }
 
+        if (node.type === 'if' && node.is_single_statement) {
+            // An inline command shares the condition's depth and does not
+            // open a block for following lines or comments.
+            this.process_regular_node(node);
+            for (const my_child of node.body) {
+                this.walk_node(my_child);
+            }
+            return;
+        }
+
         if (this.is_block_node(node)) {
             if (node.type === 'command') {
                 const cmd = node as CommandNode;

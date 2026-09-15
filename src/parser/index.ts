@@ -109,16 +109,21 @@ export class StataParser {
   private pending_trivia: TriviaNode[] = [];
   private context_tracker: ContextTracker | null = null;
   private inside_program: boolean = false;
+  private if_brace_scan_end = -1;
+  private if_brace_scan_result = false;
 
   // Regex patterns for nested compound string delimiters
   private static readonly OPENING_DELIMITER_PATTERN = /^(`")+$/;
   private static readonly CLOSING_DELIMITER_PATTERN = /^("')+$/;
 
+  /** Build a document AST and collect syntax errors from lexer tokens. */
   parse(tokens: Token[], context_tracker?: ContextTracker): ParseResult {
     this.tokens = tokens;
     this.current = 0;
     this.errors = [];
     this.pending_trivia = [];
+    this.if_brace_scan_end = -1;
+    this.if_brace_scan_result = false;
     this.context_tracker = context_tracker || null;
 
     const nodes: StataNode[] = [];
@@ -155,7 +160,11 @@ export class StataParser {
     };
   }
 
-  private parseStatement(): StataNode | null {
+  /**
+   * Parse one statement and attach its comments.
+   * Inline if bodies leave the shared terminator for their enclosing if.
+   */
+  private parseStatement(consume_terminator = true): StataNode | null {
     // Collect trivia at the beginning of the statement. Trivia-only lines (e.g. comment-only)
     // should attach to the next real node, so we carry it forward via pending_trivia.
     const leading_trivia = [...this.pending_trivia, ...this.collectTrivia()];
@@ -270,8 +279,8 @@ export class StataParser {
       node.trailingTrivia = trailing_trivia;
     }
 
-    // Consume statement terminator
-    if (this.check('STATEMENT_TERMINATOR')) {
+    // An inline if body shares its terminator with the enclosing statement.
+    if (consume_terminator && this.check('STATEMENT_TERMINATOR')) {
       this.advance();
     }
 
@@ -2158,10 +2167,41 @@ export class StataParser {
     return false;
   }
 
+  /**
+   * Check for an opening brace before the logical statement ends.
+   * The brace may belong to a nested if; the condition parser decides
+   * ownership when it reaches a separated literal if keyword.
+   * @returns Whether a brace occurs before the next logical terminator.
+   */
+  private hasIfBrace(): boolean {
+    // Nested inline ifs share the same logical statement. Reuse its scan
+    // rather than rescanning the remaining tokens at each nesting level.
+    if (this.current <= this.if_brace_scan_end) {
+      return this.if_brace_scan_result;
+    }
+    for (let i = this.current; i < this.tokens.length; i++) {
+      const token = this.tokens[i];
+      if (token.type === 'LBRACE' || token.type === 'EOF' ||
+          (token.type === 'STATEMENT_TERMINATOR' &&
+           !is_swallowed_continuation_terminator(
+             token, this.tokens[i - 1]?.type === 'CONTINUATION'
+           ))) {
+        this.if_brace_scan_end = i;
+        this.if_brace_scan_result = token.type === 'LBRACE';
+        return this.if_brace_scan_result;
+      }
+    }
+    return false;
+  }
+
+  /** Parse an if condition and its braced or single-statement body. */
   private parseIfStatement(): ControlFlowNode {
     const ifToken = this.advance(); // consume 'if'
+    // Keep brace conditions intact: macros can supply operators or other
+    // expression fragments, making an apparent command boundary ambiguous.
+    const has_brace = this.hasIfBrace();
 
-    // Parse condition - collect tokens until { and reconstruct spacing from
+    // Parse condition up to { or a single statement, reconstructing spacing from
     // token ranges, so both delimiter modes agree and `///` continuations use
     // the same join semantics as expressions/qualifiers (issue #306).
     const condition_tokens: Token[] = [];
@@ -2169,6 +2209,9 @@ export class StataParser {
     const continuation = new ContinuationTracker();
     const condition_start_line = ifToken.range.start.line;
     let paren_depth = 0;
+    let bracket_depth = 0;
+    let previous_operand: Token | undefined;
+    let is_single_statement = false;
 
     while (!this.check('LBRACE') && !this.isAtEnd()) {
       // Handle continuation tokens - skip them and continue parsing
@@ -2185,7 +2228,29 @@ export class StataParser {
         break;
       }
 
-      const token = this.advance();
+      const token = this.peek();
+      const follows_continuation = continuation.collect(token);
+      // Two separate operands cannot belong to one expression. The second
+      // starts the command in `if expression command`. Adjacent fragments
+      // of macro-built names and interpolated strings are still one operand.
+      const joins_operand = previous_operand &&
+        previous_operand.type !== 'RPAREN' &&
+        previous_operand.type !== 'RBRACKET' &&
+        (this.isAdjacentToken(previous_operand, token) ||
+         (follows_continuation && token.range.start.character === 0));
+      // A separated literal `if` starts a nested statement, so any brace
+      // ahead belongs to that statement. Unlike a macro, the keyword
+      // cannot expand to an operator or serve as a variable name.
+      const starts_nested_if = this.checkWord('if');
+      if ((!has_brace || starts_nested_if) &&
+          paren_depth === 0 && bracket_depth === 0 &&
+          previous_operand && !joins_operand &&
+          (token.type === 'WORD' || this.isMacroRefToken(token) ||
+           token.type === 'MATA_INLINE' || token.type === 'PYTHON_INLINE')) {
+        is_single_statement = true;
+        break;
+      }
+      this.advance();
 
       // Track parenthesis depth for error checking
       if (token.type === 'LPAREN') {
@@ -2198,8 +2263,21 @@ export class StataParser {
         }
       }
 
+      if (token.type === 'LBRACKET') {
+        bracket_depth++;
+      } else if (token.type === 'RBRACKET') {
+        bracket_depth = Math.max(0, bracket_depth - 1);
+      }
+      if (token.type !== 'COMMENT_LINE' && token.type !== 'COMMENT_BLOCK') {
+        previous_operand =
+          token.type === 'WORD' || token.type === 'NUMBER' ||
+          token.type === 'STRING' || this.isMacroRefToken(token) ||
+          token.type === 'RPAREN' || token.type === 'RBRACKET'
+            ? token : undefined;
+      }
+
       condition_tokens.push(token);
-      preceded_by_continuation.push(continuation.collect(token));
+      preceded_by_continuation.push(follows_continuation);
     }
 
     // Reconstruct condition with mode-independent single-space spacing.
@@ -2220,7 +2298,10 @@ export class StataParser {
     // Parse body
     const body: StataNode[] = [];
     let blockEndingTrivia: TriviaNode[] | undefined;
-    if (this.check('LBRACE')) {
+    if (is_single_statement) {
+      const statement = this.parseStatement(false);
+      if (statement) body.push(statement);
+    } else if (this.check('LBRACE')) {
       const lbrace_index = this.current;
       const lbrace_token = this.advance(); // consume {
 
@@ -2246,9 +2327,14 @@ export class StataParser {
 
     return {
       type: 'if',
+      ...(is_single_statement ? { is_single_statement: true } : {}),
       condition: condition.trim(),
       body,
-      range: this.makeRange(ifToken.range.start, this.previous().range.end),
+      range: this.makeRange(
+        ifToken.range.start,
+        is_single_statement && body.length > 0
+          ? body[body.length - 1].range.end : this.previous().range.end
+      ),
       blockEndingTrivia,
     };
   }

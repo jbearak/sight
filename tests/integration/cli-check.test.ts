@@ -35,6 +35,32 @@ async function run_capture(argv: string[], cwd: string) {
 }
 
 describe('sight check integration', () => {
+    it('recognizes local definitions in single-statement if bodies', async () => {
+        const root = temp_dir();
+        try {
+            fs.writeFileSync(path.join(root, 'main.do'), [
+                'local wide_window = 0',
+                'if (flag_birth_two_years == 2) local wide_var cm13',
+                'if (flag_birth_two_years == 3) local wide_var cm17',
+                'if ("`wide_var\'" != "") {',
+                '    local wide_lab : variable label `wide_var\'',
+                '    local wide_window = 1',
+                '}',
+                'if (`wide_window\' == 1) {',
+                '    display "`wide_var\' `wide_lab\'"',
+                '}',
+            ].join('\n'));
+            const result = await run_capture(
+                ['--workspace', root, '--no-config', '--quiet'], root
+            );
+            expect(result.stderr).toBe('');
+            expect(result.stdout).toBe('');
+            expect(result.code).toBe(EXIT_OK);
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    });
+
     it('reports same-file undefined macro diagnostics', async () => {
         const root = temp_dir();
         fs.writeFileSync(path.join(root, 'main.do'), "display \"`missing'\"\n");
