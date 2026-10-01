@@ -1433,6 +1433,9 @@ export class ForwardScopeResolver {
             if (my_collector_index >= 0) {
                 this.active_probe_collectors.splice(my_collector_index, 1);
             }
+            // A stored closure keeps fresh_visited as its visited_delta;
+            // drop the lookup so the collector does not live as long.
+            this.collector_by_visited.delete(fresh_visited);
         }
 
         // Transient failures — never stored (not key-determined): the next

@@ -470,6 +470,31 @@ describe('issue #234 — forward-closure memo store/serve', () => {
         expect(forward_resolver.get_forward_closure_metrics().hits).toBe(1);
     });
 
+    it('releases each build collector once the build completes', async () => {
+        // A stored closure keeps its visited map (as visited_delta); the
+        // collector lookup keyed by it must not keep the build's probe set
+        // alive for the entry's lifetime.
+        const { roots } = build_chain_workspace(1);
+        await scope_resolver.resolve(to_uri(roots[0]!), read(roots[0]!));
+        const internals = forward_resolver as unknown as {
+            forward_closure_memo: {
+                values(): IterableIterator<{
+                    kind: string;
+                    visited_delta?: Map<string, unknown>;
+                }>;
+            };
+            collector_by_visited: WeakMap<object, unknown>;
+        };
+        const the_closures = [...internals.forward_closure_memo.values()]
+            .filter(my_entry => my_entry.kind === 'closure');
+        expect(the_closures.length).toBeGreaterThan(0);
+        for (const my_entry of the_closures) {
+            expect(
+                internals.collector_by_visited.has(my_entry.visited_delta!),
+            ).toBe(false);
+        }
+    });
+
     it('still serves closures whose call matched only the file name case-insensitively', async () => {
         // A leaf-only mismatch depends on file names alone, which file
         // events (through the case-folded dependent index) do report.
