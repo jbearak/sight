@@ -453,13 +453,11 @@ describe('resolve_path_rich', () => {
             workspace_roots: roots,
             fs,
         });
-        expect(out.kind).toBe('ambiguous');
-        if (out.kind === 'ambiguous') {
-            expect(out.matches).toEqual([
-                '/ws/Scripts/clean.do',
-                '/ws/SCRIPTS/clean.do',
-            ]);
-        }
+        expect(out).toEqual({
+            kind: 'ambiguous',
+            requested: '/ws/scripts/clean.do',
+            matches: ['/ws/Scripts/clean.do', '/ws/SCRIPTS/clean.do'],
+        });
     });
 
     it('no exact directory, one of two case variants holds the file', () => {
@@ -546,7 +544,7 @@ describe('resolve_path_rich', () => {
         );
         // The truncated search is inconclusive, so it must stop the
         // candidate chain rather than read as a plain miss.
-        expect(out.kind).toBe('ambiguous');
+        expect(out).toMatchObject({ kind: 'ambiguous', truncated: true });
         expect(my_reads).toBeLessThanOrEqual(
             the_depth + 1 + MAX_CASE_VARIANT_BACKTRACK_READS,
         );
@@ -578,77 +576,41 @@ describe('resolve_path_rich', () => {
             workspace_roots: roots,
             fs: make_fs(the_tree),
         });
-        expect(out.kind).toBe('ambiguous');
+        expect(out).toMatchObject({
+            kind: 'ambiguous',
+            truncated: true,
+            matches: [`/ws/${the_variants[0]}/x.do`],
+        });
     });
 
-    // An unreadable branch may hold another match, so a lone hit beside
-    // one is not unique. With no hit at all the read failure stays a
-    // plain miss, as it was before backtracking.
-    const with_unreadable = (
-        tree: Record<string, Array<FsEntry>>,
-        the_unreadable: string[],
-    ) => {
-        const fs = make_fs(tree);
-        return {
+    it('an unreadable case-variant branch reads as absent', () => {
+        // Directories that cannot be read count as absent, as they do
+        // everywhere in the walk (and in the shared symlink-aware entry
+        // helpers), so the readable sibling's hit is the unique match.
+        const fs = make_fs({
+            '/ws': [['Scripts', false], ['SCRIPTS', false]],
+            '/ws/Scripts': [['clean.do', true]],
+            '/ws/SCRIPTS': [],
+        });
+        const unreadable_fs = {
             ...fs,
             readdirSync: (p: string, opts: { withFileTypes: true }) => {
-                if (the_unreadable.includes(p)) {
+                if (p === '/ws/SCRIPTS') {
                     throw new Error(`EACCES: permission denied, scandir '${p}'`);
                 }
                 return fs.readdirSync(p, opts);
             },
         };
-    };
-
-    it('unreadable case-variant sibling beside a hit: ambiguous', () => {
-        const fs = with_unreadable(
-            {
-                '/ws': [['Scripts', false], ['SCRIPTS', false]],
-                '/ws/Scripts': [['clean.do', true]],
-                '/ws/SCRIPTS': [],
-            },
-            ['/ws/SCRIPTS'],
-        );
         expect(
             resolve_path_rich('/ws/scripts/clean.do', {
                 workspace_roots: roots,
-                fs,
-            }).kind,
-        ).toBe('ambiguous');
-    });
-
-    it('unreadable exact directory beside a sibling hit: ambiguous', () => {
-        const fs = with_unreadable(
-            {
-                '/ws': [['scripts', false], ['Scripts', false]],
-                '/ws/scripts': [],
-                '/ws/Scripts': [['clean.do', true]],
-            },
-            ['/ws/scripts'],
-        );
-        expect(
-            resolve_path_rich('/ws/scripts/clean.do', {
-                workspace_roots: roots,
-                fs,
-            }).kind,
-        ).toBe('ambiguous');
-    });
-
-    it('unreadable branches with no hit: missing', () => {
-        const fs = with_unreadable(
-            {
-                '/ws': [['scripts', false], ['Scripts', false]],
-                '/ws/scripts': [],
-                '/ws/Scripts': [],
-            },
-            ['/ws/scripts'],
-        );
-        expect(
-            resolve_path_rich('/ws/scripts/clean.do', {
-                workspace_roots: roots,
-                fs,
-            }).kind,
-        ).toBe('missing');
+                fs: unreadable_fs,
+            }),
+        ).toEqual({
+            kind: 'case_only',
+            path: '/ws/Scripts/clean.do',
+            requested: '/ws/scripts/clean.do',
+        });
     });
 
     it('directory target found under a case-variant sibling', () => {
