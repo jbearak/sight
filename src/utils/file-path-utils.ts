@@ -370,6 +370,9 @@ export function resolve_path_rich(
     let directory_reads_left =
         the_components.length + MAX_CASE_VARIANT_BACKTRACK_READS;
     let budget_exhausted = false;
+    // Directories the walk failed to read. A failed branch may hold a
+    // match, so a lone hit found beside one is not proven unique.
+    let unreadable_dir_count = 0;
     const walk = (
         current_dir: string,
         comp_idx: number,
@@ -388,10 +391,12 @@ export function resolve_path_rich(
                 withFileTypes: true,
             });
         } catch {
+            unreadable_dir_count++;
             return { kind: 'missing', requested: resolved_fs_path };
         }
 
         if (!my_is_final) {
+            const my_unreadable_before = unreadable_dir_count;
             // ── Non-final: must find a directory ─────────────────────────────
             // Exact-before-case priority; symlinks are followed via
             // entry_is_dir so a symlinked directory is treated as a directory.
@@ -439,8 +444,16 @@ export function resolve_path_rich(
             // A search the budget cut short is inconclusive, so it reports
             // ambiguous: neither a lone hit nor (in
             // resolve_forward_call_rich) a lower-priority candidate may be
-            // chosen in place of matches it never read.
-            if (the_hits.length > 1 || budget_exhausted) {
+            // chosen in place of matches it never read. A branch at this
+            // level that could not be read likewise leaves a lone hit
+            // unproven; with no hit it stays a plain miss.
+            const my_saw_unreadable =
+                unreadable_dir_count > my_unreadable_before;
+            if (
+                the_hits.length > 1 ||
+                budget_exhausted ||
+                (the_hits.length === 1 && my_saw_unreadable)
+            ) {
                 return {
                     kind: 'ambiguous',
                     requested: resolved_fs_path,
