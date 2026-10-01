@@ -1028,6 +1028,10 @@ export function wd_for_position(
  * The returned `diagnostics` are always computed; callers decide whether to
  * emit them (only the diagnostic-owner file at depth 0 should — every producer
  * that merely re-stamps forward calls discards them to avoid double emission).
+ *
+ * `depends_on_directory_casing` is true when some target resolved
+ * `case_only` or `ambiguous`: the timeline then depends on which
+ * case-variant directories exist, which no Stata-file event reports.
  */
 export function build_cd_timeline(params: {
     starting_wd: string | undefined;
@@ -1035,10 +1039,15 @@ export function build_cd_timeline(params: {
     cd_commands: CdCommand[];
     workspace_roots?: string[];
     fs?: RichResolveFs;
-}): { timeline: CdTimeline; diagnostics: DirectiveDiagnostic[] } {
+}): {
+    timeline: CdTimeline;
+    diagnostics: DirectiveDiagnostic[];
+    depends_on_directory_casing: boolean;
+} {
     const { starting_wd, caller_dir, cd_commands, workspace_roots, fs } = params;
     const the_diagnostics: DirectiveDiagnostic[] = [];
     const the_entries: CdTimelineEntry[] = [];
+    let depends_on_directory_casing = false;
 
     // Process static cd commands in ascending position order. Tolerate an
     // absent list (defensive: some callers/mocks omit cd_commands).
@@ -1075,6 +1084,7 @@ export function build_cd_timeline(params: {
             current_wd = my_outcome.path;
         } else if (my_outcome.kind === 'case_only') {
             current_wd = my_outcome.path;
+            depends_on_directory_casing = true;
             the_diagnostics.push(
                 make_cd_case_mismatch_diagnostic(my_cd, my_outcome, caller_dir, workspace_roots),
             );
@@ -1095,6 +1105,7 @@ export function build_cd_timeline(params: {
             // ambiguous: two or more case-insensitive matches, or a search
             // too large to finish — no safe choice. Leave the WD unchanged
             // so we do not poison later resolution.
+            depends_on_directory_casing = true;
             the_diagnostics.push({
                 message:
                     `Ambiguous directory for cd: "${my_cd.raw_path}" ` +
@@ -1113,6 +1124,7 @@ export function build_cd_timeline(params: {
     return {
         timeline: { starting_wd, entries: the_entries },
         diagnostics: the_diagnostics,
+        depends_on_directory_casing,
     };
 }
 

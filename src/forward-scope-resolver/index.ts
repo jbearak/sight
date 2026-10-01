@@ -189,6 +189,19 @@ type ForwardClosureMemoEntry =
     | ForwardClosureMemoClosureEntry
     | ForwardClosureMemoUnservableEntry;
 
+/** What one in-flight standalone build learns about its own staleness. */
+interface ForwardClosureProbeCollector {
+    /** URIs whose creation would change what a fresh walk resolves. */
+    probes: Set<string>;
+    /**
+     * A `cd` target resolved through case-insensitive directory matching,
+     * so the closure depends on which case-variant directories exist —
+     * which no Stata-file event reports. Such a build is stored
+     * unservable.
+     */
+    depends_on_directory_casing: boolean;
+}
+
 const DEFAULT_CONFIG: ForwardScopeConfig = {
     max_forward_depth: 10,
 };
@@ -274,8 +287,9 @@ export class ForwardScopeResolver {
     // dependent_uris — creating a file at one of these paths would change
     // what a fresh walk resolves, so it must evict the entry. Cross-
     // contamination between concurrent unrelated builds only ADDS
-    // dependents (safe over-invalidation).
-    private active_probe_collectors: Set<string>[] = [];
+    // dependents (safe over-invalidation). Each collector also records
+    // whether a cd in the build matched a directory case-insensitively.
+    private active_probe_collectors: ForwardClosureProbeCollector[] = [];
     private dependency_graph?: import('../dependency-graph').DependencyGraph;
 
     constructor(scope_resolver: ScopeResolver, config: Partial<ForwardScopeConfig> = {}) {
@@ -447,8 +461,19 @@ export class ForwardScopeResolver {
         for (const my_fs_path of fs_paths) {
             const my_probe_uri = URI.file(my_fs_path).toString();
             for (const my_collector of this.active_probe_collectors) {
-                my_collector.add(my_probe_uri);
+                my_collector.probes.add(my_probe_uri);
             }
+        }
+    }
+
+    /**
+     * Mark every active standalone-build collector as depending on
+     * directory casing (a cd matched case-insensitively). No-op when no
+     * build is in flight.
+     */
+    private record_directory_casing_dependency(): void {
+        for (const my_collector of this.active_probe_collectors) {
+            my_collector.depends_on_directory_casing = true;
         }
     }
 
@@ -692,16 +717,22 @@ export class ForwardScopeResolver {
         // child` resolves child's relative paths from A even though parse-time
         // stamping could not know the call-site WD.
         const my_caller_dir = path.dirname(URI.parse(file_uri).fsPath);
-        const { timeline: cd_timeline, diagnostics: cd_diagnostics } =
-            build_cd_timeline({
-                starting_wd: my_context.working_directory,
-                caller_dir: my_caller_dir,
-                cd_commands: my_context.cd_commands ?? [],
-                workspace_roots: this.workspace_roots.length > 0
-                    ? this.workspace_roots
-                    : undefined,
-                fs: this.resolve_fs,
-            });
+        const {
+            timeline: cd_timeline,
+            diagnostics: cd_diagnostics,
+            depends_on_directory_casing,
+        } = build_cd_timeline({
+            starting_wd: my_context.working_directory,
+            caller_dir: my_caller_dir,
+            cd_commands: my_context.cd_commands ?? [],
+            workspace_roots: this.workspace_roots.length > 0
+                ? this.workspace_roots
+                : undefined,
+            fs: this.resolve_fs,
+        });
+        if (depends_on_directory_casing) {
+            this.record_directory_casing_dependency();
+        }
 
         // Emit cd diagnostics only for the diagnostic-owner file at depth 0 —
         // the same single-emission guard used for do/run/include
@@ -1326,7 +1357,10 @@ export class ForwardScopeResolver {
         this.memo_metrics.misses++;
 
         this.standalone_in_flight.add(callee_uri);
-        const my_probe_collector = new Set<string>();
+        const my_probe_collector: ForwardClosureProbeCollector = {
+            probes: new Set(),
+            depends_on_directory_casing: false,
+        };
         this.active_probe_collectors.push(my_probe_collector);
         let standalone: ForwardResolvedScope;
         try {
@@ -1397,14 +1431,20 @@ export class ForwardScopeResolver {
         const dependent_uris = new Set([
             callee_uri,
             ...fresh_visited.keys(),
-            ...my_probe_collector,
+            ...my_probe_collector.probes,
         ]);
 
         // Key-determined failure: the same inputs reproduce the same
         // diagnostics, so mark the key unservable instead of re-attempting
         // a doomed standalone build on every future traversal (O(2^depth)
-        // blowup on cap-tripping chains otherwise).
-        if (fresh_diagnostics.length > 0) {
+        // blowup on cap-tripping chains otherwise). A closure that depends
+        // on directory casing is unservable for a different reason: no
+        // dependent URI could evict it when a case-variant directory
+        // appears or disappears, so it is walked live instead.
+        if (
+            fresh_diagnostics.length > 0 ||
+            my_probe_collector.depends_on_directory_casing
+        ) {
             return this.store_memo_entry(key, {
                 kind: 'unservable',
                 dependent_uris,
@@ -1686,7 +1726,10 @@ export class ForwardScopeResolver {
             // Each nested `include` resolves against the WD active at its
             // position, so a `cd` before an include in the callee is honored.
             const nested_base_wd = callee_result.working_directory ?? working_directory;
-            const { timeline: nested_cd_timeline } = build_cd_timeline({
+            const {
+                timeline: nested_cd_timeline,
+                depends_on_directory_casing: nested_depends_on_casing,
+            } = build_cd_timeline({
                 starting_wd: nested_base_wd,
                 caller_dir: path.dirname(URI.parse(callee_uri).fsPath),
                 cd_commands: callee_result.cd_commands,
@@ -1695,6 +1738,9 @@ export class ForwardScopeResolver {
                     : undefined,
                 fs: this.resolve_fs,
             });
+            if (nested_depends_on_casing) {
+                this.record_directory_casing_dependency();
+            }
             for (const my_event of the_events) {
                 if (token?.isCancellationRequested) break;
                 if (my_event.kind === 'local') {

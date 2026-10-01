@@ -398,6 +398,29 @@ describe('issue #234 — forward-closure memo store/serve', () => {
         );
     }
 
+    it('does not serve closures whose cd matched a directory case-insensitively', async () => {
+        // inner.do's `cd "raw"` resolves to `Raw/` case-only. That depends
+        // on which case-variant DIRECTORIES exist (creating `RAW/` makes it
+        // ambiguous), and the watcher reports only Stata files, so no
+        // dependent URI could evict a stored closure: it must stay
+        // unservable and be walked live every time.
+        scope_resolver.set_workspace_roots([temp_dir]);
+        forward_resolver.set_workspace_roots([temp_dir]);
+        fs.mkdirSync(path.join(temp_dir, 'Raw'));
+        create_file(path.join('Raw', 'clean.do'), 'global g_raw 1\n');
+        create_file('inner.do', 'cd "raw"\ndo "clean.do"\n');
+        const root = create_file('cd_root.do',
+            'do "inner.do"\ndisplay "${g_raw}"\n');
+
+        const first = await scope_resolver.resolve(to_uri(root), read(root));
+        expect(site_has_global(first, 'g_raw')).toBe(true);
+        scope_resolver.invalidate_scope_cache(to_uri(root));
+        const second =
+            await scope_resolver.resolve(to_uri(root), read(root));
+        expect(site_has_global(second, 'g_raw')).toBe(true);
+        expect(forward_resolver.get_forward_closure_metrics().hits).toBe(0);
+    });
+
     it('matches dependent URIs case-insensitively on invalidation', () => {
         // Host-independent form of the case above: an entry that probed
         // file:///ws/scripts/clean.do must be evicted by an event for any
