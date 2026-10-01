@@ -84,8 +84,10 @@ export function hasStataExtension(filename: string): boolean {
  * - `exact`     – the on-disk casing matches the requested path exactly.
  * - `case_only` – a unique case-insensitive match was found; `path` is the
  *                 real on-disk path, `requested` is the original input.
- * - `ambiguous` – two or more case-insensitive matches exist; caller should
- *                 warn and pick none.
+ * - `ambiguous` – two or more case-insensitive matches exist, or the
+ *                 bounded case-variant search was cut short (see
+ *                 `MAX_CASE_VARIANT_BACKTRACK_READS`) and could not rule
+ *                 more out; caller should warn and pick none.
  * - `missing`   – no match found at all.
  */
 export type PathCaseOutcome =
@@ -363,8 +365,8 @@ export function resolve_path_rich(
     // Reads are budgeted: one per component (all the exact-first descent
     // needs, so anything it reaches is never cut off) plus
     // MAX_CASE_VARIANT_BACKTRACK_READS for backtracking. Past the budget,
-    // unexplored branches count as misses, and a search cut short cannot
-    // establish that a single hit is the only one.
+    // unexplored branches are not read, and the search reports ambiguous
+    // rather than claim a unique hit or a definite miss.
     let directory_reads_left =
         the_components.length + MAX_CASE_VARIANT_BACKTRACK_READS;
     let budget_exhausted = false;
@@ -434,21 +436,25 @@ export function resolve_path_rich(
                     the_hits.push(my_outcome.path);
                 }
             }
-            if (the_hits.length === 1 && !budget_exhausted) {
-                return {
-                    kind: 'case_only',
-                    path: the_hits[0]!,
-                    requested: resolved_fs_path,
-                };
-            }
-            if (the_hits.length > 1) {
+            // A search the budget cut short is inconclusive, so it reports
+            // ambiguous: neither a lone hit nor (in
+            // resolve_forward_call_rich) a lower-priority candidate may be
+            // chosen in place of matches it never read.
+            if (the_hits.length > 1 || budget_exhausted) {
                 return {
                     kind: 'ambiguous',
                     requested: resolved_fs_path,
                     matches: the_hits,
                 };
             }
-            // No directory match, or one hit from a search cut short
+            if (the_hits.length === 1) {
+                return {
+                    kind: 'case_only',
+                    path: the_hits[0]!,
+                    requested: resolved_fs_path,
+                };
+            }
+            // No directory match (count: 0)
             return { kind: 'missing', requested: resolved_fs_path };
         }
 

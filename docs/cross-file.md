@@ -697,7 +697,10 @@ Directive path "parent" does not match the file on disk
   case-variant siblings are searched as well, so
   `do "scripts/tables/export.do"` finds `Scripts/tables/export.do` and
   reports a `path-case-mismatch` rather than a missing file. Matches
-  found under two or more of the siblings are ambiguous.
+  found under two or more of the siblings are ambiguous. The search is
+  bounded, so symlinks that alias a directory under several casings
+  cannot make it exponential; a search cut short by the bound is also
+  treated as ambiguous.
 - **ASCII case folding only.** Non-ASCII byte differences are compared
   exactly.
 - **Workspace-bounded.** The case-insensitive scan runs only for paths

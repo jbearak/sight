@@ -544,7 +544,9 @@ describe('resolve_path_rich', () => {
             `/ws/${the_parts.join('/')}/missing.do`,
             { workspace_roots: roots, fs },
         );
-        expect(out.kind).toBe('missing');
+        // The truncated search is inconclusive, so it must stop the
+        // candidate chain rather than read as a plain miss.
+        expect(out.kind).toBe('ambiguous');
         expect(my_reads).toBeLessThanOrEqual(
             the_depth + 1 + MAX_CASE_VARIANT_BACKTRACK_READS,
         );
@@ -553,7 +555,9 @@ describe('resolve_path_rich', () => {
     it('a search the read budget cut short is not a unique match', () => {
         // 300 case variants of `abcdefghi/`, the first and last holding
         // x.do: the budget runs out before the last is read, so the one
-        // hit found cannot be promoted to a unique case_only match.
+        // hit found cannot be promoted to a unique case_only match, and
+        // the inconclusive result must not let resolve_forward_call_rich
+        // fall through to a lower-priority candidate either.
         const the_letters = 'abcdefghi';
         const the_variants = Array.from({ length: 300 }, (_unused, i) =>
             [...the_letters]
@@ -574,7 +578,7 @@ describe('resolve_path_rich', () => {
             workspace_roots: roots,
             fs: make_fs(the_tree),
         });
-        expect(out.kind).toBe('missing');
+        expect(out.kind).toBe('ambiguous');
     });
 
     it('directory target found under a case-variant sibling', () => {
@@ -660,6 +664,39 @@ describe('resolve_forward_call_rich', () => {
     // workspace-root-relative candidate. A file that exists under
     // workspace_roots[0] but NOT relative to the outside caller must
     // resolve to MISSING, not a spurious hit.
+    // A WD-join search that the backtracking budget cut short is
+    // inconclusive: the script-relative exact match must not win in its
+    // place, just as an ambiguous WD-join does not fall through.
+    it('truncated WD-join search does NOT fall back to script-relative', () => {
+        const the_letters = 'abcdefghi';
+        const the_variants = Array.from({ length: 300 }, (_unused, i) =>
+            [...the_letters]
+                .map((my_char, j) =>
+                    ((i + 1) >> j) & 1 ? my_char.toUpperCase() : my_char)
+                .join(''),
+        );
+        const the_tree: Record<string, Array<FsEntry>> = {
+            '/wd': the_variants.map(my_name => [my_name, false]),
+            '/ws': [[the_letters, false]],
+            [`/ws/${the_letters}`]: [['x.do', true]],
+        };
+        for (const [i, my_name] of the_variants.entries()) {
+            the_tree[`/wd/${my_name}`] = i === 0 ? [['x.do', true]] : [];
+        }
+
+        const my_outcome = resolve_forward_call_rich(
+            `${the_letters}/x.do`,
+            '/ws',
+            '/wd',
+            {
+                workspace_roots: ['/ws', '/wd'],
+                fs: make_fs(the_tree),
+            },
+        );
+
+        expect(my_outcome.kind).toBe('ambiguous');
+    });
+
     it('caller outside all workspace_roots: no tier-3 candidate added', () => {
         // Filesystem layout:
         //   /ws/helpers/setup.do  — exists under the workspace root
