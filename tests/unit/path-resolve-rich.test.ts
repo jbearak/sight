@@ -583,6 +583,47 @@ describe('resolve_path_rich', () => {
         });
     });
 
+    it('stops at the second case-variant hit (proven ambiguous)', () => {
+        // 300 case variants of `abcdefghi/`, every one holding x.do: two
+        // hits already prove ambiguity, so the walk must stop there —
+        // neither reading the rest nor reporting the search truncated.
+        const the_letters = 'abcdefghi';
+        const the_variants = Array.from({ length: 300 }, (_unused, i) =>
+            [...the_letters]
+                .map((my_char, j) =>
+                    ((i + 1) >> j) & 1 ? my_char.toUpperCase() : my_char)
+                .join(''),
+        );
+        const the_tree: Record<string, Array<FsEntry>> = {
+            '/ws': the_variants.map(my_name => [my_name, false]),
+        };
+        for (const my_name of the_variants) {
+            the_tree[`/ws/${my_name}`] = [['x.do', true]];
+        }
+        const fs = make_fs(the_tree);
+        let my_reads = 0;
+        const counting_fs = {
+            ...fs,
+            readdirSync: (p: string, opts: { withFileTypes: true }) => {
+                my_reads++;
+                return fs.readdirSync(p, opts);
+            },
+        };
+        const out = resolve_path_rich(`/ws/${the_letters}/x.do`, {
+            workspace_roots: roots,
+            fs: counting_fs,
+        });
+        expect(out).toEqual({
+            kind: 'ambiguous',
+            requested: `/ws/${the_letters}/x.do`,
+            matches: [
+                `/ws/${the_variants[0]}/x.do`,
+                `/ws/${the_variants[1]}/x.do`,
+            ],
+        });
+        expect(my_reads).toBe(3);
+    });
+
     it('an unreadable case-variant branch reads as absent', () => {
         // Directories that cannot be read count as absent, as they do
         // everywhere in the walk (and in the shared symlink-aware entry

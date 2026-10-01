@@ -444,6 +444,15 @@ export function resolve_path_rich(
                 } else if (my_outcome.kind !== 'missing') {
                     the_hits.push(my_outcome.path);
                 }
+                // Two hits prove ambiguity; reading further siblings could
+                // only spend the budget (and mislabel the result truncated).
+                if (the_hits.length > 1) {
+                    return {
+                        kind: 'ambiguous',
+                        requested: resolved_fs_path,
+                        matches: the_hits,
+                    };
+                }
             }
             // A search the budget cut short is inconclusive, so it reports
             // ambiguous (flagged `truncated`): neither a lone hit nor (in
@@ -457,13 +466,6 @@ export function resolve_path_rich(
                     requested: resolved_fs_path,
                     matches: the_hits,
                     truncated: true,
-                };
-            }
-            if (the_hits.length > 1) {
-                return {
-                    kind: 'ambiguous',
-                    requested: resolved_fs_path,
-                    matches: the_hits,
                 };
             }
             if (the_hits.length === 1) {
