@@ -421,6 +421,46 @@ describe('issue #234 — forward-closure memo store/serve', () => {
         expect(forward_resolver.get_forward_closure_metrics().hits).toBe(0);
     });
 
+    it('does not serve closures whose call matched a directory case-insensitively', async () => {
+        // inner.do's "helpers/clean.do" resolves through `Helpers/`.
+        // Creating a case-variant directory (or a symlink such as
+        // `HELPERS -> Helpers`) would make it ambiguous, and no Stata-file
+        // event reports that, so the closure must stay unservable.
+        scope_resolver.set_workspace_roots([temp_dir]);
+        forward_resolver.set_workspace_roots([temp_dir]);
+        fs.mkdirSync(path.join(temp_dir, 'Helpers'));
+        create_file(path.join('Helpers', 'clean.do'), 'global g_dir 1\n');
+        create_file('inner.do', 'do "helpers/clean.do"\n');
+        const root = create_file('dir_root.do',
+            'do "inner.do"\ndisplay "${g_dir}"\n');
+
+        await scope_resolver.resolve(to_uri(root), read(root));
+        scope_resolver.invalidate_scope_cache(to_uri(root));
+        const second =
+            await scope_resolver.resolve(to_uri(root), read(root));
+        expect(site_has_global(second, 'g_dir')).toBe(true);
+        expect(forward_resolver.get_forward_closure_metrics().hits).toBe(0);
+    });
+
+    it('still serves closures whose call matched only the file name case-insensitively', async () => {
+        // A leaf-only mismatch depends on file names alone, which file
+        // events (through the case-folded dependent index) do report.
+        scope_resolver.set_workspace_roots([temp_dir]);
+        forward_resolver.set_workspace_roots([temp_dir]);
+        fs.mkdirSync(path.join(temp_dir, 'helpers'));
+        create_file(path.join('helpers', 'Clean.do'), 'global g_leaf 1\n');
+        create_file('inner.do', 'do "helpers/clean.do"\n');
+        const root = create_file('leaf_root.do',
+            'do "inner.do"\ndisplay "${g_leaf}"\n');
+
+        await scope_resolver.resolve(to_uri(root), read(root));
+        scope_resolver.invalidate_scope_cache(to_uri(root));
+        const second =
+            await scope_resolver.resolve(to_uri(root), read(root));
+        expect(site_has_global(second, 'g_leaf')).toBe(true);
+        expect(forward_resolver.get_forward_closure_metrics().hits).toBe(1);
+    });
+
     it('matches dependent URIs case-insensitively on invalidation', () => {
         // Host-independent form of the case above: an entry that probed
         // file:///ws/scripts/clean.do must be evicted by an event for any

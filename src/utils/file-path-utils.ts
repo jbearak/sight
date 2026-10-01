@@ -726,6 +726,21 @@ export function outcome_fs_path(outcome: PathCaseOutcome): string {
 }
 
 /**
+ * True when a `case_only` outcome matched a DIRECTORY component
+ * case-insensitively, not just the file name. Such an outcome depends on
+ * which case-variant directories exist (a new `HELPERS/` or a symlink
+ * `HELPERS -> Helpers` makes it ambiguous), which no Stata-file event
+ * reports.
+ */
+export function case_only_matched_directory(
+    outcome: { path: string; requested: string },
+): boolean {
+    const dir_of = (fs_path: string): string =>
+        node_path.posix.dirname(fs_path.replace(/\\/g, '/'));
+    return dir_of(outcome.path) !== dir_of(outcome.requested);
+}
+
+/**
  * Display strings for a `case_only` resolution's diagnostic: the path as
  * the source wrote it, paired with the on-disk path spelled with the same
  * number of trailing components (`scripts/tables/x.do` pairs with

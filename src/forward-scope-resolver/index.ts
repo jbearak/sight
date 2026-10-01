@@ -27,6 +27,7 @@ import { ScopeResolver } from '../scope-resolver';
 import {
     ascii_case_fold,
     case_mismatch_display_paths,
+    case_only_matched_directory,
     resolve_forward_call_rich,
     is_resolvable_static_call,
     build_cd_timeline,
@@ -194,10 +195,10 @@ interface ForwardClosureProbeCollector {
     /** URIs whose creation would change what a fresh walk resolves. */
     probes: Set<string>;
     /**
-     * A `cd` target resolved through case-insensitive directory matching,
-     * so the closure depends on which case-variant directories exist —
-     * which no Stata-file event reports. Such a build is stored
-     * unservable.
+     * A `cd` target, or a directory component of a call path, resolved
+     * through case-insensitive matching, so the closure depends on which
+     * case-variant directories exist — which no Stata-file event reports.
+     * Such a build is stored unservable.
      */
     depends_on_directory_casing: boolean;
 }
@@ -288,7 +289,7 @@ export class ForwardScopeResolver {
     // what a fresh walk resolves, so it must evict the entry. Cross-
     // contamination between concurrent unrelated builds only ADDS
     // dependents (safe over-invalidation). Each collector also records
-    // whether a cd in the build matched a directory case-insensitively.
+    // whether the build matched a directory case-insensitively.
     private active_probe_collectors: ForwardClosureProbeCollector[] = [];
     private dependency_graph?: import('../dependency-graph').DependencyGraph;
 
@@ -468,8 +469,9 @@ export class ForwardScopeResolver {
 
     /**
      * Mark every active standalone-build collector as depending on
-     * directory casing (a cd matched case-insensitively). No-op when no
-     * build is in flight.
+     * directory casing (a cd target, or a directory component of a call
+     * path, matched case-insensitively). No-op when no build is in
+     * flight.
      */
     private record_directory_casing_dependency(): void {
         for (const my_collector of this.active_probe_collectors) {
@@ -570,6 +572,9 @@ export class ForwardScopeResolver {
         }
 
         if (my_outcome.kind === 'case_only') {
+            if (case_only_matched_directory(my_outcome)) {
+                this.record_directory_casing_dependency();
+            }
             // Find the containing workspace root to seed the host probe
             const my_seed = this.find_seed_dir(my_outcome.path);
             return {
@@ -639,6 +644,12 @@ export class ForwardScopeResolver {
             my_outcome.kind === 'exact' ||
             my_outcome.kind === 'case_only'
         ) {
+            if (
+                my_outcome.kind === 'case_only' &&
+                case_only_matched_directory(my_outcome)
+            ) {
+                this.record_directory_casing_dependency();
+            }
             return my_outcome.path;
         }
 
@@ -1438,9 +1449,10 @@ export class ForwardScopeResolver {
         // diagnostics, so mark the key unservable instead of re-attempting
         // a doomed standalone build on every future traversal (O(2^depth)
         // blowup on cap-tripping chains otherwise). A closure that depends
-        // on directory casing is unservable for a different reason: no
-        // dependent URI could evict it when a case-variant directory
-        // appears or disappears, so it is walked live instead.
+        // on directory casing (a cd target or call path matched a directory
+        // case-insensitively) is unservable for a different reason: no
+        // dependent URI could evict it when a case-variant directory or
+        // directory symlink appears or disappears, so it is walked live.
         if (
             fresh_diagnostics.length > 0 ||
             my_probe_collector.depends_on_directory_casing
