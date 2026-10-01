@@ -442,6 +442,34 @@ describe('issue #234 — forward-closure memo store/serve', () => {
         expect(forward_resolver.get_forward_closure_metrics().hits).toBe(0);
     });
 
+    it('a directory-casing match does not mark concurrent unrelated builds', async () => {
+        // Two overlapping resolutions share the resolver, as sight check
+        // workers do. Only the chain whose call crosses a miscased
+        // directory may lose caching; the unrelated chain's closure must
+        // still be stored servable.
+        scope_resolver.set_workspace_roots([temp_dir]);
+        forward_resolver.set_workspace_roots([temp_dir]);
+        fs.mkdirSync(path.join(temp_dir, 'Helpers'));
+        create_file(path.join('Helpers', 'clean.do'), 'global g_case 1\n');
+        create_file('c_inner.do', 'do "helpers/clean.do"\n');
+        const c_root = create_file('c_root.do',
+            'do "c_inner.do"\ndisplay "${g_case}"\n');
+        create_file('u_leaf.do', 'global g_plain 1\n');
+        create_file('u_inner.do', 'do "u_leaf.do"\n');
+        const u_root = create_file('u_root.do',
+            'do "u_inner.do"\ndisplay "${g_plain}"\n');
+
+        await Promise.all([
+            scope_resolver.resolve(to_uri(c_root), read(c_root)),
+            scope_resolver.resolve(to_uri(u_root), read(u_root)),
+        ]);
+        scope_resolver.invalidate_scope_cache(to_uri(u_root));
+        const again =
+            await scope_resolver.resolve(to_uri(u_root), read(u_root));
+        expect(site_has_global(again, 'g_plain')).toBe(true);
+        expect(forward_resolver.get_forward_closure_metrics().hits).toBe(1);
+    });
+
     it('still serves closures whose call matched only the file name case-insensitively', async () => {
         // A leaf-only mismatch depends on file names alone, which file
         // events (through the case-folded dependent index) do report.
