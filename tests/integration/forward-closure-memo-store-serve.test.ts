@@ -335,6 +335,56 @@ describe('issue #234 — forward-closure memo store/serve', () => {
         expect(site_has_global(after, 'gx_old')).toBe(false);
     });
 
+    // Needs a filesystem that can hold `Scripts/` beside `SCRIPTS/`
+    // (Linux CI); the second mkdir collides on case-insensitive hosts.
+    const holds_case_variant_dirs = ((): boolean => {
+        const my_dir = fs.mkdtempSync(path.join(os.tmpdir(), 'memo-ci-'));
+        try {
+            fs.mkdirSync(path.join(my_dir, 'probe'));
+            fs.mkdirSync(path.join(my_dir, 'Probe'));
+            return true;
+        } catch {
+            return false;
+        } finally {
+            fs.rmSync(my_dir, { recursive: true, force: true });
+        }
+    })();
+
+    it.skipIf(!holds_case_variant_dirs)(
+        'evicts entries when a file appears under an empty case-variant ' +
+            'sibling directory',
+        async () => {
+            // inner.do calls "scripts/clean.do"; no `scripts/` exists, and
+            // of its case variants only `Scripts/` holds the file, so the
+            // call resolves case-only. Creating the file under the empty
+            // `SCRIPTS/` makes the call ambiguous, so the memoized inner
+            // closure that resolved through `Scripts/` must be evicted.
+            scope_resolver.set_workspace_roots([temp_dir]);
+            forward_resolver.set_workspace_roots([temp_dir]);
+            fs.mkdirSync(path.join(temp_dir, 'Scripts'));
+            fs.mkdirSync(path.join(temp_dir, 'SCRIPTS'));
+            create_file(path.join('Scripts', 'clean.do'), 'global g_old 1\n');
+            create_file('inner.do',
+                'do "scripts/clean.do"\nglobal inner_g 1\n');
+            const root = create_file('variant_root.do',
+                'do "inner.do"\ndisplay "${g_old}"\n');
+
+            const before =
+                await scope_resolver.resolve(to_uri(root), read(root));
+            expect(site_has_global(before, 'g_old')).toBe(true);
+
+            const created = create_file(
+                path.join('SCRIPTS', 'clean.do'), 'global g_new 1\n');
+            scope_resolver.invalidate_file_cache(to_uri(created));
+
+            scope_resolver.invalidate_scope_cache(to_uri(root));
+            const after =
+                await scope_resolver.resolve(to_uri(root), read(root));
+            expect(site_has_global(after, 'g_old')).toBe(false);
+            expect(site_has_global(after, 'g_new')).toBe(false);
+        },
+    );
+
     it('evicts transitively dependent entries on didChange and on-disk change', async () => {
         const { chain, roots } = build_chain_workspace(2);
         const [, , chain_3] = chain;
