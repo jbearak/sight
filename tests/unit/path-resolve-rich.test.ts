@@ -1,5 +1,6 @@
 import { describe, it, expect } from 'bun:test';
 import {
+    MAX_CASE_VARIANT_BACKTRACK_READS,
     case_mismatch_display_paths,
     resolve_path_rich,
     resolve_forward_call_rich,
@@ -514,6 +515,39 @@ describe('resolve_path_rich', () => {
             path: '/ws/scripts/Tables/clean.do',
             requested: '/ws/scripts/tables/clean.do',
         });
+    });
+
+    it('bounds backtracking through case-variant symlink aliases', () => {
+        // Every directory holds `a -> .` and `A -> .`, so each level of
+        // `a/a/.../missing.do` offers two aliases of the same directory;
+        // an unbounded walk would read 2^(n+1)-1 directories.
+        const the_depth = 20;
+        let my_reads = 0;
+        const fs = {
+            existsSync: (p: string) => p === '/ws',
+            readdirSync: (_p: string, _opts: { withFileTypes: true }) => {
+                my_reads++;
+                return ['a', 'A'].map(my_name => ({
+                    name: my_name,
+                    isFile: () => false,
+                    isDirectory: () => false,
+                    isSymbolicLink: () => true,
+                }));
+            },
+            statSync: (_p: string) => ({
+                isFile: () => false,
+                isDirectory: () => true,
+            }),
+        };
+        const the_parts = Array.from({ length: the_depth }, () => 'a');
+        const out = resolve_path_rich(
+            `/ws/${the_parts.join('/')}/missing.do`,
+            { workspace_roots: roots, fs },
+        );
+        expect(out.kind).toBe('missing');
+        expect(my_reads).toBeLessThanOrEqual(
+            the_depth + 1 + MAX_CASE_VARIANT_BACKTRACK_READS,
+        );
     });
 
     it('directory target found under a case-variant sibling', () => {

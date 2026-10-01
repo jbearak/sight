@@ -113,6 +113,15 @@ export interface RichResolveFs {
     statSync(p: string): { isFile(): boolean; isDirectory(): boolean };
 }
 
+/**
+ * Directory reads `resolve_path_rich` may spend backtracking into
+ * case-variant sibling directories, beyond the one read per component
+ * that the exact-first walk needs. Symlinks can alias one directory
+ * under several casings (`a -> .` beside `A -> .`), which would
+ * otherwise double the work at every component.
+ */
+export const MAX_CASE_VARIANT_BACKTRACK_READS = 256;
+
 /** One directory entry as returned by `RichResolveFs.readdirSync`. */
 type RichDirent = ReturnType<RichResolveFs['readdirSync']>[number];
 
@@ -349,9 +358,14 @@ export function resolve_path_rich(
     // machines where such projects are written they are ONE directory, so
     // the walk backtracks: when the exact-cased directory's subtree misses,
     // each case-variant sibling is tried. Exact stays preferred — the
-    // siblings are consulted only after the exact subtree misses. Each
-    // branch descends into a distinct real directory, so the walk visits
-    // at most the directories that ci-match the requested prefix.
+    // siblings are consulted only after the exact subtree misses.
+    //
+    // Reads are budgeted: one per component (all the exact-first descent
+    // needs, so anything it reaches is never cut off) plus
+    // MAX_CASE_VARIANT_BACKTRACK_READS for backtracking. Past the budget,
+    // unexplored branches count as misses.
+    let directory_reads_left =
+        the_components.length + MAX_CASE_VARIANT_BACKTRACK_READS;
     const walk = (
         current_dir: string,
         comp_idx: number,
@@ -359,6 +373,10 @@ export function resolve_path_rich(
     ): PathCaseOutcome => {
         const my_component = the_components[comp_idx]!;
         const my_is_final = comp_idx === the_components.length - 1;
+        if (directory_reads_left <= 0) {
+            return { kind: 'missing', requested: resolved_fs_path };
+        }
+        directory_reads_left--;
         let my_entries: RichDirent[];
         try {
             my_entries = the_fs.readdirSync(current_dir, {
