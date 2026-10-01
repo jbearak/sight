@@ -113,6 +113,9 @@ export interface RichResolveFs {
     statSync(p: string): { isFile(): boolean; isDirectory(): boolean };
 }
 
+/** One directory entry as returned by `RichResolveFs.readdirSync`. */
+type RichDirent = ReturnType<RichResolveFs['readdirSync']>[number];
+
 export interface RichResolveOptions {
     /** Append `.do` when the final component has no extension (default true). */
     try_do_fallback?: boolean;
@@ -215,7 +218,10 @@ const entry_is_file = entry_is_file_sync;
  * This function classifies the result as exact / case_only / ambiguous /
  * missing by walking from the containing workspace root and consulting
  * directory listings at every component (never trusting `existsSync` for
- * casing).
+ * casing). When the exact-cased directory at some component misses, the
+ * walk backtracks into its case-variant siblings (`Scripts/` beside
+ * `scripts/` on a case-sensitive filesystem), since those are one
+ * directory on the case-insensitive machines where the code was written.
  *
  * Paths outside every `workspace_roots` entry (or when no roots are
  * supplied) fall back to plain existence semantics: `exact` if the file
@@ -318,24 +324,31 @@ export function resolve_path_rich(
     const the_components = remainder.split(sep);
 
     // ── Walk components ──────────────────────────────────────────────────────
-    let current_dir = chosen_root;
-    // Track whether any component needed ci-resolution (makes result case_only)
-    let had_case_mismatch = false;
-
     // Join a directory path and a single component, avoiding double separators
     // when current_dir is the filesystem root (e.g. "/" → "/ws", not "//ws").
     const join_path = (dir: string, name: string): string =>
         dir.endsWith(sep) ? `${dir}${name}` : `${dir}${sep}${name}`;
 
-    for (let comp_idx = 0; comp_idx < the_components.length; comp_idx++) {
+    // Resolve `the_components[comp_idx..]` below `current_dir`.
+    // `had_case_mismatch` records whether an earlier component needed
+    // ci-resolution (which makes any hit case_only).
+    //
+    // A case-sensitive filesystem can hold directories whose names differ
+    // only in case (`Scripts/` beside `scripts/`). On the case-insensitive
+    // machines where such projects are written they are ONE directory, so
+    // the walk backtracks: when the exact-cased directory's subtree misses,
+    // each case-variant sibling is tried. Exact stays preferred — the
+    // siblings are consulted only after the exact subtree misses. Each
+    // branch descends into a distinct real directory, so the walk visits
+    // at most the directories that ci-match the requested prefix.
+    const walk = (
+        current_dir: string,
+        comp_idx: number,
+        had_case_mismatch: boolean,
+    ): PathCaseOutcome => {
         const my_component = the_components[comp_idx]!;
         const my_is_final = comp_idx === the_components.length - 1;
-        let my_entries: Array<{
-            name: string;
-            isFile(): boolean;
-            isDirectory(): boolean;
-            isSymbolicLink(): boolean;
-        }>;
+        let my_entries: RichDirent[];
         try {
             my_entries = the_fs.readdirSync(current_dir, {
                 withFileTypes: true,
@@ -353,26 +366,54 @@ export function resolve_path_rich(
                     entry_is_dir(e, join_path(current_dir, e.name), the_fs),
             );
             if (my_exact !== undefined) {
-                current_dir = join_path(current_dir, my_exact.name);
-                continue;
+                const my_outcome = walk(
+                    join_path(current_dir, my_exact.name),
+                    comp_idx + 1,
+                    had_case_mismatch,
+                );
+                if (my_outcome.kind !== 'missing') {
+                    return my_outcome;
+                }
             }
-            // Case-insensitive directory matches (symlinks followed)
-            const the_ci_dirs = my_entries.filter(
-                e => ascii_ci_equal(e.name, my_component) &&
-                    entry_is_dir(e, join_path(current_dir, e.name), the_fs),
-            );
-            if (the_ci_dirs.length === 1) {
-                had_case_mismatch = true;
-                current_dir = join_path(current_dir, the_ci_dirs[0]!.name);
-                continue;
+            // Case-insensitive directory matches (symlinks followed). Every
+            // branch that resolves contributes its hits; a single hit is the
+            // author's intended file, two or more are ambiguous.
+            const the_hits: string[] = [];
+            for (const my_entry of my_entries) {
+                if (
+                    my_entry.name === my_component ||
+                    !ascii_ci_equal(my_entry.name, my_component) ||
+                    !entry_is_dir(
+                        my_entry,
+                        join_path(current_dir, my_entry.name),
+                        the_fs,
+                    )
+                ) {
+                    continue;
+                }
+                const my_outcome = walk(
+                    join_path(current_dir, my_entry.name),
+                    comp_idx + 1,
+                    true,
+                );
+                if (my_outcome.kind === 'ambiguous') {
+                    the_hits.push(...my_outcome.matches);
+                } else if (my_outcome.kind !== 'missing') {
+                    the_hits.push(my_outcome.path);
+                }
             }
-            if (the_ci_dirs.length > 1) {
+            if (the_hits.length === 1) {
+                return {
+                    kind: 'case_only',
+                    path: the_hits[0]!,
+                    requested: resolved_fs_path,
+                };
+            }
+            if (the_hits.length > 1) {
                 return {
                     kind: 'ambiguous',
                     requested: resolved_fs_path,
-                    matches: the_ci_dirs.map(
-                        e => join_path(current_dir, e.name),
-                    ),
+                    matches: the_hits,
                 };
             }
             // No directory match (count: 0)
@@ -383,7 +424,7 @@ export function resolve_path_rich(
         // For directory targets (cd) the leaf must be a directory; otherwise a
         // file. The predicate follows symlinks via the shared entry helpers.
         const entry_matches_target = (
-            e: { name: string; isFile(): boolean; isDirectory(): boolean; isSymbolicLink(): boolean },
+            e: RichDirent,
             full: string,
         ): boolean =>
             target_kind === 'directory'
@@ -456,10 +497,9 @@ export function resolve_path_rich(
             };
         }
         return { kind: 'missing', requested: resolved_fs_path };
-    }
+    };
 
-    // Should be unreachable (the_components is non-empty), but satisfy TS
-    return { kind: 'missing', requested: resolved_fs_path };
+    return walk(chosen_root, 0, false);
 }
 
 // ─── Host filesystem case-sensitivity detection ──────────────────────────────
@@ -626,6 +666,57 @@ export function outcome_fs_path(outcome: PathCaseOutcome): string {
     return outcome.kind === 'exact' || outcome.kind === 'case_only'
         ? outcome.path
         : outcome.requested;
+}
+
+/**
+ * Display strings for a `case_only` resolution's diagnostic: the path as
+ * the source wrote it, paired with the on-disk path spelled with the same
+ * number of trailing components (`scripts/tables/x.do` pairs with
+ * `Scripts/tables/x.do`), whichever base — working directory, script
+ * directory, or workspace root — the path resolved against. Absolute
+ * paths and paths with `.`/`..` segments cannot be paired that way; both
+ * sides are then shown relative to `display_dir`.
+ */
+export function case_mismatch_display_paths(
+    raw_path: string,
+    outcome: { path: string; requested: string },
+    display_dir: string,
+): { requested: string; on_disk: string } {
+    const my_normalized_raw = raw_path.replace(/\\/g, '/');
+    const my_is_abs =
+        node_path.isAbsolute(my_normalized_raw) ||
+        /^[a-zA-Z]:\//.test(my_normalized_raw);
+    const the_raw_parts = my_normalized_raw
+        .split('/')
+        .filter(my_part => my_part.length > 0);
+    const my_count = the_raw_parts.length;
+    const the_requested_parts = outcome.requested
+        .replace(/\\/g, '/')
+        .split('/');
+    const the_real_parts = outcome.path.replace(/\\/g, '/').split('/');
+    // `requested` is the base joined with the as-written path, so its
+    // trailing components are exactly the as-written ones; check rather
+    // than assume, and fall back if a caller passed something else.
+    const my_pairs =
+        !my_is_abs &&
+        my_count > 0 &&
+        the_raw_parts.every(my_part => my_part !== '.' && my_part !== '..') &&
+        the_real_parts.length >= my_count &&
+        the_requested_parts.slice(-my_count).join('/') ===
+            the_raw_parts.join('/');
+    if (my_pairs) {
+        return {
+            requested: the_raw_parts.join('/'),
+            on_disk: the_real_parts.slice(-my_count).join('/'),
+        };
+    }
+    const relative_to_display_dir = (fs_path: string): string =>
+        node_path.relative(display_dir, fs_path).replace(/\\/g, '/') ||
+        fs_path;
+    return {
+        requested: relative_to_display_dir(outcome.requested),
+        on_disk: relative_to_display_dir(outcome.path),
+    };
 }
 
 // ─── WD-join / script-relative / workspace-root fallback helper ──────────────
@@ -965,21 +1056,20 @@ function make_cd_case_mismatch_diagnostic(
     caller_dir: string,
     workspace_roots?: string[],
 ): DirectiveDiagnostic {
-    const my_req_disp = node_path
-        .relative(caller_dir, outcome.requested)
-        .replace(/\\/g, '/') || outcome.requested;
-    const my_real_disp = node_path
-        .relative(caller_dir, outcome.path)
-        .replace(/\\/g, '/') || outcome.path;
+    const my_display = case_mismatch_display_paths(
+        cd.raw_path,
+        outcome,
+        caller_dir,
+    );
     const my_seed = workspace_roots
         ? (get_workspace_root_for_path(workspace_roots, outcome.path) ??
            node_path.dirname(outcome.path))
         : node_path.dirname(outcome.path);
     return {
         message:
-            `Path "${my_req_disp}" does not match the directory on disk ` +
-            `"${my_real_disp}"; Stata will not find it on case-sensitive ` +
-            `filesystems (Linux). Update the path to match.`,
+            `Path "${my_display.requested}" does not match the directory ` +
+            `on disk "${my_display.on_disk}"; Stata will not find it on ` +
+            `case-sensitive filesystems (Linux). Update the path to match.`,
         range: cd.range,
         severity: 'warning',
         kind: 'path_case_mismatch',

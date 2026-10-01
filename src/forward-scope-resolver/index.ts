@@ -25,6 +25,7 @@ import {
 import { create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
 import { ScopeResolver } from '../scope-resolver';
 import {
+    case_mismatch_display_paths,
     resolve_forward_call_rich,
     is_resolvable_static_call,
     build_cd_timeline,
@@ -826,22 +827,21 @@ export class ForwardScopeResolver {
                 file_uri === my_context.diagnostic_owner_uri &&
                 my_context.depth === 0
             ) {
-                const my_requested = my_path_result.requested_path ??
-                    my_call.raw_path;
-                const my_real = my_path_result.resolved_path;
-                // Show relative paths in the message when possible
-                const my_req_disp = path.relative(
+                // Show the path as written beside its on-disk spelling
+                const my_display = case_mismatch_display_paths(
+                    my_call.raw_path,
+                    {
+                        path: my_path_result.resolved_path,
+                        requested: my_path_result.requested_path ??
+                            my_call.raw_path,
+                    },
                     path.dirname(URI.parse(file_uri).fsPath),
-                    my_requested,
-                ).replace(/\\/g, '/') || my_requested;
-                const my_real_disp = path.relative(
-                    path.dirname(URI.parse(file_uri).fsPath),
-                    my_real,
-                ).replace(/\\/g, '/') || my_real;
+                );
                 my_context.diagnostics.push({
                     message:
-                        `Path "${my_req_disp}" does not match the file ` +
-                        `on disk "${my_real_disp}"; Stata will not find ` +
+                        `Path "${my_display.requested}" does not match ` +
+                        `the file on disk "${my_display.on_disk}"; ` +
+                        `Stata will not find ` +
                         `it on case-sensitive filesystems (Linux). ` +
                         `Update the path to match.`,
                     range: my_call.range,
