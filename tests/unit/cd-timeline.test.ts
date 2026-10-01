@@ -196,6 +196,38 @@ describe('build_cd_timeline', () => {
         expect(wd_for_position(timeline, { line: 1, character: 0 })).toBe('/ws/start');
     });
 
+    it('a cd search cut short by the read bound says so, WD unchanged', () => {
+        // 300 case variants of `abcdefghi/`, only the first holding
+        // `sub/`: the read budget runs out before the others are read, so
+        // the diagnostic must not claim multiple matches it never saw.
+        const the_letters = 'abcdefghi';
+        const the_variants = Array.from({ length: 300 }, (_unused, i) =>
+            [...the_letters]
+                .map((my_char, j) =>
+                    ((i + 1) >> j) & 1 ? my_char.toUpperCase() : my_char)
+                .join(''),
+        );
+        const the_tree: Parameters<typeof make_fs>[0] = {
+            '/ws': the_variants.map(my_name => [my_name, false]),
+        };
+        for (const [i, my_name] of the_variants.entries()) {
+            the_tree[`/ws/${my_name}`] = i === 0 ? [['sub', false]] : [];
+        }
+        the_tree[`/ws/${the_variants[0]}/sub`] = [];
+        const { timeline, diagnostics } = build_cd_timeline({
+            starting_wd: '/ws',
+            caller_dir: '/ws',
+            cd_commands: [cd(`${the_letters}/sub`, 0)],
+            workspace_roots: roots,
+            fs: make_fs(the_tree),
+        });
+        expect(diagnostics).toHaveLength(1);
+        expect(diagnostics[0]!.message).toContain(
+            'too many case-variant directories to search',
+        );
+        expect(wd_for_position(timeline, { line: 1, character: 0 })).toBe('/ws');
+    });
+
     it('resolves cd ONLY against the current WD (no script-relative fallback)', () => {
         // `raw/` exists beside the script, but the active WD is `base`, where
         // `raw` does NOT exist. Stata would fail `cd raw` here; we must report

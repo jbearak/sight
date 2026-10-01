@@ -25,6 +25,9 @@ import {
 import { create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
 import { ScopeResolver } from '../scope-resolver';
 import {
+    ascii_case_fold,
+    case_mismatch_display_paths,
+    case_only_matched_directory,
     resolve_forward_call_rich,
     is_resolvable_static_call,
     build_cd_timeline,
@@ -187,6 +190,28 @@ type ForwardClosureMemoEntry =
     | ForwardClosureMemoClosureEntry
     | ForwardClosureMemoUnservableEntry;
 
+/** What one in-flight standalone build learns about its own staleness. */
+interface ForwardClosureProbeCollector {
+    /** URIs whose creation would change what a fresh walk resolves. */
+    probes: Set<string>;
+    /**
+     * A `cd` target, or a directory component of a call path, resolved
+     * through case-insensitive matching, so the closure depends on which
+     * case-variant directories exist — which no Stata-file event reports.
+     * Such a build is stored unservable.
+     */
+    depends_on_directory_casing: boolean;
+}
+
+/** Mark the build `collector` belongs to, if any, as casing-dependent. */
+function mark_directory_casing(
+    collector: ForwardClosureProbeCollector | undefined,
+): void {
+    if (collector !== undefined) {
+        collector.depends_on_directory_casing = true;
+    }
+}
+
 const DEFAULT_CONFIG: ForwardScopeConfig = {
     max_forward_depth: 10,
 };
@@ -236,6 +261,7 @@ export class ForwardScopeResolver {
             },
         }
     );
+    // Keyed by memo_index_key(uri) — ASCII-case-folded (see there).
     private memo_uri_to_keys = new Map<string, Set<string>>();
     // The dep-graph version the memo's entries were built against. A
     // version change makes EVERY existing entry dead by construction (all
@@ -272,7 +298,18 @@ export class ForwardScopeResolver {
     // what a fresh walk resolves, so it must evict the entry. Cross-
     // contamination between concurrent unrelated builds only ADDS
     // dependents (safe over-invalidation).
-    private active_probe_collectors: Set<string>[] = [];
+    private active_probe_collectors: ForwardClosureProbeCollector[] = [];
+    // The collector of the standalone build each walk belongs to, keyed by
+    // the build's own `visited` map (live recursion passes it through,
+    // nested builds start a fresh one). Unlike probes, the
+    // directory-casing flag makes an entry unservable, so it must reach
+    // only the build whose walk made the match — never concurrent
+    // unrelated builds. An enclosing build needs no propagation: an inner
+    // entry stored unservable is walked live in the enclosing context.
+    private collector_by_visited = new WeakMap<
+        Map<string, EffectiveCallType>,
+        ForwardClosureProbeCollector
+    >();
     private dependency_graph?: import('../dependency-graph').DependencyGraph;
 
     constructor(scope_resolver: ScopeResolver, config: Partial<ForwardScopeConfig> = {}) {
@@ -341,7 +378,7 @@ export class ForwardScopeResolver {
      */
     invalidate_forward_closure_for_uri(uri: string): number {
         this.memo_invalidation_epoch++;
-        const the_keys = this.memo_uri_to_keys.get(uri);
+        const the_keys = this.memo_uri_to_keys.get(this.memo_index_key(uri));
         if (!the_keys) {
             return 0;
         }
@@ -390,14 +427,28 @@ export class ForwardScopeResolver {
         entry: ForwardClosureMemoEntry
     ): void {
         for (const my_dep_uri of entry.dependent_uris) {
-            const my_key_set = this.memo_uri_to_keys.get(my_dep_uri);
+            const my_index_key = this.memo_index_key(my_dep_uri);
+            const my_key_set = this.memo_uri_to_keys.get(my_index_key);
             if (my_key_set) {
                 my_key_set.delete(key);
                 if (my_key_set.size === 0) {
-                    this.memo_uri_to_keys.delete(my_dep_uri);
+                    this.memo_uri_to_keys.delete(my_index_key);
                 }
             }
         }
+    }
+
+    /**
+     * memo_uri_to_keys key for a dependent URI: ASCII-case-folded, so an
+     * invalidation for ANY casing of a dependent evicts. A case-only
+     * resolution changes when a file appears under another casing of a
+     * probed path (`SCRIPTS/Clean.do` beside the winning
+     * `Scripts/clean.do` makes the call ambiguous), and the probe set can
+     * record only the as-written spelling. This is path matching, not
+     * Stata-language matching; an over-match only over-invalidates.
+     */
+    private memo_index_key(uri: string): string {
+        return ascii_case_fold(uri);
     }
 
     /**
@@ -430,7 +481,7 @@ export class ForwardScopeResolver {
         for (const my_fs_path of fs_paths) {
             const my_probe_uri = URI.file(my_fs_path).toString();
             for (const my_collector of this.active_probe_collectors) {
-                my_collector.add(my_probe_uri);
+                my_collector.probes.add(my_probe_uri);
             }
         }
     }
@@ -492,6 +543,7 @@ export class ForwardScopeResolver {
         raw_path: string,
         caller_uri: string,
         working_directory?: string,
+        casing_collector?: ForwardClosureProbeCollector,
     ): {
         resolved_path: string;
         outcome_kind: 'exact' | 'case_only' | 'ambiguous' | 'missing';
@@ -528,6 +580,9 @@ export class ForwardScopeResolver {
         }
 
         if (my_outcome.kind === 'case_only') {
+            if (case_only_matched_directory(my_outcome)) {
+                mark_directory_casing(casing_collector);
+            }
             // Find the containing workspace root to seed the host probe
             const my_seed = this.find_seed_dir(my_outcome.path);
             return {
@@ -579,6 +634,7 @@ export class ForwardScopeResolver {
         raw_path: string,
         caller_uri: string,
         working_directory?: string,
+        casing_collector?: ForwardClosureProbeCollector,
     ): string | null {
         const my_caller_dir = path.dirname(URI.parse(caller_uri).fsPath);
         const my_outcome = resolve_forward_call_rich(
@@ -597,6 +653,12 @@ export class ForwardScopeResolver {
             my_outcome.kind === 'exact' ||
             my_outcome.kind === 'case_only'
         ) {
+            if (
+                my_outcome.kind === 'case_only' &&
+                case_only_matched_directory(my_outcome)
+            ) {
+                mark_directory_casing(casing_collector);
+            }
             return my_outcome.path;
         }
 
@@ -675,16 +737,24 @@ export class ForwardScopeResolver {
         // child` resolves child's relative paths from A even though parse-time
         // stamping could not know the call-site WD.
         const my_caller_dir = path.dirname(URI.parse(file_uri).fsPath);
-        const { timeline: cd_timeline, diagnostics: cd_diagnostics } =
-            build_cd_timeline({
-                starting_wd: my_context.working_directory,
-                caller_dir: my_caller_dir,
-                cd_commands: my_context.cd_commands ?? [],
-                workspace_roots: this.workspace_roots.length > 0
-                    ? this.workspace_roots
-                    : undefined,
-                fs: this.resolve_fs,
-            });
+        const my_casing_collector =
+            this.collector_by_visited.get(my_context.visited);
+        const {
+            timeline: cd_timeline,
+            diagnostics: cd_diagnostics,
+            depends_on_directory_casing,
+        } = build_cd_timeline({
+            starting_wd: my_context.working_directory,
+            caller_dir: my_caller_dir,
+            cd_commands: my_context.cd_commands ?? [],
+            workspace_roots: this.workspace_roots.length > 0
+                ? this.workspace_roots
+                : undefined,
+            fs: this.resolve_fs,
+        });
+        if (depends_on_directory_casing) {
+            mark_directory_casing(my_casing_collector);
+        }
 
         // Emit cd diagnostics only for the diagnostic-owner file at depth 0 —
         // the same single-emission guard used for do/run/include
@@ -813,6 +883,7 @@ export class ForwardScopeResolver {
                 my_call.raw_path,
                 file_uri,
                 effective_call_wd,
+                my_casing_collector,
             );
             const resolved_path = my_path_result.resolved_path;
             const callee_uri = URI.file(resolved_path).toString();
@@ -826,22 +897,21 @@ export class ForwardScopeResolver {
                 file_uri === my_context.diagnostic_owner_uri &&
                 my_context.depth === 0
             ) {
-                const my_requested = my_path_result.requested_path ??
-                    my_call.raw_path;
-                const my_real = my_path_result.resolved_path;
-                // Show relative paths in the message when possible
-                const my_req_disp = path.relative(
+                // Show the path as written beside its on-disk spelling
+                const my_display = case_mismatch_display_paths(
+                    my_call.raw_path,
+                    {
+                        path: my_path_result.resolved_path,
+                        requested: my_path_result.requested_path ??
+                            my_call.raw_path,
+                    },
                     path.dirname(URI.parse(file_uri).fsPath),
-                    my_requested,
-                ).replace(/\\/g, '/') || my_requested;
-                const my_real_disp = path.relative(
-                    path.dirname(URI.parse(file_uri).fsPath),
-                    my_real,
-                ).replace(/\\/g, '/') || my_real;
+                );
                 my_context.diagnostics.push({
                     message:
-                        `Path "${my_req_disp}" does not match the file ` +
-                        `on disk "${my_real_disp}"; Stata will not find ` +
+                        `Path "${my_display.requested}" does not match ` +
+                        `the file on disk "${my_display.on_disk}"; ` +
+                        `Stata will not find ` +
                         `it on case-sensitive filesystems (Linux). ` +
                         `Update the path to match.`,
                     range: my_call.range,
@@ -943,6 +1013,7 @@ export class ForwardScopeResolver {
                     my_context.depth + 1,
                     resolved_config,
                     token,
+                    my_casing_collector,
                 );
                 const boundary_excluded = effective_end_state.size > 0 ? effective_end_state : undefined;
                 the_call_sites.push({
@@ -1032,6 +1103,7 @@ export class ForwardScopeResolver {
                     my_context.depth + 1,
                     resolved_config,
                     token,
+                    my_casing_collector,
                 );
                 if (effective_end_state.size > 0) {
                     excluded_locals = effective_end_state;
@@ -1310,8 +1382,12 @@ export class ForwardScopeResolver {
         this.memo_metrics.misses++;
 
         this.standalone_in_flight.add(callee_uri);
-        const my_probe_collector = new Set<string>();
+        const my_probe_collector: ForwardClosureProbeCollector = {
+            probes: new Set(),
+            depends_on_directory_casing: false,
+        };
         this.active_probe_collectors.push(my_probe_collector);
+        this.collector_by_visited.set(fresh_visited, my_probe_collector);
         let standalone: ForwardResolvedScope;
         try {
             standalone = await this.resolve(
@@ -1357,6 +1433,9 @@ export class ForwardScopeResolver {
             if (my_collector_index >= 0) {
                 this.active_probe_collectors.splice(my_collector_index, 1);
             }
+            // A stored closure keeps fresh_visited as its visited_delta;
+            // drop the lookup so the collector does not live as long.
+            this.collector_by_visited.delete(fresh_visited);
         }
 
         // Transient failures — never stored (not key-determined): the next
@@ -1381,14 +1460,21 @@ export class ForwardScopeResolver {
         const dependent_uris = new Set([
             callee_uri,
             ...fresh_visited.keys(),
-            ...my_probe_collector,
+            ...my_probe_collector.probes,
         ]);
 
         // Key-determined failure: the same inputs reproduce the same
         // diagnostics, so mark the key unservable instead of re-attempting
         // a doomed standalone build on every future traversal (O(2^depth)
-        // blowup on cap-tripping chains otherwise).
-        if (fresh_diagnostics.length > 0) {
+        // blowup on cap-tripping chains otherwise). A closure that depends
+        // on directory casing (a cd target or call path matched a directory
+        // case-insensitively) is unservable for a different reason: no
+        // dependent URI could evict it when a case-variant directory or
+        // directory symlink appears or disappears, so it is walked live.
+        if (
+            fresh_diagnostics.length > 0 ||
+            my_probe_collector.depends_on_directory_casing
+        ) {
             return this.store_memo_entry(key, {
                 kind: 'unservable',
                 dependent_uris,
@@ -1425,10 +1511,11 @@ export class ForwardScopeResolver {
         }
         this.forward_closure_memo.set(key, entry);
         for (const my_dep_uri of entry.dependent_uris) {
-            let my_key_set = this.memo_uri_to_keys.get(my_dep_uri);
+            const my_index_key = this.memo_index_key(my_dep_uri);
+            let my_key_set = this.memo_uri_to_keys.get(my_index_key);
             if (!my_key_set) {
                 my_key_set = new Set();
-                this.memo_uri_to_keys.set(my_dep_uri, my_key_set);
+                this.memo_uri_to_keys.set(my_index_key, my_key_set);
             }
             my_key_set.add(key);
         }
@@ -1579,6 +1666,7 @@ export class ForwardScopeResolver {
         depth: number,
         resolved_config: ForwardScopeConfig,
         token?: CancellationToken,
+        casing_collector?: ForwardClosureProbeCollector,
     ): Promise<Map<string, MacroSymbol>> {
         if (token?.isCancellationRequested) return new Map();
         if (stack.has(callee_uri)) return new Map();
@@ -1669,7 +1757,10 @@ export class ForwardScopeResolver {
             // Each nested `include` resolves against the WD active at its
             // position, so a `cd` before an include in the callee is honored.
             const nested_base_wd = callee_result.working_directory ?? working_directory;
-            const { timeline: nested_cd_timeline } = build_cd_timeline({
+            const {
+                timeline: nested_cd_timeline,
+                depends_on_directory_casing: nested_depends_on_casing,
+            } = build_cd_timeline({
                 starting_wd: nested_base_wd,
                 caller_dir: path.dirname(URI.parse(callee_uri).fsPath),
                 cd_commands: callee_result.cd_commands,
@@ -1678,6 +1769,9 @@ export class ForwardScopeResolver {
                     : undefined,
                 fs: this.resolve_fs,
             });
+            if (nested_depends_on_casing) {
+                mark_directory_casing(casing_collector);
+            }
             for (const my_event of the_events) {
                 if (token?.isCancellationRequested) break;
                 if (my_event.kind === 'local') {
@@ -1696,6 +1790,7 @@ export class ForwardScopeResolver {
                         my_event.call.raw_path,
                         callee_uri,
                         event_wd,
+                        casing_collector,
                     );
                     // null → ambiguous or missing; the nested callee is
                     // unresolved so it contributes nothing to end-state locals.
@@ -1711,6 +1806,7 @@ export class ForwardScopeResolver {
                         depth + 1,
                         resolved_config,
                         token,
+                        casing_collector,
                     );
                     for (const [my_name, my_symbol] of nested_effective) {
                         the_effective.set(my_name, my_symbol);

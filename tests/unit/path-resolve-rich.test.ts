@@ -1,5 +1,7 @@
 import { describe, it, expect } from 'bun:test';
 import {
+    MAX_CASE_VARIANT_BACKTRACK_READS,
+    case_mismatch_display_paths,
     resolve_path_rich,
     resolve_forward_call_rich,
 } from '../../src/utils/file-path-utils';
@@ -357,6 +359,320 @@ describe('resolve_path_rich', () => {
         // helpers/ not resolved as a directory → missing
         expect(out.kind).toBe('missing');
     });
+
+    // ── Case-variant sibling directories ──────────────────────────────────
+    //
+    // On a case-sensitive filesystem a checkout can hold two directories
+    // whose names differ only in case (e.g. `Scripts/` and `scripts/`).
+    // On the author's case-insensitive machine they are one directory, so
+    // a path that misses under the exact-cased directory must still find
+    // the file under its case-variant sibling.
+
+    it('exact directory misses: file found under case-variant sibling', () => {
+        const fs = make_fs({
+            '/ws': [['scripts', false], ['Scripts', false]],
+            '/ws/scripts': [['tables', false]],
+            '/ws/scripts/tables': [['figure.do', true]],
+            '/ws/Scripts': [['tables', false]],
+            '/ws/Scripts/tables': [['export.do', true]],
+        });
+        expect(
+            resolve_path_rich('/ws/scripts/tables/export.do', {
+                workspace_roots: roots,
+                fs,
+            }),
+        ).toEqual({
+            kind: 'case_only',
+            path: '/ws/Scripts/tables/export.do',
+            requested: '/ws/scripts/tables/export.do',
+        });
+    });
+
+    it('case-variant sibling resolution applies the .do fallback', () => {
+        const fs = make_fs({
+            '/ws': [['scripts', false], ['Scripts', false]],
+            '/ws/scripts': [],
+            '/ws/Scripts': [['clean.do', true]],
+        });
+        expect(
+            resolve_path_rich('/ws/scripts/clean', {
+                workspace_roots: roots,
+                fs,
+            }),
+        ).toEqual({
+            kind: 'case_only',
+            path: '/ws/Scripts/clean.do',
+            requested: '/ws/scripts/clean',
+        });
+    });
+
+    it('exact directory wins when it holds the file', () => {
+        const fs = make_fs({
+            '/ws': [['scripts', false], ['Scripts', false]],
+            '/ws/scripts': [['clean.do', true]],
+            '/ws/Scripts': [['clean.do', true]],
+        });
+        expect(
+            resolve_path_rich('/ws/scripts/clean.do', {
+                workspace_roots: roots,
+                fs,
+            }),
+        ).toEqual({ kind: 'exact', path: '/ws/scripts/clean.do' });
+    });
+
+    it('exact directory with a case-only leaf wins over siblings', () => {
+        const fs = make_fs({
+            '/ws': [['scripts', false], ['Scripts', false]],
+            '/ws/scripts': [['Clean.do', true]],
+            '/ws/Scripts': [['clean.do', true]],
+        });
+        expect(
+            resolve_path_rich('/ws/scripts/clean.do', {
+                workspace_roots: roots,
+                fs,
+            }),
+        ).toEqual({
+            kind: 'case_only',
+            path: '/ws/scripts/Clean.do',
+            requested: '/ws/scripts/clean.do',
+        });
+    });
+
+    it('two case-variant siblings both holding the file: ambiguous', () => {
+        const fs = make_fs({
+            '/ws': [
+                ['scripts', false],
+                ['Scripts', false],
+                ['SCRIPTS', false],
+            ],
+            '/ws/scripts': [],
+            '/ws/Scripts': [['clean.do', true]],
+            '/ws/SCRIPTS': [['clean.do', true]],
+        });
+        const out = resolve_path_rich('/ws/scripts/clean.do', {
+            workspace_roots: roots,
+            fs,
+        });
+        expect(out).toEqual({
+            kind: 'ambiguous',
+            requested: '/ws/scripts/clean.do',
+            matches: ['/ws/Scripts/clean.do', '/ws/SCRIPTS/clean.do'],
+        });
+    });
+
+    it('no exact directory, one of two case variants holds the file', () => {
+        // Neither directory matches exactly, but only one holds the
+        // file, so the author's intended target is unique.
+        const fs = make_fs({
+            '/ws': [['Scripts', false], ['SCRIPTS', false]],
+            '/ws/Scripts': [['other.do', true]],
+            '/ws/SCRIPTS': [['clean.do', true]],
+        });
+        expect(
+            resolve_path_rich('/ws/scripts/clean.do', {
+                workspace_roots: roots,
+                fs,
+            }),
+        ).toEqual({
+            kind: 'case_only',
+            path: '/ws/SCRIPTS/clean.do',
+            requested: '/ws/scripts/clean.do',
+        });
+    });
+
+    it('no exact directory, no case variant holds the file: missing', () => {
+        const fs = make_fs({
+            '/ws': [['Scripts', false], ['SCRIPTS', false]],
+            '/ws/Scripts': [['other.do', true]],
+            '/ws/SCRIPTS': [],
+        });
+        expect(
+            resolve_path_rich('/ws/scripts/clean.do', {
+                workspace_roots: roots,
+                fs,
+            }).kind,
+        ).toBe('missing');
+    });
+
+    it('backtracks at a deeper component', () => {
+        // The exact `scripts/tables` exists but lacks the file; the
+        // case-variant `scripts/Tables` holds it.
+        const fs = make_fs({
+            '/ws': [['scripts', false]],
+            '/ws/scripts': [['tables', false], ['Tables', false]],
+            '/ws/scripts/tables': [],
+            '/ws/scripts/Tables': [['clean.do', true]],
+        });
+        expect(
+            resolve_path_rich('/ws/scripts/tables/clean.do', {
+                workspace_roots: roots,
+                fs,
+            }),
+        ).toEqual({
+            kind: 'case_only',
+            path: '/ws/scripts/Tables/clean.do',
+            requested: '/ws/scripts/tables/clean.do',
+        });
+    });
+
+    it('bounds backtracking through case-variant symlink aliases', () => {
+        // Every directory holds `a -> .` and `A -> .`, so each level of
+        // `a/a/.../missing.do` offers two aliases of the same directory;
+        // an unbounded walk would read 2^(n+1)-1 directories.
+        const the_depth = 20;
+        let my_reads = 0;
+        const fs = {
+            existsSync: (p: string) => p === '/ws',
+            readdirSync: (_p: string, _opts: { withFileTypes: true }) => {
+                my_reads++;
+                return ['a', 'A'].map(my_name => ({
+                    name: my_name,
+                    isFile: () => false,
+                    isDirectory: () => false,
+                    isSymbolicLink: () => true,
+                }));
+            },
+            statSync: (_p: string) => ({
+                isFile: () => false,
+                isDirectory: () => true,
+            }),
+        };
+        const the_parts = Array.from({ length: the_depth }, () => 'a');
+        const out = resolve_path_rich(
+            `/ws/${the_parts.join('/')}/missing.do`,
+            { workspace_roots: roots, fs },
+        );
+        // The truncated search is inconclusive, so it must stop the
+        // candidate chain rather than read as a plain miss.
+        expect(out).toMatchObject({ kind: 'ambiguous', truncated: true });
+        expect(my_reads).toBeLessThanOrEqual(
+            the_depth + 1 + MAX_CASE_VARIANT_BACKTRACK_READS,
+        );
+    });
+
+    it('a search the read budget cut short is not a unique match', () => {
+        // 300 case variants of `abcdefghi/`, the first and last holding
+        // x.do: the budget runs out before the last is read, so the one
+        // hit found cannot be promoted to a unique case_only match, and
+        // the inconclusive result must not let resolve_forward_call_rich
+        // fall through to a lower-priority candidate either.
+        const the_letters = 'abcdefghi';
+        const the_variants = Array.from({ length: 300 }, (_unused, i) =>
+            [...the_letters]
+                .map((my_char, j) =>
+                    ((i + 1) >> j) & 1 ? my_char.toUpperCase() : my_char)
+                .join(''),
+        );
+        const the_tree: Record<string, Array<FsEntry>> = {
+            '/ws': the_variants.map(my_name => [my_name, false]),
+        };
+        for (const [i, my_name] of the_variants.entries()) {
+            the_tree[`/ws/${my_name}`] =
+                i === 0 || i === the_variants.length - 1
+                    ? [['x.do', true]]
+                    : [];
+        }
+        const out = resolve_path_rich(`/ws/${the_letters}/x.do`, {
+            workspace_roots: roots,
+            fs: make_fs(the_tree),
+        });
+        expect(out).toMatchObject({
+            kind: 'ambiguous',
+            truncated: true,
+            matches: [`/ws/${the_variants[0]}/x.do`],
+        });
+    });
+
+    it('stops at the second case-variant hit (proven ambiguous)', () => {
+        // 300 case variants of `abcdefghi/`, every one holding x.do: two
+        // hits already prove ambiguity, so the walk must stop there —
+        // neither reading the rest nor reporting the search truncated.
+        const the_letters = 'abcdefghi';
+        const the_variants = Array.from({ length: 300 }, (_unused, i) =>
+            [...the_letters]
+                .map((my_char, j) =>
+                    ((i + 1) >> j) & 1 ? my_char.toUpperCase() : my_char)
+                .join(''),
+        );
+        const the_tree: Record<string, Array<FsEntry>> = {
+            '/ws': the_variants.map(my_name => [my_name, false]),
+        };
+        for (const my_name of the_variants) {
+            the_tree[`/ws/${my_name}`] = [['x.do', true]];
+        }
+        const fs = make_fs(the_tree);
+        let my_reads = 0;
+        const counting_fs = {
+            ...fs,
+            readdirSync: (p: string, opts: { withFileTypes: true }) => {
+                my_reads++;
+                return fs.readdirSync(p, opts);
+            },
+        };
+        const out = resolve_path_rich(`/ws/${the_letters}/x.do`, {
+            workspace_roots: roots,
+            fs: counting_fs,
+        });
+        expect(out).toEqual({
+            kind: 'ambiguous',
+            requested: `/ws/${the_letters}/x.do`,
+            matches: [
+                `/ws/${the_variants[0]}/x.do`,
+                `/ws/${the_variants[1]}/x.do`,
+            ],
+        });
+        expect(my_reads).toBe(3);
+    });
+
+    it('an unreadable case-variant branch reads as absent', () => {
+        // Directories that cannot be read count as absent, as they do
+        // everywhere in the walk (and in the shared symlink-aware entry
+        // helpers), so the readable sibling's hit is the unique match.
+        const fs = make_fs({
+            '/ws': [['Scripts', false], ['SCRIPTS', false]],
+            '/ws/Scripts': [['clean.do', true]],
+            '/ws/SCRIPTS': [],
+        });
+        const unreadable_fs = {
+            ...fs,
+            readdirSync: (p: string, opts: { withFileTypes: true }) => {
+                if (p === '/ws/SCRIPTS') {
+                    throw new Error(`EACCES: permission denied, scandir '${p}'`);
+                }
+                return fs.readdirSync(p, opts);
+            },
+        };
+        expect(
+            resolve_path_rich('/ws/scripts/clean.do', {
+                workspace_roots: roots,
+                fs: unreadable_fs,
+            }),
+        ).toEqual({
+            kind: 'case_only',
+            path: '/ws/Scripts/clean.do',
+            requested: '/ws/scripts/clean.do',
+        });
+    });
+
+    it('directory target found under a case-variant sibling', () => {
+        const fs = make_fs({
+            '/ws': [['scripts', false], ['Scripts', false]],
+            '/ws/scripts': [['data', false]],
+            '/ws/Scripts': [['tables', false]],
+            '/ws/Scripts/tables': [],
+        });
+        expect(
+            resolve_path_rich('/ws/scripts/tables', {
+                workspace_roots: roots,
+                target_kind: 'directory',
+                fs,
+            }),
+        ).toEqual({
+            kind: 'case_only',
+            path: '/ws/Scripts/tables',
+            requested: '/ws/scripts/tables',
+        });
+    });
 });
 
 describe('resolve_forward_call_rich', () => {
@@ -421,6 +737,39 @@ describe('resolve_forward_call_rich', () => {
     // workspace-root-relative candidate. A file that exists under
     // workspace_roots[0] but NOT relative to the outside caller must
     // resolve to MISSING, not a spurious hit.
+    // A WD-join search that the backtracking budget cut short is
+    // inconclusive: the script-relative exact match must not win in its
+    // place, just as an ambiguous WD-join does not fall through.
+    it('truncated WD-join search does NOT fall back to script-relative', () => {
+        const the_letters = 'abcdefghi';
+        const the_variants = Array.from({ length: 300 }, (_unused, i) =>
+            [...the_letters]
+                .map((my_char, j) =>
+                    ((i + 1) >> j) & 1 ? my_char.toUpperCase() : my_char)
+                .join(''),
+        );
+        const the_tree: Record<string, Array<FsEntry>> = {
+            '/wd': the_variants.map(my_name => [my_name, false]),
+            '/ws': [[the_letters, false]],
+            [`/ws/${the_letters}`]: [['x.do', true]],
+        };
+        for (const [i, my_name] of the_variants.entries()) {
+            the_tree[`/wd/${my_name}`] = i === 0 ? [['x.do', true]] : [];
+        }
+
+        const my_outcome = resolve_forward_call_rich(
+            `${the_letters}/x.do`,
+            '/ws',
+            '/wd',
+            {
+                workspace_roots: ['/ws', '/wd'],
+                fs: make_fs(the_tree),
+            },
+        );
+
+        expect(my_outcome.kind).toBe('ambiguous');
+    });
+
     it('caller outside all workspace_roots: no tier-3 candidate added', () => {
         // Filesystem layout:
         //   /ws/helpers/setup.do  — exists under the workspace root
@@ -451,5 +800,89 @@ describe('resolve_forward_call_rich', () => {
         // Tier-3 must NOT fire; the only candidate (/outside/helpers/setup)
         // is MISSING.
         expect(my_outcome.kind).toBe('missing');
+    });
+});
+
+describe('case_mismatch_display_paths', () => {
+    it('pairs the as-written path with the same on-disk components', () => {
+        // Resolved against the workspace root from a nested caller: the
+        // display must not be re-based onto the caller's directory.
+        expect(
+            case_mismatch_display_paths(
+                'scripts/tables/export.do',
+                {
+                    requested: '/ws/scripts/tables/export.do',
+                    path: '/ws/Scripts/tables/export.do',
+                },
+                '/ws/scripts/tables',
+            ),
+        ).toEqual({
+            requested: 'scripts/tables/export.do',
+            on_disk: 'Scripts/tables/export.do',
+        });
+    });
+
+    it('shows the .do the fallback added', () => {
+        expect(
+            case_mismatch_display_paths(
+                'helpers\\clean',
+                {
+                    requested: '/ws/helpers/clean',
+                    path: '/ws/Helpers/clean.do',
+                },
+                '/ws',
+            ),
+        ).toEqual({ requested: 'helpers/clean', on_disk: 'Helpers/clean.do' });
+    });
+
+    it('falls back when the mismatch is in the resolution base', () => {
+        // A miscased working directory (`Data` vs on-disk `data`) with a
+        // correctly cased raw path: pairing the raw suffix would print
+        // the same spelling twice and hide the discrepancy.
+        expect(
+            case_mismatch_display_paths(
+                'clean.do',
+                {
+                    requested: '/ws/Data/clean.do',
+                    path: '/ws/data/clean.do',
+                },
+                '/ws',
+            ),
+        ).toEqual({
+            requested: 'Data/clean.do',
+            on_disk: 'data/clean.do',
+        });
+    });
+
+    it('falls back to display-dir-relative paths for dot segments', () => {
+        expect(
+            case_mismatch_display_paths(
+                '../helpers/clean.do',
+                {
+                    requested: '/ws/helpers/clean.do',
+                    path: '/ws/Helpers/clean.do',
+                },
+                '/ws/sub',
+            ),
+        ).toEqual({
+            requested: '../helpers/clean.do',
+            on_disk: '../Helpers/clean.do',
+        });
+    });
+
+    it('falls back to display-dir-relative paths for absolute paths', () => {
+        expect(
+            case_mismatch_display_paths(
+                '/ws/helpers/clean.do',
+                {
+                    requested: '/ws/helpers/clean.do',
+                    path: '/ws/Helpers/clean.do',
+                },
+                '/ws',
+            ),
+        ).toEqual({
+            requested: 'helpers/clean.do',
+            on_disk: 'Helpers/clean.do',
+        });
     });
 });

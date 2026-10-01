@@ -689,6 +689,18 @@ Directive path "parent" does not match the file on disk
   graph edge, no `path-case-mismatch` diagnostic, and the existing
   missing-file diagnostic applies. A unique case-insensitive match
   resolves and emits exactly one `path-case-mismatch` diagnostic.
+- **Case-variant directories are one directory.** A case-sensitive
+  checkout can hold directories whose names differ only by case (for
+  example `Scripts/` beside `scripts/`), which are a single directory on
+  the case-insensitive machine where the code was written. When the
+  exact-cased directory does not contain the rest of the path, its
+  case-variant siblings are searched as well, so
+  `do "scripts/tables/export.do"` finds `Scripts/tables/export.do` and
+  reports a `path-case-mismatch` rather than a missing file. Matches
+  found under two or more of the siblings are ambiguous. The search is
+  bounded, so symlinks that alias a directory under several casings
+  cannot make it exponential; a search cut short by the bound is also
+  treated as ambiguous.
 - **ASCII case folding only.** Non-ASCII byte differences are compared
   exactly.
 - **Workspace-bounded.** The case-insensitive scan runs only for paths

@@ -259,3 +259,122 @@ describe('sight check — case-only path mismatch', () => {
         }
     );
 });
+
+/**
+ * True when the temp filesystem can hold two directories whose names
+ * differ only in case (Linux CI); false on case-insensitive hosts, where
+ * the second `mkdir` collides with the first.
+ */
+function temp_fs_holds_case_variant_dirs(): boolean {
+    const root = temp_dir();
+    try {
+        fs.mkdirSync(path.join(root, 'probe'));
+        fs.mkdirSync(path.join(root, 'Probe'));
+        return true;
+    } catch {
+        return false;
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+}
+
+describe('sight check — case-mismatch message and case-variant directories', () => {
+    it(
+        'names the path as written when it resolves against the ' +
+            'workspace root from a nested caller',
+        async () => {
+            const root = temp_dir();
+            try {
+                fs.mkdirSync(path.join(root, 'sub'));
+                fs.mkdirSync(path.join(root, 'Helpers'));
+                fs.writeFileSync(
+                    path.join(root, 'Helpers', 'clean.do'),
+                    'global from_clean = 1\n'
+                );
+                fs.writeFileSync(
+                    path.join(root, 'sub', 'main.do'),
+                    'do "helpers/clean.do"\ndisplay "$from_clean"\n'
+                );
+
+                const records = await run_check(root);
+
+                const the_case_diags = records.filter(
+                    r => r.diagnostic.code === StataDiagnosticCode.PATH_CASE_MISMATCH
+                );
+                expect(the_case_diags).toHaveLength(1);
+                expect(the_case_diags[0]!.relative_path).toBe('sub/main.do');
+                expect(the_case_diags[0]!.diagnostic.message).toContain(
+                    'Path "helpers/clean.do" does not match the file on ' +
+                        'disk "Helpers/clean.do"'
+                );
+                const the_undef = records.filter(
+                    r => r.diagnostic.code === StataDiagnosticCode.UNDEFINED_MACRO
+                );
+                expect(the_undef).toHaveLength(0);
+            } finally {
+                fs.rmSync(root, { recursive: true, force: true });
+            }
+        }
+    );
+
+    // A case-sensitive checkout can hold `scripts/` beside `Scripts/`; on
+    // the author's case-insensitive machine they are one directory. The
+    // callee lives under the case variant the call did not spell, so the
+    // walk must backtrack out of the exact-cased directory to find it.
+    it.skipIf(!temp_fs_holds_case_variant_dirs())(
+        'resolves a callee under a case-variant sibling directory ' +
+            'instead of reporting it missing',
+        async () => {
+            const root = temp_dir();
+            try {
+                fs.mkdirSync(path.join(root, 'scripts', 'tables'), {
+                    recursive: true,
+                });
+                fs.mkdirSync(path.join(root, 'Scripts', 'tables'), {
+                    recursive: true,
+                });
+                fs.writeFileSync(
+                    path.join(root, 'Scripts', 'tables', 'export.do'),
+                    'global from_export = 1\n'
+                );
+                fs.writeFileSync(
+                    path.join(root, 'scripts', 'tables', 'figure.do'),
+                    'do "scripts/tables/export.do"\n' +
+                        'display "$from_export"\n'
+                );
+
+                const records = await run_check(root);
+
+                const the_missing = records.filter(
+                    r =>
+                        r.diagnostic.code ===
+                        StataDiagnosticCode.CROSS_FILE_MISSING_FILE
+                );
+                expect(the_missing).toHaveLength(0);
+                const the_undef = records.filter(
+                    r => r.diagnostic.code === StataDiagnosticCode.UNDEFINED_MACRO
+                );
+                expect(the_undef).toHaveLength(0);
+
+                const the_case_diags = records.filter(
+                    r => r.diagnostic.code === StataDiagnosticCode.PATH_CASE_MISMATCH
+                );
+                expect(the_case_diags).toHaveLength(1);
+                expect(the_case_diags[0]!.relative_path).toBe(
+                    'scripts/tables/figure.do'
+                );
+                expect(the_case_diags[0]!.diagnostic.message).toContain(
+                    'Path "scripts/tables/export.do" does not match the ' +
+                        'file on disk "Scripts/tables/export.do"'
+                );
+                // Only a case-sensitive host can hold both directories,
+                // so the auto severity is always Warning here.
+                expect(the_case_diags[0]!.diagnostic.severity).toBe(
+                    DiagnosticSeverity.Warning
+                );
+            } finally {
+                fs.rmSync(root, { recursive: true, force: true });
+            }
+        }
+    );
+});

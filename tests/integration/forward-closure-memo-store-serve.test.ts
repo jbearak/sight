@@ -335,6 +335,203 @@ describe('issue #234 — forward-closure memo store/serve', () => {
         expect(site_has_global(after, 'gx_old')).toBe(false);
     });
 
+    // Needs a filesystem that can hold `Scripts/` beside `SCRIPTS/`
+    // (Linux CI); the second mkdir collides on case-insensitive hosts.
+    const holds_case_variant_dirs = ((): boolean => {
+        const my_dir = fs.mkdtempSync(path.join(os.tmpdir(), 'memo-ci-'));
+        try {
+            fs.mkdirSync(path.join(my_dir, 'probe'));
+            fs.mkdirSync(path.join(my_dir, 'Probe'));
+            return true;
+        } catch {
+            return false;
+        } finally {
+            fs.rmSync(my_dir, { recursive: true, force: true });
+        }
+    })();
+
+    // A case-only resolution changes when a file appears under ANY casing
+    // of the probed path — the probe set cannot list them all, so the
+    // memo's dependent index matches URIs case-insensitively.
+    for (const the_created of [
+        ['SCRIPTS', 'clean.do'],
+        ['SCRIPTS', 'Clean.do'],
+        ['SCripts', 'clean.do'],
+    ]) {
+        it.skipIf(!holds_case_variant_dirs)(
+            `evicts entries when ${the_created.join('/')} makes a ` +
+                'case-only call ambiguous',
+            async () => {
+                // inner.do calls "scripts/clean.do"; no `scripts/` exists
+                // and only `Scripts/` holds the file, so the call resolves
+                // case-only. Creating another case variant of the file
+                // makes it ambiguous, so the memoized inner closure that
+                // resolved through `Scripts/` must be evicted.
+                scope_resolver.set_workspace_roots([temp_dir]);
+                forward_resolver.set_workspace_roots([temp_dir]);
+                fs.mkdirSync(path.join(temp_dir, 'Scripts'));
+                fs.mkdirSync(path.join(temp_dir, 'SCRIPTS'));
+                create_file(
+                    path.join('Scripts', 'clean.do'), 'global g_old 1\n');
+                create_file('inner.do',
+                    'do "scripts/clean.do"\nglobal inner_g 1\n');
+                const root = create_file('variant_root.do',
+                    'do "inner.do"\ndisplay "${g_old}"\n');
+
+                const before =
+                    await scope_resolver.resolve(to_uri(root), read(root));
+                expect(site_has_global(before, 'g_old')).toBe(true);
+
+                fs.mkdirSync(path.join(temp_dir, the_created[0]!), {
+                    recursive: true,
+                });
+                const created = create_file(
+                    path.join(...the_created), 'global g_new 1\n');
+                scope_resolver.invalidate_file_cache(to_uri(created));
+
+                scope_resolver.invalidate_scope_cache(to_uri(root));
+                const after =
+                    await scope_resolver.resolve(to_uri(root), read(root));
+                expect(site_has_global(after, 'g_old')).toBe(false);
+                expect(site_has_global(after, 'g_new')).toBe(false);
+            },
+        );
+    }
+
+    it('does not serve closures whose cd matched a directory case-insensitively', async () => {
+        // inner.do's `cd "raw"` resolves to `Raw/` case-only. That depends
+        // on which case-variant DIRECTORIES exist (creating `RAW/` makes it
+        // ambiguous), and the watcher reports only Stata files, so no
+        // dependent URI could evict a stored closure: it must stay
+        // unservable and be walked live every time.
+        scope_resolver.set_workspace_roots([temp_dir]);
+        forward_resolver.set_workspace_roots([temp_dir]);
+        fs.mkdirSync(path.join(temp_dir, 'Raw'));
+        create_file(path.join('Raw', 'clean.do'), 'global g_raw 1\n');
+        create_file('inner.do', 'cd "raw"\ndo "clean.do"\n');
+        const root = create_file('cd_root.do',
+            'do "inner.do"\ndisplay "${g_raw}"\n');
+
+        const first = await scope_resolver.resolve(to_uri(root), read(root));
+        expect(site_has_global(first, 'g_raw')).toBe(true);
+        scope_resolver.invalidate_scope_cache(to_uri(root));
+        const second =
+            await scope_resolver.resolve(to_uri(root), read(root));
+        expect(site_has_global(second, 'g_raw')).toBe(true);
+        expect(forward_resolver.get_forward_closure_metrics().hits).toBe(0);
+    });
+
+    it('does not serve closures whose call matched a directory case-insensitively', async () => {
+        // inner.do's "helpers/clean.do" resolves through `Helpers/`.
+        // Creating a case-variant directory (or a symlink such as
+        // `HELPERS -> Helpers`) would make it ambiguous, and no Stata-file
+        // event reports that, so the closure must stay unservable.
+        scope_resolver.set_workspace_roots([temp_dir]);
+        forward_resolver.set_workspace_roots([temp_dir]);
+        fs.mkdirSync(path.join(temp_dir, 'Helpers'));
+        create_file(path.join('Helpers', 'clean.do'), 'global g_dir 1\n');
+        create_file('inner.do', 'do "helpers/clean.do"\n');
+        const root = create_file('dir_root.do',
+            'do "inner.do"\ndisplay "${g_dir}"\n');
+
+        await scope_resolver.resolve(to_uri(root), read(root));
+        scope_resolver.invalidate_scope_cache(to_uri(root));
+        const second =
+            await scope_resolver.resolve(to_uri(root), read(root));
+        expect(site_has_global(second, 'g_dir')).toBe(true);
+        expect(forward_resolver.get_forward_closure_metrics().hits).toBe(0);
+    });
+
+    it('a directory-casing match does not mark concurrent unrelated builds', async () => {
+        // Two overlapping resolutions share the resolver, as sight check
+        // workers do. Only the chain whose call crosses a miscased
+        // directory may lose caching; the unrelated chain's closure must
+        // still be stored servable.
+        scope_resolver.set_workspace_roots([temp_dir]);
+        forward_resolver.set_workspace_roots([temp_dir]);
+        fs.mkdirSync(path.join(temp_dir, 'Helpers'));
+        create_file(path.join('Helpers', 'clean.do'), 'global g_case 1\n');
+        create_file('c_inner.do', 'do "helpers/clean.do"\n');
+        const c_root = create_file('c_root.do',
+            'do "c_inner.do"\ndisplay "${g_case}"\n');
+        create_file('u_leaf.do', 'global g_plain 1\n');
+        create_file('u_inner.do', 'do "u_leaf.do"\n');
+        const u_root = create_file('u_root.do',
+            'do "u_inner.do"\ndisplay "${g_plain}"\n');
+
+        await Promise.all([
+            scope_resolver.resolve(to_uri(c_root), read(c_root)),
+            scope_resolver.resolve(to_uri(u_root), read(u_root)),
+        ]);
+        scope_resolver.invalidate_scope_cache(to_uri(u_root));
+        const again =
+            await scope_resolver.resolve(to_uri(u_root), read(u_root));
+        expect(site_has_global(again, 'g_plain')).toBe(true);
+        expect(forward_resolver.get_forward_closure_metrics().hits).toBe(1);
+    });
+
+    it('releases each build collector once the build completes', async () => {
+        // A stored closure keeps its visited map (as visited_delta); the
+        // collector lookup keyed by it must not keep the build's probe set
+        // alive for the entry's lifetime.
+        const { roots } = build_chain_workspace(1);
+        await scope_resolver.resolve(to_uri(roots[0]!), read(roots[0]!));
+        const internals = forward_resolver as unknown as {
+            forward_closure_memo: {
+                values(): IterableIterator<{
+                    kind: string;
+                    visited_delta?: Map<string, unknown>;
+                }>;
+            };
+            collector_by_visited: WeakMap<object, unknown>;
+        };
+        const the_closures = [...internals.forward_closure_memo.values()]
+            .filter(my_entry => my_entry.kind === 'closure');
+        expect(the_closures.length).toBeGreaterThan(0);
+        for (const my_entry of the_closures) {
+            expect(
+                internals.collector_by_visited.has(my_entry.visited_delta!),
+            ).toBe(false);
+        }
+    });
+
+    it('still serves closures whose call matched only the file name case-insensitively', async () => {
+        // A leaf-only mismatch depends on file names alone, which file
+        // events (through the case-folded dependent index) do report.
+        scope_resolver.set_workspace_roots([temp_dir]);
+        forward_resolver.set_workspace_roots([temp_dir]);
+        fs.mkdirSync(path.join(temp_dir, 'helpers'));
+        create_file(path.join('helpers', 'Clean.do'), 'global g_leaf 1\n');
+        create_file('inner.do', 'do "helpers/clean.do"\n');
+        const root = create_file('leaf_root.do',
+            'do "inner.do"\ndisplay "${g_leaf}"\n');
+
+        await scope_resolver.resolve(to_uri(root), read(root));
+        scope_resolver.invalidate_scope_cache(to_uri(root));
+        const second =
+            await scope_resolver.resolve(to_uri(root), read(root));
+        expect(site_has_global(second, 'g_leaf')).toBe(true);
+        expect(forward_resolver.get_forward_closure_metrics().hits).toBe(1);
+    });
+
+    it('matches dependent URIs case-insensitively on invalidation', () => {
+        // Host-independent form of the case above: an entry that probed
+        // file:///ws/scripts/clean.do must be evicted by an event for any
+        // casing of that path.
+        const internals = forward_resolver as unknown as {
+            store_memo_entry(key: string, entry: unknown): unknown;
+        };
+        internals.store_memo_entry('k1', {
+            kind: 'unservable',
+            dependent_uris: new Set(['file:///ws/scripts/clean.do']),
+        });
+        expect(
+            forward_resolver.invalidate_forward_closure_for_uri(
+                'file:///ws/SCripts/Clean.do'),
+        ).toBe(1);
+        expect(forward_resolver.get_forward_closure_memo_size()).toBe(0);
+    });
+
     it('evicts transitively dependent entries on didChange and on-disk change', async () => {
         const { chain, roots } = build_chain_workspace(2);
         const [, , chain_3] = chain;
