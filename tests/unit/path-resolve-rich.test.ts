@@ -550,6 +550,33 @@ describe('resolve_path_rich', () => {
         );
     });
 
+    it('a search the read budget cut short is not a unique match', () => {
+        // 300 case variants of `abcdefghi/`, the first and last holding
+        // x.do: the budget runs out before the last is read, so the one
+        // hit found cannot be promoted to a unique case_only match.
+        const the_letters = 'abcdefghi';
+        const the_variants = Array.from({ length: 300 }, (_unused, i) =>
+            [...the_letters]
+                .map((my_char, j) =>
+                    ((i + 1) >> j) & 1 ? my_char.toUpperCase() : my_char)
+                .join(''),
+        );
+        const the_tree: Record<string, Array<FsEntry>> = {
+            '/ws': the_variants.map(my_name => [my_name, false]),
+        };
+        for (const [i, my_name] of the_variants.entries()) {
+            the_tree[`/ws/${my_name}`] =
+                i === 0 || i === the_variants.length - 1
+                    ? [['x.do', true]]
+                    : [];
+        }
+        const out = resolve_path_rich(`/ws/${the_letters}/x.do`, {
+            workspace_roots: roots,
+            fs: make_fs(the_tree),
+        });
+        expect(out.kind).toBe('missing');
+    });
+
     it('directory target found under a case-variant sibling', () => {
         const fs = make_fs({
             '/ws': [['scripts', false], ['Scripts', false]],

@@ -363,9 +363,11 @@ export function resolve_path_rich(
     // Reads are budgeted: one per component (all the exact-first descent
     // needs, so anything it reaches is never cut off) plus
     // MAX_CASE_VARIANT_BACKTRACK_READS for backtracking. Past the budget,
-    // unexplored branches count as misses.
+    // unexplored branches count as misses, and a search cut short cannot
+    // establish that a single hit is the only one.
     let directory_reads_left =
         the_components.length + MAX_CASE_VARIANT_BACKTRACK_READS;
+    let budget_exhausted = false;
     const walk = (
         current_dir: string,
         comp_idx: number,
@@ -374,6 +376,7 @@ export function resolve_path_rich(
         const my_component = the_components[comp_idx]!;
         const my_is_final = comp_idx === the_components.length - 1;
         if (directory_reads_left <= 0) {
+            budget_exhausted = true;
             return { kind: 'missing', requested: resolved_fs_path };
         }
         directory_reads_left--;
@@ -431,7 +434,7 @@ export function resolve_path_rich(
                     the_hits.push(my_outcome.path);
                 }
             }
-            if (the_hits.length === 1) {
+            if (the_hits.length === 1 && !budget_exhausted) {
                 return {
                     kind: 'case_only',
                     path: the_hits[0]!,
@@ -445,7 +448,7 @@ export function resolve_path_rich(
                     matches: the_hits,
                 };
             }
-            // No directory match (count: 0)
+            // No directory match, or one hit from a search cut short
             return { kind: 'missing', requested: resolved_fs_path };
         }
 
