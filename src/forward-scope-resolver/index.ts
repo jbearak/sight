@@ -25,6 +25,7 @@ import {
 import { create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
 import { ScopeResolver } from '../scope-resolver';
 import {
+    ascii_case_fold,
     case_mismatch_display_paths,
     resolve_forward_call_rich,
     is_resolvable_static_call,
@@ -237,6 +238,7 @@ export class ForwardScopeResolver {
             },
         }
     );
+    // Keyed by memo_index_key(uri) — ASCII-case-folded (see there).
     private memo_uri_to_keys = new Map<string, Set<string>>();
     // The dep-graph version the memo's entries were built against. A
     // version change makes EVERY existing entry dead by construction (all
@@ -342,7 +344,7 @@ export class ForwardScopeResolver {
      */
     invalidate_forward_closure_for_uri(uri: string): number {
         this.memo_invalidation_epoch++;
-        const the_keys = this.memo_uri_to_keys.get(uri);
+        const the_keys = this.memo_uri_to_keys.get(this.memo_index_key(uri));
         if (!the_keys) {
             return 0;
         }
@@ -391,14 +393,28 @@ export class ForwardScopeResolver {
         entry: ForwardClosureMemoEntry
     ): void {
         for (const my_dep_uri of entry.dependent_uris) {
-            const my_key_set = this.memo_uri_to_keys.get(my_dep_uri);
+            const my_index_key = this.memo_index_key(my_dep_uri);
+            const my_key_set = this.memo_uri_to_keys.get(my_index_key);
             if (my_key_set) {
                 my_key_set.delete(key);
                 if (my_key_set.size === 0) {
-                    this.memo_uri_to_keys.delete(my_dep_uri);
+                    this.memo_uri_to_keys.delete(my_index_key);
                 }
             }
         }
+    }
+
+    /**
+     * memo_uri_to_keys key for a dependent URI: ASCII-case-folded, so an
+     * invalidation for ANY casing of a dependent evicts. A case-only
+     * resolution changes when a file appears under another casing of a
+     * probed path (`SCRIPTS/Clean.do` beside the winning
+     * `Scripts/clean.do` makes the call ambiguous), and the probe set can
+     * record only the as-written spelling. This is path matching, not
+     * Stata-language matching; an over-match only over-invalidates.
+     */
+    private memo_index_key(uri: string): string {
+        return ascii_case_fold(uri);
     }
 
     /**
@@ -1425,10 +1441,11 @@ export class ForwardScopeResolver {
         }
         this.forward_closure_memo.set(key, entry);
         for (const my_dep_uri of entry.dependent_uris) {
-            let my_key_set = this.memo_uri_to_keys.get(my_dep_uri);
+            const my_index_key = this.memo_index_key(my_dep_uri);
+            let my_key_set = this.memo_uri_to_keys.get(my_index_key);
             if (!my_key_set) {
                 my_key_set = new Set();
-                this.memo_uri_to_keys.set(my_dep_uri, my_key_set);
+                this.memo_uri_to_keys.set(my_index_key, my_key_set);
             }
             my_key_set.add(key);
         }

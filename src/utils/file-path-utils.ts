@@ -140,16 +140,6 @@ export interface RichResolveOptions {
      * `{ withFileTypes: true }`.
      */
     fs?: RichResolveFs;
-    /**
-     * When provided, receives every as-written path the workspace walk
-     * probed and found absent: under each directory it visited, the
-     * remaining components spelled as requested (plus the `.do`-fallback
-     * variant). A file created at one of these paths would change the
-     * outcome — make it exact, or add a match to a case-variant sibling
-     * (#234 closure-memo dependents). Paths outside every root are not
-     * walked and report nothing here.
-     */
-    missed_probes?: string[];
 }
 
 /**
@@ -181,6 +171,17 @@ function ascii_to_lower(c: string): string {
     // A–Z: 65–90 → a–z: 97–122
     if (code >= 65 && code <= 90) return String.fromCharCode(code + 32);
     return c;
+}
+
+const ASCII_UPPERCASE_PATTERN = /[A-Z]/g;
+
+/**
+ * Fold the ASCII letters of a path or URI to lowercase, leaving every
+ * other character unchanged — the folding the case-insensitive path walk
+ * applies. For path matching only; Stata source text is case-sensitive.
+ */
+export function ascii_case_fold(text: string): string {
+    return text.replace(ASCII_UPPERCASE_PATTERN, ascii_to_lower);
 }
 
 /**
@@ -339,22 +340,6 @@ export function resolve_path_rich(
     const join_path = (dir: string, name: string): string =>
         dir.endsWith(sep) ? `${dir}${name}` : `${dir}${sep}${name}`;
 
-    // Report the as-written remainder `the_components[comp_idx..]` under
-    // `dir` (plus its `.do`-fallback variant) as probed and absent.
-    const the_missed = options?.missed_probes;
-    const the_leaf = the_components[the_components.length - 1]!;
-    const note_missed_remainder = (dir: string, comp_idx: number): void => {
-        if (the_missed === undefined) return;
-        const my_path = join_path(
-            dir,
-            the_components.slice(comp_idx).join(sep),
-        );
-        the_missed.push(my_path);
-        if (try_do_fallback && !has_extension(the_leaf)) {
-            the_missed.push(`${my_path}.do`);
-        }
-    };
-
     // Resolve `the_components[comp_idx..]` below `current_dir`.
     // `had_case_mismatch` records whether an earlier component needed
     // ci-resolution (which makes any hit case_only).
@@ -400,8 +385,6 @@ export function resolve_path_rich(
                 if (my_outcome.kind !== 'missing') {
                     return my_outcome;
                 }
-            } else {
-                note_missed_remainder(current_dir, comp_idx);
             }
             // Case-insensitive directory matches (symlinks followed). Every
             // branch that resolves contributes its hits; a single hit is the
@@ -485,7 +468,6 @@ export function resolve_path_rich(
                 }
                 return { kind: 'exact', path: my_full };
             }
-            the_missed?.push(join_path(current_dir, my_cand));
         }
 
         // Step 2: case-insensitive leaf matches over the candidate set.
@@ -797,14 +779,10 @@ export function case_mismatch_display_paths(
  *                            fallback), and the winning candidate's own
  *                            as-written form when the winner resolved
  *                            through the internal fallback or case
- *                            correction, plus the absent as-written paths
- *                            the workspace walk probed (see
- *                            `RichResolveOptions.missed_probes`). The
- *                            forward-closure memo (#234) records these as
- *                            dependents so that creating a file at a
- *                            higher-priority path, or one that makes a
- *                            case-only call ambiguous, evicts closures
- *                            that resolved through a fallback.
+ *                            correction. The forward-closure memo (#234)
+ *                            records these as dependents so that creating
+ *                            a file at a higher-priority path evicts
+ *                            closures that resolved through a fallback.
  */
 export function resolve_forward_call_rich(
     raw_path: string,
@@ -864,9 +842,6 @@ export function resolve_forward_call_rich(
         try_do_fallback: true,
         workspace_roots: options?.workspace_roots,
         fs: options?.fs,
-        // The workspace walk reports its own misses, including those under
-        // case-variant sibling directories it searched.
-        missed_probes: options?.missed_candidates,
     };
 
     // Report every probe variant of `candidate` that the winning path did

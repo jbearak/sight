@@ -350,40 +350,71 @@ describe('issue #234 — forward-closure memo store/serve', () => {
         }
     })();
 
-    it.skipIf(!holds_case_variant_dirs)(
-        'evicts entries when a file appears under an empty case-variant ' +
-            'sibling directory',
-        async () => {
-            // inner.do calls "scripts/clean.do"; no `scripts/` exists, and
-            // of its case variants only `Scripts/` holds the file, so the
-            // call resolves case-only. Creating the file under the empty
-            // `SCRIPTS/` makes the call ambiguous, so the memoized inner
-            // closure that resolved through `Scripts/` must be evicted.
-            scope_resolver.set_workspace_roots([temp_dir]);
-            forward_resolver.set_workspace_roots([temp_dir]);
-            fs.mkdirSync(path.join(temp_dir, 'Scripts'));
-            fs.mkdirSync(path.join(temp_dir, 'SCRIPTS'));
-            create_file(path.join('Scripts', 'clean.do'), 'global g_old 1\n');
-            create_file('inner.do',
-                'do "scripts/clean.do"\nglobal inner_g 1\n');
-            const root = create_file('variant_root.do',
-                'do "inner.do"\ndisplay "${g_old}"\n');
+    // A case-only resolution changes when a file appears under ANY casing
+    // of the probed path — the probe set cannot list them all, so the
+    // memo's dependent index matches URIs case-insensitively.
+    for (const the_created of [
+        ['SCRIPTS', 'clean.do'],
+        ['SCRIPTS', 'Clean.do'],
+        ['SCripts', 'clean.do'],
+    ]) {
+        it.skipIf(!holds_case_variant_dirs)(
+            `evicts entries when ${the_created.join('/')} makes a ` +
+                'case-only call ambiguous',
+            async () => {
+                // inner.do calls "scripts/clean.do"; no `scripts/` exists
+                // and only `Scripts/` holds the file, so the call resolves
+                // case-only. Creating another case variant of the file
+                // makes it ambiguous, so the memoized inner closure that
+                // resolved through `Scripts/` must be evicted.
+                scope_resolver.set_workspace_roots([temp_dir]);
+                forward_resolver.set_workspace_roots([temp_dir]);
+                fs.mkdirSync(path.join(temp_dir, 'Scripts'));
+                fs.mkdirSync(path.join(temp_dir, 'SCRIPTS'));
+                create_file(
+                    path.join('Scripts', 'clean.do'), 'global g_old 1\n');
+                create_file('inner.do',
+                    'do "scripts/clean.do"\nglobal inner_g 1\n');
+                const root = create_file('variant_root.do',
+                    'do "inner.do"\ndisplay "${g_old}"\n');
 
-            const before =
-                await scope_resolver.resolve(to_uri(root), read(root));
-            expect(site_has_global(before, 'g_old')).toBe(true);
+                const before =
+                    await scope_resolver.resolve(to_uri(root), read(root));
+                expect(site_has_global(before, 'g_old')).toBe(true);
 
-            const created = create_file(
-                path.join('SCRIPTS', 'clean.do'), 'global g_new 1\n');
-            scope_resolver.invalidate_file_cache(to_uri(created));
+                fs.mkdirSync(path.join(temp_dir, the_created[0]!), {
+                    recursive: true,
+                });
+                const created = create_file(
+                    path.join(...the_created), 'global g_new 1\n');
+                scope_resolver.invalidate_file_cache(to_uri(created));
 
-            scope_resolver.invalidate_scope_cache(to_uri(root));
-            const after =
-                await scope_resolver.resolve(to_uri(root), read(root));
-            expect(site_has_global(after, 'g_old')).toBe(false);
-            expect(site_has_global(after, 'g_new')).toBe(false);
-        },
-    );
+                scope_resolver.invalidate_scope_cache(to_uri(root));
+                const after =
+                    await scope_resolver.resolve(to_uri(root), read(root));
+                expect(site_has_global(after, 'g_old')).toBe(false);
+                expect(site_has_global(after, 'g_new')).toBe(false);
+            },
+        );
+    }
+
+    it('matches dependent URIs case-insensitively on invalidation', () => {
+        // Host-independent form of the case above: an entry that probed
+        // file:///ws/scripts/clean.do must be evicted by an event for any
+        // casing of that path.
+        const internals = forward_resolver as unknown as {
+            store_memo_entry(key: string, entry: unknown): unknown;
+        };
+        internals.store_memo_entry('k1', {
+            kind: 'unservable',
+            dependent_uris: new Set(['file:///ws/scripts/clean.do']),
+        });
+        expect(
+            forward_resolver.invalidate_forward_closure_for_uri(
+                'file:///ws/SCripts/Clean.do'),
+        ).toBe(1);
+        expect(forward_resolver.get_forward_closure_memo_size()).toBe(0);
+    });
 
     it('evicts transitively dependent entries on didChange and on-disk change', async () => {
         const { chain, roots } = build_chain_workspace(2);
