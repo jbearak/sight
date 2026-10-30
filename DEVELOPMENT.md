@@ -22,6 +22,36 @@ bun run test
 
 This runs `bun run typecheck` first, then executes the test suite.
 
+## Data Browser Benchmarks
+
+The data browser has a benchmark harness under
+`scripts/bench-data-browser/`; the plan it measures against is
+[specs/2026-10-30-data-browser-redesign.md](specs/2026-10-30-data-browser-redesign.md).
+
+```bash
+# Host-side benchmark: drives the real panel under Node with a fake
+# webview. Generates 10M x 10 and 1M x 500 fixtures (~3 GB) on first run.
+bun run bench:data-browser
+
+# Smaller fixtures, fewer samples, report to a file
+bun run bench:data-browser --scale 0.1 --samples 1 --out bench.md
+
+# Cold page cache (Linux with passwordless sudo, as on CI)
+bun run bench:data-browser --scale 0.1 --cold
+
+# End to end in a real VS Code: open each fixture and time it to the
+# first rows painted (10% fixtures by default; SIGHT_PERF_SCALE=1 for
+# full size). VSCODE_EXECUTABLE points at an installed VS Code instead
+# of downloading one.
+cd client && bun run test:perf
+```
+
+The benchmark reports, per operation, the time to the host's reply, the
+extension host's longest event-loop stall, the reply's JSON size and the
+process's peak RSS. CI runs it at 10% scale on every PR as a
+report-only job. In everyday use, `sight.dataBrowser.debugTiming` logs
+the same open-to-paint marks to the Sight output channel.
+
 ## Building a VSIX Package
 
 To create a `.vsix` file for distribution or manual installation:

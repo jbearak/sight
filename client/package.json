@@ -468,6 +468,11 @@
             "No special highlighting"
           ]
         },
+        "sight.dataBrowser.debugTiming": {
+          "type": "boolean",
+          "default": false,
+          "description": "Log how long each data browser open takes, from opening the panel to the first rows painted, to the Sight output channel. For diagnosing performance; off by default."
+        },
         "sight.depthColors.enabled": {
           "type": "boolean",
           "default": true,
@@ -813,6 +818,7 @@
     "test": "node ./test/runTest.js",
     "test:extension": "node ./test/runTest.js",
     "test:layout": "bun run bundle && bun run bundle:webview-test && node ./test/runTest.js --suite layout",
+    "test:perf": "bun run bundle && bun run bundle:webview && node ./test/runTest.js --suite perf",
     "package": "vsce package --no-dependencies",
     "publish:vscode": "echo 'Internal-only: use the release workflow (vsce publish --packagePath client/*.vsix) for actual publishing.'",
     "publish:ovsx": "echo 'Internal-only: use the release workflow (ovsx publish client/*.vsix) for actual publishing.'",

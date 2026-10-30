@@ -69,6 +69,19 @@ export interface CancelRestoreMessage {
     restore_id: number;
 }
 
+/** Webview timing marks, sent only when `debug_timing` is on. */
+export type TimingMark =
+    | 'metadata_received'
+    | 'first_rows_received'
+    | 'first_rows_painted';
+
+export interface TimingMessage {
+    type: 'timing';
+    mark: TimingMark;
+    /** Wall-clock milliseconds (Date.now) when the mark was taken. */
+    epoch_ms: number;
+}
+
 export type WebviewMessage =
     | RowRequest
     | ReadyMessage
@@ -78,7 +91,8 @@ export type WebviewMessage =
     | SetSortMessage
     | SetFiltersMessage
     | RequestHistogramMessage
-    | CancelRestoreMessage;
+    | CancelRestoreMessage
+    | TimingMessage;
 
 // Extension → Webview messages
 
@@ -117,6 +131,8 @@ export interface MetadataMessage {
     if_condition?: string;
     in_condition?: string;
     missing_value_style?: MissingValueStyle;
+    // Report timing marks back to the host (sight.dataBrowser.debugTiming).
+    debug_timing?: boolean;
 }
 
 export interface SortAppliedMessage {

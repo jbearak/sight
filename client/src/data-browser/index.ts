@@ -7,6 +7,10 @@
  */
 
 import * as vscode from 'vscode';
+import {
+    debug_timing_snapshot,
+    set_debug_timing_log,
+} from './debug-timing.js';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
@@ -118,6 +122,15 @@ export function register_data_browser(
         my_filter_state_store
     );
     context.subscriptions.push(my_manager);
+    set_debug_timing_log(log);
+    // Not contributed to the Command Palette: the VS Code-hosted
+    // benchmark suite reads timing marks through it.
+    context.subscriptions.push(
+        vscode.commands.registerCommand(
+            'sight.dataBrowser.debugTimingSnapshot',
+            () => debug_timing_snapshot()
+        )
+    );
     register_open_data_browser_command(
         context,
         my_manager

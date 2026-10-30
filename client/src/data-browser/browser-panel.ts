@@ -45,6 +45,11 @@ import { should_unlink_data_browser_path } from './opening.js';
 import { RowCache } from './row-cache.js';
 import { page_size_for_column_count } from './page-size.js';
 import { schema_hash } from './schema-hash.js';
+import {
+    begin_debug_timing,
+    record_webview_mark,
+    type DebugTimingRecord,
+} from './debug-timing.js';
 import type {
     WebviewMessage,
     RowResponse,
@@ -158,6 +163,9 @@ export class DataBrowserPanel implements vscode.Disposable {
     // refresh (the values change), not on sort/filter (the brush always
     // shows the full column distribution).
     private histogram_cache = new Map<number, HistogramBin[]>();
+    // Timing marks for this open when sight.dataBrowser.debugTiming is
+    // on (null otherwise); see debug-timing.ts.
+    private debug_timing: DebugTimingRecord | null = null;
 
     constructor(
         panel: vscode.WebviewPanel,
@@ -186,6 +194,7 @@ export class DataBrowserPanel implements vscode.Disposable {
             column_visibility_store;
         this.sort_state_store = sort_state_store;
         this.filter_state_store = filter_state_store;
+        this.debug_timing = this.begin_debug_timing(sidecar.name);
 
         panel.webview.html = webview_html;
 
@@ -267,6 +276,7 @@ export class DataBrowserPanel implements vscode.Disposable {
                 dta_path,
                 sidecar
             );
+        this.debug_timing = this.begin_debug_timing(sidecar.name);
 
         await this.initialize();
     }
@@ -704,9 +714,16 @@ export class DataBrowserPanel implements vscode.Disposable {
             varlist: this.sidecar.varlist,
             if_condition: this.sidecar.if,
             in_condition: this.sidecar.in,
+            debug_timing: this.debug_timing !== null,
         };
 
         this.panel.webview.postMessage(my_metadata);
+        if (
+            this.debug_timing
+            && this.debug_timing.metadata_posted_epoch_ms === undefined
+        ) {
+            this.debug_timing.metadata_posted_epoch_ms = Date.now();
+        }
     }
 
     /**
@@ -993,6 +1010,15 @@ export class DataBrowserPanel implements vscode.Disposable {
                 break;
             case 'cancelRestore':
                 await this.handle_cancel_restore(msg);
+                break;
+            case 'timing':
+                if (this.debug_timing) {
+                    record_webview_mark(
+                        this.debug_timing,
+                        msg.mark,
+                        msg.epoch_ms
+                    );
+                }
                 break;
             case 'copyColumn':
                 await this.handle_copy_column(
@@ -1693,6 +1719,7 @@ export class DataBrowserPanel implements vscode.Disposable {
                 request_id: request.request_id,
             };
             this.panel.webview.postMessage(my_response);
+            this.note_rows_posted();
             return;
         }
 
@@ -1752,6 +1779,25 @@ export class DataBrowserPanel implements vscode.Disposable {
         };
 
         this.panel.webview.postMessage(my_response);
+        this.note_rows_posted();
+    }
+
+    /** A timing record for this open when debugTiming is on, else null. */
+    private begin_debug_timing(name: string): DebugTimingRecord | null {
+        const my_enabled = vscode.workspace
+            .getConfiguration('sight.dataBrowser')
+            .get<boolean>('debugTiming', false) ?? false;
+        return my_enabled ? begin_debug_timing(name) : null;
+    }
+
+    /** Record the first rows posted for this open (debug timing). */
+    private note_rows_posted(): void {
+        if (
+            this.debug_timing
+            && this.debug_timing.first_rows_posted_epoch_ms === undefined
+        ) {
+            this.debug_timing.first_rows_posted_epoch_ms = Date.now();
+        }
     }
 
     private async handle_copy_column(
