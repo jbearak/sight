@@ -85,6 +85,8 @@ export interface AutomationBackendOptions {
     events: BackendEvents;
     /** Size the log had when tailing began. */
     start_size: number;
+    /** Stata couldn't open the log (already reported to the user). */
+    start_lost?: boolean;
 }
 
 export class AutomationBackend implements StataBackend {
@@ -129,6 +131,7 @@ export class AutomationBackend implements StataBackend {
         this.clock = options.clock;
         this.events = options.events;
         this.log_size = options.start_size;
+        this.log_lost = options.start_lost === true;
         this.last_growth_ms = options.clock.now();
         this.exit_status = new Promise<number>((resolve) => {
             this.resolve_exit = resolve;

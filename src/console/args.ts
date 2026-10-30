@@ -9,6 +9,8 @@ export interface ConsoleArgs {
     color_output: ColorOutputMode;
     history: boolean;
     stata_echoes: boolean;
+    /** Windows: take over an open Stata without asking. */
+    yes: boolean;
     help: boolean;
     /** Arguments passed to Stata. */
     stata_args: string[];
@@ -32,6 +34,7 @@ export function parse_console_args(argv: readonly string[]): ConsoleParseResult 
         color_output: 'streams',
         history: true,
         stata_echoes: false,
+        yes: false,
         help: false,
         stata_args: [...DEFAULT_STATA_ARGS],
     };
@@ -92,6 +95,10 @@ export function parse_console_args(argv: readonly string[]): ConsoleParseResult 
             case '--stata-echoes':
                 args.stata_echoes = true;
                 break;
+            case '-y':
+            case '--yes':
+                args.yes = true;
+                break;
             default:
                 return {
                     success: false,
@@ -105,8 +112,10 @@ export function parse_console_args(argv: readonly string[]): ConsoleParseResult 
 
 export const CONSOLE_HELP = `
 Run Stata's console with syntax highlighting, Tab completion, history and
-colored output (experimental). Requires the Stata console binary
-(stata-mp, stata-se, ...) on macOS or Linux.
+colored output (experimental). On macOS and Linux it runs Stata's
+console binary (stata-mp, stata-se, ...). On Windows it drives the
+Stata application through Automation, keeping its window open; that
+Stata closes when the console ends.
 
 USAGE:
     sight console [OPTIONS] [-- STATA_ARGS...]
@@ -118,6 +127,7 @@ OPTIONS:
     --no-color              Same as --color-output off
     --no-history            Don't read or write the history file
     --stata-echoes          Stata echoes input itself; show it only once
+    -y, --yes               Windows: take over an open Stata without asking
     -h, --help              Show this help
 
 STATA_ARGS default to "-q". Arguments after "--" replace them.
@@ -126,6 +136,7 @@ ENVIRONMENT:
     SIGHT_STATA_PATH        Stata binary, when --stata is not given
     SIGHT_CONSOLE_HISTORY   History file path
     NO_COLOR                Same as --color-output off
+    SIGHT_CONSOLE_TMPDIR    Windows: where the console keeps its log
 
 Docs: https://github.com/jbearak/sight/blob/main/docs/console.md
 `.trim();
