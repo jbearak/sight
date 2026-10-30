@@ -63,12 +63,17 @@ export async function run_console(
     }
     const color_output = env.NO_COLOR ? 'off' : args.color_output;
     const { run_interactive } = await import('./interactive');
+    const { create_pty_handle } = await import('./pty-backend');
     return run_interactive({
-        stata_path: located.path,
-        stata_args: args.stata_args,
         color_output,
         history: args.history,
-        stata_echoes: args.stata_echoes,
+        start_backend: (events, size) => create_pty_handle({
+            stata_path: located.path,
+            stata_args: args.stata_args,
+            columns: size.columns,
+            rows: size.rows,
+            stata_echoes: args.stata_echoes,
+        }, events),
     });
 }
 

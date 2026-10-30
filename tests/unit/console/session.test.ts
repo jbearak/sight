@@ -14,6 +14,7 @@ import {
     type Completer,
 } from '../../../src/console/session';
 import type { StataPty } from '../../../src/console/pty';
+import { PtyBackend } from '../../../src/console/pty-backend';
 import { strip_ansi } from '../../../src/console/prompt-detector';
 
 class ManualClock implements Clock {
@@ -81,14 +82,13 @@ function setup(options: { completer?: Completer | null; history?: string[] } = {
     const screen: string[] = [];
     const history = options.history ?? [];
     const session = new ConsoleSession({
-        pty,
+        backend: new PtyBackend(pty, { stata_echoes: false }),
         write: (text) => screen.push(text),
         columns: () => 80,
         clock,
         history: { all: () => history, add: (line) => history.push(line) },
         completer: options.completer ?? null,
         color_mode: 'streams',
-        stata_echoes: false,
     });
     const at_prompt = (text = '. '): void => {
         session.handle_output(text);
