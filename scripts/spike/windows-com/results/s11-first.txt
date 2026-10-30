@@ -1,0 +1,47 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261030171723
+Username: WIN-VM\jmb
+RunAs User: WIN-VM\jmb
+Configuration Name:
+Machine: WIN-VM (Microsoft Windows NT 10.0.26200.0)
+Host Application: powershell.exe -Sta -NoProfile -ExecutionPolicy Bypass -File Y:\sight\scripts\spike\windows-com\s11.ps1
+Process ID: 1952
+PSVersion: 5.1.26100.6899
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.6899
+BuildVersion: 10.0.26100.6899
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+2026-10-30T17:17:23.6628082-04:00 before launch; short=C:\Users\jmb\AppData\Local\Temp\SI3DF4~1
+launched PID=12148
+2026-10-30T17:17:24.3099945-04:00 ready sample=0 bytes=378
+2026-10-30T17:17:24.3791691-04:00 ready sample=1 bytes=378
+2026-10-30T17:17:24.4365741-04:00 ready sample=2 bytes=378
+2026-10-30T17:17:24.4996122-04:00 ready sample=3 bytes=378
+2026-10-30T17:17:24.5627671-04:00 ready sample=4 bytes=378
+2026-10-30T17:17:24.6277713-04:00 ready sample=5 bytes=378
+2026-10-30T17:17:24.6893986-04:00 ready sample=6 bytes=378
+2026-10-30T17:17:24.7539166-04:00 ready sample=7 bytes=378
+2026-10-30T17:17:24.8149599-04:00 ready sample=8 bytes=378
+2026-10-30T17:17:24.8781908-04:00 ready sample=9 bytes=378
+2026-10-30T17:17:24.9412429-04:00 ready sample=10 bytes=378
+2026-10-30T17:17:25.0040080-04:00 ready sample=11 bytes=378
+2026-10-30T17:17:25.0692500-04:00 ready sample=12 bytes=378
+2026-10-30T17:17:25.1324389-04:00 ready sample=13 bytes=378
+2026-10-30T17:17:25.2114103-04:00 ready sample=14 bytes=378
+2026-10-30T17:17:25.2962197-04:00 ready sample=15 bytes=378
+2026-10-30T17:17:25.3706749-04:00 ready sample=16 bytes=378
+2026-10-30T17:17:25.4297382-04:00 ready sample=17 bytes=378
+2026-10-30T17:17:25.4927936-04:00 ready sample=18 bytes=378
+2026-10-30T17:17:25.5577470-04:00 ready sample=19 bytes=378
+marker=[s11] log_rc=[0] more=[off]
+2026-10-30T17:17:25.7601182-04:00 sending exit with unchanged data
+2026-10-30T17:17:28.7785588-04:00 process alive=False
+**********************
+Windows PowerShell transcript end
+End time: 20261030171728
+**********************

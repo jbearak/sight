@@ -1,0 +1,70 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261030172249
+Username: WIN-VM\jmb
+RunAs User: WIN-VM\jmb
+Configuration Name:
+Machine: WIN-VM (Microsoft Windows NT 10.0.26200.0)
+Host Application: powershell.exe -Sta -NoProfile -ExecutionPolicy Bypass -File Y:\sight\scripts\spike\windows-com\s5-edge.ps1
+Process ID: 5908
+PSVersion: 5.1.26100.6899
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.6899
+BuildVersion: 10.0.26100.6899
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+
+
+Id              : 12044
+MainWindowTitle : Stata/MP 18.0
+
+
+
+2026-10-30T17:22:51.2075315-04:00 submit=[include "C:\Users\jmb\AppData\Local\Temp\sight-com-spike-s5-edge\include.do"]
+2026-10-30T17:22:51.6262955-04:00 free=1 size=495
+2026-10-30T17:22:51.6541618-04:00 submit=[mata]
+2026-10-30T17:22:52.0230529-04:00 free=0 size=675
+2026-10-30T17:22:52.0388611-04:00 submit=[if (1) {]
+2026-10-30T17:22:52.4000507-04:00 free=0 size=687
+2026-10-30T17:22:52.4040665-04:00 submit=[]
+2026-10-30T17:22:52.7648650-04:00 free=0 size=691
+2026-10-30T17:22:52.7706376-04:00 submit=[1+1]
+2026-10-30T17:22:53.1440933-04:00 free=0 size=698
+2026-10-30T17:22:53.1501170-04:00 submit=[}]
+2026-10-30T17:22:53.5203366-04:00 free=0 size=703
+2026-10-30T17:22:53.5263614-04:00 submit=[end]
+2026-10-30T17:22:53.8973566-04:00 free=1 size=918
+2026-10-30T17:22:53.9051307-04:00 submit=[python]
+2026-10-30T17:22:54.2652162-04:00 free=0 size=918
+2026-10-30T17:22:54.5244318-04:00 submit=[if True:]
+2026-10-30T17:22:55.3703238-04:00 free=0 size=1112
+2026-10-30T17:22:55.3723320-04:00 submit=[    print(123)]
+2026-10-30T17:22:55.7306578-04:00 free=0 size=1128
+2026-10-30T17:22:55.7346736-04:00 submit=[]
+2026-10-30T17:22:56.0943571-04:00 free=0 size=1274
+2026-10-30T17:22:56.1044156-04:00 submit=[end]
+2026-10-30T17:22:56.4760588-04:00 free=1 size=1455
+2026-10-30T17:22:56.4861111-04:00 submit=[_request(foo)]
+2026-10-30T17:22:57.1204515-04:00 free=1 size=1517
+2026-10-30T17:22:57.1322432-04:00 submit=[input x]
+2026-10-30T17:22:57.7414937-04:00 free=0 size=1546
+2026-10-30T17:22:58.2858169-04:00 after break free=0
+2026-10-30T17:22:58.2918406-04:00 submit=[pause on]
+2026-10-30T17:22:58.9320954-04:00 free=0 size=1597
+2026-10-30T17:22:59.4485895-04:00 after break free=0
+2026-10-30T17:22:59.4606552-04:00 submit=[pause]
+2026-10-30T17:23:00.0846788-04:00 free=0 size=1645
+2026-10-30T17:23:00.6025284-04:00 after break free=0
+2026-10-30T17:23:00.6105809-04:00 submit=[set more on]
+2026-10-30T17:23:01.2430395-04:00 free=0 size=1697
+2026-10-30T17:23:01.7720911-04:00 after break free=0
+2026-10-30T17:23:01.7781157-04:00 submit=[list]
+2026-10-30T17:23:02.3900849-04:00 free=0 size=1743
+2026-10-30T17:23:02.8964997-04:00 after break free=0
+**********************
+Windows PowerShell transcript end
+End time: 20261030172303
+**********************

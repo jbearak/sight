@@ -1,0 +1,46 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261030172204
+Username: WIN-VM\jmb
+RunAs User: WIN-VM\jmb
+Configuration Name:
+Machine: WIN-VM (Microsoft Windows NT 10.0.26200.0)
+Host Application: powershell.exe -Sta -NoProfile -ExecutionPolicy Bypass -File Y:\sight\scripts\spike\windows-com\s10.ps1
+Process ID: 13412
+PSVersion: 5.1.26100.6899
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.6899
+BuildVersion: 10.0.26100.6899
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+
+
+Id              : 15028
+MainWindowTitle : Stata/MP 18.0
+
+
+
+2026-10-30T17:22:05.4470590-04:00 units=4108 utf8=4108 codepoint=97
+2026-10-30T17:22:06.0076335-04:00 free=1 value_units=4082 rc=0
+2026-10-30T17:22:06.0251999-04:00 units=4108 utf8=8190 codepoint=233
+2026-10-30T17:22:06.5040279-04:00 free=1 value_units=8164 rc=0
+2026-10-30T17:22:06.5158663-04:00 units=4109 utf8=4109 codepoint=97
+2026-10-30T17:22:06.9926950-04:00 free=1 value_units=4083 rc=0
+2026-10-30T17:22:06.9947050-04:00 units=4109 utf8=8192 codepoint=233
+2026-10-30T17:22:07.4652893-04:00 free=1 value_units=8166 rc=0
+2026-10-30T17:22:07.4673056-04:00 units=4110 utf8=4110 codepoint=97
+2026-10-30T17:22:07.9434721-04:00 free=1 value_units=4084 rc=0
+2026-10-30T17:22:07.9454907-04:00 units=4110 utf8=8194 codepoint=233
+2026-10-30T17:22:08.4300789-04:00 free=1 value_units=5 rc=0
+2026-10-30T17:22:08.4320873-04:00 units=4111 utf8=4111 codepoint=97
+2026-10-30T17:22:08.9048207-04:00 free=1 value_units=4085 rc=0
+2026-10-30T17:22:08.9068382-04:00 units=4111 utf8=8196 codepoint=233
+2026-10-30T17:22:09.3807169-04:00 free=1 value_units=5 rc=0
+NUL free=1 value=[reset] rc=0
+**********************
+Windows PowerShell transcript end
+End time: 20261030172209
+**********************

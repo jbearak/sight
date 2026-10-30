@@ -1,0 +1,33 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261030171705
+Username: WIN-VM\jmb
+RunAs User: WIN-VM\jmb
+Configuration Name:
+Machine: WIN-VM (Microsoft Windows NT 10.0.26200.0)
+Host Application: powershell.exe -Sta -NoProfile -ExecutionPolicy Bypass -File Y:\sight\scripts\spike\windows-com\s11.ps1
+Process ID: 5388
+PSVersion: 5.1.26100.6899
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.6899
+BuildVersion: 10.0.26100.6899
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+2026-10-30T17:17:05.5680559-04:00 before launch; short=C:\Users\jmb\AppData\Local\Temp\SI3DF4~1
+launched PID=4424
+PS>TerminatingError(): "Exception calling "ReadAllBytes" with "1" argument(s): "The process cannot access the file 'C:\Users\jmb\AppData\Local\Temp\sight-com-spike-s11\startup.log' because it is being used by another process.""
+Exception calling "ReadAllBytes" with "1" argument(s): "The process cannot access the file
+'C:\Users\jmb\AppData\Local\Temp\sight-com-spike-s11\startup.log' because it is being used by another process."
+At Y:\sight\scripts\spike\windows-com\s11.ps1:33 char:5
++     $bytes = [IO.File]::ReadAllBytes($log)
++     ~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~
+    + CategoryInfo          : NotSpecified: (:) [], ParentContainsErrorRecordException
+    + FullyQualifiedErrorId : IOException
+
+**********************
+Windows PowerShell transcript end
+End time: 20261030171706
+**********************

@@ -1,0 +1,54 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261030171807
+Username: WIN-VM\jmb
+RunAs User: WIN-VM\jmb
+Configuration Name:
+Machine: WIN-VM (Microsoft Windows NT 10.0.26200.0)
+Host Application: powershell.exe -Sta -NoProfile -ExecutionPolicy Bypass -File Y:\sight\scripts\spike\windows-com\s6.ps1
+Process ID: 3380
+PSVersion: 5.1.26100.6899
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.6899
+BuildVersion: 10.0.26100.6899
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+
+
+Id              : 5408
+MainWindowTitle : Stata/MP 18.0
+
+
+
+2026-10-30T17:18:08.7885696-04:00 idle before break free=1
+2026-10-30T17:18:08.8121593-04:00 idle after break free=1
+2026-10-30T17:18:09.1418396-04:00 after idle-break next command free=1
+2026-10-30T17:18:09.6474924-04:00 during sleep free=0
+2026-10-30T17:18:09.6791240-04:00 after queueing display free=0
+2026-10-30T17:18:09.7303644-04:00 after busy break 0 free=1
+2026-10-30T17:18:09.8433281-04:00 after busy break 1 free=1
+2026-10-30T17:18:09.9481240-04:00 after busy break 2 free=1
+2026-10-30T17:18:10.0586122-04:00 after busy break 3 free=1
+2026-10-30T17:18:10.1690734-04:00 after busy break 4 free=1
+2026-10-30T17:18:10.2792664-04:00 after busy break 5 free=1
+2026-10-30T17:18:10.3895046-04:00 after busy break 6 free=1
+2026-10-30T17:18:10.4999616-04:00 after busy break 7 free=1
+2026-10-30T17:18:10.6100783-04:00 after busy break 8 free=1
+2026-10-30T17:18:10.7213966-04:00 after busy break 9 free=1
+2026-10-30T17:18:10.8319876-04:00 after busy break 10 free=1
+2026-10-30T17:18:10.9427071-04:00 after busy break 11 free=1
+2026-10-30T17:18:11.0527979-04:00 after busy break 12 free=1
+2026-10-30T17:18:11.1636794-04:00 after busy break 13 free=1
+2026-10-30T17:18:11.2772349-04:00 after busy break 14 free=1
+2026-10-30T17:18:11.3890624-04:00 after busy break 15 free=1
+2026-10-30T17:18:11.5037860-04:00 after busy break 16 free=1
+2026-10-30T17:18:11.6318680-04:00 after busy break 17 free=1
+2026-10-30T17:18:11.7443852-04:00 after busy break 18 free=1
+2026-10-30T17:18:11.8584178-04:00 after busy break 19 free=1
+**********************
+Windows PowerShell transcript end
+End time: 20261030171814
+**********************

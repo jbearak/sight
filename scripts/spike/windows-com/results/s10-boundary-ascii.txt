@@ -1,0 +1,62 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261030172147
+Username: WIN-VM\jmb
+RunAs User: WIN-VM\jmb
+Configuration Name:
+Machine: WIN-VM (Microsoft Windows NT 10.0.26200.0)
+Host Application: powershell.exe -Sta -NoProfile -ExecutionPolicy Bypass -File Y:\sight\scripts\spike\windows-com\s10.ps1
+Process ID: 10764
+PSVersion: 5.1.26100.6899
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.6899
+BuildVersion: 10.0.26100.6899
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+
+
+Id              : 564
+MainWindowTitle : Stata/MP 18.0
+
+
+
+2026-10-30T17:21:49.5127754-04:00 units=4095 utf8=4095 codepoint=97
+2026-10-30T17:21:50.0769899-04:00 free=1 value_units=4069 rc=0
+2026-10-30T17:21:50.1282151-04:00 units=4095 utf8=8164 codepoint=233
+2026-10-30T17:21:50.6209425-04:00 free=1 value_units=8138 rc=0
+2026-10-30T17:21:50.6289937-04:00 units=4096 utf8=4096 codepoint=97
+2026-10-30T17:21:51.1138557-04:00 free=1 value_units=4070 rc=0
+2026-10-30T17:21:51.1158754-04:00 units=4096 utf8=8166 codepoint=233
+2026-10-30T17:21:51.6161378-04:00 free=1 value_units=8140 rc=0
+2026-10-30T17:21:51.6201670-04:00 units=4097 utf8=4097 codepoint=97
+2026-10-30T17:21:52.1068693-04:00 free=1 value_units=4071 rc=0
+2026-10-30T17:21:52.1108842-04:00 units=4097 utf8=8168 codepoint=233
+2026-10-30T17:21:52.5845075-04:00 free=1 value_units=8142 rc=0
+2026-10-30T17:21:52.5885338-04:00 units=8192 utf8=8192 codepoint=97
+2026-10-30T17:21:53.0635462-04:00 free=1 value_units=8166 rc=0
+2026-10-30T17:21:53.0675729-04:00 units=8192 utf8=16358 codepoint=233
+2026-10-30T17:21:53.5660918-04:00 free=1 value_units=5 rc=0
+2026-10-30T17:21:53.5681021-04:00 units=8193 utf8=8193 codepoint=97
+2026-10-30T17:21:54.0588667-04:00 free=1 value_units=5 rc=0
+2026-10-30T17:21:54.0669046-04:00 units=8193 utf8=16360 codepoint=233
+2026-10-30T17:21:54.5556529-04:00 free=1 value_units=5 rc=0
+2026-10-30T17:21:54.5634562-04:00 units=8194 utf8=8194 codepoint=97
+2026-10-30T17:21:55.0560773-04:00 free=1 value_units=5 rc=0
+2026-10-30T17:21:55.0937405-04:00 units=8194 utf8=16362 codepoint=233
+2026-10-30T17:21:55.6059397-04:00 free=1 value_units=5 rc=0
+2026-10-30T17:21:55.6099581-04:00 units=8200 utf8=8200 codepoint=97
+2026-10-30T17:21:56.0819182-04:00 free=1 value_units=5 rc=0
+2026-10-30T17:21:56.0839354-04:00 units=8200 utf8=16374 codepoint=233
+2026-10-30T17:21:56.5571884-04:00 free=1 value_units=5 rc=0
+2026-10-30T17:21:56.5612097-04:00 units=8300 utf8=8300 codepoint=97
+2026-10-30T17:21:57.0386999-04:00 free=1 value_units=5 rc=0
+2026-10-30T17:21:57.0447276-04:00 units=8300 utf8=16574 codepoint=233
+2026-10-30T17:21:57.5106359-04:00 free=1 value_units=5 rc=0
+NUL free=1 value=[reset] rc=0
+**********************
+Windows PowerShell transcript end
+End time: 20261030172157
+**********************

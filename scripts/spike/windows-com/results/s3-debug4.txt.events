@@ -1,0 +1,1 @@
+exit=0 signal=null args=powershell.exe|-Sta|-NoProfile|-ExecutionPolicy|Bypass|-File|Y:\sight\scripts\spike\windows-com\s3-keeper.ps1|-StataPid|11932|-Marker|s3_terminal|-Evidence|Y:\sight\scripts\spike\windows-com\results\s3-debug4.txt

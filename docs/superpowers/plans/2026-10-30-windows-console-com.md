@@ -647,3 +647,166 @@ revised and reviewed again before implementation continues.
 - S3 fails both ways: no Windows backend (shipping gate).
 - S5 fails for blocks: re-plan, reviewed.
 - Managed machines block PowerShell: the C#/FFI fallback.
+
+## Phase 0 results
+
+These results are incomplete; the remaining manual and automated tests have not
+been run. The VM is Windows 11, Stata/MP 18.0, and Windows PowerShell 5.1.
+`stata.StataOLEApp` resolves to CLSID `{D3D9A260-CA12-48EE-A6B8-492AD0E71E70}`
+and `LocalServer32` is `C:\Program Files\Stata18\StataMP-64.exe`.
+All VM commands used `--current-user` (`win-vm\jmb`).
+
+### S1 — partial
+
+`scripts/spike/windows-com/s1.ps1` launched Stata with a do-file that loaded
+`sysuse auto` and set `SIGHT_SPIKE_MARK` to `direct_s1`. The first
+`CreateObject` returned that marker from PID 4312; the second returned an empty
+marker and a second Stata process, PID 11272, appeared. See
+`scripts/spike/windows-com/results/s1.txt` for timestamps and process lists.
+This selects the launch-then-connect branch for a direct do-file launch and
+shows that a claimed factory can cause a new server to start. A separately
+user-started instance and other ordering cases remain to be tested.
+
+### S2 — partial, no-touch gate fails in this run
+
+In the same run, releasing both references left neither Stata process running
+three seconds later, including the directly launched instance holding the auto
+data. Therefore the proposed one-`MacroValue`-then-release contact is not
+harmless in this case, contrary to the plan's inference that COM itself does
+not close such a window. Separate idle, busy and modal measurements remain to
+be made. Under the plan's gate, this observed failure prevents shipping the
+proposed foreign-instance contact design.
+
+### S3 — partial
+
+Both the directly launched and COM-created Stata processes were absent after
+release in the S1 run. Isolated tests confirmed both cases: S2 idle for the
+direct process and `s3-release-com.ps1` for the COM-created process
+(`results/s3-release-com.txt`). The hold-reference alternative and actual
+terminal-window closure tests remain untested. The S3 gate is unresolved.
+
+Paths beginning `results/` below refer to `scripts/spike/windows-com/results/`.
+Stata log files are gzip-compressed without changing their bytes.
+
+Additional observations below were collected on Windows 11 Arm64 with
+PowerShell 5.1 and Bun 1.4.4 x64 under emulation. Screenshots containing license
+information were not retained. These results remain incomplete.
+
+S2 follow-up: an isolated idle contact again closed the direct-launch process
+(`results/s2-idle.txt`). During `sleep 10000`, `MacroValue` took about 1.93 s,
+returned the marker with `free=0`, and release closed the process before sleep
+finished (`results/s2-busy.txt`). A visible regression dialog was opened from
+a startup do-file (`results/s2-before-modal.png`); the marker call took about
+226 ms and release closed Stata (`results/s2-dialog.txt`). Whether that dialog
+was modal was not established.
+
+S3 follow-up: a directly executed helper held a reference and logged free
+polls (`results/s3-debug-direct.txt`), but this was not a terminal-close test.
+A Bun child spawned with `detached` and `windowsHide` exited with code 0 before
+writing its first evidence record. In `s3-spawn-probe.ts`, a non-detached
+PowerShell child wrote its marker while a detached child did not, although both
+reported exit code 0 (`results/s3-probe-*`). This is a setup/runtime finding,
+not proof of the bridge lifetime. Closing real Windows Terminal, conhost, and
+VS Code terminal windows and the hold-reference shipping gate remain untested.
+
+### S4 — log grows during execution
+
+`s4-s9-s12.ps1` ran a 20-iteration display/sleep do-file. The log grew from 501
+to 593 bytes through 21 observed sizes while busy. See
+`results/s4-s9-s12-polls.txt` and `results/s4-s9-s12.log.gz`. Polling requested
+10 ms; actual intervals commonly reached 15–32 ms. This supports streaming
+output for this run, rather than the documented-only-at-end branch.
+
+### S5 — block continuation conflicts with completion rule
+
+`s5.ps1` sent blocks and a program definition line by line, forcing each next
+line after three seconds even if free remained false. In the first `foreach`,
+free stayed false after the opening line and body, then became true after `}`;
+the log shows numbered echoes and outputs 1 and 2. `program define` likewise
+stayed busy until `end`. The proposed queue waits for free before sending the
+next line, so it would stall on these blocks. This unanticipated contradiction
+requires the plan author's revision.
+
+`results/s5.log.gz` records the exact prompts, block error `r(111)`, nested blocks,
+Mata error `r(3499)`, long-line `> ` wraps, and program execution. Interactive
+`#delimit ;` returned `Unknown #command`; an included do-file accepted it
+(`results/s5-edge.log.gz`). A top-level blank was not echoed. The Mata compound
+probe ended in a syntax error; the Python probe lost indentation and ended in
+`IndentationError`, so successful blank-line compound behavior is unresolved.
+`_request(foo)` by itself was unrecognized. The input-wait experiment
+contaminated subsequent pause/more probes, so those cases remain unmeasured.
+
+### S6 — busy break and input wait
+
+`s6.ps1` sent a break at idle, then `display 111`, which ran. A break during
+`sleep 10000` produced `--Break--` and `r(1)`; `display 222` already queued in
+Stata then ran. See `results/s6.log.gz` and `results/s6-polls.txt`. In the S5 edge
+probe, repeated breaks during `input x` left free false and subsequent commands
+were interpreted as input values. This informs the interrupt rule but does not
+establish that a break ends every kind of input wait.
+
+### S7 — title works on Stata 18
+
+`s7.ps1` returned rc 0 for `window manage maintitle` and PID 14400 reported
+title `Stata - sight spike s7`; the title is visible in `results/s7-title.png`.
+Stata 17 and StataNow were not installed. Retaining the title step is supported
+only for the tested edition/version.
+
+### S8 — concurrent connect exercise
+
+`s8.ps1` launched three marked instances standing in for a user and two
+consoles, then started workers with the named mutex. Worker A claimed `user`
+and then `console_a`; releasing both closed both processes. Worker B then
+claimed `console_b`; after both workers released, no Stata processes remained.
+See `results/s8-parent.txt` and `results/s8-console_*.txt`. This confirms
+serialization in this exercise and exposes the no-touch failure. Workers
+released their matching references immediately, so this is not a full test of
+two concurrently operating consoles or their stray-process outcomes.
+
+### S9 — fast command first poll was free
+
+The `display 12345` first poll in `results/s4-s9-s12-polls.txt` was `free=1`
+with size 353, about 34 ms after the submission timestamp. A busy-to-free
+transition is not required for a fast command; this single run does not
+determine the settle-window duration.
+
+### S10 — observed command byte boundary and NUL
+
+`s10.ps1` set a global with differing command lengths, resetting it to a
+sentinel before each. An ASCII command of 8192 bytes succeeded; 8193 bytes
+left the sentinel unchanged without a COM exception. With repeated `é`, a
+command of 8192 UTF-8 bytes succeeded while 8194 bytes left the sentinel.
+An embedded NUL likewise left the sentinel. See `results/s10*.txt`. This
+supports a byte-based boundary for these inputs, not a general proof for every
+Unicode sequence. `MacroValue` returned twice as many UTF-16 code units as
+`é` characters in the successful non-ASCII probe; COM string encoding needs
+further investigation. The plan's 8191-byte limit is within this boundary.
+
+### S11 — startup, bytes, sharing and exit
+
+`s11.ps1` launched the registered exe with a short-path do-file, read the
+marker and log rc, and observed `c(more)=off`. Twenty sampled sizes after ready
+were all 384 bytes, although the first sample already included the end of the
+do-file. `results/s11-startup.log.gz` is the original byte stream: all 19 line
+feeds are CRLF and `uchar(233) + uchar(26481) + uchar(20140)` produced UTF-8
+bytes `c3 a9 e6 9d b1 e4 ba ac`. `ReadAllBytes` failed with a sharing violation
+(`results/s11-default-read.txt`); an explicitly shared read/write FileStream
+succeeded. A clean-data async `exit` ended Stata; after modifying `price`, async
+`exit` left the process present with `free=1` and `UtilStataErrorCode=0` at the
+sample (`results/s11.txt`). The changed-data case needs a Stata log to establish
+its exact refusal text. Nothing here proves no writes can ever follow ready.
+
+### S12 — no late growth observed in these runs
+
+The burst-after-sleep and 100,000-row listing in `s4-s9-s12.ps1` had sizes
+12501 and 2412657 bytes respectively at the first free poll, unchanged through
+the next 19 free polls (`results/s4-s9-s12-polls.txt`). This supports the
+proposed settle approach for these runs, but does not establish a maximum lag.
+
+### S13 — Data Editor calls returned
+
+The startup do-file in `s7-s13-start.ps1` opened the Data Editor with auto data
+(`results/s7-s13-editor.png`). `s13.ps1` confirmed the marker; five
+`UtilIsStataFree` calls returned 1, in at most about 9 ms each by the logged
+timestamps (`results/s13.txt`). A true modal-dialog free-call test was not
+completed, so timeout tolerance for that case is unresolved.

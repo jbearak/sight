@@ -1,0 +1,8 @@
+2026-10-30T17:23:38.8858036-04:00 helper PID=2276; target PID=3600; connecting
+2026-10-30T17:23:39.1392074-04:00 marker=[s3_terminal]
+2026-10-30T17:23:39.1746091-04:00 holding reference; free=1
+2026-10-30T17:23:41.1920093-04:00 holding reference; free=1
+2026-10-30T17:23:43.2399434-04:00 holding reference; free=1
+2026-10-30T17:23:45.2571629-04:00 holding reference; free=1
+2026-10-30T17:23:47.2780548-04:00 holding reference; free=1
+2026-10-30T17:23:49.2897158-04:00 holding reference; free=1

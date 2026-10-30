@@ -1,0 +1,53 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261030172009
+Username: WIN-VM\jmb
+RunAs User: WIN-VM\jmb
+Configuration Name:
+Machine: WIN-VM (Microsoft Windows NT 10.0.26200.0)
+Host Application: C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe -Sta -NoProfile -ExecutionPolicy Bypass -File Y:\sight\scripts\spike\windows-com\s8-worker.ps1 -Marker console_a -Evidence Y:\sight\scripts\spike\windows-com\results\s8-console_a.txt
+Process ID: 380
+PSVersion: 5.1.26100.6899
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.6899
+BuildVersion: 10.0.26100.6899
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+2026-10-30T17:20:09.8015497-04:00 console_a waiting
+2026-10-30T17:20:09.9341039-04:00 console_a acquired
+2026-10-30T17:20:10.2209414-04:00 attempt=0 marker=[user]
+
+
+Id              : 10036
+MainWindowTitle : 2 - Stata/MP 18.0 - C:\Program Files\Stata18\ado\base\a\auto.dta
+
+Id              : 11272
+MainWindowTitle : Stata/MP 18.0 - C:\Program Files\Stata18\ado\base\a\auto.dta
+
+Id              : 12044
+MainWindowTitle : 3 - Stata/MP 18.0 - C:\Program Files\Stata18\ado\base\a\auto.dta
+
+
+
+2026-10-30T17:20:10.5530773-04:00 attempt=1 marker=[console_a]
+
+
+Id              : 10036
+MainWindowTitle : 2 - Stata/MP 18.0 - C:\Program Files\Stata18\ado\base\a\auto.dta
+
+Id              : 11272
+MainWindowTitle : Stata/MP 18.0 - C:\Program Files\Stata18\ado\base\a\auto.dta
+
+Id              : 12044
+MainWindowTitle : 3 - Stata/MP 18.0 - C:\Program Files\Stata18\ado\base\a\auto.dta
+
+
+
+2026-10-30T17:20:10.8082337-04:00 console_a finished
+**********************
+Windows PowerShell transcript end
+End time: 20261030172010
+**********************

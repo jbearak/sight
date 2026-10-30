@@ -1,0 +1,41 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261030171412
+Username: WIN-VM\jmb
+RunAs User: WIN-VM\jmb
+Configuration Name:
+Machine: WIN-VM (Microsoft Windows NT 10.0.26200.0)
+Host Application: powershell.exe -Sta -NoProfile -ExecutionPolicy Bypass -File Y:\sight\scripts\spike\windows-com\s2-modal.ps1
+Process ID: 5524
+PSVersion: 5.1.26100.6899
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.6899
+BuildVersion: 10.0.26100.6899
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+2026-10-30T17:14:12.4673730-04:00 before contact
+
+
+Id              : 10328
+ProcessName     : StataMP-64
+StartTime       : 10/30/2026 5:07:30 PM
+MainWindowTitle : Stata/MP 18.0 - C:\Program Files\Stata18\ado\base\a\auto.dta
+2026-10-30T17:14:12.6413738-04:00 CreateObject begin
+2026-10-30T17:14:12.6609720-04:00 CreateObject returned; MacroValue begin
+2026-10-30T17:14:12.8095475-04:00 MacroValue returned [direct_s1]
+2026-10-30T17:14:12.8115612-04:00 before release
+
+
+Id              : 10328
+ProcessName     : StataMP-64
+StartTime       : 10/30/2026 5:07:30 PM
+MainWindowTitle : Stata/MP 18.0 - C:\Program Files\Stata18\ado\base\a\auto.dta
+2026-10-30T17:14:15.9436330-04:00 after release
+
+**********************
+Windows PowerShell transcript end
+End time: 20261030171415
+**********************
