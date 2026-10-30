@@ -229,8 +229,10 @@ Stata as taken):
 
 1. The bridge lists candidate Stata processes: `Stata*.exe` from a
    Stata install, in the current session, with a main window (so batch
-   `/b` jobs and other users' Statas don't count), excluding any whose
-   title contains `sight console` (already owned by a console).
+   `/b` jobs and other users' Statas don't count), excluding any owned
+   by a running console: one whose PID and start time appear in a `pid`
+   file under `%TEMP%\sight-console\*\` (written in step 4, before the
+   mutex is released, so ownership doesn't depend on the title).
    - **Two or more:** stop. COM would choose among them, not the user.
      Message: close all but the one to share, or all for a new Stata.
    - **One:** show its window title and ask: "sight console will take
@@ -249,7 +251,11 @@ Stata as taken):
 4. Work out which Stata answered, from a third listing compared with
    step 2's: a new process whose command line carries COM's launch flag
    (Phase 0b R2 records which flag) was started by COM; otherwise it is
-   the consented one. Outcomes:
+   the consented one. Write `<dir>\pid` (PID and start time) now, so
+   other consoles exclude this Stata from here on. If the result can't
+   be identified confidently (more than one new process, or none where
+   one was expected), it is treated as unconsented (below), never as the
+   consented one. Outcomes:
    - **As expected** (the consented Stata, or a COM-started one when
      none was open): continue.
    - **Shared Stata expected, COM started a new one:** the open Stata
@@ -277,9 +283,9 @@ Stata as taken):
 6. Mark and confirm: `DoCommand(window manage maintitle "Stata - sight
    console <token8>")` (no `capture`, so its `rc` is real), then find
    the PID by that title and check it against step 4. If the title
-   command fails, step 4's PID stands and exit detection also uses
-   RPC errors. Write `<dir>\pid` (PID and process start time, used by
-   the stale-directory sweep). Release the mutex.
+   command fails, step 4's PID stands (the `pid` file already marks
+   ownership) and exit detection also uses RPC errors. Release the
+   mutex.
 7. Setup, each `DoCommand` checked:
    ```stata
    set more off
@@ -310,8 +316,13 @@ physical line (already emitted as the prompt) and passes the rest
 through, including Stata's `\r\n> ` wrap markers, which the session's
 echo matcher already handles (`ECHO_WRAP_MARKER`, `session.ts:41`).
 Lines are matched with leading and trailing whitespace trimmed on both
-sides, because Stata drops leading whitespace from what it echoes (S5:
-`    print(123)` was logged as `print(123)`).
+sides and wrap markers removed, because Stata drops leading whitespace
+from what it echoes (S5: `    print(123)` was logged as `print(123)`).
+When a log echo matches, the backend emits the *submitted* line
+exactly, `<line>\r\n`, in its place (after the prompt), not Stata's
+version. The session's echo removal (`consume_echo`, `session.ts:381`)
+then sees exactly what it expects for a drawn line, and a typeahead
+line is shown as the user typed it.
 The session then sees what a PTY delivers for console Stata, and
 `echoes_input()` is true. Typeahead works with no special case: the
 session leaves a line entered without a prompt undrawn, the backend
@@ -613,7 +624,7 @@ appended below).
 | Item | Question | Affects |
 |---|---|---|
 | R1 | A Stata started from the Start menu (no arguments): does `CreateObject` claim it? While held: window, data and Command window usable? Can the user close it (File > Exit, window close) while held, and does the bridge see it go? | Shared case, exit detection. If a Start-menu Stata can't be claimed, requirement 2 can't be met as stated; the user decides the fallback before Phase 3 |
-| R2 | Same Stata already held by another client: does `CreateObject` start a new one, as S1 showed for a do-file launch? What command line does a COM-started Stata have (`/Automation`, `-Embedding`)? | Step 4 identification |
+| R2 | Same Stata already held by another client: does `CreateObject` start a new one, as S1 showed for a do-file launch? What command line does a COM-started Stata have (`/Automation`, `-Embedding`)? A user Stata launched at the same moment as `CreateObject` (scripted, repeated): is the result always identifiable? | Step 4 identification |
 | R3 | Release with changed data: does Stata quit without prompting? | Docs wording |
 | R4 | Kill the bridge process while it holds the reference: how long until Stata quits? Close the terminal (Windows Terminal, conhost, VS Code) running a console-like parent with a non-detached PowerShell child holding the reference: does Stata quit, and when? | Bridge-death message, terminal-close behavior |
 | R5 | Python: prompt prefix in the log, `UtilIsStataFree()` at `>>> `, `end`. S5 sent real indentation and Stata dropped it (`IndentationError`): is there any way to enter a compound statement line by line (tabs, a different submit path)? | Python mode; whether compound statements are a documented limit |
@@ -654,7 +665,9 @@ appended below).
   a slow `CreateObject` and a busy shared Stata (notices, no timeout
   ends the console; Ctrl+C does); a failed title command (PID from the
   listing); a failed `log using` (console stays up without output); two
-  consoles connecting at once (mutex); log loss inside a block, in Mata
+  consoles connecting at once (mutex); a second console starting while
+  the first one's title command failed (excluded by its `pid` file);
+  an unidentifiable result (treated as unconsented); log loss inside a block, in Mata
   and in Python (echo-miss bound, no hang); indented lines matched
   despite dropped whitespace; Ctrl+C with a line in flight in each mode
   (always a prompt); a mispredicted awaiting-input mode corrected by
@@ -666,7 +679,8 @@ appended below).
 - End-to-end tests drive a real `ConsoleSession` with an
   `AutomationBackend` over the fake bridge and assert the screen
   transcript (prompt, highlighted line, output, typeahead echo,
-  synthetic echo, block prompts `  2. `), including a line entered
+  synthetic echo, block prompts `  2. `, an indented drawn line whose
+  log echo lost its indentation, shown once), including a line entered
   after the backend went idle but before the session recognized the
   prompt, with the log echo absent (shown exactly once).
   These run on every OS.
