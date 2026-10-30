@@ -67,12 +67,8 @@ export class History {
     private load(file_path: string): void {
         try {
             const directory = path.dirname(file_path);
+            // New directories are private; an existing one keeps its mode.
             fs.mkdirSync(directory, { recursive: true, mode: 0o700 });
-            try {
-                fs.chmodSync(directory, 0o700);
-            } catch {
-                // Not ours to change (e.g. a shared directory); continue.
-            }
             if (!fs.existsSync(file_path)) {
                 return;
             }

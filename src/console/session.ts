@@ -292,10 +292,18 @@ export class ConsoleSession {
         if (kind !== null && COMMAND_PROMPT_KINDS.has(kind)) {
             this.options.history.add(line);
         }
-        this.last_line_in_transcript = false;
+        if (kind !== null) {
+            // A line typed ahead while Stata runs (no prompt) leaves the
+            // running command's failure tracking alone.
+            this.last_line_in_transcript = false;
+        }
         if ((kind === 'stata' || kind === 'block') && line.trim().length > 0) {
             this.options.completer?.add_line(line);
             this.last_line_in_transcript = true;
+        } else if ((kind === 'mata' || kind === 'python') && line.trim() === 'end') {
+            // Close the embedded block the transcript opened with `mata`
+            // or `python`, so later Stata lines analyze as Stata.
+            this.options.completer?.add_line(line);
         }
         this.editor.reset();
         this.prompt_kind = null;

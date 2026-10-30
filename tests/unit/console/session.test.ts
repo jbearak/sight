@@ -285,6 +285,38 @@ describe('ConsoleSession', () => {
         expect(screen.join('').endsWith('\r\x1b[J. \r\x1b[2C')).toBe(true);
     });
 
+    it('keeps failure tracking for a running command across typed-ahead lines', () => {
+        const transcript: string[] = [];
+        const completer: Completer = {
+            complete: async () => [],
+            add_line: (line) => transcript.push(line),
+            drop_last_line: () => transcript.pop(),
+        };
+        const { session, at_prompt } = setup({ completer });
+        at_prompt();
+        session.handle_input('generate bad = missingvar\r');
+        session.handle_input('display 1\r');
+        session.handle_output('variable missingvar not found\nr(111);\n');
+        expect(transcript).toEqual([]);
+    });
+
+    it('records the end of a Mata block in the transcript', () => {
+        const transcript: string[] = [];
+        const completer: Completer = {
+            complete: async () => [],
+            add_line: (line) => transcript.push(line),
+            drop_last_line: () => transcript.pop(),
+        };
+        const { session, at_prompt } = setup({ completer });
+        at_prompt();
+        session.handle_input('mata\r');
+        at_prompt('---- mata ----\n: ');
+        session.handle_input('x = 1\r');
+        at_prompt('\n: ');
+        session.handle_input('end\r');
+        expect(transcript).toEqual(['mata', 'end']);
+    });
+
     it('completes at Stata prompts and drops failed lines from the transcript', async () => {
         const transcript: string[] = [];
         const completer: Completer = {
