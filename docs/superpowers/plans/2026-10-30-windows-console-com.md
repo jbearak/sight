@@ -47,8 +47,13 @@ connects, and it quits when the console ends.
 
 Non-goals for v1: keeping Stata open after the console ends; choosing
 among several open Stata windows; answering input requests
-(`_request()`, `input`, `pause`) from the terminal; piped input; the VS
-Code terminal profile on Windows.
+(`_request()`, `input`, `pause`) from the terminal; piped input.
+
+When the console can't or shouldn't drive Stata (two or more open, the
+open one held by another program, the user declining the take-over,
+Automation not registered or blocked), the VS Code extension offers to
+fall back to send-to-stata, which sends code to the open Stata window
+without owning it, for the session or permanently (Phase 5).
 
 Principles used throughout:
 
@@ -805,6 +810,61 @@ appended below).
   path with spaces.
 - Update `docs/console.md` (Windows section, registration, take-over,
   lifetime, limits), `docs/cli.md`, README.
+
+### Phase 5: VS Code on Windows, with fallback to send-to-stata
+
+Today `sight.sendToStata.target: "integrated"` on Windows falls back to
+the Stata app with a warning (`commands.ts:147-164`), and the Stata
+terminal profile isn't offered there (`stata-terminal-manager.ts:82`).
+Phase 5 makes the integrated target run `sight console`, and turns
+every case where the console can't proceed into an offer to use
+send-to-stata instead (the existing `external` target, which pastes
+into the open Stata window and never holds a COM reference, so it can
+never close that Stata).
+
+- **Runtime.** The Windows backend uses only child processes, file
+  polling and raw-mode stdin, all available under Node, so on Windows
+  `run_console` skips the PTY check (`index.ts`) and the profile can
+  run the extension's bundled CLI with VS Code's own runtime
+  (`process.execPath` with `ELECTRON_RUN_AS_NODE=1`), needing no
+  separate install. Phase 3 confirms raw mode and resize events work
+  that way in VS Code's terminal.
+- **Reasons, as exit codes.** `sight console` exits with a distinct
+  code for each case where it didn't take Stata: two or more open;
+  open Stata held by another program; take-over declined; Automation
+  not registered; PowerShell blocked (CLM, policy). The codes are
+  documented in docs/cli.md, so other editors can use them too.
+- **The take-over question offers the fallback.** When run from the
+  extension (an environment variable says so), the question reads
+  "Continue? [y/N/s]" with "s: leave this Stata alone and send code to
+  it from the editor instead", which exits with the declined code plus
+  a flag meaning "fallback requested".
+- **The extension's offer.** On one of those exit codes (read from
+  `Terminal.exitStatus` in `onDidCloseTerminal`), the extension shows:
+  "sight console can't use Stata here: <reason>. Send code to the open
+  Stata window instead?" with **This session**, **Always**, **Cancel**.
+  - This session: an in-memory override makes the integrated target
+    resolve to the app until VS Code reloads.
+  - Always: sets `sight.sendToStata.target` to `external` in user
+    settings (the existing value; nothing new to learn), and says
+    where to change it back.
+  - Either way, the code the user was sending is re-sent to the app,
+    so the keystroke isn't lost. Cancel drops it.
+  - "s" at the take-over question skips the notification and acts as
+    This session.
+- **Setting text.** The `integrated` description in `package.json`
+  changes from "falls back to the GUI with a warning" to "runs sight
+  console; if it can't use Stata, offers send-to-stata". `auto` keeps
+  resolving to the app on local Windows in v1, so nothing changes for
+  users who haven't chosen `integrated`; making `auto` prefer the
+  console is a later decision.
+- **Tests.** Target resolution with and without the session override;
+  each exit code mapping to its message; This session, Always (setting
+  written, scope global) and Cancel; the pending send re-dispatched
+  exactly once; a console that ran and exited normally (`exit`, code
+  0) triggering no offer.
+- **Docs.** docs/send-to-stata.md (targets on Windows, the fallback),
+  docs/console.md (exit codes, the `s` answer).
 
 ## Risks
 
