@@ -294,6 +294,16 @@ Stata as taken):
    step 4 is asked. If the title command fails, step 4's PID stands
    (the `pid` file already marks ownership) and exit detection also
    uses RPC errors. Release the mutex.
+
+   If neither step 4 nor the title established a PID, the console has
+   no reliable ownership marker, so it **keeps the mutex for its whole
+   life**: other consoles then wait ("Another sight console is
+   connecting; waiting") instead of risking a Stata this one holds.
+   The after-the-fact question in that case can't name a window, so it
+   says: "sight console is connected to a Stata it couldn't identify.
+   Keep using it here? It closes when the console ends. [y/N]", and
+   exit detection relies on RPC errors alone. The docs describe this
+   state; Phase 0b R2 shows how often identification fails.
 7. Setup, each `DoCommand` checked:
    ```stata
    set more off
@@ -584,9 +594,12 @@ timeouts (in the backend) are notice thresholds, per the rule above:
 5 s for `connect`; 10 s for each setup `do_sync`; 2 s for `is_free`,
 `do_async`, `break`, `error_code`. The bridge handles one request at a
 time, so later requests wait behind a slow one. Replies to `connect`,
-`do_sync` and `title_pid` are always consumed, however late; only
-replies to the polling ops (`is_free`, `break`, `error_code`) are
-discarded by `id` once timed out. During the session a timeout is not
+`do_sync`, `title_pid` and `do_async` are always consumed, however
+late (a late `do_async` acknowledgement changes nothing; a late
+`do_async` error is handled like any other, ending the session only for
+the server-gone codes below); only replies to the polling ops
+(`is_free`, `break`, `error_code`) are discarded by `id` once timed
+out. During the session a timeout is not
 by itself a failure (Stata may be showing a modal dialog; S13 found the
 Data Editor didn't block calls): after five in a row the console shows
 "Stata isn't responding. Ctrl+C twice ends the console and closes
@@ -705,7 +718,10 @@ appended below).
   listing); a failed `log using` (console stays up without output); two
   consoles connecting at once (mutex); a second console starting while
   the first one's title command failed (excluded by its `pid` file);
-  an unidentifiable result (treated as unconsented); log loss inside a block, in Mata
+  an unidentifiable result (treated as unconsented); no PID from the
+  listing and a failed title command (mutex kept for the console's
+  life; a second console waits); a late `do_async` acknowledgement and
+  a late `do_async` RPC error; log loss inside a block, in Mata
   and in Python (echo-miss bound, no hang); indented lines matched
   despite dropped whitespace; Ctrl+C with a line in flight in each mode
   (always a prompt); a mispredicted awaiting-input mode corrected by
