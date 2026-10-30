@@ -813,58 +813,169 @@ appended below).
 
 ### Phase 5: VS Code on Windows, with fallback to send-to-stata
 
-Today `sight.sendToStata.target: "integrated"` on Windows falls back to
-the Stata app with a warning (`commands.ts:147-164`), and the Stata
-terminal profile isn't offered there (`stata-terminal-manager.ts:82`).
-Phase 5 makes the integrated target run `sight console`, and turns
-every case where the console can't proceed into an offer to use
-send-to-stata instead (the existing `external` target, which pastes
-into the open Stata window and never holds a COM reference, so it can
-never close that Stata).
+Today `sight.sendToStata.target: "integrated"` on local Windows falls
+back to the Stata app with a one-time warning (`commands.ts:147-164`),
+and the Stata terminal profile isn't offered there
+(`stata-terminal-manager.ts:82`). Phase 5 makes the integrated target
+run `sight console` on local Windows, and turns each case where the
+console doesn't take Stata into an offer to use send-to-stata instead:
+the existing `external` target. Remote Windows hosts keep today's
+behavior.
 
-- **Runtime.** The Windows backend uses only child processes, file
-  polling and raw-mode stdin, all available under Node, so on Windows
-  `run_console` skips the PTY check (`index.ts`) and the profile can
-  run the extension's bundled CLI with VS Code's own runtime
-  (`process.execPath` with `ELECTRON_RUN_AS_NODE=1`), needing no
-  separate install. Phase 3 confirms raw mode and resize events work
-  that way in VS Code's terminal.
-- **Reasons, as exit codes.** `sight console` exits with a distinct
-  code for each case where it didn't take Stata: two or more open;
-  open Stata held by another program; take-over declined; Automation
-  not registered; PowerShell blocked (CLM, policy). The codes are
-  documented in docs/cli.md, so other editors can use them too.
-- **The take-over question offers the fallback.** When run from the
-  extension (an environment variable says so), the question reads
-  "Continue? [y/N/s]" with "s: leave this Stata alone and send code to
-  it from the editor instead", which exits with the declined code plus
-  a flag meaning "fallback requested".
-- **The extension's offer.** On one of those exit codes (read from
-  `Terminal.exitStatus` in `onDidCloseTerminal`), the extension shows:
-  "sight console can't use Stata here: <reason>. Send code to the open
-  Stata window instead?" with **This session**, **Always**, **Cancel**.
-  - This session: an in-memory override makes the integrated target
-    resolve to the app until VS Code reloads.
-  - Always: sets `sight.sendToStata.target` to `external` in user
-    settings (the existing value; nothing new to learn), and says
-    where to change it back.
-  - Either way, the code the user was sending is re-sent to the app,
-    so the keystroke isn't lost. Cancel drops it.
-  - "s" at the take-over question skips the notification and acts as
-    This session.
-- **Setting text.** The `integrated` description in `package.json`
-  changes from "falls back to the GUI with a warning" to "runs sight
-  console; if it can't use Stata, offers send-to-stata". `auto` keeps
-  resolving to the app on local Windows in v1, so nothing changes for
-  users who haven't chosen `integrated`; making `auto` prefer the
-  console is a later decision.
-- **Tests.** Target resolution with and without the session override;
-  each exit code mapping to its message; This session, Always (setting
-  written, scope global) and Cancel; the pending send re-dispatched
-  exactly once; a console that ran and exited normally (`exit`, code
-  0) triggering no offer.
-- **Docs.** docs/send-to-stata.md (targets on Windows, the fallback),
-  docs/console.md (exit codes, the `s` answer).
+send-to-stata has no COM code (checked: `SendToStata.cs` finds Stata
+by process name and pastes with the clipboard and keystrokes), so it
+never holds a reference and can't close a Stata. It works without
+Automation registration; `windows-sender.ts:73-78`'s
+registration-error check is a leftover and doesn't apply to it. It
+picks the first Stata process with a main window, in a fixed order of
+process names, so with several open it chooses one itself, and it
+needs its helper downloaded (`exe-downloader.ts`, asked on first use).
+
+**Packaging.** The extension ships only `dist/extension.js` and
+`server/server.js` today. A new `copy-cli` step in `vscode:prepublish`
+bundles `src/cli.ts` with esbuild as CommonJS (`--format=cjs`, like the
+server, per CLAUDE.md) into `client/cli/cli.js`, with a nested
+`package.json` `{"type":"commonjs"}` and the command-database caches
+the completer needs, and `.vscodeignore` includes it. A build test
+checks the file exists after `vscode:prepublish` and stays under a size
+budget.
+
+**Launching.** On local Windows the profile and the integrated target
+create the terminal with `shellPath: process.execPath`, `shellArgs:
+[<extension>/cli/cli.js, "console"]`, and `env: {
+ELECTRON_RUN_AS_NODE: "1", SIGHT_CONSOLE_FROM_EDITOR: "1",
+SIGHT_CONSOLE_READY_FILE: <path> }`. Without `ELECTRON_RUN_AS_NODE`,
+`Code.exe` would open another editor window; a test asserts the env.
+The Windows backend needs no PTY, so `run_console` skips
+`is_pty_supported` for it only. It does need a TTY with raw mode: if
+`process.stdin.isTTY` is false or `setRawMode` throws under VS Code's
+runtime, the console exits with the "terminal unsupported" code below
+instead of running broken. Phase 3 confirms raw mode, `resize`, and
+that the exit code passes through `Code.exe` unchanged.
+
+**Exit codes.** `sight console` exits with a distinct code for each
+case where it didn't take Stata, avoiding 0, 1, 2 (`EXIT_USAGE`) and
+128 and up (signal statuses):
+
+| Code | Case | When known |
+|---|---|---|
+| 80 | Two or more Stata windows open | Step 1, no COM call |
+| 81 | Take-over declined (N) | Step 1, no COM call |
+| 82 | Send from the editor instead (`s`) | Step 1, no COM call |
+| 83 | Open Stata held by another program | Step 4, after consent; the console has already ended its connection to the new, empty Stata COM started |
+| 84 | Automation not registered | Before any COM call |
+| 85 | Bridge blocked (Language Mode, policy) | Before any COM call |
+| 86 | Terminal unsupported (no raw mode) | Before any COM call |
+
+The take-over question stays before any COM call, so it can't know
+about case 83; that is found only after consent, as in step 4. The
+codes are documented in docs/cli.md for other editors.
+
+**The `s` answer.** Only when `SIGHT_CONSOLE_FROM_EDITOR` is set, the
+take-over question reads "Continue? [y/N/s]", with "s: leave this
+Stata alone and send code to it from the editor instead". `--yes`
+takes precedence and skips the question. The answer letters are
+Sight's own prompt, not Stata syntax, so matching them without regard
+to case is allowed (noted in the code, per CLAUDE.md).
+
+**Readiness and pending sends.** The extension can't read terminal
+output, and today it treats a process ID plus a delay as ready and
+bakes the first send into the CLI's arguments
+(`stata-terminal-manager.ts:266-276`). For the console terminal:
+
+- The console creates `SIGHT_CONSOLE_READY_FILE` when it shows its
+  first prompt (after setup). That file, not the process ID, is
+  readiness.
+- Each console terminal has a queue in the extension. A send made
+  before readiness (including the one that created the terminal, and
+  sends into a terminal the user opened from the profile list) is
+  queued with its prepared temp file instead of being typed, so
+  nothing is typed into the take-over question or lost during
+  startup. The first send is no longer passed as an argument.
+- On readiness, queued sends are typed in order with `sendText`, once
+  each, and their temp files get the normal cleanup delay from then.
+  Later sends are typed directly.
+- If the terminal closes before readiness, queued sends are handled by
+  the offer below: dispatched once each to the app, or dropped (temp
+  files deleted). A terminal that closes after readiness has nothing
+  queued.
+- Queued temp files are kept until dispatched or dropped, not
+  scheduled for cleanup at queue time.
+- Cursor advance has already happened at send time and isn't repeated.
+
+**When to offer.** On `onDidCloseTerminal` for a console terminal, an
+offer is made only if `exitStatus.reason` is `Process` (not `User`,
+`Shutdown` or `Extension`) and `exitStatus.code` is in the table.
+Exit code 0, a missing code, other codes and user-closed terminals
+make no offer. The message comes from a table in the extension, keyed
+by code; the console's own text is gone with the terminal. Only one
+offer shows at a time.
+
+**The offer.** "sight console can't use Stata here: <reason>. Send
+code to the open Stata window instead?", with **This session**,
+**Always**, **Cancel**. Reasons are worded for what send-to-stata will
+do:
+
+- 80: "several Stata windows are open. send-to-stata will send to one
+  of them; to choose, close the others."
+- 81: "you chose to keep your open Stata to yourself. send-to-stata
+  sends to it without taking it over."
+- 83: "the open Stata is in use by another program (such as Jupyter).
+  send-to-stata would type into that same window."
+- 84: "Stata's Automation isn't registered (run `<exe> /Register` as
+  administrator to use the console). send-to-stata doesn't need it."
+- 85, 86: the specific cause, and that send-to-stata doesn't depend
+  on it.
+
+Choices:
+
+- **This session:** an in-memory override makes `integrated` resolve
+  to the app until VS Code reloads or the target setting changes
+  (cleared on `onDidChangeConfiguration` for it).
+- **Always:** writes `sight.sendToStata.target: "external"` at the
+  global scope, then reads the effective value back; if a workspace or
+  folder setting still wins, it says so and applies the session
+  override too.
+- Either way, the pending sends are dispatched once each to the app,
+  in order, through `send_to_stata_windows`. If the helper download is
+  declined or a send fails, the existing error shows and the remaining
+  pending sends are dropped with a note.
+- **Cancel:** pending sends are dropped. Repeat offers aren't
+  suppressed: the next send tries the console again, since the cause
+  (for example two windows open) may have changed.
+- Code 82 (`s`) skips the notification and acts as This session.
+
+**Target resolution.** The `integrated`-on-Windows branch in
+`resolve_effective_target` (`commands.ts:147-164`) is replaced, not
+kept: on local Windows `integrated` resolves to the console terminal,
+or to the app when the session override is set, with no warning. No
+existing test asserts the old warning. `auto` keeps resolving to the
+app on local Windows, so nothing changes for users who haven't chosen
+`integrated`; making `auto` prefer the console is a later decision.
+The `integrated` description in `package.json` changes to "runs sight
+console on Windows; if it can't use Stata, offers send-to-stata".
+
+**Tests** (extending the `onDidCloseTerminal` mocks in
+`tests/integration/send-to-stata-integrated-terminal.test.ts` with
+`exitStatus`): target resolution with and without the override, and
+the override cleared by a setting change; each code mapping to its
+message; reasons `User`/`Shutdown`, code 0, a missing code and an
+unknown code (no offer); This session, Always (global write, a
+workspace value still winning), Cancel (dropped, next send retries);
+sends queued before readiness and typed in order on readiness; several
+rapid sends, then a close before readiness (each dispatched once, temp
+files intact until then); a close after readiness (no dispatch); a
+profile-opened terminal (queued the same way); a second close while an
+offer is showing (no stacking); the terminal closing while the
+notification is open; helper failure during dispatch; the profile's
+`shellPath`, `shellArgs` and `env` (including `ELECTRON_RUN_AS_NODE`);
+on the console side, `s` and `N` making no COM call, `--yes` winning
+over `SIGHT_CONSOLE_FROM_EDITOR`, the ready file written at the first
+prompt, and code 83 only after the new Stata's connection has ended.
+
+**Docs.** docs/send-to-stata.md (targets on Windows, the fallback, the
+helper choosing among windows), docs/console.md (exit codes, the `s`
+answer).
 
 ## Risks
 
