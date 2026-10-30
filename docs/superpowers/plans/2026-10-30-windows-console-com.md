@@ -248,17 +248,26 @@ Stata as taken):
    Stata may be slow to answer), show "Waiting for Stata to answer.
    Ctrl+C cancels; if Stata has already answered, that closes it." and
    keep waiting.
-4. Work out which Stata answered, from a third listing (this one not
-   requiring a main window, since a fresh COM-started Stata may not
-   have one yet) compared with step 2's. Only two results count as
-   identified: exactly one new process, carrying COM's launch flag
-   (Phase 0b R2 records which flag), when none was open; or no new
-   process when exactly the consented one was open. Everything else
-   (a new process without the flag, several new processes, no new
-   process when none was open, which means an unlisted Stata answered)
-   is a Stata nobody consented to (below), never the consented one.
-   Write `<dir>\pid` (PID and start time) now, so other consoles exclude
-   this Stata from here on. Outcomes:
+4. Work out which Stata answered. The bridge lists twice with the same
+   relaxed filter (Stata processes in the session, main window or not,
+   minus those in other consoles' `pid` files): once right before
+   `CreateObject` (inside `connect`) and once after, and compares the
+   two. Steps 1-2's stricter listing only decides what to ask; the
+   before/after pair decides what answered. Three results count as
+   identified:
+   - exactly one new process, carrying COM's launch flag (Phase 0b R2
+     records which flag), when none was open: a new Stata, as expected;
+   - no new process when exactly the consented one was open: the
+     consented Stata, as expected;
+   - exactly one new process carrying COM's flag when the consented one
+     was open: COM started a new Stata because the open one is held
+     elsewhere (outcome below).
+   Everything else (a new process without the flag, several new
+   processes, no new process when none was open, which means a Stata
+   the listing excluded answered) is a Stata nobody consented to,
+   never the consented one. When a PID is identified, write
+   `<dir>\pid` (PID and start time) now, so other consoles exclude this
+   Stata from here on; otherwise step 6 establishes it. Outcomes:
    - **As expected** (the consented Stata, or a COM-started one when
      none was open): continue.
    - **Shared Stata expected, COM started a new one:** the open Stata
@@ -271,8 +280,9 @@ Stata as taken):
      fallback the user picks.)
    - **A Stata nobody consented to** (one opened in the milliseconds
      after step 2's listing, or one the listing didn't show, claimed
-     instead): the console says so,
-     names the window, and asks: "sight console is now connected to the
+     instead): the console says so and asks, once: here if step 4 has
+     its PID, otherwise after step 6's title lookup. It names the
+     window and asks: "sight console is now connected to the
      Stata you just opened (<title>). Keep using it here? It closes
      when the console ends. [y/N]". No ends the console, which closes
      that Stata, and the message says to save first if needed; the
@@ -320,7 +330,15 @@ Stata as taken):
 Timeouts in steps 3-7 only produce notices. Ctrl+C in steps 3-7 ends
 the console (and so closes the Stata if a reference exists), as the
 notices say. A console waiting for the mutex says "Another sight
-console is connecting; waiting. Ctrl+C cancels." (nothing touched yet).
+console is connecting; waiting. Ctrl+C cancels." (nothing touched
+yet). The wait happens inside the bridge, which can't read stdin
+meanwhile, so Ctrl+C there kills the bridge (harmless: it holds no
+reference). An abandoned mutex (its holder's bridge died) is taken
+over, not treated as an error. The mutex is acquired and released on
+the bridge's one thread (a Windows mutex belongs to the thread that
+took it). A console that keeps the mutex (no PID, step 6) or waits on
+the after-the-fact question holds the mutex meanwhile; other consoles
+show the waiting notice until it ends or answers; the docs say so.
 If `CreateObject` never returns, the bridge can't read stdin; when the
 console ends, it kills the bridge process (a reference obtained by a
 call that never returned is released by COM's own cleanup, closing
@@ -338,10 +356,8 @@ and Mata compound statements are echoed with their prefix; a top-level
 blank line is not. The backend emits a synthesized prompt when a line
 finishes (below). When the log shows the echo of the line it just
 submitted, `<prefix><line>`, it strips the prefix from the first
-physical line (already emitted as the prompt) and passes the rest
-through, including Stata's `\r\n> ` wrap markers, which the session's
-echo matcher already handles (`ECHO_WRAP_MARKER`, `session.ts:41`).
-Lines are matched with leading and trailing whitespace trimmed on both
+physical line (already emitted as the prompt) and replaces the echo
+as described next. Lines are matched with leading and trailing whitespace trimmed on both
 sides and wrap markers removed, because Stata drops leading whitespace
 from what it echoes (S5: `    print(123)` was logged as `print(123)`).
 When a log echo matches, the backend emits the *submitted* line
@@ -383,9 +399,11 @@ holds more than one of our lines.
 mode (a blank line can end a compound statement in Mata or Python).
 A top-level blank line isn't echoed (S5); completion doesn't need an
 echo, so it still yields a fresh prompt. Inside Mata and Python
-compound statements a blank line is echoed with its prefix; that echo
-is matched and consumed like any other, even if it arrives after the
-line was finished, so it never lands after the next prompt.
+compound statements a blank line is echoed with its prefix. A blank
+echo is matched to the oldest blank record not yet echoed. If it
+arrives while that line is still in flight it is replaced by `\r\n`
+like any echo (for `consume_echo`); if the line has already finished,
+the echo is dropped, so it never lands after the next prompt.
 
 **Completion (when a line is finished).** Stata reports busy both
 while it runs a command and while it waits for more interactive input
@@ -404,7 +422,9 @@ predicts *after* the line:
   the log within a few milliseconds of `DoCommandAsync`, so if no echo
   has appeared after 1 s (5 s for a line that enters Mata or Python,
   whose first start was slower in S5-edge: the `python` echo appeared
-  between 360 and 850 ms; R5 measures a cold start) and the log is
+  more than 360 ms after the `python` submit, and the cold Python
+  start made the next `DoCommandAsync` take about 0.5 s, so roughly
+  1.5 s in all; R5 measures a cold start) and the log is
   quiet, the line is finished
   without one (synthetic echo if undrawn) and counts toward log loss.
   If two settled polls show Stata free, the prediction was wrong (free
@@ -447,7 +467,10 @@ the log says otherwise. At idle nothing is sent; in an awaiting-input
 mode with nothing in flight, the backend sends a break (Phase 0b R7
 says whether that abandons a block) and redraws the prompt. A break while a block is open is
 checked in Phase 0b; until then the tracker treats `--Break--` as
-returning to top level.
+returning to top level. While "Stata isn't responding" is shown
+(ComBridge), a second Ctrl+C ends the console (closing Stata), since
+the first only queues a `break` behind the stuck call; the note clears
+when a poll succeeds.
 
 **Line limit.** `max_line_bytes()` is 8191 (S10 accepted 8192 bytes);
 lines with NUL are refused.
@@ -559,9 +582,11 @@ quit promptly, and killing the bridge must make it quit eventually.
 **Temporary files.** Stata writes `out.log` until it quits with the
 console. On exit the console deletes its directory if Stata has
 already gone; if Stata still holds `out.log` (it quits a moment after
-release), deletion is left to the sweep. At startup, a
-directory under `%TEMP%\sight-console\` older than a day whose `pid`
-file names no running process (by PID and start time) is removed.
+release), deletion is left to the sweep. Each directory also holds
+`owner`, Sight's own PID and start time, written when the directory is
+created. At startup, a directory under `%TEMP%\sight-console\` older
+than a day is removed only if neither its `owner` nor its `pid` file
+names a running process (by PID and start time).
 
 ### ComBridge
 
@@ -589,7 +614,8 @@ lines, one request at a time, each with an `id` and a timeout:
 
 `connect` re-lists inside the bridge right before `CreateObject` and
 answers `listing_changed` (without calling `CreateObject`) if the set
-differs from `expect`. `do_sync` is used only during setup. Request
+differs from `expect`; it also takes step 4's relaxed before-listing
+there and the after-listing once `CreateObject` returns. `do_sync` is used only during setup. Request
 timeouts (in the backend) are notice thresholds, per the rule above:
 5 s for `connect`; 10 s for each setup `do_sync`; 2 s for `is_free`,
 `do_async`, `break`, `error_code`. The bridge handles one request at a
