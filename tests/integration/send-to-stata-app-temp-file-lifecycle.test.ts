@@ -15,6 +15,7 @@ import * as path from 'path';
 import { pathToFileURL } from 'url';
 import * as real_applescript_module from
     '../../client/src/send-to-stata/applescript';
+import { VSCODE_MOCK_SHARED_EXPORTS } from '../vscode-mock-shared-exports';
 
 const SEND_TO_STATA_DIR = path.resolve(
     import.meta.dir,
@@ -237,6 +238,7 @@ describe.serial('Feature: send-to-stata app temp file lifecycle', () => {
         registered_module_mocks = true;
 
         mock.module('vscode', () => ({
+            ...VSCODE_MOCK_SHARED_EXPORTS,
             env: {
                 remoteName: '',
             },

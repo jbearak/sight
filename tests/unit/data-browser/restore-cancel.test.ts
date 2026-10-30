@@ -4,6 +4,7 @@ import { describe, expect, it, mock, beforeEach } from 'bun:test';
 // showWarningMessage (used by the real-error restore path).
 let warnings: string[] = [];
 mock.module('vscode', () => ({
+    ...VSCODE_MOCK_SHARED_EXPORTS,
     workspace: {
         getConfiguration: () => ({
             get: (_key: string, default_value: unknown) => default_value,
@@ -24,6 +25,7 @@ import {
     type SortState,
     type FilterState,
 } from '../../../client/src/data-browser/types';
+import { VSCODE_MOCK_SHARED_EXPORTS } from '../../vscode-mock-shared-exports';
 
 // Mirror what dta-parser actually throws on abort (a DOMException, not a
 // plain Error) so the tests exercise is_abort_error's real input type.

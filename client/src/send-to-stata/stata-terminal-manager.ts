@@ -720,12 +720,14 @@ export async function send_to_stata_terminal(
         );
     }
 
-    const { terminal, created_with_initial_command } =
-        await get_or_create_stata_terminal({ command, temp_file_path });
-    if (console_queue?.is_tracked(terminal)) {
+    if (is_local_windows()) {
+        // No await before the send is queued, so concurrent sends queue
+        // in the order they were made.
+        const terminal = last_active_profile_terminal
+            ?? create_console_terminal();
         // Readiness can take minutes (the take-over question), so no
         // timeout applies: the send waits in the terminal's queue.
-        const queued = console_queue.send(
+        const queued = get_console_queue().send(
             terminal,
             { command, temp_file_path }
         );
@@ -733,6 +735,9 @@ export async function send_to_stata_terminal(
         terminal.show(!queued);
         return queued;
     }
+
+    const { terminal, created_with_initial_command } =
+        await get_or_create_stata_terminal({ command, temp_file_path });
     terminal.show(true);  // Reveal without stealing focus
     // Always await readiness: even a baked first command relies on the
     // process actually launching, and this surfaces a terminal that
