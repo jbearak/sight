@@ -1004,7 +1004,9 @@ files intact until then); a close after readiness (no dispatch); a
 profile-opened terminal (queued the same way); a second close while an
 offer is showing (its sends join that offer; each send resolved once
 for each answer); code 82 arriving while an offer shows (dispatched at
-once, the other offer unaffected); a ready file appearing after the
+once, the other offer unaffected), including both dispatching at the
+same time with a helper failure in one (each queue keeps its own
+sends and results); a ready file appearing after the
 close (ignored); pending temp files deleted on a user close and on an
 unknown code; a
 user taking longer than 30 s at the take-over question (the queued temp
