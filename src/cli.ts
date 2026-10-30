@@ -150,10 +150,14 @@ ${banner}
 USAGE:
     sight [OPTIONS]
     sight check [OPTIONS] [PATHS...]
+    sight console [OPTIONS] [-- STATA_ARGS...]
 
 COMMANDS:
     check             Run full Stata diagnostics over a workspace (for CI).
                       See "sight check --help" for its options.
+    console           Run Stata's console with highlighting, completion
+                      and colored output (experimental).
+                      See "sight console --help" for its options.
 
 OPTIONS:
     -s, --stdio       Use stdio transport (default)
@@ -200,6 +204,11 @@ export async function main(
     if (argv[0] === 'check') {
         const { run_check } = await import('./cli/check');
         return run_check(argv.slice(1));
+    }
+
+    if (argv[0] === 'console') {
+        const { run_console } = await import('./console');
+        return run_console(argv.slice(1));
     }
 
     // A bare `sight` (no arguments) would otherwise start the stdio server and
@@ -269,7 +278,9 @@ export function is_cli_entry_point(
 // Node.js ESM compatibility because import.meta.main is Bun-only.
 if (is_cli_entry_point(process.argv[1])) {
     main().then((code) => {
-        if (code !== 0) {
+        // The console is finished when main resolves; exit even if a
+        // completion cache or stdin handle would keep the loop alive.
+        if (code !== 0 || process.argv[2] === 'console') {
             process.exit(code);
         }
         // Don't exit on success - server is running
