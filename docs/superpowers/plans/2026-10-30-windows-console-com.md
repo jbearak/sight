@@ -266,7 +266,9 @@ Stata as taken):
      Automation client). Requirement 2 rules out using a second Stata,
      so the console ends at once, which closes only the new, empty
      Stata: "The open Stata is in use by another program; close that
-     program, or that Stata, and try again."
+     program, or that Stata, and try again." (If R1 shows a Start-menu
+     Stata can't be claimed at all, this message changes with the
+     fallback the user picks.)
    - **A Stata nobody consented to** (one opened in the milliseconds
      after step 2's listing, or one the listing didn't show, claimed
      instead): the console says so,
@@ -370,7 +372,10 @@ holds more than one of our lines.
 **Blank lines** are sent like any other line, whatever the predicted
 mode (a blank line can end a compound statement in Mata or Python).
 A top-level blank line isn't echoed (S5); completion doesn't need an
-echo, so it still yields a fresh prompt.
+echo, so it still yields a fresh prompt. Inside Mata and Python
+compound statements a blank line is echoed with its prefix; that echo
+is matched and consumed like any other, even if it arrives after the
+line was finished, so it never lands after the next prompt.
 
 **Completion (when a line is finished).** Stata reports busy both
 while it runs a command and while it waits for more interactive input
