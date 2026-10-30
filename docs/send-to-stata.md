@@ -10,7 +10,7 @@ The extension provides commands to send Stata code directly from VS Code to Stat
 
 The extension offers three ways to send code to Stata:
 
-- **Stata GUI Application** (`external`): Sends code to the standalone Stata application via AppleScript (macOS) or COM automation (Windows).
+- **Stata GUI Application** (`external`): Sends code to the standalone Stata application via AppleScript (macOS) or the send-to-stata helper, which pastes code into Stata's Command window (Windows).
 - **Integrated Stata Terminal** (`integrated`): Opens and sends code to a dedicated Stata terminal inside VS Code. The extension registers a "Stata" terminal profile that launches the Stata CLI (`stata-mp`, `stata-se`, `stata-ic`, `stata-be`, or `stata`). This works on macOS, Linux, and remote sessions (SSH, WSL, Dev Containers, Tunnels). Not available on native Windows because Stata has no interactive CLI on that platform.
 - **Active Terminal** (the `Terminal` submenu commands): Sends code to whatever terminal is currently active in VS Code, regardless of type. This is useful for sending commands to Stata running inside `tmux`, a Docker container, or any other terminal session that isn't the extension's built-in Stata terminal.
 

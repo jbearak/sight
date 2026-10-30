@@ -1,73 +1,100 @@
 # Plan: `sight console` on Windows through Stata Automation (COM)
 
-Status: draft, rev 6 (after five review rounds by Sonnet and Terra).
+Status: draft, rev 7. Rev 6 was approved by Sonnet and Terra; the
+Phase 0 spike (results at the end) then disproved its central
+assumption, and the user set new requirements. Rev 7 is a redesign
+around those, and needs a fresh review.
+
+## What changed after the spike
+
+- **Releasing the last COM reference quits that Stata** (S1, S2, S3,
+  S8): a Stata launched directly or by COM, one running `sleep`, one
+  with data loaded. So a client can't touch a Stata and let it go, and
+  the console can't leave its Stata open after it ends without a
+  process that keeps the reference.
+- **`UtilIsStataFree()` stays false while Stata waits for more
+  interactive input**: inside a `foreach` or `program define` until it
+  closes, and for the whole of a `mata` session (S5,
+  `results/s5-polls.txt`). Completion can't wait for "free" there.
+- Confirmed: output streams into a text log during a command and was
+  complete at the first free poll (S4, S12); the first poll after a
+  fast command can already be free (S9); `DoCommandAsync` takes up to
+  8192 bytes (S10); the log is UTF-8 with CRLF and must be read with
+  read/write sharing (S11); `window manage maintitle` works on Stata 18
+  (S7); a break at idle is harmless (S6); `exit` with changed data is
+  refused (S11).
+
+The user's decisions (2026-10-30):
+
+1. **The console's Stata ends with the console**, as console Stata
+   does on macOS and Linux when the terminal closes.
+2. **If exactly one Stata is already open, the console shares it**
+   rather than starting another.
+3. **A shared Stata also ends with the console**: the console takes it
+   over, says so first, and asks.
 
 ## Goal
 
 `sight console` works on Windows with the same front end it has on
 macOS and Linux: highlighting, Tab completion, history, colored output,
 Ctrl+C. Stata for Windows has no console binary, so the console drives
-a Stata GUI instance through Stata's Automation interface
-(`stata.StataOLEApp`). The console launches its own Stata, drives that
-instance and only that instance, and keeps its window visible, so
-graphs, the Data Editor and the Variables window work alongside the
-terminal. A Stata the user already has open is never sent a command,
-hidden, or closed.
+one Stata GUI instance through Stata's Automation interface
+(`stata.StataOLEApp`), with its window visible, so graphs, the Data
+Editor and the Variables window work alongside the terminal. That
+instance is either a new Stata or the one the user already had open;
+either way it belongs to the console from the moment the console
+connects, and it quits when the console ends.
 
-Non-goals for v1: sharing the user's already-open Stata
-(`--instance attach`), options to choose what happens to Stata when the
-console ends (v1 has one fixed behavior: Stata quits only on the user's
-`exit`; otherwise its window stays open), answering input requests from
-the terminal, piped input, the VS Code terminal profile on Windows.
+Non-goals for v1: keeping Stata open after the console ends; choosing
+among several open Stata windows; answering input requests
+(`_request()`, `input`, `pause`) from the terminal; piped input; the VS
+Code terminal profile on Windows.
 
 Principles used throughout:
 
-- **After startup, the console sends Stata only what the user
-  entered.** No housekeeping commands (no `set linesize` on resize, no
-  log recovery, no `exit` at shutdown). The only way the console's
-  Stata quits is the user's own `exit` (typed, or Ctrl+D). This removes
-  any chance of injecting a command into a block, Mata, Python, or a
-  `#delimit ;` context the console misjudged, including one entered in
-  the Stata window.
+- **Ownership is explicit.** The console holds one COM reference for
+  its whole life and never takes a reference it doesn't keep, because
+  releasing one quits that Stata. Before it connects to a Stata the
+  user has open, it says that Stata will close when the console ends
+  and asks.
+- **After setup, the console sends Stata only what the user entered.**
+  No housekeeping commands (no `set linesize` on resize, no log
+  recovery, no `exit` at shutdown). This removes any chance of
+  injecting a command into a block, Mata, Python, or a context the
+  console misjudged, including one entered in the Stata window.
 - **When the console isn't sure of Stata's state, it does less.** A
   wrong guess about Stata's mode affects the prompt drawn
-  (highlighting, completion) and nothing the console sends on its own.
-  One user-initiated case reads the guess: Ctrl+D becomes `exit` only
-  at what the console believes is the top-level prompt
-  (`session.ts:217`). If the guess is wrong, that `exit` lands where
-  the user's typed `exit` would have; Stata decides, as for any line.
+  (highlighting, completion) and when a typed-ahead line is released,
+  never what is sent. One user-initiated case reads the guess: Ctrl+D
+  becomes `exit` only at what the console believes is the top-level
+  prompt (`session.ts:217`); Stata decides what to do with it, as for
+  any line.
 
-## What we know, and what is inferred
+## Background
 
-### Why stata_kernel "took over" and closed the user's Stata
+### Why stata_kernel closed the user's Stata
 
-1. **Attaching (inferred; spike S1).** Stata documents Automation as a
-   *single-use* out-of-process server where each `CreateObject` starts
-   a new Stata, and says nothing about attaching. The observed takeover
-   suggests a user-started Stata also registers its class factory and
-   the next `CreateObject` claims it. The design assumes `CreateObject`
-   may return *any* Stata with an unclaimed factory and proves identity
-   before sending anything.
-2. **Closing the window (confirmed in stata_kernel's
-   `stata_session.py`).** `init_windows()` calls `UtilShowStata(1)`
-   (1 hides, 2 minimizes, other values show), and `shutdown()` sends
-   `DoCommandAsync('exit, clear')`.
+A Stata the user starts registers its Automation class factory, and
+`CreateObject` hands it to the first client that asks (S1, S8; the
+docs only say each object starts a new Stata). stata_kernel then hid
+it with `UtilShowStata(1)`, and when the kernel let go of its
+reference, Stata quit (S2). Hiding explained the vanished window;
+releasing explains the closed application.
 
-So the window closing is stata_kernel's doing, not COM's.
-
-### Automation API facts (stata.com/automation)
+### Automation API facts (stata.com/automation, plus the spike)
 
 - `DoCommandAsync(cmd)`: queued as if typed in the Command window;
-  returns immediately.
+  returns immediately. Up to 8192 bytes; NUL refused (S10).
 - `DoCommand(cmd)`: synchronous, returns `rc`; ignores `exit`; 10001
-  for `program define` (and possibly loops). Documented limit: under
-  8192 characters, no NUL. `DoCommandAsync`'s limit is undocumented.
-- `UtilIsStataFree()`: true when nothing is running *or queued*.
-- `UtilSetStataBreak()`: the Break button.
+  for `program define` (and possibly loops).
+- `UtilIsStataFree()`: true when nothing is running or queued; false
+  while Stata waits for block, program or Mata input (S5).
+- `UtilSetStataBreak()`: the Break button; harmless at idle (S6).
 - `UtilShowStata(n)`: 1 hides, 2 minimizes, other values show.
-- `MacroValue(name)`: reads a global; no side effects.
-- No output API; output must come from a log.
+- `UtilStataErrorCode()`: returns `_rc`; read-only.
+- No output API; output comes from a log.
 - Registration: `StataMP-64.exe /Register` as administrator, once.
+- Releasing the last reference quits Stata (S2, S3).
 
 ### Existing Sight pieces
 
@@ -80,10 +107,10 @@ So the window closing is stata_kernel's doing, not COM's.
   buffering early output in `pending_output` (`interactive.ts:45`).
 - `src/console/index.ts` refuses `win32`; `tests/unit/console/
   setup.test.ts:154` asserts that.
-- The VS Code Windows "app" target uses send-to-stata.exe, which sends
-  code with the clipboard and keystrokes; it has no COM code (checked
-  `SendToStata.cs` in github.com/jbearak/send-to-stata).
-  `docs/send-to-stata.md:13` says "COM automation" and is wrong.
+- The VS Code Windows "app" target uses send-to-stata.exe, which pastes
+  code into Stata's Command window with the clipboard and keystrokes;
+  it has no COM code (`SendToStata.cs`). `docs/send-to-stata.md` said
+  "COM automation"; corrected on this branch.
 
 ## Design
 
@@ -163,7 +190,7 @@ against the PTY backend. `setup.test.ts:154` changes in Phase 3.
 
 ```ts
 export interface BackendLifecycle {
-    /** End Stata as policy allows; resolves when done or given up. */
+    /** End the session; resolves when done or given up. */
     shutdown(reason: 'user' | 'signal' | 'crash', timeout_ms: number): Promise<void>;
     /** Authoritative end: resolves once with the console's exit status. */
     readonly exit_status: Promise<number>;
@@ -174,25 +201,86 @@ Backends are constructed with `{ on_output, on_notice }` callbacks.
 `interactive.ts` forwards them to the session, buffering until the
 session exists, as `pending_output` does today. `exit_status` resolves
 only after the final output has been delivered. `interactive.ts`
-prints the closing message ("Stata exited", "Lost connection to Stata;
-its window is still open") after restoring the terminal. PTY shutdown
+prints the closing message ("Stata exited", "Lost the connection to
+Stata") after restoring the terminal. PTY shutdown
 is today's SIGHUP, 2 s grace, SIGKILL.
+
+### Which Stata the console drives, and connecting
+
+1. Read the registered exe from `HKCR\CLSID\{clsid of
+   stata.StataOLEApp}\LocalServer32`. If missing, print the
+   `/Register` instructions and stop.
+2. List running Stata processes (any `Stata*.exe` from a Stata install,
+   since another edition's factory isn't ours to take either). No COM
+   call has been made yet.
+   - **Two or more:** stop. COM would pick one of them (S8 suggests the
+     oldest unclaimed), and the user can't choose which. Message: close
+     all but the one to share, or all of them for a new Stata.
+   - **One:** show its window title and ask:
+     "sight console will take over the open Stata (<title>). It closes
+     when the console ends, so unsaved work in it would be lost then.
+     Continue? [y/N]". `--yes` answers yes. No: stop, nothing touched.
+   - **None:** continue; COM will start a new Stata.
+3. Ask the bridge to `CreateObject` (60 s timeout). From here on the
+   console owns whatever Stata answered.
+4. Identify it: generate a `token`, then `DoCommand(capture window
+   manage maintitle "Stata - sight console <token8>")` and find the PID
+   by title (`Get-Process | ? MainWindowTitle -like '*<token8>'`).
+   Compare it with step 2:
+   - The PID from step 2 (shared case): as expected.
+   - A PID that wasn't running in step 2: a new Stata. In the shared
+     case that means the open Stata was already held by another
+     Automation client (another console, stata_kernel), so COM started
+     a new one (S1); say so.
+   - Another PID that was running (a Stata opened between steps 2 and
+     3, in the second or so between them): the console now owns it and
+     can't give it back without closing it. It says so plainly, names
+     the window, and continues. This is the only way the console can
+     take a Stata the user didn't agree to, and only one opened during
+     that moment, which can't hold unsaved work yet; the docs say so.
+   If the title can't be set (S7 shows rc 0 on Stata 18), the PID is
+   taken from the step-2 list diff, and exit detection relies on RPC
+   errors.
+5. Setup, through `DoCommand`, once Stata is free (a shared Stata may
+   be running something; the console shows "Waiting for Stata to
+   finish the current command" and waits; Ctrl+C there ends the
+   console, which closes Stata, as agreed):
+   ```stata
+   set more off
+   set linesize <terminal width, clamped to 40-255>
+   log using "<dir>\out.log", text replace name(_sc<token8>)
+   ```
+   Each `rc` is checked; a failed `log using` stops the console (and so
+   closes Stata) with the error, before any user line is sent. `<dir>`
+   is `%TEMP%\sight-console\<token>\`, by its 8.3 short path; if that
+   path still contains `"`, `` ` ``, `'`, `$` or non-ASCII, stop with a
+   message naming `SIGHT_CONSOLE_TMPDIR`. In a shared Stata these
+   settings change the session the user had, which is part of taking it
+   over; they end with it.
+6. `UtilShowStata(0)`; start tailing at the log's size once setup has
+   settled (so the log header isn't shown); emit `. `.
+
+No named mutex, token check, or retry is needed: the console never
+takes a second reference, so concurrent consoles each get what COM
+hands them (a free open Stata, or a new one) and report it.
 
 ### AutomationBackend: producing the byte stream
 
 **Echo and prompts.** Stata's log records each line it reads with the
-prompt it read it at: `. cmd`, `  2. cmd`, `: cmd`, `>>> cmd`,
-`> cmd` (spike S5 confirms the exact forms, including how a long line
-wraps). The backend emits a synthesized prompt when a line finishes
-(below). When the log shows the echo of the line it just submitted,
-`<prefix><line>`, it strips the prefix from the first physical line
-(already emitted as the prompt) and passes the rest through, including
-Stata's `\r\n> ` wrap markers, which the session's echo matcher already
-handles (`ECHO_WRAP_MARKER`, `session.ts:41`). The session then sees
-what a PTY delivers for console Stata, and `echoes_input()` is true.
-Typeahead works with no special case: the session leaves a line entered
-without a prompt undrawn, the backend later submits it after a prompt,
-and its echo appears as console Stata would show it.
+prompt it read it at (S5): `. cmd` at top level, `  2. cmd` for the
+second line of a block or program definition, `: cmd` in Mata, and
+`> ` on continuation rows of a wrapped line. (Python's form is checked
+in Phase 0b.) The backend emits a synthesized prompt when a line
+finishes (below). When the log shows the echo of the line it just
+submitted, `<prefix><line>`, it strips the prefix from the first
+physical line (already emitted as the prompt) and passes the rest
+through, including Stata's `\r\n> ` wrap markers, which the session's
+echo matcher already handles (`ECHO_WRAP_MARKER`, `session.ts:41`).
+The session then sees what a PTY delivers for console Stata, and
+`echoes_input()` is true. Typeahead works with no special case: the
+session leaves a line entered without a prompt undrawn, the backend
+later submits it after a prompt, and its echo appears as console Stata
+would show it.
 
 **Synthetic echo.** The session draws a line itself when it has
 recognized a prompt, and otherwise leaves it for Stata's echo
@@ -200,18 +288,15 @@ recognized a prompt, and otherwise leaves it for Stata's echo
 a line can be entered while the backend is already idle but before the
 session has recognized the prompt; the backend therefore never infers
 this from its own state, and uses the `drawn` flag passed with each
-line. Only undrawn lines get a synthetic echo: if one
-finishes without its log echo having appeared (an echo form S5 didn't
-reveal), the backend emits `<line>\r\n` at completion, after the
-output, which is the honest order of what the console knows. In the
-log-lost state (below) the synthetic echo for an undrawn line is
-emitted at submission, before any output. A drawn line never gets one,
-so it can't appear twice. Each submitted
-line is shown on screen exactly once: the backend records, per submitted line,
-whether it has been echoed (by the log or synthetically), and a log
-echo that arrives later for a line already echoed (late flush, or the
-log resuming) is dropped. Records are kept for the last 64 submitted
-lines.
+line. Only undrawn lines get a synthetic echo: if one finishes without
+its log echo having appeared, the backend emits `<line>\r\n` at
+completion, after the output. In the log-lost state (below) the
+synthetic echo for an undrawn line is emitted at submission. A drawn
+line never gets one. Each submitted line is shown on screen exactly
+once: the backend records, per submitted line, whether it has been
+echoed (by the log or synthetically), and a log echo that arrives later
+for a line already echoed is dropped. Records are kept for the last 64
+submitted lines.
 
 **Typeahead queue.** Lines entered while a line is in flight stay in
 the backend's FIFO and are submitted one at a time, each after the
@@ -219,295 +304,178 @@ previous finishes. Ctrl+C clears the FIFO. Stata's own queue never
 holds more than one of our lines.
 
 **Blank lines** are sent like any other line, whatever the predicted
-mode, so no input is ever dropped on the strength of a guess (a blank
-line can end a compound statement in Mata or Python). Completion
-doesn't need an echo, so a blank line that Stata doesn't log still
-yields a fresh prompt (and, if it was undrawn, a synthetic echo).
+mode (a blank line can end a compound statement in Mata or Python).
+A top-level blank line isn't echoed (S5); completion doesn't need an
+echo, so it still yields a fresh prompt.
 
-**Completion (when a line is finished).** A line is finished after:
+**Completion (when a line is finished).** Stata reports busy both
+while it runs a command and while it waits for more interactive input
+(S5), so there are two rules, chosen by the mode the tracker (below)
+predicts *after* the line:
 
-1. `UtilIsStataFree()` is true on two consecutive polls at least
-   60 ms apart, and
-2. the log size didn't change across those two polls, and
-3. the log has been read to that size.
+- **Top level predicted:** the line is finished when
+  `UtilIsStataFree()` is true on two consecutive polls at least 60 ms
+  apart, the log size didn't change across them, and the log has been
+  read to that size. S9 and S12 support this: a fast command can be
+  free at the first poll, and large output was on disk by then.
+- **Awaiting input predicted** (inside a block or `program define`,
+  in Mata or Python): the line is finished when its echo has appeared
+  (or, for a blank line, immediately) and the log has then been quiet
+  for 150 ms, whatever `UtilIsStataFree()` says. If Stata is instead
+  still running a silent statement (a long Mata loop), the next line
+  is released into Stata's queue early, which is how console Stata
+  handles typeahead; the prompt is drawn early. Accepted and
+  documented.
 
-The echo is not required, so no line can hang the console. Polls run
-every 30 ms while a line is in flight, every 500 ms when idle (to see
-Stata exit, and output from commands typed in the Stata window). A
-command that finishes between two polls is still caught, because the
-rule looks at state, not a busy-to-free transition. Spike S9 checks
-`UtilIsStataFree()` right after `DoCommandAsync`; spike S12 checks
-that output is on disk by the first free poll, using large output
-(`list` over 100,000 rows) and a burst after `sleep`. If S12 shows
-late writes after "free", the settle window grows to the measured lag,
-and Phase 2 adds a test with that lag.
+The echo is never required on the top-level path, so no line there can
+hang the console. Polls run every 30 ms while a line is in flight and
+every 500 ms when idle (to see Stata exit, and output from commands
+typed in the Stata window).
 
-**First prompt.** After connecting, the backend waits for completion
-as defined above (start.do's tail end included), sets the tail start to
-the log size at that moment, and emits `. `. A fresh Stata that just ran
-start.do is at top level; S11 confirms that nothing more is written
-after `ready`.
+If the tracker predicts top level but Stata is really awaiting input
+(a mode entered without a visible echo), the line never completes. The
+busy note covers it, and Ctrl+C (clear the FIFO and break) gets out.
 
-**Busy for a long time with no output.** After 5 s busy with a silent
-log, the console shows a one-row note (under 70 characters): "Still
-running; if Stata asks for input, answer in its window." That is the v1 path
-for `_request()`, `input`, `pause` and `--more--`. `answer_more` shows
-the same notice; with `set more off` from start.do it shouldn't occur.
+**Busy for a long time with no output.** After 5 s busy at top level
+with a silent log, a one-row note: "Still running; if Stata asks for
+input, answer in its window." That is the v1 path for `_request()`,
+`input`, `pause` and `--more--` (`set more off` from setup makes the
+last unlikely). Phase 0b checks whether a line sent while Stata waits
+in `input` reaches it as the answer (S6 suggests so); if it does,
+input requests may move out of the non-goals in a later version.
 
-**Interrupt.** If a line is in flight: clear the FIFO, call
-`UtilIsStataFree()`, and only if Stata is busy call
-`UtilSetStataBreak()`. At idle nothing is sent (spike S6 checks a
-break at idle and during an input wait).
+**Interrupt.** If a line is in flight: clear the FIFO, call the
+bridge's `break` op (checks `UtilIsStataFree()` and breaks only if
+busy). At idle nothing is sent. A break while a block is open is
+checked in Phase 0b; until then the tracker treats `--Break--` as
+returning to top level.
 
-**Line limit.** `max_line_bytes()` is 8191 bytes until S10 measures
-`DoCommandAsync`'s real limit and units; lines with NUL are refused.
+**Line limit.** `max_line_bytes()` is 8191 (S10 accepted 8192 bytes);
+lines with NUL are refused.
 
-**Width.** `linesize` is set once, in start.do, from the terminal
-width (clamped to 40-255). Resizing the terminal later doesn't change
-it in v1 (that would mean sending a command of our own); the docs say
-so. A later version may resize at a proven-safe point if one exists.
+**Width.** `linesize` is set once at setup. Resizing the terminal
+later doesn't change it (that would mean sending a command of our
+own); the docs say so.
 
-### Mode tracking (cosmetic)
+### Mode tracking
 
-The synthesized prompt needs the mode (Stata, block `  N. `, Mata,
-Python, continuation). The tracker predicts it from lines sent (Sight's
-lexer for braces, `#delimit`, `mata`/`python` at top level, `end`) and
-corrects it from log evidence: each echo's actual prefix, `r(N);` in a
-block (block abandoned), `--Break--` (top level). Echo lines in the log
-that appear while no console line is in flight (typed in the Stata
-window) also update it; echoes from inside a running `do` file are not
-evidence. After a line finishes, `UtilStataErrorCode()` (read-only;
-returns `_rc`) supplements `r(N);` parsing, so an error is noticed even
-with the log lost; it also feeds the session's error handling for
-staged pastes (`on_stata_error`), which otherwise depends on log
-text. Nothing the console sends on its own depends on the mode, so a
-wrong mode means a wrong prompt glyph and wrong highlighting until the
-next echo corrects it; the one user-initiated exception, Ctrl+D, is
-described under the principles above.
+The tracker predicts the mode after each line from the lines sent
+(Sight's lexer for unbalanced braces, `program define`/`program` and
+its `end`, `mata`/`python` at top level and `end`) and corrects it
+from log evidence: each echo's actual prefix (`. `, `  N. `, `: `),
+the Mata banner and its closing rule, `r(N);` while a block is open
+(block abandoned, as in S5's `r(111)` case), and `--Break--` (top
+level). Interactive `#delimit` is rejected by Stata ("Unknown
+#command", S5), so the tracker ignores it. Echo lines that appear
+while no console line is in flight (typed in the Stata window) also
+update it; echoes from inside a running `do` file are not evidence.
+After a line finishes, `UtilStataErrorCode()` supplements `r(N);`
+parsing, so an error is noticed with the log lost; it also feeds the
+session's error handling for staged pastes (`on_stata_error`).
 
-### Getting our own Stata and proving it is ours
-
-Identity is a random token only our instance knows, checked with the
-read-only `MacroValue` before any command is sent.
-
-1. Read the registered exe from `HKCR\CLSID\{clsid of
-   stata.StataOLEApp}\LocalServer32`. If missing, print the
-   `/Register` instructions and stop before launching anything.
-2. Generate `token` (128 bits, hex). Create
-   `%TEMP%\sight-console\<token>\` and use its 8.3 short path for every
-   path Stata sees. If the short path still contains `"`, `` ` ``,
-   `'`, `$` or non-ASCII (short names disabled), stop with a message
-   naming `SIGHT_CONSOLE_TMPDIR` as the override. Write `start.do`:
-   ```stata
-   set more off
-   set linesize <clamped terminal width>
-   capture window manage maintitle "Stata - sight console <token8>"
-   capture log using "<dir>\out.log", text replace name(_sc<token8>)
-   global SIGHT_CONSOLE_LOG_RC = _rc
-   global SIGHT_CONSOLE_TOKEN "<token>"
-   file open _sc using "<dir>\ready", write replace
-   file close _sc
-   ```
-   (Adjusted to what S11 shows. The `ready` file is written last, so
-   its existence means the token is set, whether or not the log
-   opened.)
-3. Launch the exe directly with `do "<dir>\start.do"` (S11 confirms
-   the GUI runs it), keeping the process handle (`Start-Process
-   -PassThru`). Immediately, before waiting on `ready`, write the PID
-   and the process start time to
-   `<dir>\pid`; both are checked before anything acts on that PID
-   (connect-timeout kill, stale-directory cleanup).
-4. Wait for `ready` (30 s). Then, holding a named mutex
-   (`Local\SightConsoleConnect`, which serializes Sight consoles only,
-   not other Automation clients; waited for up to 65 s, longer than a
-   blocked connect; an abandoned mutex is taken over, not treated as an
-   error):
-   - `CreateObject`, read `MacroValue("SIGHT_CONSOLE_TOKEN")`.
-   - No match: send it nothing, keep the reference (so that factory
-     stays claimed), and try again. At most N + 1 attempts, where N is
-     the number of Stata processes running before our launch: enough to
-     claim every foreign factory once, and no more, so a retry can't
-     be what starts a stray.
-   - Release every non-matching reference, *then* release the mutex.
-     Non-matching references are never sent a command or killed.
-5. No match after N + 1 attempts: release everything, release the
-   mutex, and stop with a message. The only process the console may
-   terminate is the one it launched, through the handle it holds, and
-   only here, before any command has been sent to it. If S1/S8 show a
-   non-matching `CreateObject` can start a new Stata through
-   `LocalServer32` and S3 shows it survives release, that is an
-   unowned licensed Stata left behind; if it can happen in normal use
-   (not only in a contrived race), the design is revised and reviewed
-   before Phase 3.
-6. With the reference proven: if `SIGHT_CONSOLE_LOG_RC` isn't `0`,
-   stop with the log error (and terminate our launched Stata as in 5).
-   Otherwise `UtilShowStata(0)` and continue with the first prompt
-   (see AutomationBackend).
-
-**If S1 shows `CreateObject` never attaches to a running Stata:** step
-3 is dropped and `CreateObject` returns a fresh Stata of its own; its
-freshness is the proof. The backend then runs `start.do` through
-`DoCommand("do ...")` before tailing starts, so its output is never
-shown, and the token check stays as an assertion. In this branch there
-is no launched process handle: a startup failure only releases the
-reference (S3 says whether that closes the fresh Stata), and the PID
-comes from the token title (`Get-Process | ? MainWindowTitle -like
-'*<token8>'`), with RPC errors as the backstop for exit detection.
-
-**The no-touch guarantee and its gate (S2).** Any program that calls
-`CreateObject` may reach a user's Stata, so this design can't make the
-user's Stata unreachable; it can only make the contact harmless (one
-`MacroValue`, then release) or avoid it. Hence:
-
-- If S1 shows `CreateObject` never attaches: there is no contact.
-- Else if S2 shows the contact is harmless, including when the user's
-  Stata is busy or showing a modal dialog (the `MacroValue` may then
-  block until the 60 s connect timeout; S2 measures it): ship as
-  designed.
-- Else: a process check before launching can't close the race (a
-  Stata started during connect can still be reached), so it isn't an
-  acceptable fallback. The Windows backend isn't shipped unless a
-  race-free way to keep foreign instances out of reach is found (for
-  example, if S1 shows a Stata launched with some flag never offers
-  its factory, or a way to address our instance directly); that would
-  be a revised design with its own review.
+The mode decides the prompt glyph (and so highlighting and
+completion) and which completion rule applies, which only changes
+*when* the next typed-ahead line is released, not whether or what is
+sent.
 
 ### LogTail
 
-- Polls size every 30 ms, reads new bytes (S11 checks the file can be
-  opened for reading while Stata writes it), streaming UTF-8 decoder
-  (characters split across reads are held), `\r?\n` normalized to
-  `\r\n`. Echo matching works on complete lines; a trailing partial
-  line is passed through after a quiet period, so prompt-like output
-  (`_request` text) still shows.
+- Polls size every 30 ms and reads new bytes through a handle opened
+  with read/write sharing (S11: a plain read fails with a sharing
+  violation; Node/Bun on Windows open with full sharing, which Phase 3
+  confirms). Streaming UTF-8 decoder (characters split across reads are
+  held), `\r\n` normalized (S11: Stata writes CRLF). Echo matching
+  works on complete lines; a trailing partial line is passed through
+  after a quiet period, so prompt-like output (`_request` text) still
+  shows.
 
 ### Log loss
 
 The log is lost when the file shrinks or vanishes, or when two
 consecutive non-blank lines finish with no echo seen, for example after
 `log close _all` in a do-file. Blank and whitespace-only lines (by
-`trim()`, as in `session.ts:325`) don't count, since Stata may not log
-them. The console doesn't try to reopen it,
-since that would mean sending a command of its own. Instead:
+`trim()`, as in `session.ts:325`) don't count. The console doesn't try
+to reopen it, since that would mean sending a command of its own.
+Instead:
 
-- one dim line in the output, emitted by the backend after the
-  colorizer's input (it is Sight's text, not Stata's, so it bypasses
-  output coloring), which stays on screen (a one-row editor
-  note would be cut off and cleared at the next key): "Sight's log was
-  closed (by `log close _all` or `log off`?); output now shows only in
-  the Stata window. Restart sight console to get it back.";
-- each undrawn line's synthetic echo is emitted at submission (drawn
-  lines are already on screen), so the terminal still shows every line
-  entered;
-- prompts keep coming from completion, which doesn't need the log.
+- one dim line in the output through `write_sight_text` (it is Sight's
+  text, not Stata's, so it bypasses coloring and echo matching):
+  "Sight's log was closed (by `log close _all` or `log off`?); output
+  now shows only in the Stata window. Restart sight console to get it
+  back.";
+- each undrawn line's synthetic echo is emitted at submission;
+- prompts keep coming from completion. On the awaiting-input path,
+  which needs echoes, completion falls back to the log being quiet
+  (trivially true) after a 150 ms pause.
 
-If the user reopens a log under the same name and path themselves,
-growth resumes and the backend leaves the lost state at the next echo
-it sees.
+If the user reopens a log under the same name and path, growth resumes
+and the backend leaves the lost state at the next echo it sees.
 
 ### Exit and lifetime
 
-The instance belongs to the console, but the console never closes it
-on its own. Stata is never sent `exit, clear` and never killed after
-the first command.
+The console holds its reference until it ends. Ending the console
+releases it, and Stata quits (S2, S3), with any unsaved data, as when
+the terminal running console Stata closes on macOS or Linux.
 
-- **User types `exit`, or presses Ctrl+D** (the session turns Ctrl+D
-  at an empty top-level prompt into the line `exit`, as it does today,
-  `session.ts:214-220`): sent like any line. If Stata quits, the bridge reports the process gone or an RPC
-  error (codes under ComBridge); the backend drains the log
-  and resolves `exit_status` with 0. If Stata refuses (`r(4)`, data
-  changed), the console keeps running.
-- **User closes the Stata window**: the idle poll sees the process
-  gone (or an RPC error); `exit_status` resolves with 0 and "Stata
-  exited" is printed.
+- **User types `exit`, or presses Ctrl+D** (the session turns Ctrl+D at
+  an empty top-level prompt into `exit`, `session.ts:214-220`): sent
+  like any line. If Stata quits, the bridge reports the process gone or
+  an RPC error; the backend drains the log and resolves `exit_status`
+  with 0. If Stata refuses (data changed), the console keeps running;
+  `exit, clear` quits anyway, as in Stata.
+- **User closes the Stata window**: the idle poll sees the process gone
+  or an RPC error; the console prints "Stata exited" and ends. (Phase
+  0b checks that Stata lets the user close it while a reference is
+  held.)
 - **Console ends any other way** (terminal closed: `SIGHUP`;
-  `SIGBREAK`, `SIGTERM`; internal crash): `shutdown()` does the same
-  thing for every reason: stop polling, close the bridge's stdin, and
-  print, if the terminal is still there, "Stata is still open in its
-  own window." Stata keeps its data and window; the user closes it as
-  usual. (`shutdown`'s `reason` only selects the message.)
-- **Bridge dies or a COM call fails**: `exit_status` resolves with 1;
-  "Lost connection to Stata; its window is still open."
+  `SIGBREAK`, `SIGTERM`; internal crash): `shutdown()` closes the
+  bridge's stdin; the bridge releases its reference and exits; Stata
+  quits. The console prints nothing more if the terminal is gone.
+- **Bridge dies** (killed, crashed): the console prints "Lost the
+  connection to Stata" and ends. COM releases the dead client's
+  reference after its own timeout, and Stata then quits; Phase 0b
+  measures how long that takes, and the message says so.
 
-**What the bridge does on stdin EOF (shipping gate, S3).** The bridge
-runs detached from the console window (spawned with `detached` and
-`windowsHide`), so closing the terminal doesn't deliver
-`CTRL_CLOSE_EVENT` to it. On EOF:
+The bridge is an ordinary child process (not detached), so it ends
+with the console. Its stdin closing is its signal to release.
 
-- If S3 shows releasing the last reference leaves the console's Stata
-  (directly launched or, in the S1 branch, COM-created) running: release
-  and exit.
-- If release would close it: don't release. Stay alive holding the
-  reference until the Stata process exits on its own, then exit.
-
-Phase 3 does not start until S3 shows one of these keeps Stata and its
-data on real Windows, for the instance kind S1 makes us use, and with
-the terminal window closed (not only the console process killed). If
-neither works, the Windows backend isn't shipped.
-
-**Temporary files.** Stata keeps writing `out.log` while it runs,
-including after the console ends with Stata left open, so the file can
-hold everything that session prints (data listings included) until
-Stata exits; the docs say so. A console deletes its directory after
-Stata has exited. At startup, a directory under `%TEMP%\sight-console\` is
-removed only if no process matches both the PID and the start time in
-its `pid` file (or the file is missing) and it is older than a day.
+**Temporary files.** Stata writes `out.log` until it quits with the
+console. The console deletes its directory on exit. At startup, a
+directory under `%TEMP%\sight-console\` older than a day whose `pid`
+file names no running process (by PID and start time) is removed.
 
 ### ComBridge
 
-A long-lived helper holding the COM reference, speaking JSON lines,
-one request at a time, each with an `id` and a timeout:
+A long-lived helper holding the one COM reference, speaking JSON
+lines, one request at a time, each with an `id` and a timeout:
 
 ```text
--> {"id":1,"op":"connect","dir":"...","exe":"...","token":"..."}
-<- {"id":1,"event":"phase","phase":"mutex_wait"}
-<- {"id":1,"event":"phase","phase":"attempting"}
-<- {"id":1,"ok":true,"pid":1234,"version":"18.0"}
--> {"id":2,"op":"do_async","cmd":"regress y x"}
--> {"id":3,"op":"is_free"}
-<- {"id":3,"ok":true,"free":false}
--> {"id":4,"op":"break"}
-<- {"id":4,"ok":false,"error":"rpc_disconnected","hresult":"0x80010108"}
+-> {"id":1,"op":"connect"}
+<- {"id":1,"ok":true}
+-> {"id":2,"op":"do_sync","cmd":"set more off"}
+<- {"id":2,"ok":true,"rc":0}
+-> {"id":3,"op":"do_async","cmd":"regress y x"}
+-> {"id":4,"op":"is_free"}
+<- {"id":4,"ok":true,"free":false}
+-> {"id":5,"op":"break"}
+<- {"id":5,"ok":false,"error":"rpc_disconnected","hresult":"0x80010108"}
 ```
 
-Request timeouts (in the backend): 2 s for `is_free`, `do_async`,
-`break`. `connect` has a deadline per phase rather than one total:
-30 s for `ready`; up to 65 s waiting for the mutex (a queued second
-console is not a failure; it shows "Waiting for another sight console
-to connect"); then 60 s for the COM attempts (and, in the S1 branch,
-the start.do `DoCommand`), counted from when the mutex is held. The
-bridge reports phase changes as interim `event` lines (above) so the
-backend can show the waiting message and start each clock. Running out
-the mutex wait is a connect failure ("another sight console is still
-connecting"); that bridge isn't stuck in COM, so the normal kill and
-terminate path applies. S8 measures how three or more simultaneous
-consoles fare. Replies arriving after their timeout are discarded by
-`id`. A timeout is not by itself a failure: Stata may be showing a
-modal dialog or the Data Editor. After five consecutive timeouts the
-console shows a notice ("Stata isn't responding") and keeps waiting.
-The console ends only when Stata's process has exited or COM reports
-the server gone (`RPC_S_SERVER_UNAVAILABLE` 0x800706BA,
-`RPC_S_CALL_FAILED` 0x800706BE, `RPC_E_DISCONNECTED` 0x80010108), or
-the bridge process dies.
+`do_sync` is used only during setup. Request timeouts (in the
+backend): 60 s for `connect`; 10 s for each setup `do_sync`; 2 s for
+`is_free`, `do_async`, `break`, `error_code`. Replies after their
+timeout are discarded by `id`. During the session a timeout is not by
+itself a failure (Stata may be showing a modal dialog; S13 found the
+Data Editor didn't block calls): after five in a row the console shows
+"Stata isn't responding" and keeps waiting. The console ends only when
+Stata's process is gone, COM reports the server gone
+(`RPC_S_SERVER_UNAVAILABLE` 0x800706BA, `RPC_S_CALL_FAILED`
+0x800706BE, `RPC_E_DISCONNECTED` 0x80010108), or the bridge dies. A
+connect or setup timeout ends the console (and so, if a reference was
+obtained, closes that Stata); the message says which Stata.
 
-A `connect` timeout is different, because a bridge stuck inside a COM
-call to a foreign Stata never reads stdin and keeps that reference. On
-a connect timeout, before any command has been sent, the backend kills
-the bridge process (dropping its references) and terminates the Stata
-it launched, using the PID in `<dir>\pid` after checking that the
-process's start time matches. In the S1 branch nothing was launched
-and our Stata isn't proven yet, so nothing is terminated: killing the
-bridge drops the reference, and the message names the Stata window
-with the token title if one appeared, for the user to close.
-
-`break` is one bridge op that checks `UtilIsStataFree()` and calls
-`UtilSetStataBreak()` only if busy, so the check and the break are as
-close together as the bridge can make them. After connect, the bridge makes no synchronous call
-that waits on Stata's command queue.
-
-**First implementation: Windows PowerShell 5.1** (`powershell.exe` is
-present on every supported Windows; out-of-process COM works from x64
-and Arm64).
+**First implementation: Windows PowerShell 5.1** (`powershell.exe`,
+present on every supported Windows; the spike ran it on Arm64).
 
 - Script written to `<dir>\bridge.ps1` and run with `-Sta -NoProfile
   -NonInteractive -ExecutionPolicy Bypass -File` (not
@@ -515,8 +483,8 @@ and Arm64).
 - Reads and writes through `[Console]::OpenStandardInput()` and
   `OpenStandardOutput()` wrapped in UTF-8 (no BOM) reader and writer,
   without touching console code-page settings.
-- Spawned detached and hidden (see Exit and lifetime). Exits on stdin
-  EOF per the S3 gate; errors go to stderr, which the backend shows.
+- On stdin EOF: `FinalReleaseComObject`, then exit. Errors go to
+  stderr, which the backend shows.
 - Checks `$ExecutionContext.SessionState.LanguageMode`; Constrained
   Language Mode gets a clear message.
 
@@ -532,120 +500,120 @@ to `ole32`/`oleaut32`. Built only if users hit this.
   message pointing to batch mode (`StataMP-64.exe /e do file.do`).
   `--stata PATH` is rejected on Windows (Automation uses the
   registered Stata; run `<exe> /Register` to switch). `--stata-echoes`
-  is ignored there.
+  is ignored there. New `--yes` (Windows only) answers the take-over
+  question.
 - Signals: add `SIGBREAK` to the shutdown signals on Windows, and
   check that registering `SIGQUIT` doesn't throw under Bun there.
 - Terminal: Bun/libuv raw mode yields VT key sequences and `\x03`;
   `stdout` emits `resize`. Check Windows Terminal and conhost.
 - History at `%APPDATA%\sight\console_history`; no 0600 mode.
 - Path completion accepts `\`.
-- Documented limits: input requests are answered in the Stata window
-  (a line typed in the terminal meanwhile is queued and later runs as a
-  command); a do-file with `log close _all` (a common header) ends
-  terminal output for the session;
-  resizing the terminal doesn't change `linesize`; closing the
-  terminal leaves Stata open; after `log close _all` output appears
-  only in the Stata window;
-  `help`, `browse`, `edit`, `db`, `doedit` open windows and print
-  little; `shell`/`!` output isn't logged; commands typed into the
-  console's own Stata window show in the terminal but can make the
-  prompt wrong until the next line.
+- Documented behavior and limits: Stata (new or shared) closes when the
+  console ends, with unsaved data; a Stata opened in the second the
+  console connects may be taken; with two or more Stata windows open
+  the console won't start; input requests are answered in the Stata
+  window; a do-file with `log close _all` (a common header) ends
+  terminal output for the session; resizing the terminal doesn't change
+  `linesize`; `help`, `browse`, `edit`, `db`, `doedit` open windows and
+  print little; `shell`/`!` output isn't logged; commands typed in the
+  Stata window show in the terminal but can make the prompt wrong until
+  the next line; a long silent Mata statement shows the next prompt
+  early.
 
 ## Phases
 
-### Phase 0: spike on Windows with Stata (decides the design)
+### Phase 0b: follow-up checks on Windows (before Phase 3)
 
-A throwaway PowerShell script; raw logs and results recorded in this
-file. Each item names what its result decides.
+Phase 0 settled the design questions above. These remaining checks
+refine details; none can reverse a user decision. Same VM, same
+conventions as Phase 0 (`--current-user`, throwaway data, results
+appended below).
 
-| Item | Question | Decides |
+| Item | Question | Affects |
 |---|---|---|
-| S1 | Does `CreateObject` attach to a user-started Stata? To one started with `<exe> do file`? Does the next one start a new Stata? When every running Stata's factory is claimed, does it start one through `LocalServer32`? | Launch-then-connect vs `CreateObject` alone; stray-process handling |
-| S2 | After `CreateObject`, one `MacroValue`, release: is the user's Stata running, visible, data intact, usable? Also while it is busy and while a modal dialog is open: how long does `MacroValue` block? | No-touch gate (above) |
-| S3 | Does releasing the last reference close a COM-started Stata? A directly launched one? Does a bridge spawned with Bun's `detached` and `windowsHide` leave the console's process tree and job object, and survive closing the terminal in Windows Terminal, conhost and the VS Code terminal? Can it hold the reference until Stata exits? | Shipping gate (above) |
-| S4 | During `forvalues i=1/20 { display `i' ; sleep 500 }`, does the log grow per line? | If only at end: ship only with that documented, after looking for a flush setting |
-| S5 | Line by line via `DoCommandAsync`: blank line at top level (accepted? logged?); `foreach ... {` / body / `}`; error inside a block; nested braces; `#delimit ;`; `include` of a file with `#delimit ;`; `mata`/`end`; error in Mata; blank lines in Mata and Python compound statements; `python`/`end`; `program define` ... `end`; a line longer than `linesize` (wrapped echo); `_request`, `input`, `pause`, `set more on`. Log text and `UtilIsStataFree` at each step. | Echo prefixes, mode evidence. If blocks or `program define` don't work line by line: **stop and re-plan with review**, rather than switching to gathering blocks into a do-file |
-| S6 | Break during `sleep 10000`; at idle (does the next command break?); during an input wait; with a line queued behind a running one | Interrupt rule |
-| S7 | `window manage maintitle` on Stata 17, 18, StataNow | Drop the title step if unsupported |
-| S8 | Two consoles started together, plus a user Stata; count Stata processes left afterwards | Mutex, attempt cap, strays |
-| S9 | `UtilIsStataFree` right after `DoCommandAsync`, fast command | Settle window |
-| S10 | Longest line `DoCommandAsync` accepts, in bytes or UTF-16 units; NUL | `max_line_bytes()` |
-| S11 | `<exe> do "<short path>"` at startup; anything written to the log after `ready`; `c(more)`; reading the log while Stata writes it; log encoding and newline bytes; `exit` via `DoCommandAsync` with and without changed data | `start.do`, first prompt, LogTail, exit handling |
-| S12 | Log fully written at first "free"? Large `list`; burst after `sleep` | Settle window |
-| S13 | Own Stata with a modal dialog or the Data Editor open: do `UtilIsStataFree` calls block or fail? | Timeout tolerance |
+| R1 | A Stata started from the Start menu (no arguments): does `CreateObject` claim it? While held: window, data and Command window usable? Can the user close it (File > Exit, window close) while held, and does the bridge see it go? | Shared case, exit detection |
+| R2 | Same Stata already held by another client: does `CreateObject` start a new one, as S1 showed for a do-file launch? | Step 4 message |
+| R3 | Release with changed data: does Stata quit without prompting? | Docs wording |
+| R4 | Kill the bridge process while it holds the reference: how long until Stata quits? Close the terminal (Windows Terminal, conhost, VS Code) running a console-like parent with a non-detached PowerShell child holding the reference: does Stata quit, and when? | Bridge-death message, terminal-close behavior |
+| R5 | Python: prompt prefix in the log, `UtilIsStataFree()` at `>>> `, a compound statement ended by a blank line (send real indentation), `end` | Python mode, completion rule |
+| R6 | Mata compound statement ended by a blank line; `UtilIsStataFree()` after `end` | Mata completion |
+| R7 | `UtilSetStataBreak()` with a `foreach` block open (before `}`), in Mata, and in `program define`: does Stata return to top level, what does the log show? | Interrupt and tracker |
+| R8 | `input x`, then lines sent with `DoCommandAsync`: do they become values, and does `end` finish it? `display _request(name)` then a line: is it the answer? | Possible later input support |
+| R9 | Setup `DoCommand` on a shared Stata that is busy, and one that has a `foreach` open from its Command window | Setup waiting |
 
-Phase 2 and 3 code uses the spike's numbers and forms. Where a result
-contradicts this plan in a way not covered by the table, the plan is
-revised and reviewed again before implementation continues.
+### Phase 1: backend seam (no behavior change; can land now)
 
-### Phase 1: backend seam (no behavior change; can land before Phase 0)
-
-- `StataBackend`, `BackendLifecycle`, `PtyBackend`, `show_notice`.
+- `StataBackend`, `BackendLifecycle`, `PtyBackend`, `show_notice`,
+  `write_sight_text`.
 - Unit and PTY integration tests pass with only the `setup()` change.
 
 ### Phase 2: AutomationBackend against a fake bridge
 
-- Backend, LogTail, completion, mode tracker, typeahead FIFO, echo
-  stripping and synthetic echo, interrupt, log loss, exit paths,
-  connect and identity loop.
-- Fake bridge (TS) that replays the spike's transcripts, with
+- Backend, LogTail, both completion rules, mode tracker, typeahead
+  FIFO, echo stripping and synthetic echo, interrupt, log loss, connect
+  and setup, exit paths.
+- Fake bridge (TS) that replays the Phase 0 transcripts, with
   randomized poll jitter and configurable flush lag. Cases: a command
   finished before the first poll; output arriving after the first
-  "free" (within the settle window); a line with no echo (synthetic
-  echo), then its log echo arriving late (dropped); `log close _all`
-  mid-command, then several queued typeahead lines (each shown once),
-  then the log resuming; wrapped echoes; blank lines at every
-  predicted mode, including with the prediction wrong (always sent); break at idle (nothing sent); break with queued
-  typeahead; an input wait (busy notice); an error inside a block and
-  inside Mata (mode resync); `#delimit ;`; an echo the console didn't
-  submit (typed in the Stata window); resize (nothing sent); a foreign
-  instance answering `CreateObject` first; three non-matching answers
-  (stop, references released before the mutex); two consoles, the second waiting on
-  the mutex past 60 s (no false failure); an abandoned mutex; two blank
-  lines in a row (no log-loss); log failure reported via `ready`; Stata exiting; bridge dying; request
-  timeouts and late replies; `exit` refused with changed data; signal
-  shutdown in every state (nothing sent, Stata left open); partial
-  UTF-8 and CRLF split across reads; a log path with compound-quote
+  "free" (within the settle window); a `foreach` block and a `program
+  define` sent line by line with Stata busy throughout (S5 transcript;
+  each line completes on echo plus quiet); a Mata session (busy
+  throughout); a block error (`r(111)`, back to top level); a line with
+  no echo (synthetic echo), then its log echo arriving late (dropped);
+  `log close _all` mid-command, then queued typeahead lines (each shown
+  once), then the log resuming; wrapped echoes; blank lines in every
+  mode (always sent; top-level blank not echoed); break at idle (nothing
+  sent); break with queued typeahead; a silent long command (busy
+  note); an echo the console didn't submit (typed in the Stata window);
+  resize (nothing sent); connect with none, one (asked; yes and no) and
+  two open (refused, no COM call); `--yes`; COM answering with a new
+  PID in the shared case and with an unexpected running PID; setup on a
+  busy Stata (waits); a failed `log using` (stops); Stata exiting;
+  bridge dying; request timeouts and late replies; `exit` refused with
+  changed data; signal shutdown (bridge stdin closed); partial UTF-8
+  and CRLF split across reads; a log path with compound-quote
   delimiters rejected; repeated poll timeouts (notice, no exit).
 - End-to-end tests drive a real `ConsoleSession` with an
   `AutomationBackend` over the fake bridge and assert the screen
   transcript (prompt, highlighted line, output, typeahead echo,
-  synthetic echo), since that interplay is where echo and prompt bugs
-  would live. They include a line entered after the backend went idle
-  but before the session recognized the prompt, with the log echo
-  absent (shown exactly once, via synthetic echo).
+  synthetic echo, block prompts `  2. `), including a line entered
+  after the backend went idle but before the session recognized the
+  prompt, with the log echo absent (shown exactly once).
   These run on every OS.
 
-### Phase 3: PowerShell bridge and Windows wiring (after the S3 gate)
+### Phase 3: PowerShell bridge and Windows wiring (after Phase 0b)
 
 - Bridge script: framing, UTF-8 streams, `-Sta`, CLM, registration,
-  mutex, launch with handle, detached spawn, EOF behavior per S3.
+  process listing, title lookup, release on EOF.
 - `index.ts` and `setup.test.ts:154`, history path, `SIGBREAK`, path
-  completion.
+  completion, the take-over prompt and `--yes`.
 - A Windows CI job tests the bridge's framing, Unicode, stderr, and
   EOF handling against a stub object injected by a test hook, without
   Stata.
 
 ### Phase 4: manual verification and docs
 
-- Windows 11 x64 (Arm64 if available), Stata 18 MP and StataNow,
-  Windows Terminal and conhost: what "Tested with real Stata" in
-  docs/console.md lists that v1 supports, plus a user Stata already
-  open (left untouched), two consoles, closing the terminal, closing
-  the Stata window, killing Sight, `exit` with changed data, Ctrl+D,
-  graphs, non-ASCII text, a profile path with spaces.
-- Update `docs/console.md` (Windows section, registration, limits),
-  `docs/cli.md`, README; correct `docs/send-to-stata.md:13`.
+- Windows 11 (x64 and the Arm64 VM), Stata 18 MP (StataNow if
+  available), Windows Terminal and conhost: what "Tested with real
+  Stata" in docs/console.md lists that v1 supports, plus: no Stata
+  open; one open (asked, shared, closes at the end); two open
+  (refused); two consoles; closing the terminal; closing the Stata
+  window; killing Sight; `exit` with changed data; Ctrl+D; blocks,
+  `program define`, Mata, Python; graphs; non-ASCII text; a profile
+  path with spaces.
+- Update `docs/console.md` (Windows section, registration, take-over,
+  lifetime, limits), `docs/cli.md`, README.
 
 ## Risks
 
-- S4 or S12 show buffered logs: output arrives late or in bursts;
-  documented, or the backend isn't shipped if it makes completion
-  unreliable.
-- S2 fails (and S1 shows attaching): not shipped unless a race-free
-  isolation mechanism turns up; revised design, reviewed.
-- S3 fails both ways: no Windows backend (shipping gate).
-- S5 fails for blocks: re-plan, reviewed.
+- Taking over a shared Stata closes it with the console: mitigated by
+  the explicit question, the docs, and the title change that marks the
+  window as the console's.
+- The narrow race in step 4 can take a Stata the user opened during
+  connect; it can't hold work yet, and the console says so.
+- A mispredicted mode can delay typed-ahead lines (top-level rule
+  waiting on a Stata that awaits input) or release them early (silent
+  Mata); Ctrl+C clears the queue.
 - Managed machines block PowerShell: the C#/FFI fallback.
 
 ## Phase 0 results
