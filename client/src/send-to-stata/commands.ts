@@ -18,6 +18,7 @@ import {
 import { send_to_stata_app } from './applescript.js';
 import { send_to_terminal } from './terminal.js';
 import {
+    is_console_session_override_set,
     send_to_stata_terminal
 } from './stata-terminal-manager.js';
 import type { StataCommand } from './index.js';
@@ -28,7 +29,6 @@ import { escape_path_for_stata } from './cd-commands.js';
 export type WorkingDirectoryOption = 'none' | 'file' | 'workspace' | 'lsp';
 export type SendTargetSetting = 'auto' | 'integrated' | 'external';
 
-let shown_windows_integrated_warning = false;
 let language_client: LanguageClient | null = null;
 
 /**
@@ -145,21 +145,14 @@ export function resolve_effective_target(
         && vscode.env.remoteName !== '';
 
     if (setting === 'integrated') {
-        // No interactive Stata CLI on Windows (batch mode only).
-        // Fall back to GUI; remote sessions connect to a host
-        // that may have an interactive CLI.
-        if (process.platform === 'win32' && !is_remote) {
-            if (!shown_windows_integrated_warning) {
-                shown_windows_integrated_warning = true;
-                vscode.window.showWarningMessage(
-                    'The integrated Stata terminal is not ' +
-                    'available on Windows (Stata has no ' +
-                    'interactive CLI on this platform). ' +
-                    'Falling back to the Stata GUI. Use a ' +
-                    'remote session (SSH, WSL) for ' +
-                    'integrated terminal support.'
-                );
-            }
+        // On local Windows the integrated terminal runs sight console.
+        // If the user chose send-to-stata instead when the console
+        // couldn't use Stata, use the app for the rest of the session.
+        if (
+            process.platform === 'win32'
+            && !is_remote
+            && is_console_session_override_set()
+        ) {
             return 'app';
         }
         return 'integrated';
@@ -261,10 +254,16 @@ async function handle_send_command(
         }
 
         const my_temp_file = await create_temp_file(my_code);
+        // A send queued for a starting sight console terminal belongs
+        // to that terminal's queue, which deletes the file once it is
+        // typed, dispatched or dropped.
+        let is_queued = false;
 
         try {
             if (effective_target === 'integrated') {
-                await send_to_stata_terminal(command, my_temp_file);
+                is_queued = await send_to_stata_terminal(
+                    command, my_temp_file
+                );
             } else if (effective_target === 'app') {
                 if (process.platform === 'win32') {
                     await send_to_stata_windows(
@@ -291,7 +290,9 @@ async function handle_send_command(
         } finally {
             // All send targets enqueue execution asynchronously enough that
             // eager deletion can race the Stata process reading the temp file.
-            schedule_temp_file_cleanup(my_temp_file);
+            if (!is_queued) {
+                schedule_temp_file_cleanup(my_temp_file);
+            }
         }
 
         // Advance cursor for single-line sends

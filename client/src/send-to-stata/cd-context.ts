@@ -130,10 +130,13 @@ export async function execute_cd_command(
     }
 
     const temp_file_path = await create_temp_file(cd_command);
+    // A send queued for a starting sight console terminal belongs to
+    // that terminal's queue, which deletes the file itself.
+    let is_queued = false;
 
     try {
         if (effective_target === 'integrated') {
-            await send_to_stata_terminal('do', temp_file_path);
+            is_queued = await send_to_stata_terminal('do', temp_file_path);
         } else if (effective_target === 'app') {
             if (process.platform === 'darwin') {
                 const stata_app = await detect_stata_app();
@@ -173,6 +176,8 @@ export async function execute_cd_command(
         vscode.window.showErrorMessage(
             `Error: ${my_error instanceof Error ? my_error.message : my_error}`);
     } finally {
-        schedule_temp_file_cleanup(temp_file_path);
+        if (!is_queued) {
+            schedule_temp_file_cleanup(temp_file_path);
+        }
     }
 }
