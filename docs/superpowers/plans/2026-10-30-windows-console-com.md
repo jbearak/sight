@@ -839,7 +839,8 @@ server, per CLAUDE.md) into `client/cli/cli.js`, with a nested
 the completer needs (`.vscodeignore` doesn't exclude it). A build test
 runs the bundle (`cli.js console --help` with `ELECTRON_RUN_AS_NODE`)
 rather than only checking that the file exists, since `main()` runs
-only when `is_cli_entry_point(process.argv[1])` holds (`cli.ts:271`),
+only when `is_cli_entry_point(process.argv[1])` holds (`cli.ts:279`,
+defined at `:255`),
 which a Windows path-case difference could break; it also checks a
 size budget.
 
@@ -916,7 +917,13 @@ bakes the first send into the CLI's arguments
   `send_to_stata_terminal` returns) is skipped for a queued send; the
   queue owns that file and schedules its cleanup when it is typed,
   dispatched or dropped.
-- `TERMINAL_READY_TIMEOUT_MS` (5 s) doesn't apply to console
+- `send_to_stata_terminal` returns whether it queued the send; when it
+  did, the `finally` in `commands.ts` skips cleanup (cleanup still runs
+  if terminal creation throws). Profile-opened console terminals are
+  matched to their ready-file paths through a FIFO of pending paths,
+  not the current count and name (`stata-terminal-manager.ts:70-77`).
+- `TERMINAL_READY_TIMEOUT_MS` (5 s), and the `await ready_promise` in
+  `send_to_stata_terminal` (`:367-370`), don't apply to console
   terminals: readiness can take minutes (the take-over question, step
   5's wait, the after-the-fact question).
 - A console terminal is shown with focus when it is created and when a
@@ -929,8 +936,9 @@ offer is made only if `exitStatus.reason` is `Process` (not `User`,
 `Shutdown` or `Extension`) and `exitStatus.code` is in the table.
 Exit code 0, a missing code, other codes and user-closed terminals
 make no offer, and that terminal's pending sends are dropped and their
-temp files deleted; except after a user close, a one-line notice says
-how many sends were dropped and why. The message comes from a table in the extension,
+temp files deleted. A one-line notice then says how many sends were
+dropped and why, for every such close except a user close (which
+shows nothing). The message comes from a table in the extension,
 keyed by code; the console's own text is gone with the terminal.
 
 Only one offer shows at a time. If another console terminal closes
@@ -941,7 +949,13 @@ updated in place, so the second terminal's reason isn't shown, but the
 dispatch result reports how many sends went to the app. Code 82 never
 waits on a showing offer: its own pending sends are dispatched to the
 app at once and the session override is set; the showing offer stays
-for the sends it already holds. Every pending send ends exactly once:
+for the sends it already holds, so sends from different terminals may
+reach the app out of order (order is kept within a terminal). An
+offer-code close while the session override or `external` is already
+in effect asks nothing: its sends are dispatched at once. Dismissing
+the notification (or letting it go to the notification center) counts
+as Cancel after 60 s, so held sends and their temp files don't wait
+indefinitely; the status bar count includes sends held by an offer. Every pending send ends exactly once:
 typed into its ready terminal, dispatched to the app, or dropped.
 
 **The offer.** "sight console can't use Stata here: <reason>. Send
