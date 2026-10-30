@@ -1,0 +1,92 @@
+/**
+ * `sight console`: Stata's console with a better front end.
+ *
+ * This module is safe to load under Node: the PTY and session code
+ * (Bun-only) load lazily, and only for an interactive terminal. With
+ * stdin or stdout redirected, Stata runs directly with inherited stdio.
+ */
+
+import { spawn } from 'child_process';
+import * as os from 'os';
+import { CONSOLE_HELP, parse_console_args } from './args';
+import { locate_stata } from './stata-locator';
+
+export const EXIT_USAGE = 2;
+
+export interface ConsoleDeps {
+    is_tty?: boolean;
+    platform?: NodeJS.Platform;
+    env?: NodeJS.ProcessEnv;
+}
+
+export async function run_console(
+    argv: readonly string[],
+    deps: ConsoleDeps = {}
+): Promise<number> {
+    const parsed = parse_console_args(argv);
+    if (!parsed.success) {
+        console.error(`Error: ${parsed.error}`);
+        console.error('Run "sight console --help" for usage information.');
+        return EXIT_USAGE;
+    }
+    const { args } = parsed;
+    if (args.help) {
+        console.log(CONSOLE_HELP);
+        return 0;
+    }
+
+    const platform = deps.platform ?? process.platform;
+    if (platform === 'win32') {
+        console.error('Error: sight console needs Stata\'s console, which Stata '
+            + 'does not provide on Windows.');
+        return EXIT_USAGE;
+    }
+
+    const env = deps.env ?? process.env;
+    const located = locate_stata({ explicit_path: args.stata_path, env, platform });
+    if (!located.found) {
+        console.error(`Error: ${located.error}`);
+        return EXIT_USAGE;
+    }
+
+    const is_tty = deps.is_tty ?? Boolean(process.stdin.isTTY && process.stdout.isTTY);
+    if (!is_tty) {
+        return run_passthrough(located.path, args.stata_args);
+    }
+
+    const { is_pty_supported } = await import('./pty');
+    if (!is_pty_supported()) {
+        console.error('Error: sight console needs the native sight binary or '
+            + 'Bun 1.3.5 or later (run it with "bun"); this runtime has no '
+            + 'pseudo-terminal support.');
+        return EXIT_USAGE;
+    }
+    const color_output = env.NO_COLOR ? 'off' : args.color_output;
+    const { run_interactive } = await import('./interactive');
+    return run_interactive({
+        stata_path: located.path,
+        stata_args: args.stata_args,
+        color_output,
+        history: args.history,
+        stata_echoes: args.stata_echoes,
+    });
+}
+
+/** Run Stata with this process's stdio; resolve with its exit status. */
+export function run_passthrough(stata_path: string, stata_args: readonly string[]): Promise<number> {
+    return new Promise((resolve) => {
+        const child = spawn(stata_path, [...stata_args], { stdio: 'inherit' });
+        child.on('error', (error) => {
+            console.error(`Error: could not start ${stata_path}: ${error.message}`);
+            resolve(1);
+        });
+        child.on('exit', (code, signal) => {
+            if (code !== null) {
+                resolve(code);
+                return;
+            }
+            const number = signal ? os.constants.signals[signal] : undefined;
+            resolve(number === undefined ? 1 : 128 + number);
+        });
+    });
+}

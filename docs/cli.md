@@ -1,7 +1,7 @@
 # CLI
 
-Sight ships a `sight` binary for editor language-server use and command-line
-checks.
+Sight ships a `sight` binary for editor language-server use, command-line
+checks, and an enhanced Stata console.
 
 ## `sight check`
 
@@ -184,6 +184,17 @@ sight check
 `.mata` files are included as report targets because Sight indexes them for
 symbols, but v1 diagnostics for Mata are limited to what the current parser and
 diagnostic pipeline can produce.
+
+## `sight console`
+
+Run Stata's console with syntax highlighting, Tab completion, history and
+colored output (experimental, macOS and Linux):
+
+```text
+sight console [OPTIONS] [-- STATA_ARGS...]
+```
+
+See [Sight console](console.md) for options, keys and limits.
 
 ## Language server
 
