@@ -9,6 +9,9 @@
  * FAKE_STATA_MODE (comma-separated) adds adversarial behavior:
  *   echo  turn terminal echo back on at startup, like a program that
  *         manages its own terminal settings.
+ *   raw   behave like real Stata 18's console: switch the terminal to
+ *         non-canonical mode with echo off, echo typed characters
+ *         itself, and read `--more--` as a single key.
  *
  * Commands: local/global/generate (silent), display/di TEXT, sleep MS, foreach/forvalues ... {, mata,
  * request, more, slow, note, colors, len, pid, exitcode N, exit.
@@ -22,6 +25,12 @@ const quiet = process.argv.includes('-q');
 if (modes.has('echo')) {
     spawnSync('stty', ['echo'], { stdio: ['inherit', 'ignore', 'ignore'] });
 }
+const raw = modes.has('raw');
+if (raw) {
+    spawnSync('stty', ['-icanon', '-echo', 'min', '1'], { stdio: ['inherit', 'ignore', 'ignore'] });
+}
+/** Set while `--more--` waits for one key (raw mode). */
+let more_key_reader: ((key: string) => void) | null = null;
 
 type Mode = 'stata' | 'block' | 'mata';
 let mode: Mode = 'stata';
@@ -113,13 +122,21 @@ function run(line: string): void {
                 finish();
             };
             return;
-        case 'more':
+        case 'more': {
             write('line 1\nline 2\n--more--');
-            line_reader = (reply) => {
-                write(`\r        \rline 3 (${JSON.stringify(reply)})\n`);
+            const answer = (reply: string): void => {
+                // Real Stata erases the prompt with backspaces.
+                write(`${'\b'.repeat(8)}${' '.repeat(8)}${'\b'.repeat(8)}`
+                    + `line 3 (${JSON.stringify(reply)})\n`);
                 finish();
             };
+            if (raw) {
+                more_key_reader = answer;
+            } else {
+                line_reader = answer;
+            }
             return;
+        }
         case 'slow':
             // Output with a prompt-shaped fragment and a pause in the middle.
             write('working\n. ');
@@ -192,7 +209,32 @@ function drain_input(): void {
 }
 
 process.stdin.on('data', (chunk: Buffer) => {
-    pending += chunk.toString('utf8');
+    const text = chunk.toString('utf8');
+    if (!raw) {
+        pending += text;
+        drain_input();
+        return;
+    }
+    // Raw mode: echo as Stata does, turning CR into a line end.
+    for (const my_char of text) {
+        const key_reader = more_key_reader;
+        if (key_reader) {
+            more_key_reader = null;
+            key_reader(my_char);
+            continue;
+        }
+        if (my_char === '\r' || my_char === '\n') {
+            if (busy_timer === null) {
+                write('\n');
+            }
+            pending += '\n';
+        } else {
+            if (busy_timer === null) {
+                write(my_char);
+            }
+            pending += my_char;
+        }
+    }
     drain_input();
 });
 

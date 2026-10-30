@@ -274,15 +274,60 @@ describe('ConsoleSession', () => {
         expect(request.screen.join('')).not.toContain('\x1b[1;34m');
     });
 
-    it('lets Stata echo the line when its terminal echo is on', () => {
-        const { pty, session, screen, at_prompt } = setup();
-        pty.echo = true;
+    it('drops Stata\'s own echo of a submitted line, also split across chunks', () => {
+        // Real Stata runs its terminal in raw mode and echoes input itself.
+        const { pty, session, screen, at_prompt, clock } = setup();
+        pty.canonical = false;
         at_prompt();
-        screen.length = 0;
         session.handle_input('display 1\r');
         expect(pty.written).toEqual(['display 1\r']);
-        // The editor is cleared back to the prompt rather than left.
-        expect(screen.join('').endsWith('\r\x1b[J. \r\x1b[2C')).toBe(true);
+        screen.length = 0;
+        session.handle_output('displ');
+        session.handle_output('ay 1\r\n2\r\n');
+        clock.advance(100);
+        const shown = strip_ansi(screen.join(''));
+        expect(shown).not.toContain('display 1');
+        expect(shown).toContain('2\r\n');
+    });
+
+    it('drops an echo that Stata wrapped at the line width', () => {
+        const { pty, session, screen, at_prompt, clock } = setup();
+        pty.canonical = false;
+        at_prompt();
+        session.handle_input('display "abcdef"\r');
+        screen.length = 0;
+        // Wrapped, with the marker split across chunks.
+        session.handle_output('display "ab\r');
+        session.handle_output('\n> cdef"\r\nabcdef\r\n');
+        clock.advance(100);
+        const shown = strip_ansi(screen.join(''));
+        expect(shown).not.toContain('display');
+        expect(shown).toContain('abcdef\r\n');
+    });
+
+    it('shows output unchanged when it is not an exact echo', () => {
+        const { pty, session, screen, at_prompt, clock } = setup();
+        pty.echo = true;
+        at_prompt();
+        session.handle_input('display 1\r');
+        screen.length = 0;
+        session.handle_output('disp');
+        session.handle_output('X\r\n');
+        clock.advance(100);
+        expect(strip_ansi(screen.join(''))).toContain('dispX\r\n');
+    });
+
+    it('leaves a typed-ahead line for Stata to echo when it reads it', () => {
+        const { pty, session, screen, clock } = setup();
+        pty.canonical = false;
+        session.handle_output('working');
+        clock.advance(100);
+        session.handle_input('display 2');
+        screen.length = 0;
+        session.handle_input('\r');
+        expect(pty.written).toEqual(['display 2\r']);
+        // Cleared back to Stata's partial line, not left on screen.
+        expect(screen.join('').endsWith('\r\x1b[Jworking\r\x1b[7C')).toBe(true);
     });
 
     it('keeps failure tracking for a running command across typed-ahead lines', () => {

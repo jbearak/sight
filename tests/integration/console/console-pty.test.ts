@@ -111,8 +111,8 @@ describe.skipIf(!available)('sight console in a pseudo-terminal', () => {
             await at_prompt(driven);
             driven.type('exitcode 3\r');
             expect(await driven.proc.exited).toBe(3);
-            // Bracketed paste mode is turned off again on the way out.
-            expect(driven.raw().endsWith('\x1b[?2004l')).toBe(true);
+            // Bracketed paste and Stata's cursor-key mode are reset on exit.
+            expect(driven.raw().endsWith('\x1b[?2004l\x1b[?1l\x1b>')).toBe(true);
         } finally {
             driven.proc.kill();
             driven.terminal.close();
@@ -205,6 +205,30 @@ describe.skipIf(!available)('sight console in a pseudo-terminal', () => {
             await driven.wait_for(/^42$/m);
             const lines = driven.screen().split('\n');
             expect(lines.filter((my_line) => my_line === '. display 42').length).toBe(1);
+        } finally {
+            driven.proc.kill();
+            driven.terminal.close();
+        }
+    });
+
+    it('works with a Stata that runs its terminal raw and echoes itself', async () => {
+        // Real Stata 18's console: non-canonical mode, its own echo, and
+        // a single-key --more--.
+        const driven = drive('raw');
+        try {
+            await at_prompt(driven);
+            driven.type('display 7\r');
+            await driven.wait_for(/^7$/m);
+            const lines = driven.screen().split('\n');
+            expect(lines.filter((my_line) => my_line === '. display 7').length).toBe(1);
+            expect(driven.raw()).toContain('\x1b[1;34mdisplay\x1b[0m \x1b[36m7\x1b[0m');
+
+            await at_prompt(driven);
+            driven.type('more\r');
+            await driven.wait_for(/--more--$/);
+            await sleep(120);
+            driven.type(' ');
+            await driven.wait_for(/^line 3 \(" "\)$/m);
         } finally {
             driven.proc.kill();
             driven.terminal.close();

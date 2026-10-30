@@ -14,9 +14,9 @@ typed the line into plain console Stata, and colors what Stata prints.
 Commands and Stata itself behave as usual.
 
 > [!NOTE]
-> The console is experimental. It has been tested against a stand-in
-> that mimics console Stata. If something looks wrong with real Stata,
-> see [Known limits](#known-limits) and
+> The console is experimental. It has been tested with Stata 18 (StataMP)
+> on macOS; Linux has been tested only against a stand-in that mimics
+> console Stata. If something looks wrong,
 > [please report it](https://github.com/jbearak/sight/issues).
 
 ## Requirements
@@ -135,20 +135,22 @@ Output that already contains color codes is left alone.
   output stops at a `. `, `: `, `>>> ` or numbered prompt for 50 ms.
   Output that happens to end that way only affects highlighting and
   staged pastes, never what is sent.
-- If Stata turns terminal echo back on, Sight notices and shows each
-  line once. If you still see lines twice, use `--stata-echoes`.
+- Stata's console reads keys one at a time and echoes them itself. Sight
+  keeps its highlighted copy of each line and drops Stata's plain echo,
+  but only when the echo matches exactly. Otherwise you see both. If
+  lines show twice on a system where Sight doesn't notice the echo, use
+  `--stata-echoes`.
+- A line you type while Stata is busy shows up when Stata reads it,
+  after the running command finishes, as in plain console Stata.
 
-### Checking with real Stata
+### Tested with real Stata
 
-If you try the console, these are the behaviors not yet confirmed
-against real Stata (they were checked against a stand-in):
-
-1. Each line you enter shows once, not twice.
-2. `Ctrl+C` stops a long command (`sleep 10000`) with `--Break--`.
-3. `--more--` (after `set more on`) takes one keystroke.
-4. Resizing the terminal changes Stata's line width.
-5. `display _request(name)` takes your reply.
-6. Mata (`mata`) and Python (`python`) prompts work.
+With Stata 18 (StataMP) on macOS, each of these works: lines show once
+and highlighted, long lines included; errors are red; Tab completion;
+`Ctrl+C` stops `sleep 10000` with `--Break--`; `--more--` takes one key
+(space continues, `q` stops); resizing the terminal changes
+`c(linesize)`; `display _request(name)` takes your reply; `foreach`
+blocks; Mata and Python prompts; staged pastes; `Ctrl+D` quits.
 
 ## See also
 

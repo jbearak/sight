@@ -88,7 +88,9 @@ export function run_interactive(options: InteractiveOptions): Promise<number> {
         }
         process.off('uncaughtException', on_crash);
         process.off('unhandledRejection', on_crash);
-        write(BRACKETED_PASTE_OFF);
+        // Stata turns on application cursor and keypad modes; put the
+        // terminal back even if Stata was killed before resetting them.
+        write(BRACKETED_PASTE_OFF + '\x1b[?1l\x1b>');
         try {
             stdin.setRawMode(false);
         } catch {

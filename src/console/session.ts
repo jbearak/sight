@@ -37,6 +37,8 @@ export const ESCAPE_TIMEOUT_MS = 25;
  * kernel's line buffer (MAX_CANON, 1024 bytes on macOS) drops the rest.
  */
 export const MAX_CANONICAL_LINE_BYTES = 1000;
+/** What Stata's console inserts where it wraps an echoed long line. */
+const ECHO_WRAP_MARKER = '\r\n> ';
 
 export interface Clock {
     set_timeout(callback: () => void, delay_ms: number): unknown;
@@ -79,7 +81,15 @@ export class ConsoleSession {
     private staged: string[] = [];
     /** One-off message shown under the input until the next keystroke. */
     private message: string | null = null;
-    private stata_echoes: boolean;
+    /** Set by `--stata-echoes`; otherwise echo is read from the PTY. */
+    private readonly stata_echoes: boolean;
+    /**
+     * The rest of the echo Stata is expected to print for the line just
+     * submitted, and what of it has been held back so far.
+     */
+    private expected_echo: string | null = null;
+    private held_echo = '';
+    private echo_carry = '';
     private last_line_in_transcript = false;
     private completion_generation = 0;
     private exited = false;
@@ -114,9 +124,13 @@ export class ConsoleSession {
         if (this.exited || text.length === 0) {
             return;
         }
+        const output = this.consume_echo(text);
+        if (output.length === 0) {
+            return;
+        }
         this.prompt_kind = null;
         this.hide_editor();
-        this.emit(this.colorizer.push(text));
+        this.emit(this.colorizer.push(output));
         this.restart_timer('flush');
         this.restart_timer('prompt');
         if (this.has_editor_content()) {
@@ -277,15 +291,26 @@ export class ConsoleSession {
         }
         const kind = this.prompt_kind;
         this.editor.menu = null;
+        // Stata's console normally puts its terminal in raw mode and
+        // echoes what it reads itself; a terminal with echo on does too.
+        const stata_echoes = this.stata_echoes || this.options.pty.echo_enabled()
+            || !this.options.pty.canonical_mode();
         // Draw the final line without the menu or note rows under it.
-        if (this.stata_echoes) {
-            // Leave the prompt alone; Stata's echo prints the line.
+        if (stata_echoes && kind === null) {
+            // Typed ahead while Stata runs: Stata echoes the line when it
+            // reads it, after the running command's output.
             this.render_input('', 0, false);
         } else {
             this.render_input(this.editor.buffer, this.editor.buffer.length, false);
             this.options.write('\r\n');
             this.partial = '';
             this.colorizer.end_line();
+            if (stata_echoes) {
+                // The highlighted line stays; drop Stata's plain copy.
+                this.expected_echo = line + '\r\n';
+                this.held_echo = '';
+                this.echo_carry = '';
+            }
         }
         this.render_state = null;
 
@@ -346,6 +371,53 @@ export class ConsoleSession {
         this.show_editor();
     }
 
+    /**
+     * Remove Stata's echo of the line just submitted from the start of
+     * its output. Only an exact copy (line, then CR LF) directly after
+     * the submission is removed, even across chunks, allowing for the
+     * `CR LF > ` Stata inserts where it wraps a long line. Anything else
+     * releases what was held and is shown unchanged.
+     */
+    private consume_echo(text: string): string {
+        const expected = this.expected_echo;
+        if (expected === null) {
+            return text;
+        }
+        // Resume with any wrap marker that was split across chunks.
+        const scan = this.echo_carry + text;
+        this.echo_carry = '';
+        let scan_index = 0;
+        let expected_index = 0;
+        while (scan_index < scan.length && expected_index < expected.length) {
+            if (scan[scan_index] === expected[expected_index]) {
+                scan_index++;
+                expected_index++;
+            } else if (scan.startsWith(ECHO_WRAP_MARKER, scan_index)) {
+                scan_index += ECHO_WRAP_MARKER.length;
+            } else if (ECHO_WRAP_MARKER.startsWith(scan.slice(scan_index))) {
+                this.echo_carry = scan.slice(scan_index);
+                scan_index = scan.length;
+            } else {
+                break;
+            }
+        }
+        if (expected_index === expected.length) {
+            this.expected_echo = null;
+            this.held_echo = '';
+            return scan.slice(scan_index);
+        }
+        if (scan_index === scan.length) {
+            this.expected_echo = expected.slice(expected_index);
+            this.held_echo += text;
+            return '';
+        }
+        const released = this.held_echo + text;
+        this.expected_echo = null;
+        this.held_echo = '';
+        this.echo_carry = '';
+        return released;
+    }
+
     // ---- Stata events ----
 
     private on_stata_error(): void {
@@ -368,9 +440,6 @@ export class ConsoleSession {
             return;
         }
         this.prompt_kind = kind;
-        if (this.options.pty.echo_enabled()) {
-            this.stata_echoes = true;
-        }
         if (COMMAND_PROMPT_KINDS.has(kind) && this.editor.buffer.length === 0
             && this.staged.length > 0) {
             this.editor.set_buffer(this.staged.shift() ?? '');
