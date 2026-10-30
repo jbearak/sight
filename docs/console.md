@@ -16,12 +16,14 @@ Commands and Stata itself behave as usual.
 > [!NOTE]
 > The console is experimental. It has been tested with Stata 18 (StataMP)
 > on macOS; Linux has been tested only against a stand-in that mimics
-> console Stata. If something looks wrong,
+> console Stata, and Windows (see [Windows](#windows)) is new and not yet
+> tested end to end. If something looks wrong,
 > [please report it](https://github.com/jbearak/sight/issues).
 
 ## Requirements
 
-- macOS or Linux. Stata has no interactive console on Windows.
+- macOS or Linux; or Windows with Stata's Automation interface registered
+  (see [Windows](#windows)).
 - Stata's console binary. Sight looks for `--stata PATH`, then
   `SIGHT_STATA_PATH`, then `stata-mp`, `stata-se`, `stata-be`, `stata-ic`
   and `stata` on your `PATH`, then (on macOS) the app bundles in
@@ -44,6 +46,7 @@ sight console [OPTIONS] [-- STATA_ARGS...]
 | `--no-color` | Same as `--color-output off` |
 | `--no-history` | Don't read or write the history file |
 | `--stata-echoes` | Stata echoes input itself; show each line once |
+| `-y`, `--yes` | Windows: take over an open Stata without asking |
 
 Stata starts with `-q` (no banner). Arguments after `--` replace that,
 for example `sight console -- -q -b`. `NO_COLOR` turns colors off.
@@ -112,7 +115,8 @@ when it asks for input without a normal prompt (for example
 History is saved to
 `~/Library/Application Support/sight/console_history` on macOS and
 `$XDG_DATA_HOME/sight/console_history` (default
-`~/.local/share/sight/console_history`) on Linux. Set
+`~/.local/share/sight/console_history`) on Linux, and
+`%APPDATA%\sight\console_history` on Windows. Set
 `SIGHT_CONSOLE_HISTORY` to use another file. The file is readable only by
 you. A line that starts with a space isn't saved. Only lines entered at
 Stata, Mata, or Python prompts are saved; replies to input requests are
@@ -151,6 +155,79 @@ and highlighted, long lines included; errors are red; Tab completion;
 (space continues, `q` stops); resizing the terminal changes
 `c(linesize)`; `display _request(name)` takes your reply; `foreach`
 blocks; Mata and Python prompts; staged pastes; `Ctrl+D` quits.
+
+## Windows
+
+Stata for Windows has no console, so on Windows `sight console` drives the
+Stata application through Stata's Automation (COM) interface. Stata's
+window stays open next to the terminal, so graphs, the Data Editor and the
+Variables window work as usual. The editing, completion, history and
+colors are the same as on macOS and Linux.
+
+### Setup
+
+Register Stata's Automation interface once: open a command prompt as
+administrator in your Stata folder and run, for example,
+`StataMP-64.exe /Register`. The console uses whichever Stata edition is
+registered; `--stata` doesn't apply on Windows. It runs a small helper
+script with Windows PowerShell, which managed machines sometimes block.
+
+### Which Stata it uses
+
+- No Stata open: the console starts one.
+- One Stata open: the console asks before taking it over. A taken-over
+  Stata belongs to the console from then on. `--yes` skips the question.
+- Two or more open: the console won't start; close all but the one to
+  use, or all of them.
+- The open Stata is in use by another program (such as Jupyter's
+  stata_kernel): the console won't start.
+
+The console's Stata shows `sight console` and a short code in its title.
+If you open a Stata in the second or so while the console connects, the
+console may get that one instead; it then asks whether to keep using it.
+
+### When the console ends
+
+**The console's Stata closes when the console ends**, with any unsaved
+data, as when you close a terminal running console Stata on macOS or
+Linux. That includes a Stata you let it take over. Type `exit` (or press
+Ctrl+D) to quit as usual; Stata refuses if data in memory changed, and
+`exit, clear` quits anyway. Closing the Stata window also ends the
+console.
+
+### Limits on Windows
+
+- Commands that ask for input (`display _request()`, `input`, `pause`)
+  are answered in the Stata window.
+- Resizing the terminal doesn't change Stata's `linesize`, which is set
+  when the console starts.
+- Output comes from a log Stata writes. A do-file that runs
+  `log close _all` (a common first line) stops output in the terminal;
+  it still shows in the Stata window. Restart the console to get it back.
+- `help`, `browse`, `edit`, `db` and `doedit` open windows in Stata.
+  Output of `shell` and `!` isn't shown.
+- Python compound statements typed line by line may fail, because Stata
+  drops leading whitespace from lines it is sent.
+- Commands typed in the Stata window show in the terminal too, but the
+  prompt may be wrong until the next line.
+- If Stata stops responding (a dialog is open), the console waits. Press
+  Ctrl+C twice to end it, which closes Stata.
+
+### Exit codes on Windows
+
+When the console doesn't take Stata, it exits with a code editors can act
+on (Sight's VS Code extension offers to send code to the open Stata
+window instead):
+
+| Code | Meaning |
+|---|---|
+| 80 | Two or more Stata windows are open |
+| 81 | You declined to let the console take over the open Stata |
+| 82 | You chose to send code from the editor instead (`s`, only when started by the editor) |
+| 83 | The open Stata is in use by another program |
+| 84 | Stata's Automation interface isn't registered |
+| 85 | PowerShell couldn't run the console's helper (a security policy) |
+| 86 | The terminal doesn't support raw input |
 
 ## See also
 

@@ -188,13 +188,16 @@ diagnostic pipeline can produce.
 ## `sight console`
 
 Run Stata's console with syntax highlighting, Tab completion, history and
-colored output (experimental, macOS and Linux):
+colored output (experimental). On Windows, where Stata has no console, it
+drives the Stata application through Automation:
 
 ```text
 sight console [OPTIONS] [-- STATA_ARGS...]
 ```
 
-See [Sight console](console.md) for options, keys and limits.
+See [Sight console](console.md) for options, keys and limits, and
+[Exit codes on Windows](console.md#exit-codes-on-windows) for the codes
+editors can act on.
 
 ## Language server
 
