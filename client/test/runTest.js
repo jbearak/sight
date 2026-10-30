@@ -147,8 +147,8 @@ async function main() {
         // propagates the test exit code. The system `code` CLI does not: it
         // launches a window and returns 0 immediately (a false pass). So this
         // suite always uses @vscode/test-electron's blocking download path,
-        // on a modern VS Code — mocha 11 needs the extension host's Node >= 18
-        // (the smoke suite's 1.75.0 ships Node 16). VS Code is cached under
+        // on the current VS Code rather than the oldest supported one.
+        // VS Code is cached under
         // .vscode-test after the first download. Override with VSCODE_VERSION.
         await runTests({
             version: process.env.VSCODE_VERSION || 'stable',
@@ -239,8 +239,10 @@ async function main() {
         return;
     }
 
+    // The oldest VS Code the extension supports (engines.vscode): 1.123
+    // is the first whose extension host runs Node 24 (Electron 42).
     await runTests({
-        version: '1.75.0',
+        version: '1.123.0',
         extensionDevelopmentPath: extension_development_path,
         extensionTestsPath: extension_tests_path,
         launchArgs: launch_args,
