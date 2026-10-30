@@ -231,8 +231,11 @@ Stata as taken):
    Stata install, in the current session, with a main window (so batch
    `/b` jobs and other users' Statas don't count), excluding any owned
    by a running console: one whose PID and start time appear in a `pid`
-   file under `%TEMP%\sight-console\*\` (written in step 4, before the
-   mutex is released, so ownership doesn't depend on the title).
+   file under `%TEMP%\sight-console\*\` whose directory's `owner` (the
+   console's own PID and start time) is still running. The `pid` file is
+   written in step 4, before the mutex is released, so ownership
+   doesn't depend on the title; a crashed console's stale file doesn't
+   hide a live Stata.
    - **Two or more:** stop. COM would choose among them, not the user.
      Message: close all but the one to share, or all for a new Stata.
    - **One:** show its window title and ask: "sight console will take
@@ -299,9 +302,10 @@ Stata as taken):
 6. Mark and confirm: `DoCommand(window manage maintitle "Stata - sight
    console <token8>")` (no `capture`, so its `rc` is real), then find
    the PID by that title and check it against step 4. If they differ,
-   the title's PID is the truth: the `pid` file is rewritten, and if
-   that Stata wasn't the consented one, the after-the-fact question in
-   step 4 is asked. If the title command fails, step 4's PID stands
+   the title's PID is the truth: the `pid` file is rewritten, and the
+   after-the-fact question in step 4 is asked if that Stata wasn't the
+   consented one and the question hasn't already been answered for this
+   PID (it is asked again only when the identified PID changes). If the title command fails, step 4's PID stands
    (the `pid` file already marks ownership) and exit detection also
    uses RPC errors. Release the mutex.
 
@@ -355,10 +359,9 @@ or a program definition (numbered from `  1. `); `: cmd` in Mata, with
 and Mata compound statements are echoed with their prefix; a top-level
 blank line is not. The backend emits a synthesized prompt when a line
 finishes (below). When the log shows the echo of the line it just
-submitted, `<prefix><line>`, it strips the prefix from the first
-physical line (already emitted as the prompt) and replaces the echo
-as described next. Lines are matched with leading and trailing whitespace trimmed on both
-sides and wrap markers removed, because Stata drops leading whitespace
+submitted, `<prefix><line>`, it replaces the whole echo (the prefix
+was already emitted as the prompt). Lines are matched with leading and
+trailing whitespace trimmed on both sides and wrap markers removed, because Stata drops leading whitespace
 from what it echoes (S5: `    print(123)` was logged as `print(123)`).
 When a log echo matches, the backend emits the *submitted* line
 exactly, `<line>\r\n`, in its place (after the prompt), not Stata's
@@ -400,7 +403,9 @@ mode (a blank line can end a compound statement in Mata or Python).
 A top-level blank line isn't echoed (S5); completion doesn't need an
 echo, so it still yields a fresh prompt. Inside Mata and Python
 compound statements a blank line is echoed with its prefix. A blank
-echo is matched to the oldest blank record not yet echoed. If it
+line's record is retired when the line finishes (so a top-level blank,
+never echoed, can't absorb a later one), and a blank echo is matched to
+the oldest blank record still live. If it
 arrives while that line is still in flight it is replaced by `\r\n`
 like any echo (for `consume_echo`); if the line has already finished,
 the echo is dropped, so it never lands after the next prompt.
@@ -591,7 +596,12 @@ names a running process (by PID and start time).
 ### ComBridge
 
 A long-lived helper holding the one COM reference, speaking JSON
-lines, one request at a time, each with an `id` and a timeout:
+lines, one request at a time, each with an `id` and a timeout. The
+first `list_stata` acquires the connect mutex (waiting as long as
+needed, with interim `{"event":"mutex_wait"}` lines so the backend
+shows the waiting notice rather than counting a timeout); a
+`release_mutex` op releases it after step 6, and is never sent in the
+no-PID case. Ending the bridge releases it in every case:
 
 ```text
 -> {"id":1,"op":"self_test"}
@@ -603,6 +613,7 @@ lines, one request at a time, each with an `id` and a timeout:
 <- {"id":3,"ok":true,"processes_after":[...]}
 -> {"id":4,"op":"title_pid","token8":"..."}
 <- {"id":4,"ok":true,"pid":4312}
+-> {"id":9,"op":"release_mutex"}
 -> {"id":5,"op":"do_sync","cmd":"set more off"}
 <- {"id":5,"ok":true,"rc":0}
 -> {"id":6,"op":"do_async","cmd":"regress y x"}
@@ -744,7 +755,14 @@ appended below).
   listing); a failed `log using` (console stays up without output); two
   consoles connecting at once (mutex); a second console starting while
   the first one's title command failed (excluded by its `pid` file);
-  an unidentifiable result (treated as unconsented); no PID from the
+  an unidentifiable result (treated as unconsented); COM starting a
+  flagged new Stata while the consented one was open (identified, ends
+  at once); a window-less Stata present in both relaxed listings (not
+  "new"); a stale `pid` file from a crashed console (not excluded);
+  the after-the-fact question answered yes, then the title naming a
+  different Stata (asked again once) and the same one (not asked);
+  Ctrl+C during the mutex wait; an abandoned mutex; a top-level blank
+  followed by a Mata blank echo (matched to the Mata line); no PID from the
   listing and a failed title command (mutex kept for the console's
   life; a second console waits); a late `do_async` acknowledgement and
   a late `do_async` RPC error; log loss inside a block, in Mata
