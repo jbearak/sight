@@ -885,7 +885,12 @@ bakes the first send into the CLI's arguments
 
 - The console creates `SIGHT_CONSOLE_READY_FILE` when it shows its
   first prompt (after setup). That file, not the process ID, is
-  readiness.
+  readiness. Each terminal gets its own path (a random name under the
+  extension's temp directory), watched by polling for that terminal
+  only. Each terminal's state goes `starting` to `ready` to `closed`,
+  and `closed` is final: a ready file seen after the close is ignored,
+  so sends are never released into a closed terminal. On close the
+  watch stops and the file is deleted.
 - Each console terminal has a queue in the extension. A send made
   before readiness (including the one that created the terminal, and
   sends into a terminal the user opened from the profile list) is
@@ -907,9 +912,20 @@ bakes the first send into the CLI's arguments
 offer is made only if `exitStatus.reason` is `Process` (not `User`,
 `Shutdown` or `Extension`) and `exitStatus.code` is in the table.
 Exit code 0, a missing code, other codes and user-closed terminals
-make no offer. The message comes from a table in the extension, keyed
-by code; the console's own text is gone with the terminal. Only one
-offer shows at a time.
+make no offer, and that terminal's pending sends are dropped and their
+temp files deleted. The message comes from a table in the extension,
+keyed by code; the console's own text is gone with the terminal.
+
+Only one offer shows at a time. If another console terminal closes
+with an offer code while one is showing, its pending sends join the
+showing offer's, in close order, and the offer's answer applies to all
+of them (dispatched once each, or dropped); the notification can't be
+updated in place, so the second terminal's reason isn't shown, but the
+dispatch result reports how many sends went to the app. Code 82 never
+waits on a showing offer: its own pending sends are dispatched to the
+app at once and the session override is set; the showing offer stays
+for the sends it already holds. Every pending send ends exactly once:
+typed into its ready terminal, dispatched to the app, or dropped.
 
 **The offer.** "sight console can't use Stata here: <reason>. Send
 code to the open Stata window instead?", with **This session**,
@@ -966,7 +982,11 @@ sends queued before readiness and typed in order on readiness; several
 rapid sends, then a close before readiness (each dispatched once, temp
 files intact until then); a close after readiness (no dispatch); a
 profile-opened terminal (queued the same way); a second close while an
-offer is showing (no stacking); the terminal closing while the
+offer is showing (its sends join that offer; each send resolved once
+for each answer); code 82 arriving while an offer shows (dispatched at
+once, the other offer unaffected); a ready file appearing after the
+close (ignored); pending temp files deleted on a user close and on an
+unknown code; the terminal closing while the
 notification is open; helper failure during dispatch; the profile's
 `shellPath`, `shellArgs` and `env` (including `ELECTRON_RUN_AS_NODE`);
 on the console side, `s` and `N` making no COM call, `--yes` winning
