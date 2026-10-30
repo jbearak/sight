@@ -457,8 +457,20 @@ export class ConsoleTerminalQueue<TTerminal> {
         this.stop_poll(entry);
         const the_sends = entry.pending;
         entry.pending = [];
-        for (const my_send of the_sends) {
-            this.host.type_send(terminal, my_send);
+        for (let i = 0; i < the_sends.length; i++) {
+            const my_send = the_sends[i];
+            try {
+                this.host.type_send(terminal, my_send);
+            } catch (my_error) {
+                // The terminal went away before its close event.
+                const the_rest = the_sends.slice(i);
+                this.drop(the_rest);
+                this.host.show_error(
+                    `Dropped ${count_sends(the_rest.length)} to Stata: `
+                    + `${my_error instanceof Error ? my_error.message : my_error}`
+                );
+                break;
+            }
             // The cleanup delay counts from when Stata is handed the
             // file, not from when the send was made.
             this.host.schedule_cleanup(my_send.temp_file_path);

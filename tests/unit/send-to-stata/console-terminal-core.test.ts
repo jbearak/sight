@@ -232,6 +232,37 @@ describe('console terminal queue: readiness', () => {
         expect(host.the_deleted).toEqual(['/ready/t1']);
     });
 
+    test('drops the rest if typing fails', async () => {
+        const host = new FakeHost();
+        host.type_send = (_terminal, my_send) => {
+            if (my_send.temp_file_path === '/b.do') {
+                throw new Error('terminal has exited');
+            }
+            host.the_typed.push(`t1:${my_send.temp_file_path}`);
+        };
+        const queue = create_queue(host);
+        const terminal = { id: 't1' };
+        queue.track(terminal, '/ready/t1');
+        queue.send(terminal, send('/a.do'));
+        queue.send(terminal, send('/b.do'));
+        queue.send(terminal, send('/c.do'));
+
+        host.the_existing_files.add('/ready/t1');
+        await wait_until(
+            () => host.the_errors.length === 1,
+            'the typing error to show',
+            1000
+        );
+        expect(host.the_typed).toEqual(['t1:/a.do']);
+        expect(host.the_cleanups).toEqual(['/a.do']);
+        expect(host.the_deleted).toEqual(['/b.do', '/c.do']);
+        expect(host.the_errors[0]).toStartWith('Dropped 2 sends to Stata');
+        for (const my_path of ['/a.do', '/b.do', '/c.do']) {
+            expect(host.resolutions_of(my_path)).toBe(1);
+        }
+        expect(queue.pending_count()).toBe(0);
+    });
+
     test('ignores a ready file that appears after the close', async () => {
         const host = new FakeHost();
         const queue = create_queue(host);

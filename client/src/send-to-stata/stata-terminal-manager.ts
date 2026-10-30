@@ -269,10 +269,15 @@ function get_console_queue(): ConsoleTerminalQueue<vscode.Terminal> {
 function to_console_exit(
     exit_status: vscode.TerminalExitStatus | undefined
 ): ConsoleExit {
-    // TerminalExitReason needs VS Code 1.77; older hosts report none.
+    // TerminalExitReason needs VS Code 1.77. Older hosts report no
+    // reason; there an exit code means the process exited.
     const the_reasons = vscode.TerminalExitReason;
     let reason: ConsoleCloseReason = 'unknown';
-    if (the_reasons && exit_status) {
+    if (exit_status && exit_status.reason === undefined) {
+        if (exit_status.code !== undefined) {
+            reason = 'process';
+        }
+    } else if (the_reasons && exit_status) {
         if (exit_status.reason === the_reasons.Process) {
             reason = 'process';
         } else if (exit_status.reason === the_reasons.User) {

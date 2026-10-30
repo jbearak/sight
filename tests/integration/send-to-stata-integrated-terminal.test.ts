@@ -69,7 +69,8 @@ interface MockTerminal {
     processId: Promise<number | undefined>;
     show: (preserveFocus?: boolean) => void;
     sendText: (text: string) => void;
-    exitStatus?: { code: number | undefined; reason: number };
+    // `reason` is absent on VS Code before 1.77.
+    exitStatus?: { code: number | undefined; reason?: number };
     creationOptions?: CreateTerminalOptions;
 }
 
@@ -1166,6 +1167,21 @@ describe.serial('Feature: sight console terminal on local Windows', () => {
         expect(vscode_state.the_warning_calls).toEqual([]);
         expect(terminal_manager.is_console_session_override_set())
             .toBe(true);
+    });
+
+    test('a host with no exit reason still offers on an exit code', async () => {
+        const { vscode_state, the_terminals, terminal_manager } =
+            await create_console_harness();
+        const my_file = await create_tracked_send_file('a.do');
+        await terminal_manager.send_to_stata_terminal('do', my_file);
+
+        // VS Code before 1.77 sets only the code.
+        the_terminals[0].exitStatus = { code: 80 };
+        for (const my_listener of [...vscode_state.the_close_listeners]) {
+            my_listener(the_terminals[0]);
+        }
+        expect(vscode_state.the_warning_calls).toHaveLength(1);
+        vscode_state.the_warning_calls[0].answer.resolve('Cancel');
     });
 
     test('a helper failure during dispatch shows the error and drops the rest', async () => {
