@@ -836,9 +836,12 @@ needs its helper downloaded (`exe-downloader.ts`, asked on first use).
 bundles `src/cli.ts` with esbuild as CommonJS (`--format=cjs`, like the
 server, per CLAUDE.md) into `client/cli/cli.js`, with a nested
 `package.json` `{"type":"commonjs"}` and the command-database caches
-the completer needs, and `.vscodeignore` includes it. A build test
-checks the file exists after `vscode:prepublish` and stays under a size
-budget.
+the completer needs (`.vscodeignore` doesn't exclude it). A build test
+runs the bundle (`cli.js console --help` with `ELECTRON_RUN_AS_NODE`)
+rather than only checking that the file exists, since `main()` runs
+only when `is_cli_entry_point(process.argv[1])` holds (`cli.ts:271`),
+which a Windows path-case difference could break; it also checks a
+size budget.
 
 **Launching.** On local Windows the profile and the integrated target
 create the terminal with `shellPath: process.execPath`, `shellArgs:
@@ -851,7 +854,11 @@ The Windows backend needs no PTY, so `run_console` skips
 `process.stdin.isTTY` is false or `setRawMode` throws under VS Code's
 runtime, the console exits with the "terminal unsupported" code below
 instead of running broken. Phase 3 confirms raw mode, `resize`, and
-that the exit code passes through `Code.exe` unchanged.
+that the exit code passes through `Code.exe` unchanged; and, for each
+of codes 80-86, that VS Code fires `onDidCloseTerminal` with reason
+`Process` and that code even when the process exits quickly, and how
+its own "terminated with exit code" alert (`showExitAlert`) interacts
+with the offer.
 
 **Exit codes.** `sight console` exits with a distinct code for each
 case where it didn't take Stata, avoiding 0, 1, 2 (`EXIT_USAGE`) and
@@ -904,8 +911,17 @@ bakes the first send into the CLI's arguments
   the offer below: dispatched once each to the app, or dropped (temp
   files deleted). A terminal that closes after readiness has nothing
   queued.
-- Queued temp files are kept until dispatched or dropped, not
-  scheduled for cleanup at queue time.
+- Queued temp files are kept until dispatched or dropped. The
+  unconditional cleanup in `commands.ts:290-295` (30 s after
+  `send_to_stata_terminal` returns) is skipped for a queued send; the
+  queue owns that file and schedules its cleanup when it is typed,
+  dispatched or dropped.
+- `TERMINAL_READY_TIMEOUT_MS` (5 s) doesn't apply to console
+  terminals: readiness can take minutes (the take-over question, step
+  5's wait, the after-the-fact question).
+- A console terminal is shown with focus when it is created and when a
+  send queues behind its question, so the y/N/s question is seen.
+  While sends are queued, the status bar shows how many.
 - Cursor advance has already happened at send time and isn't repeated.
 
 **When to offer.** On `onDidCloseTerminal` for a console terminal, an
@@ -913,7 +929,8 @@ offer is made only if `exitStatus.reason` is `Process` (not `User`,
 `Shutdown` or `Extension`) and `exitStatus.code` is in the table.
 Exit code 0, a missing code, other codes and user-closed terminals
 make no offer, and that terminal's pending sends are dropped and their
-temp files deleted. The message comes from a table in the extension,
+temp files deleted; except after a user close, a one-line notice says
+how many sends were dropped and why. The message comes from a table in the extension,
 keyed by code; the console's own text is gone with the terminal.
 
 Only one offer shows at a time. If another console terminal closes
@@ -968,8 +985,11 @@ or to the app when the session override is set, with no warning. No
 existing test asserts the old warning. `auto` keeps resolving to the
 app on local Windows, so nothing changes for users who haven't chosen
 `integrated`; making `auto` prefer the console is a later decision.
-The `integrated` description in `package.json` changes to "runs sight
-console on Windows; if it can't use Stata, offers send-to-stata".
+The `integrated` and `auto` descriptions in `package.json` (around
+line 414, which says "Not available on native Windows") change to say
+that `integrated` runs sight console on Windows and offers
+send-to-stata if it can't use Stata, and that `auto` still uses the
+Stata app there.
 
 **Tests** (extending the `onDidCloseTerminal` mocks in
 `tests/integration/send-to-stata-integrated-terminal.test.ts` with
@@ -986,7 +1006,9 @@ offer is showing (its sends join that offer; each send resolved once
 for each answer); code 82 arriving while an offer shows (dispatched at
 once, the other offer unaffected); a ready file appearing after the
 close (ignored); pending temp files deleted on a user close and on an
-unknown code; the terminal closing while the
+unknown code; a
+user taking longer than 30 s at the take-over question (the queued temp
+file survives); readiness after more than 5 s (no timeout); the terminal closing while the
 notification is open; helper failure during dispatch; the profile's
 `shellPath`, `shellArgs` and `env` (including `ELECTRON_RUN_AS_NODE`);
 on the console side, `s` and `N` making no COM call, `--yes` winning
