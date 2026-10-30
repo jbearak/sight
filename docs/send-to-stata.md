@@ -11,7 +11,7 @@ The extension provides commands to send Stata code directly from VS Code to Stat
 The extension offers three ways to send code to Stata:
 
 - **Stata GUI Application** (`external`): Sends code to the standalone Stata application via AppleScript (macOS) or the send-to-stata helper, which pastes code into Stata's Command window (Windows).
-- **Integrated Stata Terminal** (`integrated`): Opens and sends code to a dedicated Stata terminal inside VS Code. The extension registers a "Stata" terminal profile that launches the Stata CLI (`stata-mp`, `stata-se`, `stata-ic`, `stata-be`, or `stata`). This works on macOS, Linux, and remote sessions (SSH, WSL, Dev Containers, Tunnels). Not available on native Windows because Stata has no interactive CLI on that platform.
+- **Integrated Stata Terminal** (`integrated`): Opens and sends code to a dedicated Stata terminal inside VS Code. The extension registers a "Stata" terminal profile that launches the Stata CLI (`stata-mp`, `stata-se`, `stata-ic`, `stata-be`, or `stata`). This works on macOS, Linux, and remote sessions (SSH, WSL, Dev Containers, Tunnels). On native Windows, where Stata has no interactive CLI, the terminal runs [sight console](console.md) instead, which drives the Stata application; see [Windows: sight console](#windows-sight-console).
 - **Active Terminal** (the `Terminal` submenu commands): Sends code to whatever terminal is currently active in VS Code, regardless of type. This is useful for sending commands to Stata running inside `tmux`, a Docker container, or any other terminal session that isn't the extension's built-in Stata terminal.
 
 ### Target Setting
@@ -20,19 +20,46 @@ The `sight.sendToStata.target` setting controls where the main send commands (`C
 
 | Value | Behavior |
 |-------|----------|
-| **auto** (default) | Uses the Stata GUI when running locally on macOS/Windows. Uses the integrated Stata terminal in remote sessions and on Linux. |
-| **integrated** | Always uses the integrated VS Code Stata terminal. On native Windows (where Stata has no interactive CLI), falls back to the GUI with a warning. |
+| **auto** (default) | Uses the Stata GUI when running locally on macOS/Windows (on Windows, `auto` doesn't use sight console). Uses the integrated Stata terminal in remote sessions and on Linux. |
+| **integrated** | Always uses the integrated VS Code Stata terminal. On native Windows this runs sight console; if the console can't use Stata, the extension offers to send to the Stata GUI instead (see below). |
 | **external** | Always uses the external Stata GUI application. macOS and Windows only; not available in remote sessions or on Linux. |
 
 When the integrated terminal is selected (directly or via auto-detection), the extension automatically opens a Stata terminal if one is not already running. If multiple Stata terminals are open, commands are sent to the most recently activated one.
 
 ### Stata Terminal Profile
 
-The extension adds a "Stata" terminal profile to VS Code's terminal dropdown (not shown on native Windows, where Stata has no interactive CLI). You can open a Stata terminal manually from the terminal profile picker at any time. The Stata CLI binary is detected automatically:
+The extension adds a "Stata" terminal profile to VS Code's terminal dropdown. You can open a Stata terminal manually from the terminal profile picker at any time. On native Windows the profile runs sight console (see below). Elsewhere, the Stata CLI binary is detected automatically:
 
 1. Checks your PATH for `stata-mp`, `stata-se`, `stata-be`, `stata-ic`, or `stata` (in priority order)
 2. On macOS, falls back to checking inside `/Applications/Stata/*.app/Contents/MacOS/` and `/Applications/StataNow/*.app/Contents/MacOS/` (StataNow installs under `/Applications/StataNow/`)
 3. If `sight.sendToStata.stataApp` is set, that variant is checked first
+
+### Windows: sight console
+
+On native Windows (not in a remote session), the `integrated` target and the "Stata" terminal profile run `sight console` from the extension. The console drives the Stata application through its Automation interface, so it needs Stata's Automation registered. See [console.md](console.md) for what the console does, including when it asks to take over a Stata that is already open.
+
+Code you send while the console is starting waits in a queue, and the status bar shows how many sends are waiting. The queued sends are typed into the console, in order, once it shows its first prompt. The terminal opens with focus so you can answer the console's question; there's no time limit on answering.
+
+The console doesn't take Stata when:
+
+- several Stata windows are open;
+- you decline the take-over question (**N**);
+- the open Stata is in use by another program, such as Jupyter;
+- Stata's Automation isn't registered;
+- PowerShell, which the console uses to reach Stata, is blocked by its language mode or a policy;
+- the terminal can't give the console raw keyboard input.
+
+In each of these cases the console exits and the extension asks whether to send code to the open Stata window instead, using the same send-to-stata helper as the `external` target:
+
+- **This session**: use the Stata GUI until VS Code reloads or `sight.sendToStata.target` changes.
+- **Always**: set `sight.sendToStata.target` to `"external"` in your user settings. If a workspace or folder setting overrides it, the extension says so and uses the GUI for this session.
+- **Cancel**: drop the waiting sends. The next send starts the console again, since the cause (for example, a second Stata window) may be gone by then.
+
+Answering **s** at the console's take-over question sends code from the editor right away, the same as **This session**, without asking. With **This session** or **Always**, the waiting sends go to Stata in order. If you dismiss the question or leave it unanswered for 60 seconds, the waiting sends are dropped.
+
+The send-to-stata helper doesn't take over Stata or use Automation: it pastes into the Stata window. With several Stata windows open it picks one itself (the first it finds); to choose, close the others. It is downloaded on first use.
+
+If the console terminal closes for another reason before it is ready, its waiting sends are dropped, and a notice says how many (except when you closed the terminal yourself).
 
 ## Keyboard Shortcuts
 

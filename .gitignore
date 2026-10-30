@@ -18,6 +18,7 @@ coverage/
 package-lock.json
 *.vsix
 client/server/
+client/cli/
 .tmp/
 .kiro/specs/do-command-arguments/scratch.do
 .kiro/specs/c-local-cross-file-support/scratch.do
