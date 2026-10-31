@@ -1642,6 +1642,27 @@ describe('running sorts and filters off the host (Phase 1a)', () => {
         expect(my_reads).toBe(0);
     });
 
+    it('does not open the old file on ready while a refresh runs', async () => {
+        const { panel_like } = await make_restore_panel();
+        const my_release = deferred();
+        let my_opens = 0;
+        panel_like.dta_file = null;
+        panel_like.initialize = async () => { my_opens++; };
+        panel_like.refresh_now = async () => {
+            await my_release.promise;
+            panel_like.dta_file = { close: () => undefined };
+        };
+        panel_like.send_metadata = async () => undefined;
+        const my_refresh = panel_like.refresh({}, 'new.dta');
+        const my_ready = panel_like.handle_message({ type: 'ready' });
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(my_opens).toBe(0);
+        my_release.resolve();
+        await Promise.all([my_refresh, my_ready]);
+        // The refresh opened the new file; ready only re-sends metadata.
+        expect(my_opens).toBe(0);
+    });
+
     it('runs refreshes one at a time', async () => {
         const { panel_like } = await make_restore_panel();
         const the_events: string[] = [];

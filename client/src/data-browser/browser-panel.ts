@@ -1132,6 +1132,9 @@ export class DataBrowserPanel implements vscode.Disposable {
     ): Promise<void> {
         switch (msg.type) {
             case 'ready':
+                // A refresh releases the old file before opening the new
+                // one; opening here meanwhile would reopen the old path.
+                await this.refresh_chain.catch(() => {});
                 if (!this.dta_file) {
                     await this.initialize();
                 } else {
