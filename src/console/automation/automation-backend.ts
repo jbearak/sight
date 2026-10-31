@@ -47,6 +47,8 @@ const LATE_ECHO_WINDOW_MS = 3000;
 const RECORD_LIMIT = 64;
 
 export const BUSY_NOTE = 'Still running; if Stata asks for input, answer in its window.';
+export const AWAITING_INTERRUPT_NOTE =
+    'Stata still waits for the rest of this; type } (or end) to finish it.';
 export const NOT_RESPONDING_NOTE =
     'Stata isn\'t responding. Ctrl+C twice ends the console and closes Stata.';
 export const LOG_LOST_TEXT =
@@ -139,7 +141,7 @@ export class AutomationBackend implements StataBackend {
             this.resolve_exit = resolve;
         });
         void this.bridge.ended.then(() => {
-            this.end(1, 'Lost the connection to Stata.');
+            this.end(1, 'Lost the connection to Stata; its window may still be open.');
         });
     }
 
@@ -186,25 +188,20 @@ export class AutomationBackend implements StataBackend {
         if (in_flight) {
             if (in_flight.breaking_until_ms === null) {
                 in_flight.breaking_until_ms = this.clock.now() + BREAK_FINISH_MS;
-                this.tracker.reset_top();
+                // A break stops a running command, but it doesn't leave
+                // an open block, program, Mata or Python (Windows debug,
+                // R7), so the predicted mode stands in those.
+                if (!this.tracker.awaiting_input()) {
+                    this.tracker.reset_top();
+                }
                 void this.bridge.request('break', {}, { timeout_ms: POLL_TIMEOUT_MS });
             }
             return;
         }
         if (this.tracker.awaiting_input()) {
-            // A block, program, Mata or Python prompt with nothing in
-            // flight: break out of it, and redraw once Stata settles.
-            this.tracker.reset_top();
-            this.in_flight = {
-                first_command: false,
-                line: '', trimmed: '', drawn: true, blank: true,
-                submitted_ms: this.clock.now(), entering: false,
-                echo_seen: true, breaking_until_ms: this.clock.now() + BREAK_FINISH_MS,
-                busy_noted: true,
-            };
-            this.prompt_on_screen = false;
-            this.replace_prompt_line = true;
-            void this.bridge.request('break', {}, { timeout_ms: POLL_TIMEOUT_MS });
+            // Nothing to break, and a break wouldn't leave the block:
+            // the session redraws the same prompt; say how to get out.
+            this.events.on_notice(AWAITING_INTERRUPT_NOTE);
         }
     }
 
@@ -501,7 +498,7 @@ export class AutomationBackend implements StataBackend {
             return;
         }
         if ('bridge_gone' in reply) {
-            this.end(1, 'Lost the connection to Stata.');
+            this.end(1, 'Lost the connection to Stata; its window may still be open.');
             return;
         }
         if (is_server_gone(reply)) {
@@ -661,16 +658,8 @@ export class AutomationBackend implements StataBackend {
 
     // ---- Output ----
 
-    private replace_prompt_line = false;
-
     private emit_prompt(): void {
-        const prompt = this.tracker.prompt();
-        if (this.replace_prompt_line) {
-            this.replace_prompt_line = false;
-            this.events.on_output(`\r\x1b[K${prompt}`);
-        } else {
-            this.events.on_output(prompt);
-        }
+        this.events.on_output(this.tracker.prompt());
         this.prompt_on_screen = true;
     }
 

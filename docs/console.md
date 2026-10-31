@@ -210,6 +210,9 @@ console.
   drops leading whitespace from lines it is sent.
 - Commands typed in the Stata window show in the terminal too, but the
   prompt may be wrong until the next line.
+- Ctrl+C stops a running command, but doesn't leave a block, program,
+  Mata or Python that is still open, because Stata's Automation break
+  doesn't. Type `}` (or `end`) to finish it.
 - If Stata stops responding (a dialog is open), the console waits. Press
   Ctrl+C twice to end it, which closes Stata.
 

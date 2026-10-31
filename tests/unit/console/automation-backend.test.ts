@@ -8,6 +8,7 @@
 
 import { describe, expect, it } from 'bun:test';
 import {
+    AWAITING_INTERRUPT_NOTE,
     AutomationBackend,
     BUSY_NOTE,
     LOG_LOST_TEXT,
@@ -354,6 +355,23 @@ describe('AutomationBackend', () => {
         bridge.free = true;
         await advance(300);
         expect(screen()).toBe('. sleep 10000\r\n--Break--\r\nr(1);\r\n\r\n. ');
+    });
+
+    it('stays in a block on Ctrl+C at its prompt, sending nothing', async () => {
+        const { backend, bridge, log, advance, screen, notices } = setup();
+        bridge.free = false;
+        backend.submit_line('foreach x in 1 {', true);
+        log.append('. foreach x in 1 {\n');
+        await advance(300);
+        backend.interrupt();
+        await advance(300);
+        expect(bridge.breaks).toBe(0);
+        expect(notices).toEqual([AWAITING_INTERRUPT_NOTE]);
+        // The next line still goes into the block, as in Stata.
+        backend.submit_line('display 1', true);
+        log.append('  2. display 1\n');
+        await advance(300);
+        expect(screen().endsWith('  3. ')).toBe(true);
     });
 
     it('treats free polls as top level after a mispredicted block', async () => {
