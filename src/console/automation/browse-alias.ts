@@ -10,10 +10,11 @@
 
 // `browse` and its abbreviations down to `br`, after any `capture`,
 // `quietly` or `noisily` prefixes (also abbreviated, optionally with
-// a colon).
+// a colon). Each separator matches spaces one way only, so a long
+// run of prefixes can't backtrack exponentially.
 const BROWSE_COMMAND = new RegExp(
     '^(\\s*(?:(?:cap(?:t(?:u(?:re?)?)?)?|qui(?:e(?:t(?:ly?)?)?)?'
-    + '|n(?:o(?:i(?:s(?:i(?:ly?)?)?)?)?)?)\\s*:?\\s+)*)'
+    + '|n(?:o(?:i(?:s(?:i(?:ly?)?)?)?)?)?)(?:\\s*:\\s*|\\s+))*)'
     + 'br(?:o(?:w(?:se?)?)?)?(?=$|[\\s,])'
 );
 

@@ -531,6 +531,13 @@ describe('browse_to_vview', () => {
         expect(browse_to_vview('capture: browse')).toBe('capture: vview');
     });
 
+    it('rejects a long run of prefixes quickly', () => {
+        const start_ms = Date.now();
+        expect(is_browse_command(`${'n '.repeat(5000)}x`)).toBe(false);
+        expect(is_browse_command(`${'n  '.repeat(5000)}x`)).toBe(false);
+        expect(Date.now() - start_ms).toBeLessThan(500);
+    });
+
     it('leaves other commands and other cases alone', () => {
         for (const my_line of [
             'b', 'browser', 'brx', 'Browse', 'BR', 'display "browse"',
