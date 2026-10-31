@@ -15,9 +15,9 @@ Commands and Stata itself behave as usual.
 
 > [!NOTE]
 > The console is experimental. It has been tested with Stata 18 (StataMP)
-> on macOS; Linux has been tested only against a stand-in that mimics
-> console Stata, and Windows (see [Windows](#windows)) is new and not yet
-> tested end to end. If something looks wrong,
+> on macOS and Windows 11 (see [Windows](#windows)); Linux has been
+> tested only against a stand-in that mimics console Stata. If something
+> looks wrong,
 > [please report it](https://github.com/jbearak/sight/issues).
 
 ## Requirements
