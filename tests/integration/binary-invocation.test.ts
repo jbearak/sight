@@ -168,6 +168,10 @@ describe('CLI Entry Point Detection', () => {
             '\\\\Mac\\repos\\Sight\\src\\cli.ts',
             '\\\\mac\\repos\\sight\\src\\cli.ts',
         )).toBe(false);
+        expect(is_cli_entry_point(
+            '//Mac/repos/sight/src/cli.ts',
+            '//mac/repos/sight/src/cli.ts',
+        )).toBe(false);
     });
 
     it('recognizes npm bin symlink command names', () => {
