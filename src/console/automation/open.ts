@@ -189,6 +189,9 @@ async function open(
             },
             finish: async () => {
                 await wait_for_bridge();
+                // A bridge stuck in a COM call (Ctrl+C twice while Stata
+                // stops responding) ignores stdin closing.
+                transport.kill();
                 remove_dir();
             },
         },
