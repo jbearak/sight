@@ -184,6 +184,24 @@ describe('AutomationBackend', () => {
         expect(screen()).toContain('  display  2\r\n2\r\n');
     });
 
+    it('recognizes the first echo without a prompt after opening the log', async () => {
+        const { backend, log, advance, screen } = setup();
+        backend.submit_line('sysuse auto, clear', false);
+        log.append('sysuse auto, clear\n(1978 automobile data)\n\n');
+        await advance(200);
+        expect(screen()).toBe('. sysuse auto, clear\r\n(1978 automobile data)\r\n\r\n. ');
+    });
+
+    it('recognizes a wrapped first echo without a prompt', async () => {
+        const { backend, log, advance, screen } = setup();
+        backend.submit_line('display "abcdefghijabcdefghij"', false);
+        log.append('display "abcdefghij\n');
+        await advance(30);
+        log.append('> abcdefghij"\nresult\n');
+        await advance(200);
+        expect(screen()).toBe('. display "abcdefghijabcdefghij"\r\nresult\r\n. ');
+    });
+
     it('matches an echo that Stata wrapped over several lines', () => {
         const target = 'display "abcdefghijabcdefghij"';
         expect(match_echo(['. display "abcdefghij', '> abcdefghij"'], target)).toBe(2);
@@ -325,6 +343,17 @@ describe('AutomationBackend', () => {
         await advance(1500);
         expect(screen().endsWith('. ')).toBe(true);
         expect(bridge.commands).toEqual(['sleep 10000']);
+    });
+
+    it('matches the command echo arriving after an interrupt', async () => {
+        const { backend, bridge, log, advance, screen } = setup();
+        bridge.free = false;
+        backend.submit_line('sleep 10000', false);
+        backend.interrupt();
+        log.append('. sleep 10000\n--Break--\nr(1);\n\n');
+        bridge.free = true;
+        await advance(300);
+        expect(screen()).toBe('. sleep 10000\r\n--Break--\r\nr(1);\r\n\r\n. ');
     });
 
     it('treats free polls as top level after a mispredicted block', async () => {

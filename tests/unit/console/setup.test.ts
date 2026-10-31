@@ -158,7 +158,7 @@ describe('completion', () => {
 
 describe('run_console', () => {
     it('needs an interactive terminal on Windows', async () => {
-        expect(await run_console([], { platform: 'win32', is_tty: false })).toBe(2);
+        expect(await run_console([], { platform: 'win32', is_tty: false })).toBe(86);
     });
 
     it('rejects --stata on Windows, where Automation picks the Stata', async () => {

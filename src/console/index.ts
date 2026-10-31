@@ -10,6 +10,7 @@ import { spawn } from 'child_process';
 import * as os from 'os';
 import { CONSOLE_HELP, parse_console_args, type ConsoleArgs } from './args';
 import { locate_stata } from './stata-locator';
+import { EXIT_TERMINAL_UNSUPPORTED } from './automation/exit-codes';
 
 export const EXIT_USAGE = 2;
 
@@ -95,7 +96,7 @@ async function run_windows_console(
     if (!is_tty) {
         console.error('Error: on Windows, sight console needs an interactive terminal. To '
             + 'run a do-file without one, use Stata\'s batch mode: StataMP-64.exe /e do file.do');
-        return EXIT_USAGE;
+        return EXIT_TERMINAL_UNSUPPORTED;
     }
     const { run_automation_console } = await import('./automation/run');
     return run_automation_console({

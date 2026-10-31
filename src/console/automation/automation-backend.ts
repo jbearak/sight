@@ -60,6 +60,7 @@ export interface AutomationClock {
 }
 
 interface InFlight {
+    first_command: boolean;
     line: string;
     trimmed: string;
     drawn: boolean;
@@ -98,6 +99,7 @@ export class AutomationBackend implements StataBackend {
     private readonly tracker = new ModeTracker();
     private readonly fifo: Array<{ line: string; drawn: boolean }> = [];
     private in_flight: InFlight | null = null;
+    private first_command = true;
     private readonly records: EchoRecord[] = [];
 
     /** Complete lines read but not yet handled, and the trailing part. */
@@ -194,6 +196,7 @@ export class AutomationBackend implements StataBackend {
             // flight: break out of it, and redraw once Stata settles.
             this.tracker.reset_top();
             this.in_flight = {
+                first_command: false,
                 line: '', trimmed: '', drawn: true, blank: true,
                 submitted_ms: this.clock.now(), entering: false,
                 echo_seen: true, breaking_until_ms: this.clock.now() + BREAK_FINISH_MS,
@@ -263,10 +266,12 @@ export class AutomationBackend implements StataBackend {
         const entering = this.tracker.advance(line);
         const trimmed = line.trim();
         const in_flight: InFlight = {
+            first_command: this.first_command,
             line, trimmed, drawn, blank: trimmed.length === 0,
             submitted_ms: now, entering, echo_seen: false,
             breaking_until_ms: null, busy_noted: false,
         };
+        this.first_command = false;
         this.in_flight = in_flight;
         this.last_free = null;
         this.prompt_on_screen = false;
@@ -554,8 +559,15 @@ export class AutomationBackend implements StataBackend {
     private flush_held_lines(force: boolean): void {
         while (this.held_lines.length > 0) {
             const in_flight = this.in_flight;
-            if (in_flight && !in_flight.echo_seen && in_flight.breaking_until_ms === null) {
-                const matched = match_echo(this.held_lines, in_flight.trimmed);
+            if (in_flight && !in_flight.echo_seen) {
+                // Immediately after opening a log, Stata 18 can echo
+                // the first command without a prompt prefix.
+                const first_line = this.held_lines[0];
+                const unprefixed = in_flight.first_command && first_line !== undefined
+                    && first_line.length > 0 && !in_flight.blank && !parse_echo(first_line);
+                const matched = unprefixed
+                    ? match_echo([`. ${first_line}`, ...this.held_lines.slice(1)], in_flight.trimmed)
+                    : match_echo(this.held_lines, in_flight.trimmed);
                 if (matched === 'wait' && !force) {
                     return;
                 }
@@ -566,6 +578,9 @@ export class AutomationBackend implements StataBackend {
                     this.emit(`${in_flight.line}\r\n`);
                     continue;
                 }
+                // Only the first physical log line can be the special
+                // echo; a later matching output line is not evidence.
+                in_flight.first_command = false;
             }
             const line = this.held_lines.shift() ?? '';
             if (this.is_late_echo(line)) {
