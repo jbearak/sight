@@ -28,6 +28,18 @@ export class RowRequestTracker {
         return true;
     }
 
+    /**
+     * Forget the pending request for a page if it is still `request_id`
+     * (the host discarded that read). Returns whether it was.
+     */
+    release(page_start: number, request_id: string): boolean {
+        if (this.pending_by_page.get(page_start) !== request_id) {
+            return false;
+        }
+        this.pending_by_page.delete(page_start);
+        return true;
+    }
+
     clear(): void {
         this.pending_by_page.clear();
     }

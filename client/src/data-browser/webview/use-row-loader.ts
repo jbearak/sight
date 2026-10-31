@@ -7,6 +7,7 @@ import {
 } from 'react';
 import type {
     CellValue,
+    ComputeCancelledMessage,
     FilterAppliedMessage,
     FilterEntry,
     FilterState,
@@ -17,6 +18,7 @@ import type {
     RestorePendingMessage,
     RestoreSettledMessage,
     RowResponse,
+    RowsStaleMessage,
     SortAppliedMessage,
     SortKey,
     SortState,
@@ -85,6 +87,8 @@ export interface UseRowLoaderResult {
     restore_pending: RestorePendingState | null;
     restore_cancelling: boolean;
     cancel_restore: () => void;
+    /** Stop the running sort/filter (the progress line's Cancel). */
+    cancel_compute: () => void;
 }
 
 type IncomingMessage =
@@ -96,7 +100,9 @@ type IncomingMessage =
     | FilterStatusMessage
     | HistogramDataMessage
     | RestorePendingMessage
-    | RestoreSettledMessage;
+    | RestoreSettledMessage
+    | ComputeCancelledMessage
+    | RowsStaleMessage;
 
 export function use_row_loader(): UseRowLoaderResult {
     const vscode_api = useMemo(() => acquireVsCodeApi(), []);
@@ -334,6 +340,43 @@ export function use_row_loader(): UseRowLoaderResult {
                 return;
             }
 
+            if (my_msg.type === 'rowsStale') {
+                // The host discarded this read (the order changed while it
+                // ran). Ask again if the page is still in view; otherwise
+                // ensure_rows asks when it scrolls back.
+                if (!pending_pages.current.release(
+                    my_msg.start,
+                    my_msg.request_id
+                )) {
+                    return;
+                }
+                const my_viewport = viewport_ref.current;
+                if (
+                    my_msg.start < my_viewport.end
+                    && my_msg.start + page_size_ref.current
+                        > my_viewport.start
+                ) {
+                    request_page(my_msg.start);
+                }
+                return;
+            }
+
+            if (my_msg.type === 'computeCancelled') {
+                // The order on screen is still the applied one; drop the
+                // pending chips and show the applied state. A cancelled
+                // sort/filter may have superseded a restore, whose banner
+                // must not outlive it.
+                clear_restore_ui();
+                set_sort(my_msg.sort);
+                set_pending_sort_state(null);
+                set_sort_pending(false);
+                set_filter(my_msg.filter);
+                set_pending_filter_state(null);
+                set_filter_pending(false);
+                set_nobs_effective(my_msg.nobs_effective);
+                return;
+            }
+
             if (my_msg.type === 'sortStatus') {
                 set_sort_pending(my_msg.state === 'pending');
                 return;
@@ -424,6 +467,7 @@ export function use_row_loader(): UseRowLoaderResult {
         clear_restore_ui,
         set_pending_sort_state,
         set_pending_filter_state,
+        request_page,
     ]);
 
     const cancel_restore = useCallback(() => {
@@ -434,6 +478,10 @@ export function use_row_loader(): UseRowLoaderResult {
             type: 'cancelRestore',
             restore_id: my_id,
         });
+    }, [vscode_api]);
+
+    const cancel_compute = useCallback(() => {
+        vscode_api.postMessage({ type: 'cancelCompute' });
     }, [vscode_api]);
 
     function ensure_rows(start_row: number, end_row: number) {
@@ -537,5 +585,6 @@ export function use_row_loader(): UseRowLoaderResult {
         restore_pending,
         restore_cancelling,
         cancel_restore,
+        cancel_compute,
     };
 }

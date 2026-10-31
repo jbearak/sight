@@ -58,7 +58,7 @@ const CASES: Record<string, Case[]> = {
         { label: 'scroll during sort (income)', scenario: { kind: 'scroll_during_sort', column: 'income' }, samples: 1, timeout_s: 600 },
         { label: 'filter income > 1000', scenario: { kind: 'filter', column: 'income', predicate: { kind: 'numCompare', op: '>', value: 1000 } }, samples: 3, timeout_s: 600 },
         { label: 'filter district contains "_12"', scenario: { kind: 'filter', column: 'district', predicate: contains('_12') }, samples: 3, timeout_s: 600 },
-        { label: 'filter district regex ^([a-z_]+\\d?)+!$', scenario: { kind: 'filter', column: 'district', predicate: regex('^([a-z_]+\\d?)+!$') }, samples: 1, timeout_s: 300 },
+        { label: 'filter district regex ^([a-z_]+\\d?)+!$, Cancel after 3 s', scenario: { kind: 'filter_cancel', column: 'district', predicate: regex('^([a-z_]+\\d?)+!$'), run_ms: 3000 }, samples: 1, timeout_s: 300 },
         { label: 'histogram income', scenario: { kind: 'histogram', column: 'income' }, samples: 3, timeout_s: 600 },
         { label: 'copy column income', scenario: { kind: 'copy', column: 'income' }, samples: 1, timeout_s: 600 },
         { label: 'restore sort + filter', scenario: { kind: 'restore', sort_column: 'income', filter_column: 'income', predicate: { kind: 'numCompare', op: '>', value: 1000 } }, samples: 1, timeout_s: 600 },
@@ -73,7 +73,7 @@ const CASES: Record<string, Case[]> = {
         { label: 'scroll during sort (x2)', scenario: { kind: 'scroll_during_sort', column: 'x2' }, samples: 1, timeout_s: 600 },
         { label: 'filter x2 > 0', scenario: { kind: 'filter', column: 'x2', predicate: { kind: 'numCompare', op: '>', value: 0 } }, samples: 3, timeout_s: 600 },
         { label: 'filter open1 (strL) contains "water"', scenario: { kind: 'filter', column: 'open1', predicate: contains('water') }, samples: 1, timeout_s: 600 },
-        { label: 'filter open1 (strL) regex ^(\\w+\\s?)+!$', scenario: { kind: 'filter', column: 'open1', predicate: regex('^(\\w+\\s?)+!$') }, samples: 1, timeout_s: 120 },
+        { label: 'filter open1 (strL) regex ^(\\w+\\s?)+!$, Cancel after 3 s', scenario: { kind: 'filter_cancel', column: 'open1', predicate: regex('^(\\w+\\s?)+!$'), run_ms: 3000 }, samples: 1, timeout_s: 120 },
         { label: 'histogram x2', scenario: { kind: 'histogram', column: 'x2' }, samples: 3, timeout_s: 600 },
         { label: 'copy column x2', scenario: { kind: 'copy', column: 'x2' }, samples: 1, timeout_s: 600 },
     ],
@@ -84,6 +84,8 @@ interface Options {
     fixtures: string[];
     scale: number;
     cold: boolean;
+    /** Run jobs on the host, as before Phase 1a (for comparison). */
+    in_process: boolean;
     samples?: number;
     out?: string;
 }
@@ -94,6 +96,7 @@ function parse_args(argv: string[]): Options {
         fixtures: ['narrow', 'wide'],
         scale: 1,
         cold: false,
+        in_process: false,
     };
     for (let i = 0; i < argv.length; i++) {
         const my_arg = argv[i];
@@ -107,6 +110,7 @@ function parse_args(argv: string[]): Options {
             case '--fixtures': my_opts.fixtures = next().split(','); break;
             case '--scale': my_opts.scale = Number(next()); break;
             case '--cold': my_opts.cold = true; break;
+            case '--in-process': my_opts.in_process = true; break;
             case '--samples': my_opts.samples = Number(next()); break;
             case '--out': my_opts.out = next(); break;
             default: throw new Error(`unknown argument ${my_arg}`);
@@ -208,8 +212,8 @@ function headline(s: Record<string, number | string>): string[] {
         if (v === undefined) return '—';
         return v < 1024 ? `${v} B` : `${Math.round(v / 1024)} KiB`;
     };
-    const my_section = ['sort', 'filter', 'histogram', 'copy', 'restore',
-        'scroll', 'scroll_during_sort']
+    const my_section = ['sort', 'filter_running', 'filter', 'histogram',
+        'copy', 'restore', 'scroll', 'scroll_during_sort']
         .find(my_k => Object.keys(s).some(my_p => my_p.startsWith(`${my_k}.`)));
     let my_time: string;
     let my_stall: number | undefined;
@@ -226,8 +230,16 @@ function headline(s: Record<string, number | string>): string[] {
                 ? `page p50 ${num('scroll_during_sort.page_p50_ms')} / max `
                     + `${num('scroll_during_sort.page_max_ms')} ms; `
                 : 'no page answered; ')
+            + `${num('scroll_during_sort.pages_stale') ?? 0} answered stale, `
             + `${my_dropped} of ${my_requested} pages dropped`;
         my_stall = num('scroll_during_sort.max_stall_ms');
+    } else if (my_section === 'filter_running') {
+        my_time = `ran ${num('filter_running.run_ms')} ms, then Cancel `
+            + `answered in ${num('cancel.ms')} ms`;
+        my_stall = Math.max(
+            num('filter_running.max_stall_ms') ?? 0,
+            num('cancel.max_stall_ms') ?? 0
+        );
     } else if (my_section === 'restore') {
         my_time = `${num('restore.ms')} ms to settled`;
         my_stall = num('restore.max_stall_ms');
@@ -271,6 +283,22 @@ function main(): void {
         { stdio: 'inherit' }
     );
     if (my_build.status !== 0) process.exit(1);
+    // The step worker the panel spawns for sorts, filters, histograms and
+    // copies (CommonJS, as the extension ships it).
+    const my_worker = path.join(my_opts.dir, 'data-browser-worker.cjs');
+    if (!my_opts.in_process) {
+        const my_worker_build = spawnSync(
+            path.join(ROOT, 'node_modules/.bin/esbuild'),
+            [
+                path.join(ROOT, 'client/src/data-browser/compute-worker.ts'),
+                '--bundle', '--platform=node', '--format=cjs',
+                `--outfile=${my_worker}`, '--log-level=warning',
+            ],
+            { stdio: 'inherit' }
+        );
+        if (my_worker_build.status !== 0) process.exit(1);
+        process.env.SIGHT_BENCH_WORKER = my_worker;
+    }
 
     const my_node = spawnSync('node', ['--version'], { encoding: 'utf8' })
         .stdout.trim();
@@ -279,7 +307,8 @@ function main(): void {
         '',
         `Node ${my_node}, ${os.cpus()[0]?.model ?? 'unknown CPU'}, `
             + `${process.platform}; scale ${my_opts.scale}; `
-            + `${my_opts.cold ? 'cold page cache' : 'warm page cache'}. `
+            + `${my_opts.cold ? 'cold page cache' : 'warm page cache'}; `
+            + `${my_opts.in_process ? 'jobs on the host' : 'jobs in step workers'}. `
             + 'Times are medians; "host blocked" is the longest event-loop '
             + 'stall; "peak RSS" is the benchmark process\'s maxRSS.',
     ];

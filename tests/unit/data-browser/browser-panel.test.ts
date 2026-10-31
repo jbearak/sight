@@ -449,12 +449,14 @@ async function make_histogram_panel(
             },
         },
     };
-    panel_like.read_full_column = async () => {
+    // Histograms are computed by a job (in-process here, since no worker
+    // bundle is configured) that reads the column through read_columns.
+    panel_like.dta_file.read_columns = async (indices: number[]) => {
         read_count += 1;
         if (values_or_error instanceof Error) {
             throw values_or_error;
         }
-        return values_or_error;
+        return new Map([[indices[0], values_or_error]]);
     };
 
     return {

@@ -121,6 +121,12 @@ body,
     color: var(--vscode-textLink-activeForeground, inherit);
 }
 
+/* Cancel on the "Sorting…" / "Filtering…" line: stops the running
+   computation and keeps the order already on screen. */
+.compute-cancel {
+    margin-left: 8px;
+}
+
 /* Sort + filter chip strips. Sits between the row count and the action
    buttons on a single row, and drops to its own full-width row (via the
    .is-wrapped modifier below) when it would otherwise crowd the buttons. */

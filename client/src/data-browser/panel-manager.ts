@@ -7,7 +7,10 @@
  */
 
 import * as vscode from 'vscode';
-import { DataBrowserPanel } from './browser-panel.js';
+import {
+    DataBrowserPanel,
+    panel_options_for_extension,
+} from './browser-panel.js';
 import type { DataBrowserColumnWidthStore } from './column-width-state.js';
 import type { DataBrowserColumnVisibilityStore } from './column-visibility-state.js';
 import type { DataBrowserSortStateStore } from './sort-state.js';
@@ -88,7 +91,8 @@ export class DataBrowserPanelManager
             this.column_width_store,
             this.column_visibility_store,
             this.sort_state_store,
-            this.filter_state_store
+            this.filter_state_store,
+            panel_options_for_extension(this.extension_uri.fsPath)
         );
 
         my_panel.on_did_dispose(() => {
@@ -150,7 +154,8 @@ export class DataBrowserPanelManager
             this.column_width_store,
             this.column_visibility_store,
             this.sort_state_store,
-            this.filter_state_store
+            this.filter_state_store,
+            panel_options_for_extension(this.extension_uri.fsPath)
         );
 
         my_panel.on_did_dispose(() => {

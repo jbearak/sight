@@ -493,6 +493,72 @@ Fifth round. Sonnet agreed with revision 5 (suggestions only); Terra's remaining
 - T1 (confirmation): one strL slot conflicted with the copy guarantees. → A separate strL slot in the action pool; both guarantees hold; two strL states counted.
 - Confirmation suggestions (both reviewers): lease matching, throttling, error handling and sweep rules; mixed-version and sleep gaps stated; "Waiting for a strL scan…" message; anti-livelock rule.
 
+## Phase 1a as built
+
+Phase 1a met its acceptance criterion (no host stall > 50 ms during any
+full-column operation on either fixture; the catastrophic regex is
+cancellable) with a smaller design than the 1a row above. What shipped,
+and what moved to later phases:
+
+- **Step workers only, no scan worker.** Every full-column job (a sort, a
+  filter, a saved-state restore, a histogram, a copy) runs in its own
+  short-lived step worker (`compute-runner.ts`, `compute-worker.ts`), from
+  a transform pool (2 slots) or an action pool (2 slots). Cancelling is
+  `terminate()`, which bounds cancel latency for every job, not only
+  regexes and comparator sorts. The cooperative scan worker, its
+  65,536-element checks, job classes and preemption arrive with the work
+  that needs them: Phase 3's cooperative radix sorts and caches, and
+  Phase 4's profiles and find.
+- **Whole-state computes, not per-entry steps.** A job computes a whole
+  sort or a whole filter; there are no per-entry live outputs yet. A newer
+  sort stops a running sort, a newer filter stops a running filter, and a
+  sort requested during a filter waits for it, as before. **Cancel all** is
+  shipped (the progress line's Cancel, after 500 ms); **Cancel this
+  filter** needs per-entry steps and moves to Phase 3 with them.
+- **No `order_epoch` on the wire yet.** The host keeps its generation
+  counter, now bumped again when an order commits, and answers every page
+  read it discards with `rowsStale`; the webview releases that page in its
+  tracker and asks again if it is in view, so a dropped read no longer
+  leaves a page pending. Epoch-tagged requests arrive with 1b's tiles.
+- **Composition stays on the host** (`compose_effective`, O(nobs); 10M rows
+  stayed within the stall budget in the benchmark below).
+- **File identity by path.** dta-parser 0.6 does not expose its
+  descriptor, so the host records inode, size and mtime with `statSync`
+  on the path right after opening, and each worker compares the same
+  `statSync` after its own open; a mismatch fails the job with "The file
+  changed on disk". The remaining race (a replacement between a worker's
+  open and its stat) closes in 1b with the borrowed descriptor.
+- **Temp files and leases as specified**: vview temp files stay on disk
+  until the panel closes on every platform; `<uuid>.lease` beside each, written
+  at open, refreshed hourly and before each worker spawn (throttled to
+  once a minute), recreated if swept; the sweep judges a leased temp file
+  by its lease and deletes stale or orphaned leases.
+- **10-minute deadline** for every job, reported to the user.
+
+Benchmark (M4 Max, Node 26, warm cache, full-scale fixtures; host blocked
+is the longest event-loop stall during the operation):
+
+| Operation | Before (host blocked) | After (host blocked) | Time after |
+|---|---|---|---|
+| narrow numeric sort | 3,533 ms | 0.7 ms | 3,483 ms |
+| narrow string sort | 14,764 ms | 2.9 ms | 14,673 ms |
+| narrow numeric filter | 527 ms | 0.6 ms | 472 ms |
+| narrow catastrophic regex | blocked throughout | 8.8 ms over 3 s, Cancel in 0.3 ms | — |
+| narrow histogram | 539 ms | 0.9 ms | 509 ms |
+| narrow copy column | 2,214 ms | 4.5 ms | 2,422 ms |
+| narrow restore sort + filter | 3,727 ms | 18.1 ms | 3,669 ms |
+| wide numeric sort | 681 ms | 0.6 ms | 489 ms |
+| wide strL regex | blocked throughout (killed at 120 s) | 1.5 ms over 3 s, Cancel in 0.2 ms | — |
+| wide copy column | 908 ms | 1 ms | 420 ms |
+
+Wall times are unchanged (the same algorithms on the same reader); the
+work just no longer runs on the host. Peak RSS (host and workers, one
+process) stayed within the 1a budget: 979 MiB for the narrow numeric sort
+(961 MiB before), 1,169 MiB for the wide numeric sort, and 2,463 MiB for
+the wide strL filter (budget ≤ 2.5 GiB until 1b). Page reads still run on the host
+in 1a, which is why wide's open and scrolling still stall (630 ms for the
+first 5 MB page); 1b moves them off.
+
 ## Revision history
 
 - Revision 1 (2026-10-30): first draft.
