@@ -109,6 +109,40 @@ jobs:
       - name: Tests
         run: bun test
 
+  data-browser-bench:
+    # Report-only: numbers go to the job summary and never fail CI. Runs
+    # the data-browser benchmark at 10% of the full fixture sizes with
+    # the page cache dropped before every sample (cold reads), which the
+    # GitHub runner's passwordless sudo allows. Budgets and their source
+    # are in specs/2026-10-30-data-browser-redesign.md.
+    name: Data browser benchmark (report only)
+    needs: changes
+    if: >-
+      needs.changes.outputs.server == 'true' ||
+      needs.changes.outputs.client == 'true'
+    runs-on: ubuntu-latest
+    continue-on-error: true
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - name: Setup
+        uses: ./.github/actions/setup
+        with:
+          node-version: "24"
+      - name: Benchmark
+        run: >-
+          bun run bench:data-browser
+          --dir "$RUNNER_TEMP/sight-bench"
+          --scale 0.1
+          --cold
+          --out "$RUNNER_TEMP/data-browser-bench.md"
+      - name: Report
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/data-browser-bench.md" ]; then
+            cat "$RUNNER_TEMP/data-browser-bench.md" >> "$GITHUB_STEP_SUMMARY"
+          fi
+
   npm-package:
     name: NPM package
     needs: [changes, verify]

@@ -36,6 +36,7 @@ import {
 } from './filter-intent.js';
 import { page_starts_to_refetch } from './refetch-page-starts.js';
 import { RowRequestTracker } from './row-request-tracker.js';
+import { WebviewTiming } from './debug-timing.js';
 import {
     build_pending_sort,
     sort_applied_outcome,
@@ -136,6 +137,10 @@ export function use_row_loader(): UseRowLoaderResult {
     // opening a numeric filter popover repeatedly doesn't re-request.
     const requested_histograms = useRef<Set<number>>(new Set());
     const pending_pages = useRef(new RowRequestTracker());
+    const timing = useMemo(
+        () => new WebviewTiming(my_msg => vscode_api.postMessage(my_msg)),
+        [vscode_api]
+    );
     // Last visible window [start, end), kept in a ref so the message
     // handler (registered once) can re-request it after a sort lands.
     const viewport_ref = useRef<{ start: number; end: number }>({
@@ -269,6 +274,7 @@ export function use_row_loader(): UseRowLoaderResult {
                 // for this dataset follows and re-arms the banner. Clearing
                 // here resets any stale banner from a prior lifecycle.
                 clear_restore_ui();
+                timing.on_metadata(my_msg.debug_timing === true);
 
                 const my_pages = new Map<number, CellValue[][]>();
                 pages_ref.current = my_pages;
@@ -304,6 +310,7 @@ export function use_row_loader(): UseRowLoaderResult {
                     pages_ref.current = my_next;
                     return my_next;
                 });
+                timing.on_rows();
                 return;
             }
 
@@ -412,6 +419,7 @@ export function use_row_loader(): UseRowLoaderResult {
         };
     }, [
         vscode_api,
+        timing,
         reset_pages_and_refetch_viewport,
         clear_restore_ui,
         set_pending_sort_state,

@@ -38,6 +38,7 @@
     "check:line-endings": "bun scripts/check-line-endings.ts",
     "test": "bun run typecheck; bun test ./tests",
     "test:watch": "bun test --watch ./tests",
+    "bench:data-browser": "bun scripts/bench-data-browser/run.ts",
     "lint": "eslint src client/src",
     "clean": "rm -rf dist bin",
     "package": "bun run build && cd client && bun run copy-server && bun run package",
