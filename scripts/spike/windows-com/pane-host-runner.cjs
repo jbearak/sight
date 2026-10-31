@@ -8,13 +8,14 @@ const user = fs.mkdtempSync(path.join(os.tmpdir(), 'sight-pane-user-'));
 const temp = fs.mkdtempSync(path.join(os.tmpdir(), 'sight-pane-test-'));
 const results = 'Y:\\sight\\scripts\\spike\\windows-com\\results';
 process.env.SIGHT_CONSOLE_TMPDIR = temp;
+process.env.SEND_TO_STATA_LOG = '1';
 process.env.SIGHT_PANE_SCENARIO = scenario;
 process.env.SIGHT_PANE_TRACE = path.join(results, `pane-${scenario}-writes.jsonl`);
 process.env.SIGHT_PANE_RESULT = path.join(results, `pane-${scenario}-test.txt`);
-const answers = { real_dialog: 'real', takeover: 'Take over', send: 'Send code to it instead',
+const answers = { real_dialog: 'real', takeover: 'Take over', send: 'Send code to it instead', send_debug: 'Send code to it instead', send_focus: 'Send code to it instead',
     cancel: 'dismiss', two_session: 'dismiss', two_always: 'dismiss' };
 process.env.SIGHT_PANE_MODAL = answers[scenario] || 'dismiss';
-process.env.SIGHT_PANE_OFFER = scenario === 'two_session' ? 'This session'
+process.env.SIGHT_PANE_OFFER = ['two_session', 'two_debug'].includes(scenario) ? 'This session'
     : scenario === 'two_always' ? 'Always' : 'Cancel';
 fs.writeFileSync(process.env.SIGHT_PANE_TRACE, '');
 fs.writeFileSync(process.env.SIGHT_PANE_RESULT, '');

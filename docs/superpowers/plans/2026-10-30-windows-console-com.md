@@ -1412,3 +1412,41 @@ when choosing that fallback. The test-only harness was corrected to
 re-read VS Code configuration after an update; no production behavior was
 changed in this round. Repository gates: line endings, typecheck and
 lint passed; `bun test ./tests` passed 8,083 tests with nine skipped.
+
+### Follow-up: one-window helper failure
+
+Further tests narrow the failure above to a foreground-window interaction
+in version 0.1.0 of the separate `send-to-stata` helper. In the failed
+extension-host test, its diagnostic trace says that the target Stata was
+already foreground before `AcquireFocus`. The helper nevertheless sends
+an Alt keypress before calling `SetForegroundWindow`; the File menu was
+open after the attempt. See `results/pane-send_debug-*` and
+`results/pane-send-debug.png`.
+
+A controlled Windows keystroke test started a throwaway Stata, verified
+that it was foreground, and sent the helper's Alt, Ctrl+1, Ctrl+V, Enter
+sequence. Its command did not appear in the Stata log. Repeating with
+fresh Stata and the same sequence **without Alt** executed the command.
+See `pane-keys-probe.ps1` and `results/pane-keys-*.txt` and `.log.gz`.
+This comparison strongly implicates the helper's focus-acquisition
+keypress in this foreground state; it does not prove that every possible
+helper failure has the same cause.
+
+The test-host stub had returned the modal answer immediately while Stata
+was still in the foreground; a real dialog normally changes focus. With
+the same one-window extension-host test but VS Code brought to the front
+before answering, the helper trace showed VS Code foreground and the
+command ran exactly once (`results/pane-send_focus-*`). A separate normal
+development window displayed the real modal, and selecting its external
+send option also executed the command in one Stata. An unrelated Setup
+window had foreground at dispatch in that run, so it establishes the
+actual modal's dispatch but not what happens with VS Code foreground;
+see `results/pane-dialog-repro-writes.jsonl` and
+`pane-dialog-repro-stata.log.gz`. With two Statas the helper selected the
+one that was not foreground and succeeded (`results/pane-two_debug-*`).
+
+The earlier result should therefore not be read as a demonstrated
+failure of the normal one-window dialog. The helper has a reproducible
+edge case when its target is already foreground; its success exit status
+did not detect the missed command. The pane's COM execution path is
+separate. No production code or helper binary was changed here.

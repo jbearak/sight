@@ -1,0 +1,1 @@
+case=without-alt foreground-is-target=True command-in-log=True

@@ -58,7 +58,7 @@ async function run() {
     let terminal;
     try {
         assert.deepStrictEqual(stataProcesses(), [], 'Existing Stata must not be touched');
-        const count = scenario.startsWith('two_') ? 2 : ['takeover','send','cancel','real_dialog'].includes(scenario) ? 1 : 0;
+        const count = scenario.startsWith('two_') ? 2 : ['takeover','send','send_debug','send_focus','cancel','real_dialog'].includes(scenario) ? 1 : 0;
         for (let i = 0; i < count; i++) owned.push(await startStata(i));
         const extension = vscode.extensions.getExtension('jbearak.sight');
         assert.ok(extension);
