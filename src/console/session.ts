@@ -62,6 +62,8 @@ export interface SessionOptions {
     history: HistoryStore;
     completer: Completer | null;
     color_mode: ColorOutputMode;
+    /** Called once, when Stata's top-level prompt first shows. */
+    on_ready?: () => void;
 }
 
 export class ConsoleSession {
@@ -87,6 +89,7 @@ export class ConsoleSession {
     private last_line_in_transcript = false;
     private completion_generation = 0;
     private exited = false;
+    private reported_ready = false;
 
     private prompt_timer: unknown = null;
     private flush_timer: unknown = null;
@@ -471,6 +474,10 @@ export class ConsoleSession {
             this.editor.set_buffer(this.staged.shift() ?? '');
         }
         this.show_editor(true);
+        if (kind === 'stata' && !this.reported_ready) {
+            this.reported_ready = true;
+            this.options.on_ready?.();
+        }
     }
 
     // ---- Drawing ----

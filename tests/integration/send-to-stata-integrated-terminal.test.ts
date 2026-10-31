@@ -57,6 +57,8 @@ const WINDOWS_SENDER_MODULE_URL = pathToFileURL(
     path.join(SEND_TO_STATA_DIR, 'windows-sender.ts')
 ).href;
 
+/** A cancellation token that is never cancelled. */
+const NO_CANCEL = { isCancellationRequested: false };
 const TERMINAL_EXIT_REASON = VSCODE_MOCK_SHARED_EXPORTS.TerminalExitReason;
 const CONFIGURATION_TARGET_GLOBAL =
     VSCODE_MOCK_SHARED_EXPORTS.ConfigurationTarget.Global;
@@ -132,6 +134,8 @@ interface VscodeMockState {
     the_failing_app_paths: Set<string>;
     status_item: { text: string; is_shown: boolean } | null;
     target_setting: TargetSettingValues | null;
+    /** sight.sendToStata.console, when set. */
+    console_setting?: string;
     active_text_editor?: unknown;
     terminal: MockTerminal;
     /** When set, each createTerminal call makes a new terminal. */
@@ -261,6 +265,15 @@ function register_module_mocks(): void {
         workspace: {
             getConfiguration: (section?: string) => ({
                 get: <T>(key: string, default_value?: T): T => {
+                    const console_setting =
+                        current_vscode_state?.console_setting;
+                    if (
+                        console_setting
+                        && section === 'sight.sendToStata'
+                        && key === 'console'
+                    ) {
+                        return console_setting as T;
+                    }
                     const values = current_vscode_state?.target_setting;
                     if (
                         values
@@ -770,6 +783,7 @@ const REAL_PLATFORM = process.platform;
 interface ConsoleEndResult {
     code: number;
     took_stata: boolean;
+    helper_failed?: boolean;
 }
 
 /** A fake of the console runtime's per-pane console. */
@@ -785,6 +799,7 @@ interface FakeConsole {
             text: string;
             allow_send_instead: boolean;
         }): Promise<'yes' | 'no' | 'send'>;
+        pty?: { helper_path: string; stata_path: string };
     };
 }
 
@@ -820,7 +835,7 @@ function set_platform(platform: string): void {
 
 function create_fake_console_module(the_consoles: FakeConsole[]) {
     return {
-        EDITOR_CONSOLE_API_VERSION: 1,
+        EDITOR_CONSOLE_API_VERSION: 2,
         start_editor_console: (host: FakeConsole['host']) => {
             const fake: FakeConsole = {
                 the_inputs: [],
@@ -856,7 +871,8 @@ function create_pane_terminal(
 ): MockTerminal {
     const terminal: MockTerminal = {
         name: options.name ?? 'Stata',
-        processId: Promise.resolve(undefined),
+        // A pane has no process; a plain Stata terminal does.
+        processId: Promise.resolve(options.pty ? undefined : 4321),
         show: (preserve_focus = false) => {
             vscode_state.the_show_calls.push(preserve_focus);
         },
@@ -879,7 +895,8 @@ function create_pane_terminal(
 }
 
 async function create_console_harness(
-    offer_timeout_ms = 60000
+    offer_timeout_ms = 60000,
+    pty_helper_path?: string | null
 ): Promise<ConsoleHarness> {
     const vscode_state = create_vscode_mock_state(Promise.resolve(1));
     const the_terminals: MockTerminal[] = [];
@@ -909,6 +926,7 @@ async function create_console_harness(
         timings: { offer_timeout_ms },
         load_console_module: async () =>
             create_fake_console_module(the_consoles),
+        pty_helper_path,
     });
     terminal_manager.register_stata_terminal(context);
     the_live_terminals.push(the_terminals);
@@ -1008,14 +1026,14 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
         );
         expect(provider).toBeDefined();
 
-        const profile = await provider!.provideTerminalProfile() as {
+        const profile = await provider!.provideTerminalProfile(NO_CANCEL) as {
             options: CreateTerminalOptions;
         };
         expect(profile.options.name).toBe('Stata');
         expect(profile.options.pty).toBeDefined();
         expect(profile.options.shellPath).toBeUndefined();
         expect(profile.options.env).toBeUndefined();
-        const second = await provider!.provideTerminalProfile() as {
+        const second = await provider!.provideTerminalProfile(NO_CANCEL) as {
             options: CreateTerminalOptions;
         };
         expect(second.options.pty).not.toBe(profile.options.pty);
@@ -1074,7 +1092,7 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
         const provider = vscode_state.the_profile_providers.get(
             'sight.stataTerminal'
         );
-        const profile = await provider!.provideTerminalProfile() as {
+        const profile = await provider!.provideTerminalProfile(NO_CANCEL) as {
             options: CreateTerminalOptions;
         };
         const terminal = create_pane_terminal(
@@ -1500,5 +1518,144 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
         the_created_files.push(dispatched);
         expect(fs.readFileSync(dispatched, 'utf8'))
             .toBe('display "queued"');
+    });
+});
+
+describe.serial('Feature: Stata pane running sight console on macOS and Linux', () => {
+    const HELPER_PATH = '/extension/pty-helper/bin/darwin-arm64/sight-pty';
+
+    beforeAll(register_module_mocks);
+
+    beforeEach(() => {
+        current_vscode_state = null;
+        set_platform('darwin');
+    });
+
+    afterEach(async () => {
+        close_live_panes();
+        set_platform(REAL_PLATFORM);
+        const terminal_manager = await import(TERMINAL_MANAGER_MODULE_URL);
+        terminal_manager.reset_stata_terminal_manager_for_tests();
+        current_vscode_state = null;
+        for (const my_file of the_created_files.splice(0)) {
+            await fs.promises.unlink(my_file).catch(() => {});
+        }
+    });
+
+    for (const my_platform of ['darwin', 'linux']) {
+        test(`on ${my_platform} the profile opens a pane running Stata through the helper`, async () => {
+            set_platform(my_platform);
+            const harness = await create_console_harness(60000, HELPER_PATH);
+            const provider = harness.vscode_state.the_profile_providers.get(
+                'sight.stataTerminal'
+            );
+            const profile = await provider!.provideTerminalProfile(NO_CANCEL) as {
+                options: CreateTerminalOptions;
+            };
+            expect(profile.options.pty).toBeDefined();
+            expect(profile.options.shellPath).toBeUndefined();
+            const pane_terminal = create_pane_terminal(
+                { the_pane_closes: new Map(), the_pane_output: new Map() },
+                harness.vscode_state,
+                profile.options
+            );
+            harness.the_terminals.push(pane_terminal);
+            const fake = await console_started(harness);
+            expect(fake.host.pty).toEqual({
+                helper_path: HELPER_PATH,
+                stata_path: '/usr/local/bin/stata-mp',
+            });
+        });
+    }
+
+    test('sends wait for the first prompt, then are typed in order', async () => {
+        const harness = await create_console_harness(60000, HELPER_PATH);
+        const first = await create_tracked_send_file('first');
+        const second = await create_tracked_send_file('second');
+        expect(await harness.terminal_manager.send_to_stata_terminal('do', first)).toBe(true);
+        expect(await harness.terminal_manager.send_to_stata_terminal('do', second)).toBe(true);
+        expect(harness.the_terminals).toHaveLength(1);
+        const fake = await console_started(harness);
+        expect(fake.the_inputs).toEqual([]);
+
+        fake.ready.resolve(true);
+        await wait_until(() => fake.the_inputs.length === 2, 'typed sends', 2000);
+        expect(fake.the_inputs).toEqual([
+            `do ${wrap(first)}\r`,
+            `do ${wrap(second)}\r`,
+        ]);
+        expect(harness.vscode_state.the_send_calls).toEqual([]);
+
+        const third = await create_tracked_send_file('third');
+        expect(await harness.terminal_manager.send_to_stata_terminal('do', third)).toBe(false);
+        expect(fake.the_inputs.at(-1)).toBe(`do ${wrap(third)}\r`);
+    });
+
+    test('with the console setting off, Stata runs directly', async () => {
+        const harness = await create_console_harness(60000, HELPER_PATH);
+        harness.vscode_state.console_setting = 'off';
+        const first = await create_tracked_send_file('first');
+        expect(await harness.terminal_manager.send_to_stata_terminal('do', first)).toBe(false);
+        const options = harness.vscode_state.the_create_options[0];
+        expect(options.pty).toBeUndefined();
+        expect(options.shellPath).toBe('/usr/local/bin/stata-mp');
+        expect(options.shellArgs).toEqual(['do', wrap(first)]);
+    });
+
+    test('without a helper for this platform, Stata runs directly', async () => {
+        const harness = await create_console_harness(60000, null);
+        const first = await create_tracked_send_file('first');
+        await harness.terminal_manager.send_to_stata_terminal('do', first);
+        expect(harness.vscode_state.the_create_options[0].shellPath)
+            .toBe('/usr/local/bin/stata-mp');
+    });
+
+    test("Stata's own exit codes never offer the Windows app", async () => {
+        const harness = await create_console_harness(60000, HELPER_PATH);
+        const first = await create_tracked_send_file('first');
+        await harness.terminal_manager.send_to_stata_terminal('do', first);
+        await end_console(harness, 81);
+        await wait_until(
+            () => harness.vscode_state.the_info_messages.length > 0,
+            'the drop notice',
+            2000
+        );
+        expect(harness.vscode_state.the_warning_calls).toEqual([]);
+        expect(harness.vscode_state.the_app_dispatches).toEqual([]);
+        expect(harness.vscode_state.the_info_messages[0]).toContain(
+            'Dropped 1 send'
+        );
+    });
+
+    test('a helper that fails before the first prompt hands its sends to plain Stata once', async () => {
+        const harness = await create_console_harness(60000, HELPER_PATH);
+        const first = await create_tracked_send_file('first');
+        const second = await create_tracked_send_file('second');
+        await harness.terminal_manager.send_to_stata_terminal('do', first);
+        await harness.terminal_manager.send_to_stata_terminal('do', second);
+        const fake = await console_started(harness);
+        fake.done.resolve({ code: 137, took_stata: false, helper_failed: true });
+
+        await wait_until(
+            () => harness.vscode_state.the_send_calls.length === 1,
+            'the second send typed into plain Stata',
+            2000
+        );
+        const the_options = harness.vscode_state.the_create_options;
+        expect(the_options).toHaveLength(2);
+        expect(the_options[1].pty).toBeUndefined();
+        expect(the_options[1].shellArgs).toEqual(['do', wrap(first)]);
+        expect(harness.vscode_state.the_send_calls).toEqual([
+            `do ${wrap(second)}`,
+        ]);
+        expect(harness.vscode_state.the_warning_calls.map(my_call => my_call.message))
+            .toEqual([expect.stringContaining('Stata CLI directly')]);
+        expect(harness.vscode_state.the_cleanups).toEqual([first, second]);
+
+        // Later sends keep using plain Stata this session.
+        const third = await create_tracked_send_file('third');
+        await harness.terminal_manager.send_to_stata_terminal('do', third);
+        expect(harness.vscode_state.the_create_options).toHaveLength(2);
+        expect(harness.vscode_state.the_send_calls.at(-1)).toBe(`do ${wrap(third)}`);
     });
 });

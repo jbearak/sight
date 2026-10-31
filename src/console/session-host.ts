@@ -1,9 +1,9 @@
 /**
  * Runs a ConsoleSession on a Stata backend for some display: the real
  * terminal (`run_interactive`) or an editor's own terminal pane (the
- * VS Code extension on Windows). The display supplies writes, its
- * size, and keystrokes; the host owns the session, the completer and
- * a single idempotent end.
+ * VS Code extension). The display supplies writes, its size, and
+ * keystrokes; the host owns the session, the completer and a single
+ * idempotent end.
  */
 
 import type { ColorOutputMode } from './output-colorizer';
@@ -27,6 +27,8 @@ export interface SessionHostOptions {
     start_backend: (events: BackendEvents, size: { columns: number; rows: number }) => BackendHandle;
     /** Called once as the session ends, before the closing message. */
     on_end?: () => void;
+    /** Called once, when Stata's top-level prompt first shows. */
+    on_ready?: () => void;
 }
 
 export interface SessionHost {
@@ -86,6 +88,7 @@ export function start_session_host(options: SessionHostOptions): SessionHost {
         history: new History(options.history ? default_history_path() : null),
         completer,
         color_mode: options.color_output,
+        on_ready: options.on_ready,
     });
     for (const my_event of pending.splice(0)) {
         deliver(my_event);

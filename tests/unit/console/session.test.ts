@@ -76,7 +76,11 @@ class FakePty implements StataPty {
     close(): void {}
 }
 
-function setup(options: { completer?: Completer | null; history?: string[] } = {}) {
+function setup(options: {
+    completer?: Completer | null;
+    history?: string[];
+    on_ready?: () => void;
+} = {}) {
     const clock = new ManualClock();
     const pty = new FakePty();
     const screen: string[] = [];
@@ -89,6 +93,7 @@ function setup(options: { completer?: Completer | null; history?: string[] } = {
         history: { all: () => history, add: (line) => history.push(line) },
         completer: options.completer ?? null,
         color_mode: 'streams',
+        on_ready: options.on_ready,
     });
     const at_prompt = (text = '. '): void => {
         session.handle_output(text);
@@ -104,6 +109,22 @@ describe('ConsoleSession', () => {
         expect(session.current_prompt).toBeNull();
         clock.advance(PROMPT_QUIET_MS + 1);
         expect(session.current_prompt).toBe('stata');
+    });
+
+    it('reports ready once, at the first top-level Stata prompt', () => {
+        let ready_count = 0;
+        const { session, at_prompt } = setup({ on_ready: () => ready_count++ });
+        at_prompt('--more--');
+        expect(ready_count).toBe(0);
+        session.handle_output('\r\n');
+        at_prompt(': ');
+        expect(ready_count).toBe(0);
+        session.handle_output('\r\n');
+        at_prompt('. ');
+        expect(ready_count).toBe(1);
+        session.handle_output('\r\n');
+        at_prompt('. ');
+        expect(ready_count).toBe(1);
     });
 
     it('forgets a prompt-shaped fragment when more output follows', () => {

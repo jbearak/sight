@@ -411,8 +411,21 @@
           "description": "Where to send Stata commands. Run \"Sight: Choose Where to Send Code\" to change it from a menu.",
           "enumDescriptions": [
             "Ask: the first send in a window asks whether to use the Stata pane or the Stata app, for this session or every session. In remote sessions (SSH, WSL, Dev Container, Tunnel) and on Linux, where only the Stata pane works, it uses the pane without asking. (\"auto\", the older name, means the same.)",
-            "Always use the Stata pane: Stata in VS Code's integrated terminal. On Windows this opens a Stata pane running sight console, which drives the Stata app; if the console can't use Stata (for example, several Stata windows are open, or you keep your open Stata to yourself), Sight offers to send code to the open Stata window instead.",
+            "Always use the Stata pane: Stata in VS Code's integrated terminal, running sight console (on macOS and Linux, around console Stata; see sight.sendToStata.console). On Windows sight console drives the Stata app; if the console can't use Stata (for example, several Stata windows are open, or you keep your open Stata to yourself), Sight offers to send code to the open Stata window instead.",
             "Always use the external Stata GUI application (macOS and Windows only; not available in remote sessions or on Linux)"
+          ]
+        },
+        "sight.sendToStata.console": {
+          "type": "string",
+          "enum": [
+            "auto",
+            "off"
+          ],
+          "default": "auto",
+          "description": "macOS and Linux: what the Stata pane runs. On Windows the pane always runs sight console.",
+          "enumDescriptions": [
+            "Run sight console (syntax highlighting, completion and colored output) around console Stata, through a small helper shipped with the extension. Falls back to plain console Stata where the helper can't run.",
+            "Run console Stata (stata-mp, ...) directly."
           ]
         },
         "sight.sendToStata.workingDirectory": {
@@ -809,13 +822,14 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "bun run copy-vview-ado && bun run bundle && bun run copy-server && bun run copy-console",
+    "vscode:prepublish": "bun run copy-vview-ado && bun run bundle && bun run copy-server && bun run copy-console && bun run build-pty-helper",
     "bundle": "bunx esbuild src/extension.ts --bundle --platform=node --format=cjs --outfile=dist/extension.js --external:vscode --minify && bunx esbuild src/data-browser/compute-worker.ts --bundle --platform=node --format=cjs --outfile=dist/data-browser-worker.js --minify && bunx esbuild src/data-browser/row-reader-worker.ts --bundle --platform=node --format=cjs --outfile=dist/data-browser-reader.js --minify && node -e \"require('fs').writeFileSync('dist/package.json', '{\\\"type\\\":\\\"commonjs\\\"}')\"",
     "bundle:webview": "bunx esbuild src/data-browser/webview/index.tsx --bundle --platform=browser --format=iife --outfile=dist/data-browser-webview/index.js --loader:.css=css --minify",
     "bundle:webview-test": "bunx esbuild src/data-browser/webview/test-harness/index.tsx --bundle --platform=browser --format=iife --outfile=dist-test/toolbar-wrap-harness/index.js --loader:.css=css",
     "copy-vview-ado": "mkdir -p stata && rm -f stata/*.ado && cp ../stata/*.ado stata/",
     "copy-server": "rm -rf server && mkdir -p server/command-database && bunx esbuild ../dist/server.js --bundle --platform=node --format=cjs --outfile=server/server.js --external:vscode \"--external:node:*\" --minify && bun -e \"require('fs').cpSync('../dist/command-database/caches', 'server/command-database/caches', {recursive:true})\" && node -e \"require('fs').writeFileSync('server/package.json', '{\\\"type\\\":\\\"commonjs\\\"}')\"",
     "copy-console": "rm -rf console-runtime && bunx esbuild ../src/console/editor-console.ts --bundle --platform=node --format=cjs --outfile=console-runtime/console.js --external:vscode --minify && node -e \"require('fs').writeFileSync('console-runtime/package.json', '{\\\"type\\\":\\\"commonjs\\\"}')\"",
+    "build-pty-helper": "bun ../scripts/build-pty-helper.ts",
     "compile": "bun run copy-vview-ado && bun run bundle && bun run bundle:webview",
     "watch": "tsc -watch -p ./",
     "pretest": "bun run compile && bun run lint",

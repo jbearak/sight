@@ -1,0 +1,33 @@
+---
+name: "Setup Zig"
+description: |
+  Installs a pinned Zig (checksum-verified) on Linux x64, for building
+  the sight-pty helper (scripts/build-pty-helper.ts) for every target.
+
+inputs:
+  version:
+    description: "Zig version"
+    required: false
+    default: "0.16.0"
+  sha256:
+    description: "SHA-256 of zig-x86_64-linux-<version>.tar.xz"
+    required: false
+    # From https://ziglang.org/download/index.json
+    default: "70e49664a74374b48b51e6f3fdfbf437f6395d42509050588bd49abe52ba3d00"
+
+runs:
+  using: "composite"
+  steps:
+    - name: Install Zig
+      shell: bash
+      env:
+        ZIG_VERSION: ${{ inputs.version }}
+        ZIG_SHA256: ${{ inputs.sha256 }}
+      run: |
+        set -euo pipefail
+        name="zig-x86_64-linux-${ZIG_VERSION}"
+        curl -sSfL -o "$RUNNER_TEMP/zig.tar.xz" \
+          "https://ziglang.org/download/${ZIG_VERSION}/${name}.tar.xz"
+        echo "${ZIG_SHA256}  $RUNNER_TEMP/zig.tar.xz" | sha256sum -c -
+        tar -xJf "$RUNNER_TEMP/zig.tar.xz" -C "$RUNNER_TEMP"
+        echo "$RUNNER_TEMP/${name}" >> "$GITHUB_PATH"

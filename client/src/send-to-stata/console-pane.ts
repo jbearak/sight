@@ -1,9 +1,10 @@
 /**
- * The Stata pane on local Windows: an extension terminal (VS Code's
- * Pseudoterminal) that runs `sight console` inside the extension
- * process. Stata for Windows has no console program, and VS Code's own
- * runtime gets no OS terminal on Windows, so the console runs here and
- * the pane only carries keystrokes in and bytes out.
+ * The Stata pane: an extension terminal (VS Code's Pseudoterminal)
+ * that runs `sight console` inside the extension process, so it needs
+ * no separate install. On Windows the console drives the Stata app; on
+ * macOS and Linux it runs console Stata through the small sight-pty
+ * helper shipped with the extension (client/pty-helper/). The pane
+ * only carries keystrokes in and bytes out.
  *
  * The console code is bundled separately (console-runtime/console.js)
  * and loaded the first time a pane opens.
@@ -15,7 +16,7 @@ import * as vscode from 'vscode';
 
 // ---- The console runtime's contract (src/console/editor-console.ts) ----
 
-export const EDITOR_CONSOLE_API_VERSION = 1;
+export const EDITOR_CONSOLE_API_VERSION = 2;
 
 export type ConsoleAnswer = 'yes' | 'no' | 'send';
 
@@ -25,6 +26,11 @@ export interface ConsoleQuestion {
     allow_send_instead: boolean;
 }
 
+export interface EditorConsolePty {
+    helper_path: string;
+    stata_path: string;
+}
+
 export interface EditorConsoleHost {
     write(text: string): void;
     columns(): number;
@@ -32,11 +38,13 @@ export interface EditorConsoleHost {
     ask(question: ConsoleQuestion): Promise<ConsoleAnswer>;
     env: NodeJS.ProcessEnv;
     working_directory?: string;
+    pty?: EditorConsolePty;
 }
 
 export interface EditorConsoleEnd {
     code: number;
     took_stata: boolean;
+    helper_failed?: boolean;
 }
 
 export interface EditorConsole {
@@ -85,13 +93,20 @@ export async function load_console_module(
 
 /** How the pane's console ended, reported once. */
 export type PaneEnd =
-    | { reason: 'process'; code: number; took_stata: boolean }
+    | {
+        reason: 'process';
+        code: number;
+        took_stata: boolean;
+        helper_failed?: boolean;
+    }
     | { reason: 'user' };
 
 export interface ConsolePaneOptions {
     load_module: () => Promise<EditorConsoleModule>;
     ask: (question: ConsoleQuestion) => Promise<ConsoleAnswer>;
     working_directory?: string;
+    /** macOS and Linux: the helper and Stata to run. */
+    pty?: EditorConsolePty;
     /** The console showed its first prompt. */
     on_ready: () => void;
     /** Called once, before the pane closes (if it does). */
@@ -164,6 +179,7 @@ export function create_console_pane(
             ask: options.ask,
             env: process.env,
             working_directory: options.working_directory,
+            pty: options.pty,
         });
         the_console = started;
         void started.ready.then(is_ready => {

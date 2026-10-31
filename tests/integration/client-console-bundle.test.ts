@@ -1,9 +1,9 @@
 /**
  * Build test for the console runtime the VS Code extension ships
  * (client/console-runtime/console.js, made by the client's
- * `copy-console` script). On Windows the extension loads it into its
- * own process and runs sight console in a terminal pane, so this loads
- * the bundle under Node, as the extension host does, and starts it.
+ * `copy-console` script). The extension loads it into its own process
+ * and runs sight console in a terminal pane, so this loads the bundle
+ * under Node, as the extension host does, and starts it.
  */
 
 import { beforeAll, describe, expect, test } from 'bun:test';
@@ -18,16 +18,19 @@ const BUNDLE_PATH = join(BUNDLE_DIR, 'console.js');
 const BUNDLE_BUDGET_BYTES = 2 * 1024 * 1024;
 const BUILD_TIMEOUT_MS = 60000;
 // Mirrors client/src/send-to-stata/console-pane.ts.
-const EDITOR_CONSOLE_API_VERSION = 1;
+const EDITOR_CONSOLE_API_VERSION = 2;
+const IS_WINDOWS = process.platform === 'win32';
 
 /** Node is closest to VS Code's extension host; Bun if it's absent. */
 function get_js_runtime(): string {
     return Bun.which('node') ?? process.execPath;
 }
 
-// Starts a console with a fake host. Without Windows PowerShell (or
-// without Stata registered), it must end cleanly, inside this process,
-// with 85 (helper couldn't run) or 84 (Automation not registered).
+// Starts a console with a fake host. On Windows, without PowerShell
+// (or without Stata registered), it must end cleanly, inside this
+// process, with 85 (helper couldn't run) or 84 (Automation not
+// registered). Elsewhere it's given a sight-pty helper that doesn't
+// exist, and must end cleanly reporting a helper failure.
 const PROBE = `
 const { pathToFileURL } = require('url');
 (async () => {
@@ -41,6 +44,10 @@ const { pathToFileURL } = require('url');
         rows: () => 24,
         ask: async () => 'no',
         env: { ...process.env, SIGHT_CONSOLE_TMPDIR: require('os').tmpdir() },
+        pty: {
+            helper_path: require('path').join(require('os').tmpdir(), 'no-such-sight-pty'),
+            stata_path: 'stata-mp',
+        },
     });
     const ready = await started.ready;
     const end = await started.done;
@@ -88,7 +95,12 @@ describe('client console runtime bundle (copy-console)', () => {
         expect(report.version).toBe(EDITOR_CONSOLE_API_VERSION);
         expect(report.ready).toBe(false);
         expect(report.end.took_stata).toBe(false);
-        expect([84, 85]).toContain(report.end.code);
-        expect(report.wrote).toContain('Error:');
+        if (IS_WINDOWS) {
+            expect([84, 85]).toContain(report.end.code);
+            expect(report.wrote).toContain('Error:');
+        } else {
+            expect(report.end.helper_failed).toBe(true);
+            expect(report.wrote).toContain('no-such-sight-pty');
+        }
     }, 40000);
 });

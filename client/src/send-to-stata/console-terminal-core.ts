@@ -1,8 +1,8 @@
 /**
- * The extension's side of `sight console` panes on local Windows,
- * without VS Code: per-pane readiness, the queue of sends made before
- * readiness, and the offer to use send-to-stata (the Stata app) when
- * the console ends without taking Stata.
+ * The extension's side of `sight console` panes, without VS Code:
+ * per-pane readiness, the queue of sends made before readiness, and,
+ * on Windows, the offer to use send-to-stata (the Stata app) when the
+ * console ends without taking Stata.
  *
  * Every pending send ends exactly once: typed into its ready terminal,
  * dispatched to the app, or dropped (its temp file deleted).
@@ -74,6 +74,12 @@ export type ConsoleCloseReason = 'process' | 'user';
 export interface ConsoleExit {
     reason: ConsoleCloseReason;
     code: number | undefined;
+    /**
+     * `pty` for console Stata on macOS and Linux, whose exit codes are
+     * Stata's own: they never mean the Windows codes above, so no
+     * offer. Absent means the Windows (Automation) console.
+     */
+    backend?: 'automation' | 'pty';
 }
 
 export interface PendingSend {
@@ -245,7 +251,7 @@ export class ConsoleTerminalQueue<TTerminal> {
 
         const the_sends = entry.pending;
         entry.pending = [];
-        const reason = exit.code === undefined
+        const reason = exit.code === undefined || exit.backend === 'pty'
             ? undefined
             : CONSOLE_OFFER_REASONS.get(exit.code);
 
@@ -280,6 +286,23 @@ export class ConsoleTerminalQueue<TTerminal> {
             return this.showing_offer.done;
         }
         return this.make_offer(reason ?? '', the_sends);
+    }
+
+    /**
+     * Stop tracking a pane that couldn't start, handing back its
+     * pending sends (and their temp files) to send some other way.
+     */
+    take_pending(terminal: TTerminal): PendingSend[] {
+        const entry = this.entries.get(terminal);
+        if (!entry) {
+            return [];
+        }
+        this.entries.delete(terminal);
+        entry.state = 'closed';
+        const the_sends = entry.pending;
+        entry.pending = [];
+        this.report_pending_count();
+        return the_sends;
     }
 
     /** Forget every pane (extension deactivation). */
