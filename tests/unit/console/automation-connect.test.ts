@@ -9,7 +9,12 @@
 
 import { describe, expect, it } from 'bun:test';
 import type { Bridge, BridgeReply, RequestOptions } from '../../../src/console/automation/bridge';
-import { connect_to_stata, type StataProcess } from '../../../src/console/automation/connect';
+import {
+    connect_to_stata,
+    type ConnectAnswer,
+    type ConnectQuestion,
+    type StataProcess,
+} from '../../../src/console/automation/connect';
 import {
     EXIT_SEND_FROM_EDITOR,
     EXIT_SEVERAL_STATA_OPEN,
@@ -84,16 +89,17 @@ class ScriptedBridge implements Bridge {
 }
 
 function deps(bridge: Bridge, answers: string[] = [], extra: { yes?: boolean; from_editor?: boolean } = {}) {
-    const questions: string[] = [];
+    const questions: ConnectQuestion[] = [];
     const said: string[] = [];
     return {
         questions,
         said,
         deps: {
             bridge,
-            ask: (question: string) => {
+            ask: (question: ConnectQuestion): Promise<ConnectAnswer> => {
                 questions.push(question);
-                return Promise.resolve(answers.shift() ?? '');
+                const answer = answers.shift() ?? '';
+                return Promise.resolve(answer === 'y' ? 'yes' : answer === 's' ? 'send' : 'no');
             },
             say: (text: string) => said.push(text),
             sleep: () => Promise.resolve(),
@@ -140,16 +146,16 @@ describe('connect_to_stata', () => {
         const { deps: d, questions } = deps(bridge, ['n']);
         const result = await connect_to_stata(d);
         expect(result).toMatchObject({ ok: false, exit_code: EXIT_TAKEOVER_DECLINED });
-        expect(questions[0]).toContain('[y/N]');
+        expect(questions[0]).toMatchObject({ kind: 'take_over', allow_send_instead: false });
         expect(bridge.ops).not.toContain('connect');
     });
 
     it('offers s from the editor and makes no COM call for it', async () => {
         const bridge = new ScriptedBridge({ open: [[stata(5)]] });
-        const { deps: d, questions } = deps(bridge, ['S'], { from_editor: true });
+        const { deps: d, questions } = deps(bridge, ['s'], { from_editor: true });
         const result = await connect_to_stata(d);
         expect(result).toMatchObject({ ok: false, exit_code: EXIT_SEND_FROM_EDITOR });
-        expect(questions[0]).toContain('[y/N/s]');
+        expect(questions[0]).toMatchObject({ kind: 'take_over', allow_send_instead: true });
         expect(bridge.ops).not.toContain('connect');
     });
 
@@ -200,7 +206,8 @@ describe('connect_to_stata', () => {
         const result = await connect_to_stata(d);
         expect(result).toMatchObject({ ok: false, exit_code: 0 });
         expect(questions.length).toBe(1);
-        expect(questions[0]).toContain('just opened');
+        expect(questions[0]?.kind).toBe('keep');
+        expect(questions[0]?.text).toContain('just opened');
     });
 
     it('keeps the mutex when its Stata cannot be identified', async () => {
@@ -213,7 +220,7 @@ describe('connect_to_stata', () => {
         const { deps: d, questions } = deps(bridge, ['y']);
         const result = await connect_to_stata(d);
         expect(result).toMatchObject({ ok: true, pid: null });
-        expect(questions[0]).toContain('couldn\'t identify');
+        expect(questions[0]?.text).toContain('couldn\'t identify');
         expect(bridge.ops).not.toContain('release_mutex');
     });
 

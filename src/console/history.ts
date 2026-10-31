@@ -15,14 +15,21 @@ import * as path from 'path';
 export const MAX_HISTORY_ENTRIES = 10_000;
 
 /** History file location for this platform, or the override. */
-export function default_history_path(env: NodeJS.ProcessEnv = process.env): string {
+export function default_history_path(
+    env: NodeJS.ProcessEnv = process.env,
+    platform: NodeJS.Platform = process.platform,
+): string {
     const override = env.SIGHT_CONSOLE_HISTORY;
     if (override) {
         return override;
     }
     const home = os.homedir();
-    if (process.platform === 'darwin') {
+    if (platform === 'darwin') {
         return path.join(home, 'Library', 'Application Support', 'sight', 'console_history');
+    }
+    if (platform === 'win32') {
+        const app_data = env.APPDATA || path.join(home, 'AppData', 'Roaming');
+        return path.join(app_data, 'sight', 'console_history');
     }
     const data_home = env.XDG_DATA_HOME || path.join(home, '.local', 'share');
     return path.join(data_home, 'sight', 'console_history');

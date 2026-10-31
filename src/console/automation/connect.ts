@@ -30,10 +30,20 @@ export interface StataProcess {
     com_started: boolean;
 }
 
+export type ConnectAnswer = 'yes' | 'no' | 'send';
+
+export interface ConnectQuestion {
+    /** Before connecting, or about a Stata that answered unexpectedly. */
+    kind: 'take_over' | 'keep';
+    text: string;
+    /** Offer "send code from the editor instead" (editors only). */
+    allow_send_instead: boolean;
+}
+
 export interface ConnectDeps {
     bridge: Bridge;
-    /** Ask a question on the terminal; resolves with the typed answer. */
-    ask(question: string): Promise<string>;
+    /** Ask the user; a dismissed question counts as no. */
+    ask(question: ConnectQuestion): Promise<ConnectAnswer>;
     /** Print a line for the user. */
     say(text: string): void;
     sleep(ms: number): Promise<void>;
@@ -62,18 +72,6 @@ const UNSAFE_PATH = /["`'$]|[^\x20-\x7e]/;
 
 export function token8(token: string): string {
     return token.slice(0, 8);
-}
-
-function is_yes(answer: string): boolean {
-    // The answer letters are Sight's own prompt, not Stata syntax, so
-    // case doesn't matter here.
-    const text = answer.trim().toLowerCase();
-    return text === 'y' || text === 'yes';
-}
-
-function is_send_instead(answer: string): boolean {
-    const text = answer.trim().toLowerCase();
-    return text === 's';
 }
 
 function as_processes(value: unknown): StataProcess[] {
@@ -144,19 +142,16 @@ export async function connect_to_stata(deps: ConnectDeps): Promise<ConnectResult
         }
         consented = open[0] ?? null;
         if (consented && !deps.yes) {
-            const choices = deps.from_editor ? '[y/N/s]' : '[y/N]';
-            const extra = deps.from_editor
-                ? '\n  s: leave this Stata alone and send code to it from the editor instead'
-                : '';
-            const answer = await deps.ask(
-                `sight console will take over ${describe_stata(consented)}. It closes when `
-                + 'the console ends, so unsaved work in it would be lost then.'
-                + `${extra}\nContinue? ${choices} `,
-            );
-            if (deps.from_editor && is_send_instead(answer)) {
+            const answer = await deps.ask({
+                kind: 'take_over',
+                text: `sight console will take over ${describe_stata(consented)}. It closes `
+                    + 'when the console ends, so unsaved work in it would be lost then.',
+                allow_send_instead: deps.from_editor,
+            });
+            if (deps.from_editor && answer === 'send') {
                 return { ok: false, exit_code: EXIT_SEND_FROM_EDITOR, message: null };
             }
-            if (!is_yes(answer)) {
+            if (answer !== 'yes') {
                 return { ok: false, exit_code: EXIT_TAKEOVER_DECLINED, message: null };
             }
         }
@@ -212,12 +207,14 @@ export async function connect_to_stata(deps: ConnectDeps): Promise<ConnectResult
         const what = process
             ? `the Stata you just opened${process.title ? ` (${process.title})` : ''}`
             : 'a Stata it couldn\'t identify';
-        const answer = await deps.ask(
-            `sight console is now connected to ${what}. Keep using it here? It closes when `
-            + 'the console ends; answering no closes it now, so save your work in it first '
-            + 'if needed. [y/N] ',
-        );
-        return is_yes(answer);
+        const answer = await deps.ask({
+            kind: 'keep',
+            text: `sight console is now connected to ${what}. Keep using it here? It closes `
+                + 'when the console ends; answering no closes it now, so save your work in it '
+                + 'first if needed.',
+            allow_send_instead: false,
+        });
+        return answer === 'yes';
     };
     if (unconsented && !deps.yes && !await ask_after_the_fact(unconsented)) {
         return { ok: false, exit_code: 0, message: 'Closed that Stata.' };

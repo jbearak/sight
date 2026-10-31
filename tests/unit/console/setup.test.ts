@@ -114,10 +114,13 @@ describe('History', () => {
 
     it('honors the override and XDG locations', () => {
         expect(default_history_path({ SIGHT_CONSOLE_HISTORY: '/h' })).toBe('/h');
-        if (process.platform === 'linux') {
-            expect(default_history_path({ XDG_DATA_HOME: '/data' }))
-                .toBe('/data/sight/console_history');
-        }
+        expect(default_history_path({ XDG_DATA_HOME: '/data' }, 'linux'))
+            .toBe(path.join('/data', 'sight', 'console_history'));
+    });
+
+    it('keeps history under APPDATA on Windows', () => {
+        expect(default_history_path({ APPDATA: 'C:\\Users\\a\\AppData\\Roaming' }, 'win32'))
+            .toBe(path.join('C:\\Users\\a\\AppData\\Roaming', 'sight', 'console_history'));
     });
 });
 
