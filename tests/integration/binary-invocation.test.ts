@@ -159,6 +159,17 @@ describe('Binary Invocation', () => {
 });
 
 describe('CLI Entry Point Detection', () => {
+    it('recognizes a UNC entry point despite server-name case', () => {
+        expect(is_cli_entry_point(
+            '\\\\Mac\\repos\\sight\\src\\cli.ts',
+            '\\\\mac\\repos\\sight\\src\\cli.ts',
+        )).toBe(true);
+        expect(is_cli_entry_point(
+            '\\\\Mac\\repos\\Sight\\src\\cli.ts',
+            '\\\\mac\\repos\\sight\\src\\cli.ts',
+        )).toBe(false);
+    });
+
     it('recognizes npm bin symlink command names', () => {
         const bundle_path = '/repo/dist/sight-server.js';
 
