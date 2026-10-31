@@ -1,0 +1,27 @@
+{"at":1793445925358,"kind":"pty","value":"Stata"}
+{"at":1793445925949,"kind":"information","value":{"message":"Would you like to add Sight's Stata commands (\"vview\" and \"browse\")?\n\n\"vview\" opens datasets in VS Code; in console Stata, \"browse\" (and its abbreviations \"brows\", \"brow\", \"bro\", \"br\") becomes an alias for it (the GUI built-in \"browse\" is unaffected).\n\nInstall location: C:\\Users\\jmb\\ado\\personal","args":["Install","Not now"]}}
+{"at":1793445926740,"kind":"warning","value":{"message":"sight console will take over the open Stata (Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta). It closes when the console ends, so unsaved work in it would be lost then.","args":[{"modal":true},"Take over","Send code to it instead"]}}
+{"at":1793445927416,"kind":"write","value":"\u001b[?2004h"}
+{"at":1793445927424,"kind":"write","value":"\r\u001b[Jdo `\"C:\\Users\\jmb\\AppData\\Local\\Temp\\stata_send_16f518983390940fd5e998ed4b0c34d9.do\"'\r\u001b[21C"}
+{"at":1793445927426,"kind":"write","value":"\u001b[1A\r\u001b[J\r"}
+{"at":1793445927459,"kind":"write","value":". "}
+{"at":1793445927470,"kind":"write","value":"do `\"C:\\Users\\jmb\\AppData\\Local\\Temp\\stata_send_16f518983390940fd5e998ed4b0c34d9.do\"'\r\n"}
+{"at":1793445927472,"kind":"write","value":"\r\n"}
+{"at":1793445927475,"kind":"write","value":". \u001b[1;34mdisplay\u001b[0m \u001b[36m553311\u001b[0m\r\n"}
+{"at":1793445927479,"kind":"write","value":"553311\r\n"}
+{"at":1793445927482,"kind":"write","value":"\r\n"}
+{"at":1793445927483,"kind":"write","value":". \r\n"}
+{"at":1793445927485,"kind":"write","value":"end of do-file\r\n"}
+{"at":1793445927522,"kind":"write","value":"\r\n"}
+{"at":1793445927582,"kind":"write","value":"\r\u001b[Jdisplay 778822\r\u001b[14C"}
+{"at":1793445927584,"kind":"write","value":"\r\u001b[J\r"}
+{"at":1793445927614,"kind":"write","value":". "}
+{"at":1793445927630,"kind":"write","value":"display 778822\r\n"}
+{"at":1793445927632,"kind":"write","value":"778822\r\n"}
+{"at":1793445927685,"kind":"write","value":"\r\n"}
+{"at":1793445927756,"kind":"write","value":". "}
+{"at":1793445927782,"kind":"write","value":"\r\u001b[J. \r\u001b[2C"}
+{"at":1793445935751,"kind":"write","value":"\r\u001b[J. \u001b[1;34mexit\u001b[0m\r\u001b[6C"}
+{"at":1793445935756,"kind":"write","value":"\r\u001b[J. \u001b[1;34mexit\u001b[0m\r\u001b[6C"}
+{"at":1793445935772,"kind":"write","value":"\r\n"}
+{"at":1793445935889,"kind":"write","value":"Stata exited.\r\n"}

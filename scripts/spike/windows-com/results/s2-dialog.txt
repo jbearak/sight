@@ -1,0 +1,41 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261030171617
+Username: WIN-VM\jmb
+RunAs User: WIN-VM\jmb
+Configuration Name:
+Machine: WIN-VM (Microsoft Windows NT 10.0.26200.0)
+Host Application: powershell.exe -Sta -NoProfile -ExecutionPolicy Bypass -File Y:\sight\scripts\spike\windows-com\s2-contact.ps1 -Case dialog
+Process ID: 6456
+PSVersion: 5.1.26100.6899
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.6899
+BuildVersion: 10.0.26100.6899
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+2026-10-30T17:16:17.2010842-04:00 before contact
+
+
+Id              : 6688
+ProcessName     : StataMP-64
+StartTime       : 10/30/2026 5:15:57 PM
+MainWindowTitle : regress - Linear regression
+2026-10-30T17:16:17.3795305-04:00 CreateObject begin
+2026-10-30T17:16:17.4016294-04:00 CreateObject returned; MacroValue begin
+2026-10-30T17:16:17.6276521-04:00 MacroValue returned [modal_s2]
+2026-10-30T17:16:17.6276521-04:00 before release
+
+
+Id              : 6688
+ProcessName     : StataMP-64
+StartTime       : 10/30/2026 5:15:57 PM
+MainWindowTitle : regress - Linear regression
+2026-10-30T17:16:20.7906509-04:00 after release
+
+**********************
+Windows PowerShell transcript end
+End time: 20261030171620
+**********************

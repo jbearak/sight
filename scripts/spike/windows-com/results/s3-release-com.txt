@@ -1,0 +1,32 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261030172903
+Username: WIN-VM\jmb
+RunAs User: WIN-VM\jmb
+Configuration Name:
+Machine: WIN-VM (Microsoft Windows NT 10.0.26200.0)
+Host Application: powershell.exe -Sta -NoProfile -ExecutionPolicy Bypass -File Y:\sight\scripts\spike\windows-com\s3-release-com.ps1
+Process ID: 13100
+PSVersion: 5.1.26100.6899
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.6899
+BuildVersion: 10.0.26100.6899
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+2026-10-30T17:29:03.9153164-04:00 before CreateObject
+2026-10-30T17:29:04.5201085-04:00 marker=[com_s3] free=1
+
+
+Id              : 5424
+MainWindowTitle : Stata/MP 18.0
+
+
+
+2026-10-30T17:29:15.6872881-04:00 after release
+**********************
+Windows PowerShell transcript end
+End time: 20261030172915
+**********************

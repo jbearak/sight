@@ -261,10 +261,19 @@ export function is_cli_entry_point(
     }
 
     const normalized_script_path = script_path.replace(/\\/g, '/');
+    // UNC server names are case-insensitive. Bun may capitalize the
+    // server in argv while fileURLToPath uses the URL's lowercase host.
+    // Preserve the case of the path itself, which can be significant.
+    const normalize_unc_host = (value: string): string =>
+        value.replace(/^(\/\/)([^/]+)/, (_match, prefix: string, host: string) =>
+            prefix + host.toLowerCase());
+    const normalized_cli_path = cli_filename.replace(/\\/g, '/');
     const script_filename = normalized_script_path.split('/').pop() ?? '';
+    const both_unc = script_path.startsWith('\\\\') && cli_filename.startsWith('\\\\');
 
     return (
         script_path === cli_filename ||
+        (both_unc && normalize_unc_host(normalized_script_path) === normalize_unc_host(normalized_cli_path)) ||
         normalized_script_path.endsWith(`/${PRIMARY_BINARY_NAME}`) ||
         normalized_script_path.endsWith(`/${PRIMARY_BINARY_NAME}.exe`) ||
         normalized_script_path.endsWith(`/${LEGACY_BINARY_NAME}`) ||

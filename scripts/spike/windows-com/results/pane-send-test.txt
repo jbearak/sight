@@ -1,0 +1,7 @@
+2026-10-31T11:33:15.100Z started foreign test Stata 11288
+2026-10-31T11:33:15.511Z pane created
+2026-10-31T11:33:16.965Z observed warning {"message":"sight console will take over the open Stata (Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta). It closes when the console ends, so unsaved work in it would be lost then.","args":[{"modal":true},"Take over","Send code to it instead"]}
+2026-10-31T11:33:42.073Z FAIL Error: Timed out waiting for send-to-stata dispatch
+	at waitFor (c:\sight-debug\scripts\spike\windows-com\pane-host-test.cjs:26:11)
+	at async Object.run (c:\sight-debug\scripts\spike\windows-com\pane-host-test.cjs:117:32)
+2026-10-31T11:33:43.431Z foreign Stata 11288 log: "------------------------------------------------------------------------------------------------------------------------------------------------------------------------\r\n      name:  <unnamed>\r\n       log:  C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-pane-test-J5JxwK\\foreign-0\\stata.log\r\n  log type:  text\r\n opened on:  31 Oct 2026, 07:33:14\r\n\r\n. file open ready using \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-pane-test-J5JxwK\\foreign-0\\ready\", write replace\r\n(file C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-pane-test-J5JxwK\\foreign-0\\ready not found)\r\n\r\n. file close ready\r\n\r\n. \r\nend of do-file\r\n\r\n. exit, clear\r\n"

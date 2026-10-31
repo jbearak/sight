@@ -1,0 +1,25 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261031062511
+Username: WIN-VM\jmb
+RunAs User: WIN-VM\jmb
+Configuration Name:
+Machine: WIN-VM (Microsoft Windows NT 10.0.26200.0)
+Host Application: powershell.exe -Sta -NoProfile -ExecutionPolicy Bypass -File Y:\sight\scripts\spike\windows-com\debug-terminal-close.ps1
+Process ID: 12472
+PSVersion: 5.1.26100.6899
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.6899
+BuildVersion: 10.0.26100.6899
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+2026-10-31T06:25:11.8962209-04:00 WM_CLOSE terminal=1116294 Stata=7236
+2026-10-31T06:25:11.9093963-04:00 Stata alive=True
+2026-10-31T06:25:12.4281301-04:00 Stata alive=False
+**********************
+Windows PowerShell transcript end
+End time: 20261031062512
+**********************

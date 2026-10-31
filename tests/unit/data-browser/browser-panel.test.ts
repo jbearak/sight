@@ -20,6 +20,7 @@ import {
     merge_persisted_and_default_widths,
     MIN_COLUMN_WIDTH_PX,
 } from '../../../client/src/data-browser/webview/grid-model';
+import { VSCODE_MOCK_SHARED_EXPORTS } from '../../vscode-mock-shared-exports';
 
 describe('build_cell_value', () => {
     it('preserves exact missing markers', () => {
@@ -392,6 +393,7 @@ describe('grid-model helpers', () => {
 });
 
 mock.module('vscode', () => ({
+    ...VSCODE_MOCK_SHARED_EXPORTS,
     workspace: {
         getConfiguration: () => ({
             get: (_key: string, default_value: unknown) => default_value,

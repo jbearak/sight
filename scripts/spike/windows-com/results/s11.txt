@@ -1,0 +1,64 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261030171744
+Username: WIN-VM\jmb
+RunAs User: WIN-VM\jmb
+Configuration Name:
+Machine: WIN-VM (Microsoft Windows NT 10.0.26200.0)
+Host Application: powershell.exe -Sta -NoProfile -ExecutionPolicy Bypass -File Y:\sight\scripts\spike\windows-com\s11.ps1
+Process ID: 3300
+PSVersion: 5.1.26100.6899
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.6899
+BuildVersion: 10.0.26100.6899
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+2026-10-30T17:17:44.2850819-04:00 before launch; short=C:\Users\jmb\AppData\Local\Temp\SI3DF4~1
+launched PID=3508
+2026-10-30T17:17:44.9939905-04:00 ready sample=0 bytes=384
+2026-10-30T17:17:45.0610221-04:00 ready sample=1 bytes=384
+2026-10-30T17:17:45.1238880-04:00 ready sample=2 bytes=384
+2026-10-30T17:17:45.1851399-04:00 ready sample=3 bytes=384
+2026-10-30T17:17:45.2490691-04:00 ready sample=4 bytes=384
+2026-10-30T17:17:45.3145969-04:00 ready sample=5 bytes=384
+2026-10-30T17:17:45.3738460-04:00 ready sample=6 bytes=384
+2026-10-30T17:17:45.4392824-04:00 ready sample=7 bytes=384
+2026-10-30T17:17:45.5025476-04:00 ready sample=8 bytes=384
+2026-10-30T17:17:45.5658194-04:00 ready sample=9 bytes=384
+2026-10-30T17:17:45.6287704-04:00 ready sample=10 bytes=384
+2026-10-30T17:17:45.6920303-04:00 ready sample=11 bytes=384
+2026-10-30T17:17:45.7553029-04:00 ready sample=12 bytes=384
+2026-10-30T17:17:45.8173174-04:00 ready sample=13 bytes=384
+2026-10-30T17:17:45.8806032-04:00 ready sample=14 bytes=384
+2026-10-30T17:17:45.9613012-04:00 ready sample=15 bytes=384
+2026-10-30T17:17:46.0249761-04:00 ready sample=16 bytes=384
+2026-10-30T17:17:46.0887146-04:00 ready sample=17 bytes=384
+2026-10-30T17:17:46.1519810-04:00 ready sample=18 bytes=384
+2026-10-30T17:17:46.2146721-04:00 ready sample=19 bytes=384
+marker=[s11] log_rc=[0] more=[off]
+2026-10-30T17:17:46.4225172-04:00 sending exit with unchanged data
+2026-10-30T17:17:49.4400490-04:00 process alive=False
+2026-10-30T17:17:49.4521102-04:00 changed-data case: CreateObject
+
+
+Id              : 7720
+MainWindowTitle : Stata/MP 18.0
+
+
+
+2026-10-30T17:17:52.2499764-04:00 changed-data exit; processes:
+
+
+Id              : 7720
+MainWindowTitle : Stata/MP 18.0 - C:\Program Files\Stata18\ado\base\a\auto.dta
+
+
+
+free=1 rc=0
+**********************
+Windows PowerShell transcript end
+End time: 20261030171752
+**********************

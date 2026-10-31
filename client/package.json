@@ -410,8 +410,8 @@
           "default": "auto",
           "description": "Where to send Stata commands",
           "enumDescriptions": [
-            "Auto: use the Stata GUI when running locally (macOS/Windows), use the integrated Stata terminal in remote sessions (SSH, WSL, Dev Container, Tunnel) and on Linux",
-            "Always use the integrated VS Code Stata terminal. Not available on native Windows (Stata has no interactive CLI); falls back to the GUI with a warning.",
+            "Auto: use the Stata GUI when running locally (macOS/Windows; on Windows, auto still uses the Stata app rather than sight console), use the integrated Stata terminal in remote sessions (SSH, WSL, Dev Container, Tunnel) and on Linux",
+            "Always use the integrated VS Code Stata terminal. On Windows this opens a Stata pane running sight console, which drives the Stata app; if the console can't use Stata (for example, several Stata windows are open, or you keep your open Stata to yourself), Sight offers to send code to the open Stata window instead.",
             "Always use the external Stata GUI application (macOS and Windows only; not available in remote sessions or on Linux)"
           ]
         },
@@ -805,12 +805,13 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "bun run copy-vview-ado && bun run bundle && bun run copy-server",
+    "vscode:prepublish": "bun run copy-vview-ado && bun run bundle && bun run copy-server && bun run copy-console",
     "bundle": "bunx esbuild src/extension.ts --bundle --platform=node --format=cjs --outfile=dist/extension.js --external:vscode --minify && bunx esbuild src/data-browser/compute-worker.ts --bundle --platform=node --format=cjs --outfile=dist/data-browser-worker.js --minify && node -e \"require('fs').writeFileSync('dist/package.json', '{\\\"type\\\":\\\"commonjs\\\"}')\"",
     "bundle:webview": "bunx esbuild src/data-browser/webview/index.tsx --bundle --platform=browser --format=iife --outfile=dist/data-browser-webview/index.js --loader:.css=css --minify",
     "bundle:webview-test": "bunx esbuild src/data-browser/webview/test-harness/index.tsx --bundle --platform=browser --format=iife --outfile=dist-test/toolbar-wrap-harness/index.js --loader:.css=css",
     "copy-vview-ado": "mkdir -p stata && rm -f stata/*.ado && cp ../stata/*.ado stata/",
-    "copy-server": "rm -rf server && mkdir -p server/command-database && bunx esbuild ../dist/server.js --bundle --platform=node --format=cjs --outfile=server/server.js --external:vscode --external:node:* --minify && cp -r ../dist/command-database/caches server/command-database/ && node -e \"require('fs').writeFileSync('server/package.json', '{\\\"type\\\":\\\"commonjs\\\"}')\"",
+    "copy-server": "rm -rf server && mkdir -p server/command-database && bunx esbuild ../dist/server.js --bundle --platform=node --format=cjs --outfile=server/server.js --external:vscode \"--external:node:*\" --minify && bun -e \"require('fs').cpSync('../dist/command-database/caches', 'server/command-database/caches', {recursive:true})\" && node -e \"require('fs').writeFileSync('server/package.json', '{\\\"type\\\":\\\"commonjs\\\"}')\"",
+    "copy-console": "rm -rf console-runtime && bunx esbuild ../src/console/editor-console.ts --bundle --platform=node --format=cjs --outfile=console-runtime/console.js --external:vscode --minify && node -e \"require('fs').writeFileSync('console-runtime/package.json', '{\\\"type\\\":\\\"commonjs\\\"}')\"",
     "compile": "bun run copy-vview-ado && bun run bundle && bun run bundle:webview",
     "watch": "tsc -watch -p ./",
     "pretest": "bun run compile && bun run lint",

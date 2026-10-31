@@ -1,0 +1,5 @@
+{"at":1793446196704,"kind":"pty","value":"Stata"}
+{"at":1793446197228,"kind":"information","value":{"message":"Would you like to add Sight's Stata commands (\"vview\" and \"browse\")?\n\n\"vview\" opens datasets in VS Code; in console Stata, \"browse\" (and its abbreviations \"brows\", \"brow\", \"bro\", \"br\") becomes an alias for it (the GUI built-in \"browse\" is unaffected).\n\nInstall location: C:\\Users\\jmb\\ado\\personal","args":["Install","Not now"]}}
+{"at":1793446198357,"kind":"warning","value":{"message":"sight console will take over the open Stata (Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta). It closes when the console ends, so unsaved work in it would be lost then.","args":[{"modal":true},"Take over","Send code to it instead"]}}
+{"at":1793446198405,"kind":"warning","value":{"message":"sight console can't use Stata here: you chose to keep your open Stata to yourself. send-to-stata sends to it without taking it over. Send code to the open Stata window instead?","args":["This session","Always","Cancel"]}}
+{"at":1793446198408,"kind":"write","value":"\r\n[Press any key to close this pane.]"}

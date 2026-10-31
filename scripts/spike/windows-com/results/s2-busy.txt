@@ -1,0 +1,26 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261030171934
+Username: WIN-VM\jmb
+RunAs User: WIN-VM\jmb
+Configuration Name:
+Machine: WIN-VM (Microsoft Windows NT 10.0.26200.0)
+Host Application: powershell.exe -Sta -NoProfile -ExecutionPolicy Bypass -File Y:\sight\scripts\spike\windows-com\s2-busy.ps1
+Process ID: 9324
+PSVersion: 5.1.26100.6899
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.6899
+BuildVersion: 10.0.26100.6899
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+2026-10-30T17:19:35.8980697-04:00 PID=4816 ready; CreateObject begin
+2026-10-30T17:19:36.0165979-04:00 MacroValue begin
+2026-10-30T17:19:37.9498879-04:00 marker=[busy_s2] free=0
+2026-10-30T17:19:40.2483758-04:00 process alive=False
+**********************
+Windows PowerShell transcript end
+End time: 20261030171940
+**********************

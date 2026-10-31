@@ -27,16 +27,14 @@ import { highlight_stata } from './highlighter';
 import { KeyDecoder, type KeyEvent } from './keys';
 import { LineEditor, type CompletionCandidate, type EditorAction } from './line-editor';
 import { display_width, erase, render, type RenderState } from './render';
-import type { StataPty } from './pty';
+import type { StataBackend } from './backend';
+import { MAX_CANONICAL_LINE_BYTES } from './pty-backend';
+
+export { MAX_CANONICAL_LINE_BYTES };
 
 export const PROMPT_QUIET_MS = 50;
 export const COLOR_FLUSH_MS = 30;
 export const ESCAPE_TIMEOUT_MS = 25;
-/**
- * Longest line sent while the child terminal is in canonical mode; the
- * kernel's line buffer (MAX_CANON, 1024 bytes on macOS) drops the rest.
- */
-export const MAX_CANONICAL_LINE_BYTES = 1000;
 /** What Stata's console inserts where it wraps an echoed long line. */
 const ECHO_WRAP_MARKER = '\r\n> ';
 
@@ -57,15 +55,13 @@ export interface HistoryStore {
 }
 
 export interface SessionOptions {
-    pty: StataPty;
+    backend: StataBackend;
     write: (text: string) => void;
     columns: () => number;
     clock: Clock;
     history: HistoryStore;
     completer: Completer | null;
     color_mode: ColorOutputMode;
-    /** Set when Stata is known to echo input itself (`--stata-echoes`). */
-    stata_echoes: boolean;
 }
 
 export class ConsoleSession {
@@ -81,8 +77,6 @@ export class ConsoleSession {
     private staged: string[] = [];
     /** One-off message shown under the input until the next keystroke. */
     private message: string | null = null;
-    /** Set by `--stata-echoes`; otherwise echo is read from the PTY. */
-    private readonly stata_echoes: boolean;
     /**
      * The rest of the echo Stata is expected to print for the line just
      * submitted, and what of it has been held back so far.
@@ -100,7 +94,6 @@ export class ConsoleSession {
 
     constructor(options: SessionOptions) {
         this.options = options;
-        this.stata_echoes = options.stata_echoes;
         this.editor = new LineEditor(() => options.history.all());
         this.colorizer = new OutputColorizer(options.color_mode, () => this.on_stata_error());
     }
@@ -169,6 +162,44 @@ export class ConsoleSession {
                     this.handle_key(my_event);
                 }
             }, ESCAPE_TIMEOUT_MS);
+        }
+    }
+
+    /** Show a short one-row note under the editor until the next key. */
+    show_notice(text: string): void {
+        if (this.exited) {
+            return;
+        }
+        this.message = text;
+        this.show_editor(true);
+    }
+
+    /**
+     * Write a lasting line of Sight's own (not Stata's output): no
+     * colors, no echo matching. Any echo still expected is dropped.
+     */
+    write_sight_text(text: string): void {
+        if (this.exited) {
+            return;
+        }
+        this.expected_echo = null;
+        this.held_echo = '';
+        this.echo_carry = '';
+        const had_editor = this.render_state !== null;
+        this.hide_editor();
+        this.emit_flush();
+        const lead = this.partial.length > 0 ? '\r\n' : '';
+        this.options.write(`${lead}\x1b[2m${text}\x1b[0m\r\n`);
+        this.partial = '';
+        if (had_editor || this.has_editor_content()) {
+            this.show_editor(true);
+        }
+    }
+
+    /** Stata reported an error that its output didn't show. */
+    handle_stata_error(): void {
+        if (!this.exited) {
+            this.on_stata_error();
         }
     }
 
@@ -248,7 +279,7 @@ export class ConsoleSession {
     private interrupt(): void {
         this.editor.reset();
         this.staged = [];
-        this.options.pty.interrupt();
+        this.options.backend.interrupt();
         if (this.prompt_kind !== null && COMMAND_PROMPT_KINDS.has(this.prompt_kind)) {
             // Start a fresh prompt line so the screen never lacks one,
             // even if Stata prints nothing in response.
@@ -276,27 +307,24 @@ export class ConsoleSession {
         if (reply === null) {
             return;
         }
-        const enter = reply === '' || this.options.pty.canonical_mode() ? '\r' : '';
         this.prompt_kind = null;
-        this.options.pty.write(reply + enter);
+        this.options.backend.answer_more(reply);
     }
 
     private submit(line: string): void {
-        if (this.options.pty.canonical_mode()
-            && Buffer.byteLength(line, 'utf8') > MAX_CANONICAL_LINE_BYTES) {
-            this.message = `Line is longer than ${MAX_CANONICAL_LINE_BYTES} bytes and `
+        const max_bytes = this.options.backend.max_line_bytes();
+        if (max_bytes !== null && Buffer.byteLength(line, 'utf8') > max_bytes) {
+            this.message = `Line is longer than ${max_bytes} bytes and `
                 + 'was not sent; put it in a do-file.';
             this.show_editor();
             return;
         }
         const kind = this.prompt_kind;
         this.editor.menu = null;
-        // Stata's console normally puts its terminal in raw mode and
-        // echoes what it reads itself; a terminal with echo on does too.
-        const stata_echoes = this.stata_echoes || this.options.pty.echo_enabled()
-            || !this.options.pty.canonical_mode();
+        const stata_echoes = this.options.backend.echoes_input();
+        const drawn = !(stata_echoes && kind === null);
         // Draw the final line without the menu or note rows under it.
-        if (stata_echoes && kind === null) {
+        if (!drawn) {
             // Typed ahead while Stata runs: Stata echoes the line when it
             // reads it, after the running command's output.
             this.render_input('', 0, false);
@@ -332,9 +360,7 @@ export class ConsoleSession {
         }
         this.editor.reset();
         this.prompt_kind = null;
-        // A real keyboard sends CR for Enter; the terminal turns it
-        // into a newline in canonical mode, as when typing.
-        this.options.pty.write(line + '\r');
+        this.options.backend.submit_line(line, drawn);
     }
 
     private paste(text: string): void {

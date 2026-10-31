@@ -5,6 +5,7 @@ import { describe, expect, it, mock, beforeEach } from 'bun:test';
 let warnings: string[] = [];
 let clipboard_writes: string[] = [];
 mock.module('vscode', () => ({
+    ...VSCODE_MOCK_SHARED_EXPORTS,
     env: {
         clipboard: {
             writeText: async (text: string) => {
@@ -32,6 +33,7 @@ import {
     type SortState,
     type FilterState,
 } from '../../../client/src/data-browser/types';
+import { VSCODE_MOCK_SHARED_EXPORTS } from '../../vscode-mock-shared-exports';
 
 // Mirror what dta-parser actually throws on abort (a DOMException, not a
 // plain Error) so the tests exercise is_abort_error's real input type.

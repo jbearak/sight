@@ -1,0 +1,57 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261030170701
+Username: WIN-VM\jmb
+RunAs User: WIN-VM\jmb
+Configuration Name:
+Machine: WIN-VM (Microsoft Windows NT 10.0.26200.0)
+Host Application: powershell.exe -Sta -NoProfile -ExecutionPolicy Bypass -File Y:\sight\scripts\spike\windows-com\s1.ps1
+Process ID: 11360
+PSVersion: 5.1.26100.6899
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.6899
+BuildVersion: 10.0.26100.6899
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+2026-10-30T17:07:01.6074156-04:00 before direct launch
+
+launched PID 4312
+2026-10-30T17:07:02.2322186-04:00 direct ready; capture screenshot now
+
+
+Id              : 4312
+ProcessName     : StataMP-64
+StartTime       : 10/30/2026 5:07:01 PM
+MainWindowTitle : Stata/MP 18.0 - C:\Program Files\Stata18\ado\base\a\auto.dta
+2026-10-30T17:07:10.2900406-04:00 CreateObject 1 begin
+2026-10-30T17:07:10.3175037-04:00 MacroValue 1 = [direct_s1]
+2026-10-30T17:07:10.4642709-04:00 after CreateObject 1
+
+
+Id              : 4312
+ProcessName     : StataMP-64
+StartTime       : 10/30/2026 5:07:01 PM
+MainWindowTitle : Stata/MP 18.0 - C:\Program Files\Stata18\ado\base\a\auto.dta
+2026-10-30T17:07:10.4744750-04:00 CreateObject 2 begin
+2026-10-30T17:07:10.9293156-04:00 MacroValue 2 = []
+2026-10-30T17:07:10.9356501-04:00 after CreateObject 2
+
+
+Id              : 4312
+ProcessName     : StataMP-64
+StartTime       : 10/30/2026 5:07:01 PM
+MainWindowTitle : Stata/MP 18.0 - C:\Program Files\Stata18\ado\base\a\auto.dta
+
+Id              : 11272
+ProcessName     : StataMP-64
+StartTime       : 10/30/2026 5:07:10 PM
+MainWindowTitle : 2 - Stata/MP 18.0
+2026-10-30T17:07:14.1199351-04:00 after release
+
+**********************
+Windows PowerShell transcript end
+End time: 20261030170714
+**********************

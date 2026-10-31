@@ -1,0 +1,6 @@
+2026-10-31T11:30:08.534Z started foreign test Stata 8924
+2026-10-31T11:30:09.008Z pane created
+2026-10-31T11:30:10.628Z observed warning {"message":"sight console will take over the open Stata (Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta). It closes when the console ends, so unsaved work in it would be lost then.","args":[{"modal":true},"Take over","Send code to it instead"]}
+2026-10-31T11:31:10.730Z FAIL Error: Timed out waiting for send-to-stata dispatch
+	at waitFor (c:\sight-debug\scripts\spike\windows-com\pane-host-test.cjs:26:11)
+	at async Object.run (c:\sight-debug\scripts\spike\windows-com\pane-host-test.cjs:113:32)

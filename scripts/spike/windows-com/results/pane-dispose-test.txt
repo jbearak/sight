@@ -1,0 +1,4 @@
+2026-10-31T11:25:02.287Z pane created
+2026-10-31T11:25:05.435Z queued send and terminal.sendText observed in log and pane writes
+2026-10-31T11:25:13.794Z pane and owned Stata closed
+2026-10-31T11:25:13.796Z PASS

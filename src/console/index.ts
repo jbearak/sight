@@ -8,8 +8,9 @@
 
 import { spawn } from 'child_process';
 import * as os from 'os';
-import { CONSOLE_HELP, parse_console_args } from './args';
+import { CONSOLE_HELP, parse_console_args, type ConsoleArgs } from './args';
 import { locate_stata } from './stata-locator';
+import { EXIT_TERMINAL_UNSUPPORTED } from './automation/exit-codes';
 
 export const EXIT_USAGE = 2;
 
@@ -36,13 +37,11 @@ export async function run_console(
     }
 
     const platform = deps.platform ?? process.platform;
+    const env = deps.env ?? process.env;
     if (platform === 'win32') {
-        console.error('Error: sight console needs Stata\'s console, which Stata '
-            + 'does not provide on Windows.');
-        return EXIT_USAGE;
+        return run_windows_console(args, env, deps);
     }
 
-    const env = deps.env ?? process.env;
     const located = locate_stata({ explicit_path: args.stata_path, env, platform });
     if (!located.found) {
         console.error(`Error: ${located.error}`);
@@ -63,12 +62,48 @@ export async function run_console(
     }
     const color_output = env.NO_COLOR ? 'off' : args.color_output;
     const { run_interactive } = await import('./interactive');
+    const { create_pty_handle } = await import('./pty-backend');
     return run_interactive({
-        stata_path: located.path,
-        stata_args: args.stata_args,
         color_output,
         history: args.history,
-        stata_echoes: args.stata_echoes,
+        start_backend: (events, size) => create_pty_handle({
+            stata_path: located.path,
+            stata_args: args.stata_args,
+            columns: size.columns,
+            rows: size.rows,
+            stata_echoes: args.stata_echoes,
+        }, events),
+    });
+}
+
+/**
+ * Windows has no Stata console binary: drive the Stata application
+ * through Automation (COM). Needs an interactive terminal; the PTY
+ * check doesn't apply, so this also runs under Node.
+ */
+async function run_windows_console(
+    args: ConsoleArgs,
+    env: NodeJS.ProcessEnv,
+    deps: ConsoleDeps
+): Promise<number> {
+    if (args.stata_path !== undefined) {
+        console.error('Error: --stata isn\'t used on Windows: sight console drives the Stata '
+            + 'registered for Automation. To switch editions, run that edition\'s exe with '
+            + '/Register as administrator.');
+        return EXIT_USAGE;
+    }
+    const is_tty = deps.is_tty ?? Boolean(process.stdin.isTTY && process.stdout.isTTY);
+    if (!is_tty) {
+        console.error('Error: on Windows, sight console needs an interactive terminal. To '
+            + 'run a do-file without one, use Stata\'s batch mode: StataMP-64.exe /e do file.do');
+        return EXIT_TERMINAL_UNSUPPORTED;
+    }
+    const { run_automation_console } = await import('./automation/run');
+    return run_automation_console({
+        color_output: env.NO_COLOR ? 'off' : args.color_output,
+        history: args.history,
+        yes: args.yes,
+        env,
     });
 }
 

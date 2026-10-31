@@ -49,6 +49,12 @@ so all of these still open the native Data Editor; in the CLI they forward to
 `vview`. Because the alias forwards to `vview`, only `vview`'s options apply;
 native-`browse`-only options such as `nolabel` are not supported in the CLI.
 
+On Windows, `sight console` drives the Stata GUI, where the built-in
+`browse` always wins, so the console itself sends `browse` (and its
+abbreviations, after any `capture`/`quietly`/`noisily`) as `vview`. If
+`vview` isn't installed when the console starts, `browse` opens Stata's
+Data Editor and the console says why.
+
 ### Installation
 
 Sight automatically installs its Stata commands (`vview.ado`, `browse.ado`,

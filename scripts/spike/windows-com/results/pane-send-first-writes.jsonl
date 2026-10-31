@@ -1,0 +1,8 @@
+{"at":1793446209005,"kind":"pty","value":"Stata"}
+{"at":1793446209400,"kind":"information","value":{"message":"Would you like to add Sight's Stata commands (\"vview\" and \"browse\")?\n\n\"vview\" opens datasets in VS Code; in console Stata, \"browse\" (and its abbreviations \"brows\", \"brow\", \"bro\", \"br\") becomes an alias for it (the GUI built-in \"browse\" is unaffected).\n\nInstall location: C:\\Users\\jmb\\ado\\personal","args":["Install","Not now"]}}
+{"at":1793446210539,"kind":"warning","value":{"message":"sight console will take over the open Stata (Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta). It closes when the console ends, so unsaved work in it would be lost then.","args":[{"modal":true},"Take over","Send code to it instead"]}}
+{"at":1793446210581,"kind":"information","value":{"message":"Windows support for send-to-stata requires downloading a helper executable (~1.7 MB).","args":["Download","Cancel"]}}
+{"at":1793446210584,"kind":"write","value":"\r\n[Press any key to close this pane.]"}
+{"at":1793446211622,"kind":"information","value":{"message":"Send-to-stata helper downloaded successfully.","args":[]}}
+{"at":1793446211687,"kind":"send_spawn","value":{"file":"c:\\Users\\jmb\\AppData\\Local\\Temp\\sight-pane-user-wnc14i\\User\\globalStorage\\jbearak.sight\\send-to-stata\\send-to-stata.exe","args":["-FileMode","-File","C:\\Users\\jmb\\AppData\\Local\\Temp\\stata_send_99cc59802bba3bd673dc8535f03f1033.do"]}}
+{"at":1793446211813,"kind":"send_exit","value":0}

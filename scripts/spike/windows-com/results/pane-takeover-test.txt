@@ -1,0 +1,5 @@
+2026-10-31T11:25:25.027Z started foreign test Stata 13352
+2026-10-31T11:25:25.361Z pane created
+2026-10-31T11:25:27.741Z queued send and terminal.sendText observed in log and pane writes
+2026-10-31T11:25:36.286Z pane and owned Stata closed
+2026-10-31T11:25:36.288Z PASS

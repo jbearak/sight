@@ -1,0 +1,36 @@
+{"at":1793445902280,"kind":"pty","value":"Stata"}
+{"at":1793445903117,"kind":"information","value":{"message":"Would you like to add Sight's Stata commands (\"vview\" and \"browse\")?\n\n\"vview\" opens datasets in VS Code; in console Stata, \"browse\" (and its abbreviations \"brows\", \"brow\", \"bro\", \"br\") becomes an alias for it (the GUI built-in \"browse\" is unaffected).\n\nInstall location: C:\\Users\\jmb\\ado\\personal","args":["Install","Not now"]}}
+{"at":1793445904924,"kind":"write","value":"\u001b[?2004h"}
+{"at":1793445904931,"kind":"write","value":"\r\u001b[Jdo `\"C:\\Users\\jmb\\AppData\\Local\\Temp\\stata_send_69b2ff0a7e03398972d17aac294ebc6b.do\"'\r\u001b[21C"}
+{"at":1793445904933,"kind":"write","value":"\u001b[1A\r\u001b[J\r"}
+{"at":1793445904935,"kind":"write","value":"\r\u001b[Jdo `\"C:\\Users\\jmb\\AppData\\Local\\Temp\\stata_send_2e95542cad8e368e82d575bb456a8b2d.do\"'\r\u001b[21C"}
+{"at":1793445904937,"kind":"write","value":"\u001b[1A\r\u001b[J\r"}
+{"at":1793445904960,"kind":"write","value":". "}
+{"at":1793445904975,"kind":"write","value":"do `\"C:\\Users\\jmb\\AppData\\Local\\Temp\\stata_send_69b2ff0a7e03398972d17aac294ebc6b.do\"'\r\n"}
+{"at":1793445904978,"kind":"write","value":"\r\n"}
+{"at":1793445904980,"kind":"write","value":". \u001b[1;34msysuse\u001b[0m auto, clear\r\n"}
+{"at":1793445904981,"kind":"write","value":"(1978 automobile data)\r\n"}
+{"at":1793445904983,"kind":"write","value":"\r\n"}
+{"at":1793445904984,"kind":"write","value":". \r\n"}
+{"at":1793445904985,"kind":"write","value":"end of do-file\r\n"}
+{"at":1793445905040,"kind":"write","value":"\r\n"}
+{"at":1793445905115,"kind":"write","value":". "}
+{"at":1793445905117,"kind":"write","value":"do `\"C:\\Users\\jmb\\AppData\\Local\\Temp\\stata_send_2e95542cad8e368e82d575bb456a8b2d.do\"'\r\n"}
+{"at":1793445905118,"kind":"write","value":"\r\n"}
+{"at":1793445905120,"kind":"write","value":". \u001b[1;34mdisplay\u001b[0m \u001b[36m553311\u001b[0m\r\n"}
+{"at":1793445905122,"kind":"write","value":"553311\r\n"}
+{"at":1793445905123,"kind":"write","value":"\r\n"}
+{"at":1793445905124,"kind":"write","value":". \r\n"}
+{"at":1793445905125,"kind":"write","value":"end of do-file\r\n"}
+{"at":1793445905157,"kind":"write","value":"\r\n"}
+{"at":1793445905233,"kind":"write","value":". "}
+{"at":1793445905253,"kind":"write","value":"\r\u001b[J. \r\u001b[2C"}
+{"at":1793445905277,"kind":"write","value":"\r\u001b[J. \u001b[1;34mdisplay\u001b[0m \u001b[36m778822\u001b[0m\r\u001b[16C"}
+{"at":1793445905279,"kind":"write","value":"\r\u001b[J. \u001b[1;34mdisplay\u001b[0m \u001b[36m778822\u001b[0m\r\u001b[16C"}
+{"at":1793445905280,"kind":"write","value":"\r\n"}
+{"at":1793445905323,"kind":"write","value":"778822\r\n"}
+{"at":1793445905358,"kind":"write","value":"\r\n"}
+{"at":1793445905437,"kind":"write","value":". "}
+{"at":1793445905451,"kind":"write","value":"\r\u001b[J. \r\u001b[2C"}
+{"at":1793445913799,"kind":"write","value":"\r\u001b[J. "}
+{"at":1793445913800,"kind":"write","value":"\r\n"}

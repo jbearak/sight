@@ -32,7 +32,7 @@ describe('parse_console_args', () => {
         const result = parse_console_args([]);
         expect(result).toEqual({ success: true, args: {
             color_output: 'streams', history: true, stata_echoes: false,
-            help: false, stata_args: ['-q'],
+            yes: false, help: false, stata_args: ['-q'],
         } });
     });
 
@@ -41,8 +41,15 @@ describe('parse_console_args', () => {
             '--no-history', '--stata-echoes', '--', '-b', 'do', 'a b.do']);
         expect(result.success && result.args).toEqual({
             stata_path: '/x/stata-mp', color_output: 'off', history: false,
-            stata_echoes: true, help: false, stata_args: ['-b', 'do', 'a b.do'],
+            stata_echoes: true, yes: false, help: false, stata_args: ['-b', 'do', 'a b.do'],
         });
+    });
+
+    it('parses --yes and -y', () => {
+        const long = parse_console_args(['--yes']);
+        const short = parse_console_args(['-y']);
+        expect(long.success && long.args.yes).toBe(true);
+        expect(short.success && short.args.yes).toBe(true);
     });
 
     it('rejects unknown options and bad values', () => {
@@ -107,10 +114,13 @@ describe('History', () => {
 
     it('honors the override and XDG locations', () => {
         expect(default_history_path({ SIGHT_CONSOLE_HISTORY: '/h' })).toBe('/h');
-        if (process.platform === 'linux') {
-            expect(default_history_path({ XDG_DATA_HOME: '/data' }))
-                .toBe('/data/sight/console_history');
-        }
+        expect(default_history_path({ XDG_DATA_HOME: '/data' }, 'linux'))
+            .toBe(path.join('/data', 'sight', 'console_history'));
+    });
+
+    it('keeps history under APPDATA on Windows', () => {
+        expect(default_history_path({ APPDATA: 'C:\\Users\\a\\AppData\\Roaming' }, 'win32'))
+            .toBe(path.join('C:\\Users\\a\\AppData\\Roaming', 'sight', 'console_history'));
     });
 });
 
@@ -150,8 +160,15 @@ describe('completion', () => {
 });
 
 describe('run_console', () => {
-    it('refuses Windows, where Stata has no console', async () => {
-        expect(await run_console([], { platform: 'win32', is_tty: true })).toBe(2);
+    it('needs an interactive terminal on Windows', async () => {
+        expect(await run_console([], { platform: 'win32', is_tty: false })).toBe(86);
+    });
+
+    it('rejects --stata on Windows, where Automation picks the Stata', async () => {
+        expect(await run_console(['--stata', 'C:\\Stata\\StataMP-64.exe'], {
+            platform: 'win32',
+            is_tty: true,
+        })).toBe(2);
     });
 
     it('reports a missing Stata', async () => {

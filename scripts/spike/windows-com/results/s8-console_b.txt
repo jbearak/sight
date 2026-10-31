@@ -1,0 +1,33 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261030172009
+Username: WIN-VM\jmb
+RunAs User: WIN-VM\jmb
+Configuration Name:
+Machine: WIN-VM (Microsoft Windows NT 10.0.26200.0)
+Host Application: C:\WINDOWS\System32\WindowsPowerShell\v1.0\powershell.exe -Sta -NoProfile -ExecutionPolicy Bypass -File Y:\sight\scripts\spike\windows-com\s8-worker.ps1 -Marker console_b -Evidence Y:\sight\scripts\spike\windows-com\results\s8-console_b.txt
+Process ID: 13256
+PSVersion: 5.1.26100.6899
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.6899
+BuildVersion: 10.0.26100.6899
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+2026-10-30T17:20:09.8371943-04:00 console_b waiting
+2026-10-30T17:20:10.8140001-04:00 console_b acquired
+2026-10-30T17:20:11.0870359-04:00 attempt=0 marker=[console_b]
+
+
+Id              : 12044
+MainWindowTitle : 3 - Stata/MP 18.0 - C:\Program Files\Stata18\ado\base\a\auto.dta
+
+
+
+2026-10-30T17:20:11.5763170-04:00 console_b finished
+**********************
+Windows PowerShell transcript end
+End time: 20261030172011
+**********************
