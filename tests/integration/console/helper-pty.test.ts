@@ -6,7 +6,8 @@
  * tests/fixtures/console/fake-stata.ts through it.
  *
  * Skipped without a C compiler, or where pseudo-terminals can't be
- * opened (some sandboxes), and on Windows.
+ * opened (some sandboxes), and on Windows. A helper that doesn't
+ * compile fails.
  */
 
 import { afterAll, describe, expect, it } from 'bun:test';
@@ -38,11 +39,12 @@ function build_helper(): boolean {
     const compiled = spawnSync('cc', ['-Wall', '-Wextra', '-Werror', '-o', HELPER, SOURCE, ...the_libraries], {
         encoding: 'utf8',
     });
-    if (compiled.status !== 0) {
-        if (compiled.stderr) {
-            console.warn(compiled.stderr);
-        }
+    if (compiled.error) {
+        // No C compiler here.
         return false;
+    }
+    if (compiled.status !== 0) {
+        throw new Error(`sight-pty doesn't compile:\n${compiled.stderr}`);
     }
     // Some sandboxes refuse to open pseudo-terminals. (The probe's
     // input closes at once, which hangs up `true`; that's fine.)

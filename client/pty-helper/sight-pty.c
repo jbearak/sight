@@ -34,6 +34,7 @@
 #define _GNU_SOURCE
 #endif
 
+#include <dirent.h>
 #include <errno.h>
 #include <fcntl.h>
 #include <poll.h>
@@ -213,9 +214,43 @@ static int parse_size(const char *text)
     return (int)value;
 }
 
+#define FALLBACK_MAX_FD 1024
+
+/*
+ * Close every fd above stderr except `keep`. Leaked fds (such as
+ * another program's pipes) would otherwise pass to Stata and anything
+ * it leaves running, holding those pipes open.
+ */
+static void close_other_fds(int keep)
+{
+    int the_fds[FALLBACK_MAX_FD];
+    int count = 0;
+    DIR *listing = opendir("/dev/fd");
+    if (listing) {
+        struct dirent *entry;
+        while ((entry = readdir(listing)) != NULL
+               && count < FALLBACK_MAX_FD) {
+            int fd = atoi(entry->d_name);
+            if (fd > STDERR_FILENO && fd != keep
+                && fd != dirfd(listing)) {
+                the_fds[count++] = fd;
+            }
+        }
+        closedir(listing);
+        for (int i = 0; i < count; i++) {
+            close(the_fds[i]);
+        }
+        return;
+    }
+    for (int fd = STDERR_FILENO + 1; fd < FALLBACK_MAX_FD; fd++) {
+        if (fd != keep) {
+            close(fd);
+        }
+    }
+}
+
 /* The child: a new session with the terminal as stdio, then exec. */
-static void run_child(char **command, int master, int slave,
-                      int exec_status_fd)
+static void run_child(char **command, int slave, int exec_status_fd)
 {
     signal(SIGPIPE, SIG_DFL);
     signal(SIGHUP, SIG_DFL);
@@ -225,10 +260,7 @@ static void run_child(char **command, int master, int slave,
     dup2(slave, STDIN_FILENO);
     dup2(slave, STDOUT_FILENO);
     dup2(slave, STDERR_FILENO);
-    close(master);
-    if (slave > STDERR_FILENO) {
-        close(slave);
-    }
+    close_other_fds(exec_status_fd);
     execvp(command[0], command);
     int error_number = errno;
     ssize_t ignored = write(exec_status_fd, &error_number,
@@ -303,7 +335,7 @@ int main(int argc, char **argv)
     }
     if (child == 0) {
         close(exec_status[0]);
-        run_child(command, master, slave, exec_status[1]);
+        run_child(command, slave, exec_status[1]);
     }
     close(exec_status[1]);
     close(slave);

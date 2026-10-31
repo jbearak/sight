@@ -28,6 +28,8 @@ const LOCAL_FLAG_BITS: Readonly<Partial<Record<NodeJS.Platform, {
 };
 
 const FRAME_HEADER_BYTES = 5;
+/** How long after the helper exits its output may still be draining. */
+const OUTPUT_END_GRACE_MS = 1000;
 
 export interface HelperPtyOptions extends StataPtyOptions {
     helper_path: string;
@@ -177,6 +179,12 @@ export function spawn_helper_pty(options: HelperPtyOptions): HelperPty {
         child.on('exit', (code, signal) => {
             helper_status = code ?? signal_status(signal);
             settle();
+            // A process Stata left running can hold the output pipe
+            // open; don't wait on it for long.
+            setTimeout(() => {
+                output_ended = true;
+                settle();
+            }, OUTPUT_END_GRACE_MS).unref?.();
         });
     });
 
