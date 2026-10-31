@@ -42,6 +42,10 @@ export type Scenario =
     | { kind: 'sort'; column: string; direction?: 'asc' | 'desc';
         labels_on?: boolean }
     | { kind: 'filter'; column: string; predicate: FilterPredicate }
+    // Start a filter, let it run for run_ms, then Cancel it: reports
+    // the host's stalls while it ran and how long Cancel took.
+    | { kind: 'filter_cancel'; column: string; predicate: FilterPredicate;
+        run_ms: number }
     | { kind: 'histogram'; column: string }
     | { kind: 'sorted_page'; column: string }
     | { kind: 'copy'; column: string }
@@ -200,7 +204,8 @@ function request_rows(
     const my_id = `r${request_seq++}`;
     webview.send({ type: 'requestRows', start, count, request_id: my_id });
     return webview.wait_for(
-        my_m => my_m.type === 'rowData' && my_m.request_id === my_id
+        my_m => (my_m.type === 'rowData' || my_m.type === 'rowsStale')
+            && my_m.request_id === my_id
     );
 }
 
@@ -235,7 +240,11 @@ function open_panel(
         my_null_store as unknown as Args[4],
         my_null_store as unknown as Args[5],
         make_store(() => stores.sort) as unknown as Args[6],
-        make_store(() => stores.filter) as unknown as Args[7]
+        make_store(() => stores.filter) as unknown as Args[7],
+        // run.ts sets this unless --in-process.
+        process.env.SIGHT_BENCH_WORKER
+            ? { compute_worker_path: process.env.SIGHT_BENCH_WORKER }
+            : {}
     );
 }
 
@@ -394,28 +403,35 @@ async function main(): Promise<void> {
                 the_pending.push(
                     request_rows(webview, the_starts[my_i++ % 1000],
                         my_page_size)
-                        .then(my_p => my_p.at - my_t)
+                        // A stale reply (the order changed mid-read) is
+                        // counted apart from answered pages.
+                        .then(my_p => my_p.msg.type === 'rowsStale'
+                            ? -1
+                            : my_p.at - my_t)
                 );
                 await new Promise(resolve =>
                     setTimeout(resolve, SCROLL_DURING_SORT_INTERVAL_MS));
             }
             const my_sort_posted = await my_sorted;
-            // Today the host silently drops a page read that was in
-            // flight when the sort bumped its generation (the webview
-            // re-requests after sortApplied). Give stragglers a grace
-            // period, then count the rest as dropped.
+            // Before Phase 1a the host silently dropped a page read that
+            // was in flight when the sort bumped its generation; it now
+            // answers `rowsStale`. Give stragglers a grace period, then
+            // count the unanswered as dropped.
             const my_grace = new Promise<undefined>(resolve =>
                 setTimeout(() => resolve(undefined), DROPPED_GRACE_MS));
             const the_settled = await Promise.all(
                 the_pending.map(my_p => Promise.race([my_p, my_grace]))
             );
             const the_latencies = the_settled.filter(
-                (my_v): my_v is number => my_v !== undefined
+                (my_v): my_v is number => my_v !== undefined && my_v >= 0
             );
+            const my_stale = the_settled.filter(my_v => my_v === -1).length;
             my_result.scroll_during_sort = {
                 sort_ms: round(my_sort_posted.at - my_t0_sort),
                 pages_requested: the_settled.length,
-                pages_dropped: the_settled.length - the_latencies.length,
+                pages_stale: my_stale,
+                pages_dropped: the_settled.length - the_latencies.length
+                    - my_stale,
                 page_p50_ms: percentile(the_latencies, 0.5),
                 page_max_ms: percentile(the_latencies, 1),
                 ...my_monitor.stop(),
@@ -459,6 +475,34 @@ async function main(): Promise<void> {
             if (my_applied?.msg.type === 'filterApplied') {
                 my_result.survivors = my_applied.msg.nobs_filtered;
             }
+            break;
+        }
+        case 'filter_cancel': {
+            const my_index = col(my_scenario.column);
+            my_monitor.start();
+            webview.send({
+                type: 'setFilters',
+                entries: [{
+                    id: 'f1',
+                    col_index: my_index,
+                    predicate: my_scenario.predicate,
+                    enabled: true,
+                    include_missing: false,
+                }],
+                labels_on: true,
+            });
+            await new Promise(resolve =>
+                setTimeout(resolve, my_scenario.run_ms)
+            );
+            const my_running = my_monitor.stop();
+            my_result.filter_running = {
+                run_ms: my_scenario.run_ms,
+                ...my_running,
+            };
+            my_result.cancel = await time_action(
+                () => webview.send({ type: 'cancelCompute' }),
+                my_m => my_m.type === 'computeCancelled'
+            );
             break;
         }
         case 'histogram': {

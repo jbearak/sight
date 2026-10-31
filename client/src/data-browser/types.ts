@@ -69,6 +69,14 @@ export interface CancelRestoreMessage {
     restore_id: number;
 }
 
+/**
+ * Stop the running sort/filter and any queued one; the applied order
+ * stays. The host answers with `computeCancelled`.
+ */
+export interface CancelComputeMessage {
+    type: 'cancelCompute';
+}
+
 /** Webview timing marks, sent only when `debug_timing` is on. */
 export type TimingMark =
     | 'metadata_received'
@@ -92,6 +100,7 @@ export type WebviewMessage =
     | SetFiltersMessage
     | RequestHistogramMessage
     | CancelRestoreMessage
+    | CancelComputeMessage
     | TimingMessage;
 
 // Extension → Webview messages
@@ -194,6 +203,28 @@ export interface RestoreSettledMessage {
     nobs_effective: number;
 }
 
+/**
+ * A requested sort/filter was cancelled, stopped at its deadline, or
+ * could not run (the file changed): the webview drops its pending
+ * chips and shows the applied state, which the order still matches.
+ */
+export interface ComputeCancelledMessage {
+    type: 'computeCancelled';
+    sort: SortState;
+    filter: FilterState;
+    nobs_effective: number;
+}
+
+/**
+ * The page read for `request_id` was discarded because the order or
+ * dataset changed while it ran; the webview may ask for the page again.
+ */
+export interface RowsStaleMessage {
+    type: 'rowsStale';
+    start: number;
+    request_id: string;
+}
+
 export type ExtensionMessage =
     | RowResponse
     | MetadataMessage
@@ -203,7 +234,9 @@ export type ExtensionMessage =
     | FilterStatusMessage
     | HistogramDataMessage
     | RestorePendingMessage
-    | RestoreSettledMessage;
+    | RestoreSettledMessage
+    | ComputeCancelledMessage
+    | RowsStaleMessage;
 
 export interface VariableDescription {
     name: string;
