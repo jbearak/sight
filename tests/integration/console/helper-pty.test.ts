@@ -238,7 +238,7 @@ describe_helper('sight-pty helper', () => {
     });
 
     it('interrupts the command', async () => {
-        const shell = run_shell('trap "echo interrupted; exit 5" INT; sleep 10 & wait');
+        const shell = run_shell("trap 'echo interrupted; kill $!; exit 5' INT; sleep 10 & wait");
         await sleep(300);
         shell.pty.interrupt();
         expect(await shell.pty.exit_status).toBe(5);
@@ -334,9 +334,17 @@ describe_helper('sight-pty helper', () => {
 
     it('ends promptly when a background process keeps the terminal open', async () => {
         const started_ms = Date.now();
-        const shell = run_shell('(sleep 5 &) ; echo done');
+        const shell = run_shell('(sleep 5 & echo "bg=$!") ; echo done');
         expect(await shell.pty.exit_status).toBe(0);
         expect(Date.now() - started_ms).toBeLessThan(2000);
+        // Leave nothing running for later tests. (On macOS bash took
+        // the terminal, so its exit may have ended the job already.)
+        const background_pid = Number(/bg=(\d+)/.exec(shell.output())?.[1]);
+        try {
+            process.kill(background_pid, 'SIGKILL');
+        } catch {
+            // Already gone.
+        }
     });
 
     it('does not deadlock on a lot of input while the command writes', async () => {
