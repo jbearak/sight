@@ -257,7 +257,19 @@ export class DataBrowserPanel implements vscode.Disposable {
         this.panel.reveal(column);
     }
 
-    async refresh(
+    // Refreshes run one at a time: each releases the file the previous
+    // one opened before opening its own.
+    private refresh_chain: Promise<void> = Promise.resolve();
+
+    refresh(sidecar: VviewSidecar, dta_path: string): Promise<void> {
+        const my_next = this.refresh_chain
+            .catch(() => {})
+            .then(() => this.refresh_now(sidecar, dta_path));
+        this.refresh_chain = my_next;
+        return my_next;
+    }
+
+    private async refresh_now(
         sidecar: VviewSidecar,
         dta_path: string
     ): Promise<void> {
@@ -491,7 +503,18 @@ export class DataBrowserPanel implements vscode.Disposable {
         if (!my_runner) {
             return Promise.reject(new Error('No dataset is open'));
         }
-        return my_runner.run(job, pool, signal);
+        const my_file = this.dta_file;
+        // A step worker that finds the file rewritten stops the panel
+        // reading it, whichever job it was running.
+        return my_runner.run(job, pool, signal).catch((my_err: unknown) => {
+            if (
+                my_err instanceof FileChangedError
+                && this.dta_file === my_file
+            ) {
+                this.mark_file_changed();
+            }
+            throw my_err;
+        });
     }
 
     /**
@@ -875,6 +898,11 @@ export class DataBrowserPanel implements vscode.Disposable {
         };
 
         this.panel.webview.postMessage(my_metadata);
+        // A reloaded webview clears its banner on metadata; restate it.
+        if (this.file_changed) {
+            const my_changed: FileChangedMessage = { type: 'fileChanged' };
+            this.panel.webview.postMessage(my_changed);
+        }
         if (
             this.debug_timing
             && this.debug_timing.metadata_posted_epoch_ms === undefined
@@ -1698,9 +1726,7 @@ export class DataBrowserPanel implements vscode.Disposable {
             return true;
         }
         if (error instanceof FileChangedError) {
-            vscode.window.showWarningMessage(
-                `${error.message}; reopen the dataset to ${what} it.`
-            );
+            // run_job already showed the banner and the message.
             this.post_compute_cancelled();
             return true;
         }
@@ -1897,31 +1923,33 @@ export class DataBrowserPanel implements vscode.Disposable {
         this.panel.webview.postMessage(my_response);
         this.note_rows_posted();
         if (my_read.rest) {
-            await this.forward_rest_of_page(request, my_read.rest, my_generation);
+            await this.forward_rest_of_page(request, my_read.rest, my_read.rows);
         }
     }
 
     /**
-     * Post the strL cells of a page that went out with them pending. If
-     * they cannot be read, they are posted as unreadable rather than
-     * left pending.
+     * Post the strL cells of a page that went out with them pending
+     * (`pending`, as posted). If they cannot be read, they are posted as
+     * unreadable rather than left pending.
      */
     private async forward_rest_of_page(
         request: WebviewMessage & { type: 'requestRows' },
         rest: Promise<CellPatch>,
-        generation: number
+        pending: RowResponse['rows']
     ): Promise<void> {
-        let my_patch: CellPatch | null = null;
+        let my_patch: CellPatch;
         try {
             my_patch = await rest;
         } catch (my_err) {
-            if (this.disposed || generation !== this.generation) return;
+            if (this.disposed) return;
             this.page_read_failed(my_err);
             if (this.file_changed) return;
+            my_patch = unreadable_patch(pending);
         }
-        // A newer order replaced this page; the webview asks again.
-        if (this.disposed || generation !== this.generation) return;
-        if (!my_patch) return;
+        if (this.disposed) return;
+        // Posted even if the order changed meanwhile: the webview applies
+        // it only to a page still holding this request's reply, whose
+        // rows the cells belong to (a cancelled sort keeps such pages).
         const my_msg: RowCellsMessage = {
             type: 'rowCells',
             start: request.start,
@@ -2056,7 +2084,13 @@ export class DataBrowserPanel implements vscode.Disposable {
                 'action'
             );
         } catch (my_err) {
-            if (is_abort_error(my_err) || this.disposed) return;
+            if (
+                is_abort_error(my_err)
+                || my_err instanceof FileChangedError
+                || this.disposed
+            ) {
+                return;
+            }
             vscode.window.showErrorMessage(
                 `Copy failed: ${my_err instanceof Error
                     ? my_err.message
@@ -2069,4 +2103,21 @@ export class DataBrowserPanel implements vscode.Disposable {
         if (my_result.kind !== 'copy') return;
         await vscode.env.clipboard.writeText(my_result.text);
     }
+}
+
+/** Unreadable cells for the pending cells of `rows`. */
+function unreadable_patch(rows: RowResponse['rows']): CellPatch {
+    const the_columns: number[] = [];
+    rows[0]?.forEach((my_cell, j) => {
+        if (my_cell.pending) the_columns.push(j);
+    });
+    const my_cell = {
+        raw: null,
+        raw_display: '(unreadable)',
+        formatted_display: '(unreadable)',
+    };
+    return {
+        columns: the_columns,
+        rows: rows.map(() => the_columns.map(() => my_cell)),
+    };
 }

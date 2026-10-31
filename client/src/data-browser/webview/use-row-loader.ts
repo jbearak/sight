@@ -300,6 +300,8 @@ export function use_row_loader(): UseRowLoaderResult {
             }
 
             if (my_msg.type === 'metadata') {
+                // A refresh may have opened another file in this panel.
+                set_file_changed(false);
                 // Metadata is posted first (paint-first); a `restorePending`
                 // for this dataset follows and re-arms the banner. Clearing
                 // here resets any stale banner from a prior lifecycle.

@@ -116,6 +116,8 @@ async function make_restore_panel(opts: {
     panel_like.restore_id = -1;
     panel_like.send_metadata_chain = Promise.resolve();
     panel_like.action_chain = Promise.resolve();
+    panel_like.refresh_chain = Promise.resolve();
+    panel_like.histogram_cache = new Map();
     panel_like.disposed = false;
 
     panel_like.panel = {
@@ -1572,6 +1574,92 @@ describe('running sorts and filters off the host (Phase 1a)', () => {
             .toBe(1);
         expect(posted.some(m => m.type === 'computeCancelled'))
             .toBe(false);
+    });
+
+    it('posts a page\'s pending strL cells even after the order generation moved', async () => {
+        // A sort that starts, then is cancelled, bumps the generation but
+        // leaves the webview's pages in place; their strLs must arrive.
+        const { panel_like, posted } = await make_restore_panel();
+        const my_rest = deferred<{ columns: number[]; rows: any[][] }>();
+        panel_like.reader = {
+            read_page: async () => ({
+                rows: [[{ raw: 1 }, { raw: null, pending: true }]],
+                rest: my_rest.promise,
+            }),
+        };
+        const my_read = panel_like.handle_row_request({
+            type: 'requestRows', start: 0, count: 1, request_id: 'req_9',
+        });
+        await new Promise(resolve => setTimeout(resolve, 0));
+        panel_like.commit_order_change();
+        my_rest.resolve({ columns: [1], rows: [[{ raw: 'whole' }]] });
+        await my_read;
+        expect(posted[posted.length - 1]).toEqual({
+            type: 'rowCells',
+            start: 0,
+            request_id: 'req_9',
+            columns: [1],
+            rows: [[{ raw: 'whole' }]],
+        });
+    });
+
+    it('posts unreadable cells rather than leave strLs pending', async () => {
+        const { panel_like, posted } = await make_restore_panel();
+        panel_like.reader = {
+            read_page: async () => ({
+                rows: [[{ raw: 1 }, { raw: null, pending: true }]],
+                rest: Promise.reject(new Error('disk gone')),
+            }),
+        };
+        await panel_like.handle_row_request({
+            type: 'requestRows', start: 0, count: 1, request_id: 'req_10',
+        });
+        const my_patch = posted[posted.length - 1];
+        expect(my_patch.type).toBe('rowCells');
+        expect(my_patch.columns).toEqual([1]);
+        expect(my_patch.rows[0][0].formatted_display).toBe('(unreadable)');
+    });
+
+    it('stops serving a file a step worker found rewritten', async () => {
+        const { FileChangedError } = await import(
+            '../../../client/src/data-browser/compute-runner'
+        );
+        const { panel_like, posted } = await make_restore_panel();
+        panel_like.compute = {
+            run: async () => { throw new FileChangedError('changed'); },
+        };
+        await panel_like.handle_request_histogram({
+            type: 'requestHistogram', col_index: 0,
+        });
+        expect(panel_like.file_changed).toBe(true);
+        expect(posted.some(m => m.type === 'fileChanged')).toBe(true);
+        // Pages are no longer read.
+        let my_reads = 0;
+        panel_like.reader = { read_page: async () => { my_reads++; } };
+        await panel_like.handle_row_request({
+            type: 'requestRows', start: 0, count: 1, request_id: 'req_11',
+        });
+        expect(my_reads).toBe(0);
+    });
+
+    it('runs refreshes one at a time', async () => {
+        const { panel_like } = await make_restore_panel();
+        const the_events: string[] = [];
+        const my_first = deferred();
+        panel_like.refresh_now = async (_sidecar: unknown, my_path: string) => {
+            the_events.push(`start ${my_path}`);
+            if (my_path === 'a.dta') await my_first.promise;
+            the_events.push(`end ${my_path}`);
+        };
+        const my_a = panel_like.refresh({}, 'a.dta');
+        const my_b = panel_like.refresh({}, 'b.dta');
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(the_events).toEqual(['start a.dta']);
+        my_first.resolve();
+        await Promise.all([my_a, my_b]);
+        expect(the_events).toEqual([
+            'start a.dta', 'end a.dta', 'start b.dta', 'end b.dta',
+        ]);
     });
 
     it('answers a page read discarded by an order change with rowsStale', async () => {
