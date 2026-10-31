@@ -85,7 +85,12 @@ When you run `vview` in Stata:
 2. A JSON sidecar file is written alongside it with metadata (variable count, observation count, source file, Stata's working directory, etc.)
 3. A signal file is created that triggers the VS Code extension
 4. The extension claims the signal (atomically, so only one VS Code window processes it), reads the metadata, and opens the data browser panel
-5. The temporary files are cleaned up automatically
+5. The temporary files are cleaned up automatically. The temporary `.dta`
+   stays in `~/.sight/browse/` while its panel is open, because sorts,
+   filters and copies reopen it; a `<uuid>.lease` file beside it, refreshed
+   while the panel is open, keeps other VS Code windows' cleanup (which
+   deletes browse files older than 24 hours) from removing it. The panel
+   deletes its own temporary file when it closes.
 
 **Multi-window support**: When multiple VS Code windows are open, Sight prioritizes the window whose workspace folder matches Stata's current working directory. This means the data browser is more likely to open in the "right" window when you have multiple projects open.
 
@@ -109,6 +114,9 @@ This supports Stata formats 105–119 (Stata 5 through Stata 18).
 - **Theme-aware**: The grid automatically adapts to your VS Code color theme
 - **Sorting**: Sort rows by one or more columns (see below)
 - **Filtering**: Filter rows by per-column predicates (see below)
+- **Responsive on large datasets**: sorting, filtering, histograms and
+  **Copy column** run in background worker threads, so VS Code stays
+  responsive while they work (see [Background work](#background-work))
 
 ## Sorting Rows
 
@@ -144,8 +152,9 @@ move it to first. The status bar appends a `sorted by …` summary.
   **Labels** re-sorts such a column. Display **Formats** never affect order.
 - **String columns** use natural numeric-aware collation, so `file_2` sorts before
   `file_10`.
-- Sorting runs in the extension host against the on-disk `.dta` file; **Copy
-  column** follows the displayed (sorted) order.
+- Sorting runs in a background worker against the on-disk `.dta` file (see
+  [Background work](#background-work)); **Copy column** follows the displayed
+  (sorted) order.
 - The active sort is remembered per dataset (and dataset shape) and restored the
   next time you open it, unless `sight.dataBrowser.persistSort` is disabled.
 
@@ -198,16 +207,38 @@ filters. The status bar appends `filtered to N of M (P%)`.
   other `%t…` formats (weekly, monthly, quarterly, …) filter as plain numerics
   by their stored code.
 - **Regular expressions** are validated live in the editor; an invalid pattern
-  can't be applied. Note that a pathological pattern (catastrophic backtracking)
-  runs synchronously over every row on a large dataset and can briefly stall the
-  view — this is self-inflicted and limited to your own typed pattern.
-- Filtering runs in the extension host against the on-disk `.dta` file; the
-  visible row numbers reflect the filtered sequence, and **Copy column** follows
-  the displayed (filtered, then sorted) order.
+  can't be applied. A pathological pattern (catastrophic backtracking) can take
+  a very long time on a large dataset; it runs in the background, so the grid
+  stays usable, and **Cancel** on the "Filtering…" line stops it.
+- Filtering runs in a background worker against the on-disk `.dta` file (see
+  [Background work](#background-work)); the visible row numbers reflect the
+  filtered sequence, and **Copy column** follows the displayed (filtered, then
+  sorted) order.
 - Active filters are remembered per dataset (and dataset shape) and restored the
   next time you open it, unless `sight.dataBrowser.persistFilters` is disabled.
   Only the filter definitions are stored; the surviving rows are always
   recomputed against the current data.
+
+## Background work
+
+Sorting, filtering, the filter editor's histogram, reapplying a saved sort or
+filter when a dataset opens, and **Copy column** each read whole columns. They
+run in short-lived worker threads, not on VS Code's extension host, so the
+editor, the grid and scrolling stay responsive however long they take.
+
+- While a sort or filter runs, the toolbar shows "Sorting…" or "Filtering…"
+  over the rows in their current order. After half a second it offers
+  **Cancel**, which stops the work at once and keeps the current order.
+- A new sort replaces a sort that is still running (likewise for filters),
+  instead of waiting for it. A sort requested while a filter runs waits for
+  the filter and then applies to its result.
+- A sort or filter still running after 10 minutes is stopped, with a
+  message.
+- **Copy column** copies the rows in the order shown when you clicked it,
+  even if a sort or filter finishes meanwhile.
+- The workers reopen the dataset file. If it was changed or replaced on disk
+  since the panel opened it, the sort or filter is not applied and Sight asks
+  you to reopen the dataset.
 
 ## Layout Persistence
 
@@ -231,4 +262,5 @@ With the default limit of 10,000 entries and ~3-4 alias keys per dataset, this a
 | `sight.dataBrowser.persistSort` | `true` | Remember and restore the row sort per dataset (matching shape) |
 | `sight.dataBrowser.persistFilters` | `true` | Remember and restore the row filters per dataset (matching shape) |
 | `sight.dataBrowser.maxStoredLayouts` | `10000` | Maximum stored layout entries (see above) |
+| `sight.dataBrowser.debugTiming` | `false` | Log how long each open takes, from opening the panel to the first rows painted, to the Sight output channel |
 | `sight.personalAdoDir` | (platform default) | Path where Sight installs its Stata commands |

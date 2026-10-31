@@ -3,8 +3,16 @@ import { describe, expect, it, mock, beforeEach } from 'bun:test';
 // vscode is mocked so browser-panel can be imported headless. Includes
 // showWarningMessage (used by the real-error restore path).
 let warnings: string[] = [];
+let clipboard_writes: string[] = [];
 mock.module('vscode', () => ({
     ...VSCODE_MOCK_SHARED_EXPORTS,
+    env: {
+        clipboard: {
+            writeText: async (text: string) => {
+                clipboard_writes.push(text);
+            },
+        },
+    },
     workspace: {
         getConfiguration: () => ({
             get: (_key: string, default_value: unknown) => default_value,
@@ -766,7 +774,9 @@ describe('user sort/filter supersedes an in-flight restore (paint-first)', () =>
         expect(panel_like.restoring).toBe(false);
         expect(panel_like.restore_abort).toBeNull();
         expect(panel_like.restore_id).toBe(-1);
-        expect(panel_like.generation).toBe(my_gen_before + 1);
+        // Once when the action starts (superseding the restore) and once
+        // when its order commits (dropping page reads still in flight).
+        expect(panel_like.generation).toBe(my_gen_before + 2);
         expect(panel_like.sort.keys[0].direction).toBe('desc');
         expect(sort_set.length).toBe(1);
         // Superseding does NOT forget the saved filter (no filter write).
@@ -846,7 +856,9 @@ describe('user sort/filter supersedes an in-flight restore (paint-first)', () =>
         expect(panel_like.restoring).toBe(false);
         expect(panel_like.restore_abort).toBeNull();
         expect(panel_like.restore_id).toBe(-1);
-        expect(panel_like.generation).toBe(my_gen_before + 1);
+        // Once when the action starts (superseding the restore) and once
+        // when its order commits (dropping page reads still in flight).
+        expect(panel_like.generation).toBe(my_gen_before + 2);
         expect(panel_like.filter.entries.length).toBe(1);
         expect(filter_set.length).toBe(1);
         expect(posted.some(m => m.type === 'filterApplied')).toBe(true);
@@ -1516,5 +1528,197 @@ describe('dispose during restore (paint-first, finding #5)', () => {
         expect(panel_like.restore_abort).toBeNull();
         expect(panel_like.generation).toBe(my_gen_before + 1);
         expect(panel_like.disposed).toBe(true);
+    });
+});
+
+describe('running sorts and filters off the host (Phase 1a)', () => {
+    const SORT_MSG = {
+        type: 'setSort',
+        keys: [{ col_index: 0, direction: 'asc' }],
+        labels_on: true,
+    };
+    const FILTER_MSG = {
+        type: 'setFilters',
+        entries: [{
+            id: 'f1',
+            col_index: 1,
+            predicate: { kind: 'isNotEmpty' },
+            enabled: true,
+            include_missing: false,
+        }],
+        labels_on: true,
+    };
+
+    /** A compute that runs until its signal aborts. */
+    function stuck_compute(started: { resolve: () => void }) {
+        return (_spec: unknown, signal?: AbortSignal) =>
+            new Promise<Uint32Array>((_resolve, reject) => {
+                started.resolve();
+                signal?.addEventListener('abort', () => reject(
+                    new DOMException('cancelled', 'AbortError')
+                ));
+            });
+    }
+
+    it('Cancel stops the running filter, drops a queued sort and keeps the applied order', async () => {
+        const { panel_like, posted } = await make_restore_panel();
+        panel_like.cancel_seq = 0;
+        panel_like.current_schema_hash = () => 'h';
+        const my_started = deferred();
+        panel_like.compute_filter_indices = stuck_compute(my_started);
+        let my_sorts = 0;
+        panel_like.compute_sort_permutation = async () => {
+            my_sorts++;
+            return new Uint32Array(10);
+        };
+
+        const my_filter = panel_like.handle_message(FILTER_MSG);
+        await my_started.promise;
+        const my_sort = panel_like.handle_message(SORT_MSG);
+        await panel_like.handle_message({ type: 'cancelCompute' });
+        await Promise.all([my_filter, my_sort]);
+
+        expect(my_sorts).toBe(0);
+        expect(panel_like.filter).toEqual(EMPTY_FILTER);
+        expect(panel_like.sort).toEqual(EMPTY_SORT);
+        expect(panel_like.effective_perm).toBeNull();
+        const my_cancelled = posted.filter(
+            m => m.type === 'computeCancelled'
+        );
+        expect(my_cancelled).toEqual([{
+            type: 'computeCancelled',
+            sort: EMPTY_SORT,
+            filter: EMPTY_FILTER,
+            nobs_effective: 10,
+        }]);
+        expect(posted.some(m => m.type === 'filterApplied')).toBe(false);
+        expect(posted.some(m => m.type === 'sortApplied')).toBe(false);
+    });
+
+    it('a newer sort stops the running one instead of waiting for it', async () => {
+        const { panel_like, posted } = await make_restore_panel();
+        panel_like.cancel_seq = 0;
+        panel_like.current_schema_hash = () => 'h';
+        const my_started = deferred();
+        let my_calls = 0;
+        panel_like.compute_sort_permutation = (
+            spec: unknown,
+            signal?: AbortSignal
+        ) => {
+            my_calls++;
+            if (my_calls === 1) {
+                return stuck_compute(my_started)(spec, signal);
+            }
+            return Promise.resolve(new Uint32Array([9, 8, 7, 6, 5, 4, 3, 2, 1, 0]));
+        };
+
+        const my_first = panel_like.handle_message(SORT_MSG);
+        await my_started.promise;
+        const my_second = panel_like.handle_message({
+            ...SORT_MSG,
+            keys: [{ col_index: 0, direction: 'desc' }],
+        });
+        await Promise.all([my_first, my_second]);
+
+        expect(my_calls).toBe(2);
+        expect(panel_like.sort.keys[0].direction).toBe('desc');
+        expect(posted.filter(m => m.type === 'sortApplied').length)
+            .toBe(1);
+        expect(posted.some(m => m.type === 'computeCancelled'))
+            .toBe(false);
+    });
+
+    it('answers a page read discarded by an order change with rowsStale', async () => {
+        const { panel_like, posted } = await make_restore_panel();
+        const my_read_started = deferred();
+        const my_release = deferred();
+        panel_like.dta_file.read_rows = async () => {
+            my_read_started.resolve();
+            await my_release.promise;
+            return [[1, 'a']];
+        };
+        panel_like.row_cache = {
+            clear: () => undefined,
+            get_page: () => undefined,
+            set_page: () => {
+                throw new Error('a discarded read must not be cached');
+            },
+        };
+
+        const my_read = panel_like.handle_row_request({
+            type: 'requestRows',
+            start: 0,
+            count: 1,
+            request_id: 'req_7',
+        });
+        await my_read_started.promise;
+        panel_like.commit_order_change();
+        my_release.resolve();
+        await my_read;
+
+        expect(posted[posted.length - 1]).toEqual({
+            type: 'rowsStale',
+            start: 0,
+            request_id: 'req_7',
+        });
+    });
+
+    it('copies in the order on screen when Copy was clicked', async () => {
+        const { panel_like } = await make_restore_panel();
+        const the_jobs: any[] = [];
+        panel_like.effective_perm = new Uint32Array([2, 0, 1]);
+        panel_like.compute = {
+            run: async (job: any) => {
+                the_jobs.push(job);
+                // A sort commits while the copy runs.
+                panel_like.effective_perm = new Uint32Array([0, 1, 2]);
+                return { kind: 'copy', text: 'a\n3\n1\n2' };
+            },
+            dispose: async () => undefined,
+        };
+        clipboard_writes = [];
+
+        await panel_like.handle_copy_column(0, false, false);
+
+        expect([...the_jobs[0].order]).toEqual([2, 0, 1]);
+        expect(the_jobs[0].kind).toBe('copy');
+        expect(clipboard_writes).toEqual(['a\n3\n1\n2']);
+    });
+});
+
+describe('closing during a refresh (Phase 1a)', () => {
+    it('does not reopen after the panel closed while workers stopped', async () => {
+        const { panel_like } = await make_restore_panel();
+        const my_workers_stopped = deferred();
+        let my_initialized = 0;
+        panel_like.cancel_seq = 0;
+        panel_like.histogram_cache = new Map();
+        panel_like.disposables = [];
+        panel_like.dta_path = '/data/old.dta';
+        panel_like.compute = {
+            run: async () => { throw new Error('unused'); },
+            dispose: () => my_workers_stopped.promise,
+        };
+        panel_like.dta_file.close = () => undefined;
+        panel_like.initialize = async () => { my_initialized++; };
+        panel_like.begin_debug_timing = () => null;
+        const the_unlinked: string[] = [];
+        panel_like.unlink_kept_temp_file = (file_path: string) => {
+            the_unlinked.push(file_path);
+        };
+
+        const my_refresh = panel_like.refresh(
+            { name: 'ds', subsetted: false },
+            '/data/new.dta'
+        );
+        panel_like.dispose_core(false);
+        my_workers_stopped.resolve();
+        await my_refresh;
+
+        expect(panel_like.disposed).toBe(true);
+        expect(my_initialized).toBe(0);
+        expect(panel_like.dta_path).toBe('/data/old.dta');
+        // The incoming temp file has no panel left to own it.
+        expect(the_unlinked).toEqual(['/data/new.dta']);
     });
 });

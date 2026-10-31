@@ -8,6 +8,7 @@
 
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as path from 'path';
 import {
     type VariableInfo,
     type Row,
@@ -15,22 +16,28 @@ import {
 } from '@jbearak/dta-parser';
 import { DtaFile } from '@jbearak/dta-parser/node';
 import { build_cell_value } from './cell-format.js';
-import {
-    build_sort_column,
-    classify_sort_kind,
-    compute_permutation,
-    type SortColumn,
-} from './sort.js';
+import { classify_sort_kind } from './sort.js';
 import {
     compose_effective,
     group_contiguous_runs,
     permuted_window_indices,
 } from './permuted-rows.js';
 import {
-    compute_filtered_indices,
-    type FilterColumn,
-} from './filter.js';
-import { compute_histogram } from './histograms.js';
+    can_compute_histogram,
+    type ComputeJob,
+    type ComputeResult,
+    type OrderResult,
+} from './compute-jobs.js';
+import {
+    ComputeDeadlineError,
+    FileChangedError,
+    InProcessComputeRunner,
+    WorkerComputeRunner,
+    type ComputePool,
+    type ComputeRunner,
+} from './compute-runner.js';
+import { file_identity } from './compute-protocol.js';
+import { BrowseLease } from './browse-lease.js';
 import {
     build_dataset_key,
     build_dataset_key_aliases,
@@ -45,6 +52,11 @@ import { should_unlink_data_browser_path } from './opening.js';
 import { RowCache } from './row-cache.js';
 import { page_size_for_column_count } from './page-size.js';
 import { schema_hash } from './schema-hash.js';
+import {
+    begin_debug_timing,
+    record_webview_mark,
+    type DebugTimingRecord,
+} from './debug-timing.js';
 import type {
     WebviewMessage,
     RowResponse,
@@ -67,6 +79,8 @@ import type {
     RestorePendingMessage,
     RestoreSettledMessage,
     CancelRestoreMessage,
+    ComputeCancelledMessage,
+    RowsStaleMessage,
 } from './types.js';
 import { EMPTY_SORT, EMPTY_FILTER } from './types.js';
 
@@ -81,40 +95,38 @@ function is_abort_error(err: unknown): boolean {
         && (err as { name?: unknown }).name === 'AbortError';
 }
 
-/** %tc / %tC store milliseconds since 1960; other date formats store
- *  days. Consulted when building a {@link FilterColumn} for date
- *  predicates so ISO strings convert into the column's stored domain. */
-function is_timestamp_format(format: string): boolean {
-    return /^%-?t[cC]/.test(format);
-}
-
-/**
- * Rows per read when scanning one column for copy. Reads are a single
- * column wide, so the chunk can be far larger than a viewport page
- * while staying far below the parser's own chunk bound.
- */
-const COPY_COLUMN_SCAN_ROWS = 16384;
 const MAX_CACHED_PAGES = 10;
 // Upper bound on value-label entries shipped per column to the webview.
 const MAX_SHIPPED_VALUE_LABELS = 10_000;
 
-function can_compute_histogram(
-    dta_file: DtaFile,
-    col_index: number
-): boolean {
-    const my_variable = dta_file.variables[col_index];
-    if (!my_variable) return false;
-    const my_has_value_labels =
-        my_variable.value_label_name !== ''
-        && dta_file.value_label_tables.has(
-            my_variable.value_label_name
-        );
-    const my_kind = classify_sort_kind({
-        type: my_variable.type,
-        format: my_variable.format,
-        has_value_labels: my_has_value_labels,
-    });
-    return my_kind === 'numeric' || my_kind === 'labelledNumeric';
+/** Options a host passes when it can run step workers. */
+export interface DataBrowserPanelOptions {
+    /**
+     * Absolute path of the bundled compute worker
+     * (dist/data-browser-worker.js). Without it, sorts, filters,
+     * histograms and copies run in-process on the host, as before
+     * Phase 1a.
+     */
+    compute_worker_path?: string;
+    /** Diagnostic log for lease and worker problems. */
+    log?: (message: string) => void;
+}
+
+/** Bundled step-worker entry point, beside the extension bundle. */
+const COMPUTE_WORKER_BUNDLE = path.join('dist', 'data-browser-worker.js');
+
+/**
+ * Panel options for an installed extension: step workers when the
+ * worker bundle is present (it is in every packaged build; a source
+ * checkout that has not run `bundle` falls back to in-process jobs).
+ */
+export function panel_options_for_extension(
+    extension_path: string
+): DataBrowserPanelOptions {
+    const my_worker_path = path.join(extension_path, COMPUTE_WORKER_BUNDLE);
+    return fs.existsSync(my_worker_path)
+        ? { compute_worker_path: my_worker_path }
+        : {};
 }
 
 export class DataBrowserPanel implements vscode.Disposable {
@@ -158,6 +170,22 @@ export class DataBrowserPanel implements vscode.Disposable {
     // refresh (the values change), not on sort/filter (the brush always
     // shows the full column distribution).
     private histogram_cache = new Map<number, HistogramBin[]>();
+    // Timing marks for this open when sight.dataBrowser.debugTiming is
+    // on (null otherwise); see debug-timing.ts.
+    private debug_timing: DebugTimingRecord | null = null;
+    // Where full-column jobs run: step workers once the file is open and
+    // a worker bundle was given, else in-process (see compute_runner()).
+    private compute: ComputeRunner | null = null;
+    private readonly options: DataBrowserPanelOptions;
+    // Keeps another window's startup sweep off this panel's vview temp
+    // file while step workers may still reopen it (browse-lease.ts).
+    private lease: BrowseLease | null = null;
+    // The running user sort/filter and how to stop it. A newer request
+    // of the same kind supersedes it; Cancel stops it and every queued
+    // action (cancel_seq, read by enqueue_user_action).
+    private action_abort: AbortController | null = null;
+    private running_action: 'sort' | 'filter' | null = null;
+    private cancel_seq = 0;
 
     constructor(
         panel: vscode.WebviewPanel,
@@ -167,8 +195,10 @@ export class DataBrowserPanel implements vscode.Disposable {
         column_width_store: DataBrowserColumnWidthStore,
         column_visibility_store: DataBrowserColumnVisibilityStore,
         sort_state_store: DataBrowserSortStateStore,
-        filter_state_store: DataBrowserFilterStateStore
+        filter_state_store: DataBrowserFilterStateStore,
+        options: DataBrowserPanelOptions = {}
     ) {
+        this.options = options;
         this.panel = panel;
         this.sidecar = sidecar;
         this.dta_path = dta_path;
@@ -186,6 +216,7 @@ export class DataBrowserPanel implements vscode.Disposable {
             column_visibility_store;
         this.sort_state_store = sort_state_store;
         this.filter_state_store = filter_state_store;
+        this.debug_timing = this.begin_debug_timing(sidecar.name);
 
         panel.webview.html = webview_html;
 
@@ -225,7 +256,20 @@ export class DataBrowserPanel implements vscode.Disposable {
         // a closed fd (the generation bump above also makes the aborted
         // restore discard its result without forgetting prefs).
         this.abort_and_clear_restore();
+        this.stop_running_actions();
         const my_old_path = this.dta_path;
+        // Stop the old file's step workers before closing and deleting
+        // it, so none reads a file that is going away.
+        await this.release_compute();
+        // The panel may have closed while the workers stopped; dispose
+        // cleaned up the old file, so don't reopen, and delete the
+        // incoming vview temp file no panel will now own.
+        if (this.disposed) {
+            if (dta_path !== my_old_path) {
+                this.unlink_kept_temp_file(dta_path);
+            }
+            return;
+        }
         this.dta_file?.close();
         this.dta_file = null;
         this.row_cache.clear();
@@ -241,20 +285,13 @@ export class DataBrowserPanel implements vscode.Disposable {
         // file was closed; a fresh restore begins, if applicable, when
         // initialize() re-sends metadata.)
 
-        // Clean up the old temp file on Windows before
-        // overwriting the path (other platforms unlink
-        // eagerly in initialize()).
-        if (
-            process.platform === 'win32'
-            && my_old_path !== dta_path
-            && should_unlink_data_browser_path(my_old_path)
-        ) {
-            try {
-                fs.unlinkSync(my_old_path);
-            } catch {
-                /* file may already be gone */
-            }
+        // Clean up the old temp file before overwriting the path. It
+        // was kept on disk while open if step workers could reopen it
+        // (and always on Windows, which cannot unlink an open file).
+        if (this.temp_file_kept && my_old_path !== dta_path) {
+            this.unlink_kept_temp_file(my_old_path);
         }
+        this.temp_file_kept = false;
 
         this.sidecar = sidecar;
         this.dta_path = dta_path;
@@ -267,6 +304,7 @@ export class DataBrowserPanel implements vscode.Disposable {
                 dta_path,
                 sidecar
             );
+        this.debug_timing = this.begin_debug_timing(sidecar.name);
 
         await this.initialize();
     }
@@ -288,26 +326,20 @@ export class DataBrowserPanel implements vscode.Disposable {
         // closed fd and surfacing an error dialog on a dead panel.
         this.generation++;
         this.abort_and_clear_restore();
+        this.stop_running_actions();
 
         this.dta_file?.close();
         this.dta_file = null;
 
-        // On Windows the temp .dta file must be deleted
-        // explicitly because unlinking an open file is not
-        // supported.  On other platforms the file was already
-        // unlinked in initialize().
-        if (
-            process.platform === 'win32'
-            && should_unlink_data_browser_path(
-                this.dta_path
-            )
-        ) {
-            try {
-                fs.unlinkSync(this.dta_path);
-            } catch {
-                /* file may already be gone */
-            }
-        }
+        // Stop the step workers, then delete the temp .dta file if it
+        // was kept open for them (or on Windows, which cannot unlink an
+        // open file). Other platforms without workers unlinked it in
+        // initialize().
+        const my_path = this.dta_path;
+        const my_kept = this.temp_file_kept;
+        void this.release_compute().then(() => {
+            if (my_kept) this.unlink_kept_temp_file(my_path);
+        });
 
         for (const my_d of this.disposables) {
             my_d.dispose();
@@ -323,22 +355,39 @@ export class DataBrowserPanel implements vscode.Disposable {
 
     private async initialize(): Promise<void> {
         try {
-            this.dta_file = await DtaFile.open(this.dta_path);
+            const my_file = await DtaFile.open(this.dta_path);
+            if (this.disposed) {
+                // Closed while the file was opening: nothing else will
+                // close it or delete a vview temp file.
+                my_file.close();
+                this.unlink_kept_temp_file(this.dta_path);
+                return;
+            }
+            this.dta_file = my_file;
+            this.start_compute();
 
-            // On non-Windows platforms, unlink the temp file
-            // immediately.  The open file handle (held inside
-            // DtaFile's buffer) keeps the data accessible
-            // until close().
-            if (
-                process.platform !== 'win32'
-                && should_unlink_data_browser_path(
-                    this.dta_path
-                )
-            ) {
-                try {
-                    fs.unlinkSync(this.dta_path);
-                } catch {
-                    /* file may already be gone */
+            // A vview temp file stays on disk while step workers may
+            // reopen it by path (dta-parser 0.6 cannot share the
+            // descriptor), protected from the startup sweep by a lease,
+            // and always on Windows, which cannot unlink an open file.
+            // Otherwise unlink it now: the open file handle (held inside
+            // DtaFile) keeps the data readable until close().
+            if (should_unlink_data_browser_path(this.dta_path)) {
+                if (this.compute instanceof WorkerComputeRunner) {
+                    this.temp_file_kept = true;
+                    this.lease = new BrowseLease(
+                        this.dta_path,
+                        this.options?.log
+                    );
+                    this.lease.start();
+                } else if (process.platform === 'win32') {
+                    this.temp_file_kept = true;
+                } else {
+                    try {
+                        fs.unlinkSync(this.dta_path);
+                    } catch {
+                        /* file may already be gone */
+                    }
                 }
             }
         } catch (my_err: unknown) {
@@ -366,6 +415,70 @@ export class DataBrowserPanel implements vscode.Disposable {
         }
 
         await this.send_metadata();
+    }
+
+    // Whether this panel still owns its vview temp file on disk and must
+    // delete it when it closes or moves to another file.
+    private temp_file_kept = false;
+
+    /** Start step workers for the open file, when a bundle was given. */
+    private start_compute(): void {
+        const my_worker_path = this.options?.compute_worker_path;
+        if (!my_worker_path) return;
+        let my_identity;
+        try {
+            my_identity = file_identity(fs.statSync(this.dta_path));
+        } catch {
+            // Without an identity a worker could read a different file;
+            // run in-process instead.
+            return;
+        }
+        this.compute = new WorkerComputeRunner({
+            script_path: my_worker_path,
+            data_path: this.dta_path,
+            identity: my_identity,
+            before_spawn: () => this.lease?.refresh(),
+        });
+    }
+
+    /** Where jobs run: the step workers, or in-process on dta_file. */
+    private compute_runner(): ComputeRunner | null {
+        if (this.compute) return this.compute;
+        return this.dta_file
+            ? new InProcessComputeRunner(this.dta_file)
+            : null;
+    }
+
+    /** Run a job, or reject when no file is open. */
+    private run_job(
+        job: ComputeJob,
+        pool: ComputePool,
+        signal?: AbortSignal
+    ): Promise<ComputeResult> {
+        const my_runner = this.compute_runner();
+        if (!my_runner) {
+            return Promise.reject(new Error('No dataset is open'));
+        }
+        return my_runner.run(job, pool, signal);
+    }
+
+    /** Stop this file's step workers and its lease. */
+    private async release_compute(): Promise<void> {
+        const my_compute = this.compute;
+        this.compute = null;
+        this.lease?.stop();
+        this.lease = null;
+        await my_compute?.dispose();
+    }
+
+    /** Delete a vview temp file this panel kept on disk. */
+    private unlink_kept_temp_file(file_path: string): void {
+        if (!should_unlink_data_browser_path(file_path)) return;
+        try {
+            fs.unlinkSync(file_path);
+        } catch {
+            /* file may already be gone */
+        }
     }
 
     /**
@@ -399,6 +512,7 @@ export class DataBrowserPanel implements vscode.Disposable {
         action: () => Promise<void>
     ): Promise<void> {
         const my_dta_file = this.dta_file;
+        const my_cancel_seq = this.cancel_seq;
         const my_next = this.action_chain
             .catch(() => {})
             .then(() => {
@@ -407,6 +521,8 @@ export class DataBrowserPanel implements vscode.Disposable {
                 // the file before this action starts, no pending status has
                 // been posted for it yet, so silently drop the stale click.
                 if (this.dta_file !== my_dta_file) return;
+                // Cancel drops every action queued before it.
+                if (this.cancel_seq !== my_cancel_seq) return;
                 return action();
             });
         this.action_chain = my_next.catch(() => {});
@@ -526,23 +642,22 @@ export class DataBrowserPanel implements vscode.Disposable {
         let my_settled = false;
         try {
             const my_signal = my_abort?.signal;
-            let my_restore_columns:
-                Map<number, RowCell[]> | undefined;
+            let my_restore_order: OrderResult | undefined;
             try {
-                my_restore_columns =
-                    await this.read_restore_columns(
+                my_restore_order =
+                    await this.compute_restore_order(
                         my_schema_hash,
                         my_signal
                     );
             } catch (my_err) {
-                // If the unified read is aborted, the existing
+                // If the unified compute is aborted, the existing
                 // maybe_restore_* paths observe the aborted signal and
                 // settle/forget just as they did when their own reads were
-                // interrupted. For a non-abort failure, fall back to the
-                // older per-column reads so warning behavior stays local to
-                // the sort/filter phase that actually fails.
+                // interrupted. For a non-abort failure, fall back to
+                // separate sort and filter computes so warning behavior
+                // stays local to the phase that actually fails.
                 if (!is_abort_error(my_err)) {
-                    my_restore_columns = undefined;
+                    my_restore_order = undefined;
                 }
             }
             if (!this.dta_file || this.disposed) return;
@@ -550,7 +665,7 @@ export class DataBrowserPanel implements vscode.Disposable {
             // Track sort/filter failure separately so the warning names
             // only what actually failed (the other may have applied).
             const my_sort_failed = await this.maybe_restore_sort(
-                my_schema_hash, my_signal, my_restore_columns
+                my_schema_hash, my_signal, my_restore_order
             );
             if (!this.dta_file || this.disposed) return;
             // A refresh/reload/user-sort during the sort read bumps
@@ -564,7 +679,7 @@ export class DataBrowserPanel implements vscode.Disposable {
             let my_filter_failed = false;
             if (!is_cancelled()) {
                 my_filter_failed = await this.maybe_restore_filter(
-                    my_schema_hash, my_signal, my_restore_columns
+                    my_schema_hash, my_signal, my_restore_order
                 );
                 if (!this.dta_file || this.disposed) return;
             }
@@ -704,9 +819,16 @@ export class DataBrowserPanel implements vscode.Disposable {
             varlist: this.sidecar.varlist,
             if_condition: this.sidecar.if,
             in_condition: this.sidecar.in,
+            debug_timing: this.debug_timing !== null,
         };
 
         this.panel.webview.postMessage(my_metadata);
+        if (
+            this.debug_timing
+            && this.debug_timing.metadata_posted_epoch_ms === undefined
+        ) {
+            this.debug_timing.metadata_posted_epoch_ms = Date.now();
+        }
     }
 
     /**
@@ -979,20 +1101,40 @@ export class DataBrowserPanel implements vscode.Disposable {
                 await this.handle_row_request(msg);
                 break;
             case 'setSort':
+                // A newer sort replaces a running one, whose result would
+                // be overwritten anyway; stop it rather than wait for it.
+                if (this.running_action === 'sort') {
+                    this.action_abort?.abort();
+                }
                 await this.enqueue_user_action(
                     () => this.handle_set_sort(msg)
                 );
                 break;
             case 'setFilters':
+                if (this.running_action === 'filter') {
+                    this.action_abort?.abort();
+                }
                 await this.enqueue_user_action(
                     () => this.handle_set_filters(msg)
                 );
+                break;
+            case 'cancelCompute':
+                this.handle_cancel_compute();
                 break;
             case 'requestHistogram':
                 await this.handle_request_histogram(msg);
                 break;
             case 'cancelRestore':
                 await this.handle_cancel_restore(msg);
+                break;
+            case 'timing':
+                if (this.debug_timing) {
+                    record_webview_mark(
+                        this.debug_timing,
+                        msg.mark,
+                        msg.epoch_ms
+                    );
+                }
                 break;
             case 'copyColumn':
                 await this.handle_copy_column(
@@ -1054,13 +1196,21 @@ export class DataBrowserPanel implements vscode.Disposable {
             labels_on_when_sorted: msg.labels_on,
         };
 
+        const my_abort = this.begin_action('sort');
         let my_permutation: Uint32Array | null = null;
         try {
-            my_permutation =
-                await this.compute_sort_permutation(my_sort);
-        } catch {
+            my_permutation = await this.compute_sort_permutation(
+                my_sort,
+                my_abort.signal
+            );
+        } catch (my_err) {
+            if (this.stop_after_action_failure(my_err, 'sort')) {
+                this.end_action(my_abort);
+                return;
+            }
             my_permutation = null;
         }
+        this.end_action(my_abort);
 
         // Drop stale results after a refresh
         if (my_generation !== this.generation) return;
@@ -1068,7 +1218,7 @@ export class DataBrowserPanel implements vscode.Disposable {
         this.sort = my_sort;
         this.permutation = my_permutation;
         this.recompute_effective();
-        this.row_cache.clear();
+        this.commit_order_change();
 
         this.post_sort_status('idle');
         this.post_sort_applied();
@@ -1108,7 +1258,7 @@ export class DataBrowserPanel implements vscode.Disposable {
     private async maybe_restore_sort(
         schema_hash_value: string,
         signal?: AbortSignal,
-        column_values?: Map<number, RowCell[]>
+        precomputed?: OrderResult
     ): Promise<boolean> {
         if (this.sort_restored) return false;
         this.sort_restored = true;
@@ -1125,7 +1275,7 @@ export class DataBrowserPanel implements vscode.Disposable {
         try {
             my_permutation =
                 await this.compute_sort_permutation(
-                    my_stored, signal, column_values
+                    my_stored, signal, precomputed
                 );
         } catch (my_err) {
             // A user cancel aborts the read → natural order, silent. A
@@ -1142,163 +1292,73 @@ export class DataBrowserPanel implements vscode.Disposable {
     }
 
     /**
-     * Read one full column as raw cells (length === nobs).
-     *
-     * When `signal` is provided, the read is chunked and cancellable:
-     * aborting rejects with an `AbortError`. This is what makes a saved-
-     * preference restore interruptible; the viewport reads pass no signal
-     * and keep the single-shot fast path.
+     * The saved sort and filter a restore would reapply, in one order
+     * job so each column they reference is read once. Stale entries are
+     * dropped as maybe_restore_* drops them; the compute treats an
+     * invalid sort or filter as inapplicable.
      */
-    private async read_full_column(
-        col_index: number,
-        signal?: AbortSignal
-    ): Promise<RowCell[]> {
-        if (!this.dta_file) return [];
-        const the_columns = await this.read_columns(
-            [col_index],
-            signal
-        );
-        return the_columns.get(col_index) ?? [];
-    }
-
-    /**
-     * Read several full columns in one row-major scan. Used by saved
-     * preference restore to avoid one full data-section scan per sort key
-     * or filter column.
-     */
-    private async read_columns(
-        col_indices: Iterable<number>,
-        signal?: AbortSignal
-    ): Promise<Map<number, RowCell[]>> {
-        if (!this.dta_file) return new Map();
-        const the_indices = [...new Set(col_indices)];
-        if (the_indices.length === 0) return new Map();
-        return this.dta_file.read_columns(
-            the_indices,
-            signal ? { signal } : undefined
-        );
-    }
-
-    /**
-     * Collect and pre-read the distinct columns that a saved sort/filter
-     * restore will need. Invalid stale columns are skipped here; the
-     * compute paths still validate and treat those prefs as inapplicable.
-     */
-    private async read_restore_columns(
+    private compute_restore_order(
         schema_hash_value: string,
         signal?: AbortSignal
-    ): Promise<Map<number, RowCell[]>> {
-        if (!this.dta_file) return new Map();
-        const the_needed = new Set<number>();
-        const my_nvar = this.dta_file.nvar;
-
+    ): Promise<OrderResult> {
+        let my_sort: SortState | null = null;
         if (!this.sort_restored && this.persist_sort_enabled()) {
-            const my_stored_sort = this.sort_state_store.get(
+            my_sort = this.sort_state_store.get(
                 this.dataset_key,
                 schema_hash_value
-            );
-            for (const my_key of my_stored_sort?.keys ?? []) {
-                if (
-                    my_key.col_index >= 0
-                    && my_key.col_index < my_nvar
-                ) {
-                    the_needed.add(my_key.col_index);
-                }
-            }
+            ) ?? null;
         }
-
+        let my_filter: FilterState | null = null;
         if (!this.filter_restored && this.persist_filters_enabled()) {
-            const my_stored_filter = this.filter_state_store.get(
+            const my_stored = this.filter_state_store.get(
                 this.dataset_key,
                 schema_hash_value
             );
-            for (const my_entry of my_stored_filter?.entries ?? []) {
-                if (!my_entry.enabled) continue;
-                const my_var =
-                    this.dta_file.variables[my_entry.col_index];
-                if (
-                    my_var !== undefined
-                    && this.predicate_fits_column(
-                        my_entry.predicate,
-                        my_var
-                    )
-                ) {
-                    the_needed.add(my_entry.col_index);
-                }
+            if (my_stored) {
+                my_filter = {
+                    entries: this.entries_fitting_columns(
+                        my_stored.entries
+                    ),
+                    labels_on_when_filtered:
+                        my_stored.labels_on_when_filtered,
+                };
             }
         }
+        return this.run_order_job(my_sort, my_filter, signal);
+    }
 
-        return this.read_columns(the_needed, signal);
+    private async run_order_job(
+        sort: SortState | null,
+        filter: FilterState | null,
+        signal?: AbortSignal
+    ): Promise<OrderResult> {
+        const my_result = await this.run_job(
+            { kind: 'order', sort, filter },
+            'transform',
+            signal
+        );
+        if (my_result.kind !== 'order') {
+            throw new Error(`Unexpected ${my_result.kind} result`);
+        }
+        return my_result;
     }
 
     /**
-     * Build the sort permutation for a sort state, reading each
-     * sort-key column once. Returns null for an empty or out-of-range
-     * sort. The caller is responsible for re-checking `generation`
-     * after the await, since column reads are asynchronous.
+     * Build the sort permutation for a sort state, off the host. Returns
+     * null for an empty or out-of-range sort. `precomputed` is a
+     * restore's combined result. The caller is responsible for
+     * re-checking `generation` after the await.
      */
     private async compute_sort_permutation(
         sort: SortState,
         signal?: AbortSignal,
-        column_values?: Map<number, RowCell[]>
+        precomputed?: OrderResult
     ): Promise<Uint32Array | null> {
+        if (precomputed) return precomputed.permutation;
         if (!this.dta_file || sort.keys.length === 0) {
             return null;
         }
-        const my_nvar = this.dta_file.nvar;
-        for (const my_key of sort.keys) {
-            if (
-                my_key.col_index < 0
-                || my_key.col_index >= my_nvar
-            ) {
-                return null;
-            }
-        }
-
-        const the_columns: SortColumn[] = [];
-        const the_directions: (1 | -1)[] = [];
-        for (const my_key of sort.keys) {
-            const my_var =
-                this.dta_file.variables[my_key.col_index];
-            const my_has_value_labels =
-                my_var.value_label_name !== ''
-                && this.dta_file.value_label_tables.has(
-                    my_var.value_label_name
-                );
-            const my_kind = classify_sort_kind({
-                type: my_var.type,
-                format: my_var.format,
-                has_value_labels: my_has_value_labels,
-            });
-            const my_values = column_values?.get(my_key.col_index)
-                ?? await this.read_full_column(
-                    my_key.col_index,
-                    signal
-                );
-            // A refresh during the await nulls dta_file; bail so the
-            // caller's generation check discards this stale result.
-            if (!this.dta_file) return null;
-            const my_table =
-                this.dta_file.value_label_tables.get(
-                    my_var.value_label_name
-                );
-            the_columns.push(
-                build_sort_column(
-                    my_values,
-                    my_kind,
-                    my_table,
-                    sort.labels_on_when_sorted
-                )
-            );
-            the_directions.push(
-                my_key.direction === 'desc' ? -1 : 1
-            );
-        }
-        return compute_permutation(
-            the_columns,
-            the_directions,
-            this.dta_file.nobs
-        );
+        return (await this.run_order_job(sort, null, signal)).permutation;
     }
 
     private post_sort_status(
@@ -1367,12 +1427,21 @@ export class DataBrowserPanel implements vscode.Disposable {
             labels_on_when_filtered: msg.labels_on,
         };
 
+        const my_abort = this.begin_action('filter');
         let my_indices: Uint32Array | null = null;
         try {
-            my_indices = await this.compute_filter_indices(my_filter);
-        } catch {
+            my_indices = await this.compute_filter_indices(
+                my_filter,
+                my_abort.signal
+            );
+        } catch (my_err) {
+            if (this.stop_after_action_failure(my_err, 'filter')) {
+                this.end_action(my_abort);
+                return;
+            }
             my_indices = null;
         }
+        this.end_action(my_abort);
 
         // Drop stale results after a refresh or a superseding filter.
         if (my_generation !== this.generation) return;
@@ -1380,7 +1449,7 @@ export class DataBrowserPanel implements vscode.Disposable {
         this.filter = my_filter;
         this.filtered_indices = my_indices;
         this.recompute_effective();
-        this.row_cache.clear();
+        this.commit_order_change();
 
         this.post_filter_status('idle');
         this.post_filter_applied();
@@ -1411,7 +1480,7 @@ export class DataBrowserPanel implements vscode.Disposable {
     private async maybe_restore_filter(
         schema_hash_value: string,
         signal?: AbortSignal,
-        column_values?: Map<number, RowCell[]>
+        precomputed?: OrderResult
     ): Promise<boolean> {
         if (this.filter_restored) return false;
         this.filter_restored = true;
@@ -1431,15 +1500,8 @@ export class DataBrowserPanel implements vscode.Disposable {
         // no longer fits the column's current kind (e.g. a date filter on
         // a now-numeric column would convert ISO dates into the wrong
         // domain); showing the data unfiltered is safer than mis-filtering.
-        const the_kept_entries = my_stored.entries.filter(my_entry => {
-            const my_var =
-                this.dta_file!.variables[my_entry.col_index];
-            return my_var !== undefined
-                && this.predicate_fits_column(
-                    my_entry.predicate,
-                    my_var
-                );
-        });
+        const the_kept_entries =
+            this.entries_fitting_columns(my_stored.entries);
         if (the_kept_entries.length === 0) return false;
         const my_filter: FilterState = {
             entries: the_kept_entries,
@@ -1450,7 +1512,7 @@ export class DataBrowserPanel implements vscode.Disposable {
         let my_indices: Uint32Array | null = null;
         try {
             my_indices = await this.compute_filter_indices(
-                my_filter, signal, column_values
+                my_filter, signal, precomputed
             );
         } catch (my_err) {
             // Cancel → natural order silently; genuine failure →
@@ -1510,59 +1572,122 @@ export class DataBrowserPanel implements vscode.Disposable {
         }
     }
 
+    /** Entries whose column exists and whose predicate fits its kind. */
+    private entries_fitting_columns(
+        entries: readonly FilterState['entries'][number][]
+    ): FilterState['entries'] {
+        if (!this.dta_file) return [];
+        return entries.filter(my_entry => {
+            const my_var = this.dta_file!.variables[my_entry.col_index];
+            return my_var !== undefined
+                && this.predicate_fits_column(my_entry.predicate, my_var);
+        });
+    }
+
     /**
-     * Compute the surviving original-row indices for a filter, reading
-     * each referenced (enabled) column once. Returns null when no entry is
-     * enabled or any enabled column is out of range — the caller treats
-     * null as "no filtering". The caller must re-check `generation` after
-     * the await, since column reads are asynchronous.
+     * Compute the surviving original-row indices for a filter, off the
+     * host. Returns null when no entry is enabled or any enabled column
+     * is out of range — the caller treats null as "no filtering".
+     * `precomputed` is a restore's combined result. The caller must
+     * re-check `generation` after the await.
      */
     private async compute_filter_indices(
         filter: FilterState,
         signal?: AbortSignal,
-        column_values?: Map<number, RowCell[]>
+        precomputed?: OrderResult
     ): Promise<Uint32Array | null> {
+        if (precomputed) return precomputed.filtered_indices;
         if (!this.dta_file) return null;
-        const the_active = filter.entries.filter(
-            my_entry => my_entry.enabled
-        );
-        if (the_active.length === 0) return null;
-
-        const my_nvar = this.dta_file.nvar;
-        const the_needed = new Set<number>();
-        for (const my_entry of the_active) {
-            if (
-                my_entry.col_index < 0
-                || my_entry.col_index >= my_nvar
-            ) {
-                return null;
-            }
-            the_needed.add(my_entry.col_index);
+        if (!filter.entries.some(my_entry => my_entry.enabled)) {
+            return null;
         }
+        return (await this.run_order_job(null, filter, signal))
+            .filtered_indices;
+    }
 
-        const the_columns = new Map<number, FilterColumn>();
-        for (const my_col_index of the_needed) {
-            const my_values = column_values?.get(my_col_index)
-                ?? await this.read_full_column(
-                    my_col_index,
-                    signal
-                );
-            // A refresh during the await nulls dta_file; bail so the
-            // caller's generation check discards this stale result.
-            if (!this.dta_file) return null;
-            const my_var =
-                this.dta_file.variables[my_col_index];
-            the_columns.set(my_col_index, {
-                values: my_values,
-                is_timestamp: is_timestamp_format(my_var.format),
-            });
+    // -------------------------------------------------------
+    // Running and cancelling user sorts and filters
+    // -------------------------------------------------------
+
+    /** Mark a user sort/filter as running and return its controller. */
+    private begin_action(kind: 'sort' | 'filter'): AbortController {
+        const my_abort = new AbortController();
+        this.action_abort = my_abort;
+        this.running_action = kind;
+        return my_abort;
+    }
+
+    private end_action(abort: AbortController): void {
+        if (this.action_abort !== abort) return;
+        this.action_abort = null;
+        this.running_action = null;
+    }
+
+    /**
+     * Whether a sort/filter compute failure ends the action without
+     * applying anything. An abort (Cancel, a superseding request, a
+     * refresh) is silent: whoever aborted has already told the webview.
+     * A deadline or a changed file is reported, and the request reverts
+     * to the applied state. Any other failure falls through to "no
+     * order", as before.
+     */
+    private stop_after_action_failure(
+        error: unknown,
+        what: 'sort' | 'filter'
+    ): boolean {
+        if (is_abort_error(error)) return true;
+        if (error instanceof ComputeDeadlineError) {
+            vscode.window.showWarningMessage(
+                `The ${what} was stopped after 10 minutes and was not `
+                + 'applied.'
+            );
+            this.post_compute_cancelled();
+            return true;
         }
+        if (error instanceof FileChangedError) {
+            vscode.window.showWarningMessage(
+                `${error.message}; reopen the dataset to ${what} it.`
+            );
+            this.post_compute_cancelled();
+            return true;
+        }
+        return false;
+    }
 
-        return compute_filtered_indices(
-            the_columns,
-            filter,
-            this.dta_file.nobs
-        ) ?? null;
+    /**
+     * A new row order was committed: drop cached pages and bump the
+     * generation so page reads still in flight under the old order are
+     * discarded (each answered with `rowsStale`).
+     */
+    private commit_order_change(): void {
+        this.generation++;
+        this.row_cache.clear();
+    }
+
+    /**
+     * The webview's Cancel: stop the running sort/filter and drop every
+     * queued one, leaving the applied order as it is.
+     */
+    private handle_cancel_compute(): void {
+        this.cancel_seq++;
+        this.action_abort?.abort();
+        this.post_compute_cancelled();
+    }
+
+    /** Stop a running sort/filter and anything queued (refresh/dispose). */
+    private stop_running_actions(): void {
+        this.cancel_seq++;
+        this.action_abort?.abort();
+    }
+
+    private post_compute_cancelled(): void {
+        const my_msg: ComputeCancelledMessage = {
+            type: 'computeCancelled',
+            sort: this.sort,
+            filter: this.filter,
+            nobs_effective: this.effective_nobs(),
+        };
+        this.panel.webview.postMessage(my_msg);
     }
 
     private recompute_effective(): void {
@@ -1629,27 +1754,20 @@ export class DataBrowserPanel implements vscode.Disposable {
             // and the webview, having marked the column requested, would
             // never see a brush.
             const my_file = this.dta_file;
-            let the_values: RowCell[];
+            let my_result: ComputeResult;
             try {
-                the_values = await this.read_full_column(
-                    my_col_index
+                my_result = await this.run_job(
+                    { kind: 'histogram', col_index: my_col_index },
+                    'action'
                 );
             } catch {
-                post_empty();
+                if (this.dta_file === my_file) post_empty();
                 return;
             }
             if (this.dta_file !== my_file || !this.dta_file) {
                 return;
             }
-            const the_numbers: number[] = [];
-            for (const my_value of the_values) {
-                // Missing cells are MissingValue objects; only finite
-                // doubles enter the brush distribution.
-                if (typeof my_value === 'number') {
-                    the_numbers.push(my_value);
-                }
-            }
-            my_bins = compute_histogram(the_numbers);
+            my_bins = my_result.kind === 'histogram' ? my_result.bins : [];
             this.histogram_cache.set(my_col_index, my_bins);
         }
 
@@ -1693,6 +1811,7 @@ export class DataBrowserPanel implements vscode.Disposable {
                 request_id: request.request_id,
             };
             this.panel.webview.postMessage(my_response);
+            this.note_rows_posted();
             return;
         }
 
@@ -1721,7 +1840,10 @@ export class DataBrowserPanel implements vscode.Disposable {
                     request.col_start,
                     request.col_end
                 );
-                if (my_generation !== this.generation) return;
+                if (my_generation !== this.generation) {
+                    this.post_rows_stale(request);
+                    return;
+                }
                 for (let j = 0; j < my_chunk.length; j++) {
                     the_raw_rows[my_pos++] = my_chunk[j];
                 }
@@ -1734,7 +1856,10 @@ export class DataBrowserPanel implements vscode.Disposable {
                 request.col_end
             );
             // Drop stale responses after a refresh
-            if (my_generation !== this.generation) return;
+            if (my_generation !== this.generation) {
+                this.post_rows_stale(request);
+                return;
+            }
         }
 
         // Cache the (display-order) raw rows for future requests
@@ -1752,6 +1877,42 @@ export class DataBrowserPanel implements vscode.Disposable {
         };
 
         this.panel.webview.postMessage(my_response);
+        this.note_rows_posted();
+    }
+
+    /**
+     * Tell the webview a page read was discarded because the order or
+     * dataset changed while it ran, so it can ask again instead of
+     * leaving the page pending until the next order change.
+     */
+    private post_rows_stale(
+        request: WebviewMessage & { type: 'requestRows' }
+    ): void {
+        if (this.disposed) return;
+        const my_msg: RowsStaleMessage = {
+            type: 'rowsStale',
+            start: request.start,
+            request_id: request.request_id,
+        };
+        this.panel.webview.postMessage(my_msg);
+    }
+
+    /** A timing record for this open when debugTiming is on, else null. */
+    private begin_debug_timing(name: string): DebugTimingRecord | null {
+        const my_enabled = vscode.workspace
+            .getConfiguration('sight.dataBrowser')
+            .get<boolean>('debugTiming', false) ?? false;
+        return my_enabled ? begin_debug_timing(name) : null;
+    }
+
+    /** Record the first rows posted for this open (debug timing). */
+    private note_rows_posted(): void {
+        if (
+            this.debug_timing
+            && this.debug_timing.first_rows_posted_epoch_ms === undefined
+        ) {
+            this.debug_timing.first_rows_posted_epoch_ms = Date.now();
+        }
     }
 
     private async handle_copy_column(
@@ -1760,71 +1921,39 @@ export class DataBrowserPanel implements vscode.Disposable {
         show_formats: boolean
     ): Promise<void> {
         if (!this.dta_file) return;
+        if (!this.dta_file.variables[col_index]) return;
 
-        const my_variable =
-            this.dta_file.variables[col_index];
-        if (!my_variable) return;
-
-        const my_generation = this.generation;
-        const the_values: string[] = [my_variable.name];
-        const my_nobs = this.dta_file.nobs;
-
-        const display_for = (raw: RowCell): string => {
-            const my_cell = this.format_cell(raw, my_variable);
-            if (my_cell.missing_type) {
-                return (show_labels && my_cell.label_display)
-                    ? my_cell.label_display
-                    : my_cell.missing_type;
-            }
-            if (show_labels && my_cell.label_display) {
-                return my_cell.label_display;
-            }
-            return show_formats
-                ? my_cell.formatted_display
-                : my_cell.raw_display;
-        };
-
-        if (this.effective_perm) {
-            // Copy in display (filtered + sorted) order so the clipboard
-            // matches what the user sees.
-            const the_column = await this.read_full_column(
-                col_index
+        const my_file = this.dta_file;
+        // Pin the order on screen when the user clicked: the job copies
+        // in that order even if a sort or filter commits meanwhile.
+        const my_order = this.effective_perm
+            ? this.effective_perm.slice()
+            : null;
+        let my_result: ComputeResult;
+        try {
+            my_result = await this.run_job(
+                {
+                    kind: 'copy',
+                    col_index,
+                    show_labels,
+                    show_formats,
+                    order: my_order,
+                },
+                'action'
             );
-            if (my_generation !== this.generation) return;
-            for (let i = 0; i < this.effective_perm.length; i++) {
-                the_values.push(
-                    display_for(the_column[this.effective_perm[i]])
-                );
-            }
-        } else {
-            for (
-                let my_offset = 0;
-                my_offset < my_nobs;
-                my_offset += COPY_COLUMN_SCAN_ROWS
-            ) {
-                const my_count = Math.min(
-                    COPY_COLUMN_SCAN_ROWS,
-                    my_nobs - my_offset
-                );
-                const the_raw_rows =
-                    await this.dta_file.read_rows(
-                        my_offset,
-                        my_count,
-                        col_index,
-                        col_index + 1
-                    );
-
-                if (my_generation !== this.generation) return;
-
-                for (const my_row of the_raw_rows) {
-                    the_values.push(display_for(my_row[0]));
-                }
-            }
+        } catch (my_err) {
+            if (is_abort_error(my_err) || this.disposed) return;
+            vscode.window.showErrorMessage(
+                `Copy failed: ${my_err instanceof Error
+                    ? my_err.message
+                    : String(my_err)}`
+            );
+            return;
         }
-
-        await vscode.env.clipboard.writeText(
-            the_values.join('\n')
-        );
+        // A refresh to another dataset makes the copy moot.
+        if (this.dta_file !== my_file || this.disposed) return;
+        if (my_result.kind !== 'copy') return;
+        await vscode.env.clipboard.writeText(my_result.text);
     }
 
     // -------------------------------------------------------

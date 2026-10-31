@@ -57,6 +57,8 @@ import { visible_cell_damage } from './visible-cell-damage.js';
 import type { FilterEntry, SortKey } from '../types.js';
 
 const HEADER_HEIGHT_PX = 40;
+// How long a sort/filter runs before its progress line offers Cancel.
+const COMPUTE_CANCEL_DELAY_MS = 500;
 
 function is_editable_target(el: EventTarget | null): boolean {
     const my_el = el as HTMLElement | null;
@@ -280,6 +282,7 @@ export function App(): ReactElement {
         restore_pending,
         restore_cancelling,
         cancel_restore,
+        cancel_compute,
     } = use_row_loader();
     const [show_labels, set_show_labels] = useState(true);
     const [show_formats, set_show_formats] = useState(true);
@@ -836,6 +839,22 @@ export function App(): ReactElement {
         }
     };
 
+    // Offer Cancel once a sort/filter has been pending for half a second,
+    // so a quick one never flashes the link.
+    const [show_compute_cancel, set_show_compute_cancel] = useState(false);
+    const compute_pending = sort_pending || filter_pending;
+    useEffect(() => {
+        if (!compute_pending) {
+            set_show_compute_cancel(false);
+            return;
+        }
+        const my_timer = setTimeout(
+            () => set_show_compute_cancel(true),
+            COMPUTE_CANCEL_DELAY_MS
+        );
+        return () => clearTimeout(my_timer);
+    }, [compute_pending]);
+
     // While saved sort/filter preferences are reapplied, the grid already
     // shows the data in natural order (paint-first), so the banner just
     // explains the in-progress reordering and offers Cancel.
@@ -1169,6 +1188,15 @@ export function App(): ReactElement {
             {sort_filter_progress_text && (
                 <div className="toolbar-progress" role="status">
                     {sort_filter_progress_text}
+                    {show_compute_cancel && (
+                        <button
+                            type="button"
+                            className="restore-skip compute-cancel"
+                            onClick={cancel_compute}
+                        >
+                            Cancel
+                        </button>
+                    )}
                 </div>
             )}
             {restore_message && (

@@ -11,7 +11,7 @@
     "url": "https://github.com/jbearak/sight"
   },
   "engines": {
-    "vscode": "^1.75.0"
+    "vscode": "^1.123.0"
   },
   "categories": [
     "Programming Languages"
@@ -468,6 +468,11 @@
             "No special highlighting"
           ]
         },
+        "sight.dataBrowser.debugTiming": {
+          "type": "boolean",
+          "default": false,
+          "description": "Log how long each data browser open takes, from opening the panel to the first rows painted, to the Sight output channel. For diagnosing performance; off by default."
+        },
         "sight.depthColors.enabled": {
           "type": "boolean",
           "default": true,
@@ -801,7 +806,7 @@
   },
   "scripts": {
     "vscode:prepublish": "bun run copy-vview-ado && bun run bundle && bun run copy-server && bun run copy-console",
-    "bundle": "bunx esbuild src/extension.ts --bundle --platform=node --format=cjs --outfile=dist/extension.js --external:vscode --minify && node -e \"require('fs').writeFileSync('dist/package.json', '{\\\"type\\\":\\\"commonjs\\\"}')\"",
+    "bundle": "bunx esbuild src/extension.ts --bundle --platform=node --format=cjs --outfile=dist/extension.js --external:vscode --minify && bunx esbuild src/data-browser/compute-worker.ts --bundle --platform=node --format=cjs --outfile=dist/data-browser-worker.js --minify && node -e \"require('fs').writeFileSync('dist/package.json', '{\\\"type\\\":\\\"commonjs\\\"}')\"",
     "bundle:webview": "bunx esbuild src/data-browser/webview/index.tsx --bundle --platform=browser --format=iife --outfile=dist/data-browser-webview/index.js --loader:.css=css --minify",
     "bundle:webview-test": "bunx esbuild src/data-browser/webview/test-harness/index.tsx --bundle --platform=browser --format=iife --outfile=dist-test/toolbar-wrap-harness/index.js --loader:.css=css",
     "copy-vview-ado": "mkdir -p stata && rm -f stata/*.ado && cp ../stata/*.ado stata/",
@@ -814,6 +819,7 @@
     "test": "node ./test/runTest.js",
     "test:extension": "node ./test/runTest.js",
     "test:layout": "bun run bundle && bun run bundle:webview-test && node ./test/runTest.js --suite layout",
+    "test:perf": "bun run bundle && bun run bundle:webview && node ./test/runTest.js --suite perf",
     "package": "vsce package --no-dependencies",
     "publish:vscode": "echo 'Internal-only: use the release workflow (vsce publish --packagePath client/*.vsix) for actual publishing.'",
     "publish:ovsx": "echo 'Internal-only: use the release workflow (ovsx publish client/*.vsix) for actual publishing.'",
@@ -832,7 +838,7 @@
     "@types/node": "^24.0.0",
     "@types/react": "^18.3.11",
     "@types/react-dom": "^18.3.1",
-    "@types/vscode": "^1.75.0",
+    "@types/vscode": "1.120.0",
     "@vscode/test-electron": "^2.5.2",
     "@vscode/vsce": "^3.9.1",
     "mocha": "^11.7.6",
