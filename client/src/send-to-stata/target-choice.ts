@@ -27,7 +27,9 @@ function target_config(): vscode.WorkspaceConfiguration {
 }
 
 const chooser = new TargetChooser({
-    platform: process.platform,
+    get platform() {
+        return process.platform;
+    },
     is_remote: () => Boolean(vscode.env.remoteName),
     effective_setting: () => target_config().get<string>(TARGET_SETTING_KEY),
     pick: async (entries) => {
