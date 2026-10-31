@@ -182,6 +182,7 @@ export function spawn_helper_pty(options: HelperPtyOptions): HelperPty {
             // A process Stata left running can hold the output pipe
             // open; don't wait on it for long.
             setTimeout(() => {
+                output?.destroy();
                 output_ended = true;
                 settle();
             }, OUTPUT_END_GRACE_MS).unref?.();
