@@ -11,7 +11,7 @@ The extension provides commands to send Stata code directly from VS Code to Stat
 The extension offers three ways to send code to Stata:
 
 - **Stata GUI Application** (`external`): Sends code to the standalone Stata application via AppleScript (macOS) or the send-to-stata helper, which pastes code into Stata's Command window (Windows).
-- **Integrated Stata Terminal** (`integrated`): Opens and sends code to a dedicated Stata terminal inside VS Code. The extension registers a "Stata" terminal profile that launches the Stata CLI (`stata-mp`, `stata-se`, `stata-ic`, `stata-be`, or `stata`). This works on macOS, Linux, and remote sessions (SSH, WSL, Dev Containers, Tunnels). On native Windows, where Stata has no interactive CLI, the terminal runs [sight console](console.md) instead, which drives the Stata application; see [Windows: sight console](#windows-sight-console).
+- **Integrated Stata Terminal** (`integrated`): Opens and sends code to a dedicated Stata terminal inside VS Code (the Stata pane), which runs [sight console](console.md): Stata with syntax highlighting, completion and colored output. On macOS and Linux, including remote sessions (SSH, WSL, Dev Containers, Tunnels), it runs console Stata (`stata-mp`, `stata-se`, `stata-ic`, `stata-be`, or `stata`); see [macOS and Linux: sight console](#macos-and-linux-sight-console). On native Windows, where Stata has no interactive CLI, it drives the Stata application; see [Windows: sight console](#windows-sight-console).
 - **Active Terminal** (the `Terminal` submenu commands): Sends code to whatever terminal is currently active in VS Code, regardless of type. This is useful for sending commands to Stata running inside `tmux`, a Docker container, or any other terminal session that isn't the extension's built-in Stata terminal.
 
 ### Target Setting
@@ -38,18 +38,34 @@ Dismissing the menu (Escape) cancels that send; the next send asks again. Sends 
 
 Which to pick:
 
-- **The Stata pane** runs Stata in VS Code's terminal panel, beside your code, with output in VS Code. On macOS and Linux it runs console Stata (`stata-mp` and so on); there's no Data Editor or graph window, but `browse` opens Sight's [Data Browser](data-browser.md). On Windows it runs [sight console](console.md), which drives the Stata app; see [Windows: sight console](#windows-sight-console).
+- **The Stata pane** runs Stata in VS Code's terminal panel, beside your code, with output in VS Code, through [sight console](console.md). On macOS and Linux it runs console Stata (`stata-mp` and so on); there's no Data Editor or graph window, but `browse` opens Sight's [Data Browser](data-browser.md). On Windows the console drives the Stata app; see [Windows: sight console](#windows-sight-console).
 - **The Stata app** sends code to the Stata application's window, as if you'd run it there: graphs, the Data Editor and Stata's own windows all work as usual.
 
 To change your answer later, run **Sight: Choose Where to Send Code** from the Command Palette. When the setting is `integrated` or `external`, the same command can switch between them or go back to asking.
 
 ### Stata Terminal Profile
 
-The extension adds a "Stata" terminal profile to VS Code's terminal dropdown. You can open a Stata terminal manually from the terminal profile picker at any time. On native Windows the profile runs sight console (see below). Elsewhere, the Stata CLI binary is detected automatically:
+The extension adds a "Stata" terminal profile to VS Code's terminal dropdown. You can open a Stata terminal manually from the terminal profile picker at any time. It opens the same Stata pane as the `integrated` target. On macOS and Linux, the Stata CLI binary is detected automatically:
 
 1. Checks your PATH for `stata-mp`, `stata-se`, `stata-be`, `stata-ic`, or `stata` (in priority order)
 2. On macOS, falls back to checking inside `/Applications/Stata/*.app/Contents/MacOS/` and `/Applications/StataNow/*.app/Contents/MacOS/` (StataNow installs under `/Applications/StataNow/`)
 3. If `sight.sendToStata.stataApp` is set, that variant is checked first
+
+### macOS and Linux: sight console
+
+On macOS and Linux the Stata pane runs [sight console](console.md) inside the extension, around console Stata. There's nothing separate to install: the extension carries a small helper, `sight-pty`, that gives Stata the terminal it needs (VS Code's extension runtime can't open one itself). Stata starts in your workspace folder.
+
+Code you send while Stata is starting waits in a queue, and the status bar shows how many sends are waiting. The queued sends are typed into the console, in order, once Stata shows its first prompt. Later sends are typed directly.
+
+Closing the pane ends Stata, as closing a terminal running console Stata does. When Stata ends normally (`exit`), the pane closes; after an error (for example, Stata couldn't start) it stays open until you press a key, so you can read why.
+
+The pane runs console Stata directly, as before sight console, when:
+
+- `sight.sendToStata.console` is `"off"`;
+- the extension has no helper for your platform (it has them for macOS on Apple silicon and Intel, and for Linux on x64 and arm64);
+- the helper fails to start (for example, the system blocks it). The extension says so once, sends what was waiting to plain Stata, and uses plain Stata until the window reloads.
+
+The console has been tested with real Stata on macOS; on Linux it has been tested only with a stand-in for Stata.
 
 ### Windows: sight console
 

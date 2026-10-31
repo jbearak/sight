@@ -5,7 +5,7 @@
  */
 
 import type { BackendEvents, BackendHandle, ShutdownReason, StataBackend } from './backend';
-import { spawn_stata_pty, type StataPty } from './pty';
+import { spawn_stata_pty, type StataPty, type StataPtyOptions } from './pty';
 
 /**
  * Longest line sent while the child terminal is in canonical mode; the
@@ -68,9 +68,17 @@ export interface PtyHandleOptions {
     stata_echoes: boolean;
 }
 
-/** Start Stata in a PTY and wrap it as a backend with its lifecycle. */
-export function create_pty_handle(options: PtyHandleOptions, events: BackendEvents): BackendHandle {
-    const pty = spawn_stata_pty({
+/**
+ * Start Stata in a PTY and wrap it as a backend with its lifecycle.
+ * `spawn_pty` opens the PTY: Bun's by default, or the sight-pty helper
+ * (helper-pty.ts) where the runtime has none.
+ */
+export function create_pty_handle(
+    options: PtyHandleOptions,
+    events: BackendEvents,
+    spawn_pty: (pty_options: StataPtyOptions) => StataPty = spawn_stata_pty,
+): BackendHandle {
+    const pty = spawn_pty({
         command: options.stata_path,
         args: options.stata_args,
         columns: options.columns,

@@ -33,6 +33,10 @@ Commands and Stata itself behave as usual.
   pseudo-terminal support, so there `sight console` exits with a message
   unless input is piped (see below).
 
+In VS Code, Sight's extension runs the console in its Stata pane
+without the `sight` binary or Bun: it carries what it needs (see
+[Send to Stata](send-to-stata.md#macos-and-linux-sight-console)).
+
 ## Usage
 
 ```text
@@ -166,7 +170,9 @@ colors are the same as on macOS and Linux.
 
 In VS Code, Sight's extension runs the same console in a Stata pane in
 the terminal panel when `sight.sendToStata.target` is `integrated`; see
-[Send to Stata](send-to-stata.md#windows-sight-console).
+[Send to Stata](send-to-stata.md#windows-sight-console). On macOS and
+Linux it does the same around console Stata; see
+[Send to Stata](send-to-stata.md#macos-and-linux-sight-console).
 
 ### Setup
 

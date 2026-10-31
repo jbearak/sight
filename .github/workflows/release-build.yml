@@ -68,8 +68,14 @@ jobs:
       - name: Build bundle for npm
         run: bun run build:npm
 
+      - name: Setup Zig
+        uses: ./.github/actions/setup-zig
+
       - name: Build VS Code extension
         run: bun run package
+
+      - name: Check sight-pty helpers in the VSIX
+        run: bun scripts/check-vsix-pty-helpers.ts client/*.vsix
 
       - name: Validate bundle artifact
         shell: bash

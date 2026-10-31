@@ -32,3 +32,6 @@ node_modules/**
 
 # Old VSIX files
 *.vsix
+
+# sight-pty source; the built helpers in pty-helper/bin/ ship
+pty-helper/*.c

@@ -1,5 +1,6 @@
 import * as vscode from 'vscode';
 import * as fs from 'fs';
+import * as path from 'path';
 import { StataCommand, VALID_COMMANDS } from './index.js';
 import { detect_stata_cli, clear_stata_cli_cache } from './stata-cli-detector.js';
 import { wrap_path_for_stata_terminal } from './terminal.js';
@@ -13,6 +14,7 @@ import {
     type ConsoleAnswer,
     type ConsoleQuestion,
     type EditorConsoleModule,
+    type EditorConsolePty,
     type PaneEnd,
 } from './console-pane.js';
 import {
@@ -69,11 +71,15 @@ let pending_profile_creation_count = 0;
 let creation_in_flight: Promise<vscode.Terminal> | null = null;
 const the_terminal_ready_promises = new Map<vscode.Terminal, Promise<void>>();
 
-// On local Windows the Stata terminal is an extension terminal (a
-// pane) running `sight console` inside the extension process; see
-// console-pane.ts.
+// The Stata terminal is an extension terminal (a pane) running `sight
+// console` inside the extension process (console-pane.ts): always on
+// local Windows, and on macOS and Linux when the sight-pty helper for
+// this platform is present and sight.sendToStata.console isn't off.
+// Otherwise it runs the Stata CLI directly.
 const TARGET_SETTING_SECTION = 'sight.sendToStata';
 const TARGET_SETTING_KEY = 'target';
+const CONSOLE_SETTING_KEY = 'console';
+const PTY_HELPER_NAME = 'sight-pty';
 
 let extension_context: vscode.ExtensionContext | null = null;
 
@@ -82,6 +88,8 @@ interface PaneState {
     terminal: vscode.Terminal | null;
     is_ready: boolean;
     end: PaneEnd | null;
+    /** Console Stata through sight-pty (macOS, Linux). */
+    is_pty: boolean;
 }
 
 interface PaneEntry extends PaneState {
@@ -109,6 +117,14 @@ let pending_status_item: vscode.StatusBarItem | null = null;
  * doesn't.
  */
 let session_override_snapshot: string | null = null;
+
+/**
+ * Set when the sight-pty helper failed this session: Stata panes then
+ * run the Stata CLI directly until VS Code reloads the window.
+ */
+let helper_fallback_reason: string | null = null;
+let console_stata_cli: Promise<string | null> | null = null;
+let helper_path_override: string | null | undefined = undefined;
 
 /** VS Code runs here on Windows, not connected to a remote host. */
 export function is_local_windows(): boolean {
@@ -152,6 +168,101 @@ function get_effective_target_setting(): string | undefined {
         .get<string>(TARGET_SETTING_KEY);
 }
 
+function is_console_setting_off(): boolean {
+    return vscode.workspace
+        .getConfiguration(TARGET_SETTING_SECTION)
+        .get<string>(CONSOLE_SETTING_KEY, 'auto') === 'off';
+}
+
+/**
+ * The sight-pty helper for this platform and architecture, made
+ * executable if packaging lost the mode, or null if there is none.
+ */
+function find_pty_helper(): string | null {
+    if (helper_path_override !== undefined) {
+        return helper_path_override;
+    }
+    if (!extension_context) {
+        return null;
+    }
+    const helper_path = path.join(
+        extension_context.extensionPath,
+        'pty-helper',
+        'bin',
+        `${process.platform}-${process.arch}`,
+        PTY_HELPER_NAME
+    );
+    if (!fs.existsSync(helper_path)) {
+        return null;
+    }
+    try {
+        fs.accessSync(helper_path, fs.constants.X_OK);
+        return helper_path;
+    } catch {
+        // Fall through to restore the mode.
+    }
+    try {
+        fs.chmodSync(helper_path, 0o755);
+        fs.accessSync(helper_path, fs.constants.X_OK);
+        return helper_path;
+    } catch {
+        return null;
+    }
+}
+
+type PaneKind = 'automation' | 'pty';
+
+/** Whether a new Stata terminal is a console pane, and which kind. */
+function console_pane_kind(): PaneKind | null {
+    if (is_local_windows()) {
+        return 'automation';
+    }
+    if (
+        (process.platform !== 'darwin' && process.platform !== 'linux')
+        || helper_fallback_reason !== null
+        || is_console_setting_off()
+    ) {
+        return null;
+    }
+    return find_pty_helper() ? 'pty' : null;
+}
+
+/** One detection shared by concurrent sends, so they keep order. */
+function detect_console_stata_cli(): Promise<string | null> {
+    console_stata_cli ??= detect_stata_cli();
+    return console_stata_cli;
+}
+
+const STATA_CLI_NOT_FOUND_MESSAGE =
+    'Stata CLI not found. Ensure stata-mp, stata-se, ' +
+    'or stata is on your PATH, or configure ' +
+    'sight.sendToStata.stataApp.';
+
+/**
+ * What a new Stata terminal runs: a console pane (with the helper and
+ * Stata for a `pty` pane) or, for null, the Stata CLI directly.
+ * Throws if a `pty` pane can't find Stata.
+ */
+async function resolve_new_pane(): Promise<
+    { kind: PaneKind; pty?: EditorConsolePty } | null
+> {
+    const kind = console_pane_kind();
+    if (kind !== 'pty') {
+        return kind === null ? null : { kind };
+    }
+    const helper_path = find_pty_helper();
+    // The helper runs Stata with execvp and the extension's PATH,
+    // where the detector found it, so a bare name is enough.
+    const stata_path = await detect_console_stata_cli();
+    if (!stata_path) {
+        throw new Error(STATA_CLI_NOT_FOUND_MESSAGE);
+    }
+    if (!helper_path || console_pane_kind() !== 'pty') {
+        return null;
+    }
+    return { kind, pty: { helper_path, stata_path } };
+}
+
 function load_module(): Promise<EditorConsoleModule> {
     if (console_module_override) {
         return console_module_override();
@@ -165,13 +276,19 @@ function load_module(): Promise<EditorConsoleModule> {
     return load_console_module(extension_context.extensionPath);
 }
 
-function create_pane_entry(): PaneEntry {
-    const state: PaneState = { terminal: null, is_ready: false, end: null };
+function create_pane_entry(pty?: EditorConsolePty): PaneEntry {
+    const state: PaneState = {
+        terminal: null,
+        is_ready: false,
+        end: null,
+        is_pty: pty !== undefined,
+    };
     const pane = create_console_pane({
         load_module,
         ask: question => (console_ask_override ?? ask_with_dialog)(question),
         working_directory:
             vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+        pty,
         on_ready: () => {
             state.is_ready = true;
             if (state.terminal) {
@@ -181,7 +298,7 @@ function create_pane_entry(): PaneEntry {
         on_end: end => {
             state.end = end;
             if (state.terminal) {
-                handle_pane_end(state.terminal, end);
+                handle_pane_end(state.terminal, end, state);
             }
         },
     });
@@ -197,16 +314,30 @@ function adopt_pane(terminal: vscode.Terminal, entry: PaneEntry): void {
     the_console_panes.set(terminal, entry.pane);
     get_console_queue().track(terminal);
     if (entry.end) {
-        handle_pane_end(terminal, entry.end);
+        handle_pane_end(terminal, entry.end, entry);
     } else if (entry.is_ready) {
         get_console_queue().mark_ready(terminal);
     }
 }
 
-function handle_pane_end(terminal: vscode.Terminal, end: PaneEnd): void {
+function handle_pane_end(
+    terminal: vscode.Terminal,
+    end: PaneEnd,
+    state: PaneState
+): void {
+    if (
+        state.is_pty
+        && end.reason === 'process'
+        && end.helper_failed
+        && !state.is_ready
+    ) {
+        fall_back_from_helper(terminal);
+        return;
+    }
+    const backend = state.is_pty ? 'pty' : 'automation';
     const exit: ConsoleExit = end.reason === 'user'
-        ? { reason: 'user', code: undefined }
-        : { reason: 'process', code: end.code };
+        ? { reason: 'user', code: undefined, backend }
+        : { reason: 'process', code: end.code, backend };
     // A finished console no longer takes sends; the next send starts
     // a new pane.
     forget_console_terminal(terminal);
@@ -215,6 +346,51 @@ function handle_pane_end(terminal: vscode.Terminal, end: PaneEnd): void {
             `Error: ${my_error instanceof Error ? my_error.message : my_error}`
         );
     });
+}
+
+/**
+ * The sight-pty helper couldn't run (for example, the system blocked
+ * it): use the Stata CLI for the rest of the session, and send what
+ * waited for the pane there, in order.
+ */
+function fall_back_from_helper(terminal: vscode.Terminal): void {
+    const the_sends = get_console_queue().take_pending(terminal);
+    forget_console_terminal(terminal);
+    if (helper_fallback_reason === null) {
+        helper_fallback_reason = 'helper failed';
+        vscode.window.showWarningMessage(
+            'Sight couldn\'t start sight console (its pseudo-terminal '
+            + 'helper failed; the Stata pane says why). Stata panes run '
+            + 'the Stata CLI directly until the window reloads.'
+        );
+    }
+    void resend_without_console(the_sends);
+}
+
+async function resend_without_console(
+    the_sends: PendingSend[]
+): Promise<void> {
+    for (let i = 0; i < the_sends.length; i++) {
+        const my_send = the_sends[i];
+        if (!my_send) {
+            continue;
+        }
+        try {
+            await send_to_stata_terminal(
+                my_send.command, my_send.temp_file_path
+            );
+            schedule_temp_file_cleanup(my_send.temp_file_path);
+        } catch (my_error) {
+            vscode.window.showErrorMessage(
+                `Error: ${my_error instanceof Error
+                    ? my_error.message : my_error}`
+            );
+            for (const my_rest of the_sends.slice(i)) {
+                fs.promises.unlink(my_rest.temp_file_path).catch(() => {});
+            }
+            return;
+        }
+    }
 }
 
 function forget_console_terminal(terminal: vscode.Terminal): void {
@@ -342,16 +518,13 @@ function track_activation(terminal: vscode.Terminal): void {
 }
 
 function handle_terminal_opened(terminal: vscode.Terminal): void {
-    if (is_local_windows()) {
-        if (the_profile_terminals.has(terminal)) {
-            return;
-        }
-        const options = terminal.creationOptions;
-        const pty = options && 'pty' in options ? options.pty : undefined;
-        const entry = pty ? the_pending_profile_panes.get(pty) : undefined;
-        if (!pty || !entry) {
-            return;
-        }
+    if (the_profile_terminals.has(terminal)) {
+        return;
+    }
+    const options = terminal.creationOptions;
+    const pty = options && 'pty' in options ? options.pty : undefined;
+    const entry = pty ? the_pending_profile_panes.get(pty) : undefined;
+    if (pty && entry) {
         the_pending_profile_panes.delete(pty);
         // Sends made before the console's first prompt are queued.
         adopt_pane(terminal, entry);
@@ -438,27 +611,42 @@ export function register_stata_terminal(
     context: vscode.ExtensionContext
 ): void {
     extension_context = context;
-    // Windows has no interactive Stata CLI, so on local Windows the
-    // profile opens a pane running sight console, which drives the
-    // Stata app. Remote
-    // sessions (SSH, WSL, Dev Container) connect to a host that may
-    // have a CLI and keep the CLI profile.
-    if (is_local_windows()) {
-        register_console_terminal(context);
-        return;
-    }
-
+    // The profile opens a console pane (see the top of this file) or,
+    // where there is none, the Stata CLI. Remote sessions (SSH, WSL,
+    // Dev Container) run this on the remote host, with its platform.
     const provider: vscode.TerminalProfileProvider = {
         async provideTerminalProfile(
             token: vscode.CancellationToken
         ): Promise<vscode.TerminalProfile | undefined> {
+            let new_pane: Awaited<ReturnType<typeof resolve_new_pane>>;
+            try {
+                new_pane = await resolve_new_pane();
+            } catch (my_error) {
+                if (!token.isCancellationRequested) {
+                    vscode.window.showErrorMessage(
+                        my_error instanceof Error
+                            ? my_error.message : String(my_error)
+                    );
+                }
+                return undefined;
+            }
+            if (token.isCancellationRequested) {
+                return undefined;
+            }
+            if (new_pane) {
+                const entry = create_pane_entry(new_pane.pty);
+                the_pending_profile_panes.set(entry.pane.pty, entry);
+                return new vscode.TerminalProfile({
+                    name: TERMINAL_NAME,
+                    pty: entry.pane.pty,
+                    iconPath: create_terminal_icon(),
+                });
+            }
             const stata_cli = await detect_stata_cli();
             if (token.isCancellationRequested || !stata_cli) {
                 if (!token.isCancellationRequested && !stata_cli) {
                     vscode.window.showErrorMessage(
-                        'Stata CLI not found. Ensure stata-mp, ' +
-                        'stata-se, or stata is on your PATH, or ' +
-                        'configure sight.sendToStata.stataApp.'
+                        STATA_CLI_NOT_FOUND_MESSAGE
                     );
                 }
                 return undefined;
@@ -469,40 +657,6 @@ export function register_stata_terminal(
                 shellPath: stata_cli,
                 shellArgs: [],
                 isTransient: false,
-                iconPath: create_terminal_icon(),
-            });
-        }
-    };
-
-    context.subscriptions.push(
-        vscode.window.registerTerminalProfileProvider(PROFILE_ID, provider),
-        vscode.window.onDidOpenTerminal(handle_terminal_opened),
-        vscode.window.onDidCloseTerminal(handle_terminal_closed),
-        vscode.window.onDidChangeActiveTerminal(
-            handle_active_terminal_changed
-        ),
-    );
-
-    // Clear CLI cache when stataApp setting changes
-    context.subscriptions.push(
-        vscode.workspace.onDidChangeConfiguration(event => {
-            if (event.affectsConfiguration('sight.sendToStata.stataApp')) {
-                clear_stata_cli_cache();
-            }
-        })
-    );
-}
-
-function register_console_terminal(
-    context: vscode.ExtensionContext
-): void {
-    const provider: vscode.TerminalProfileProvider = {
-        provideTerminalProfile(): vscode.TerminalProfile {
-            const entry = create_pane_entry();
-            the_pending_profile_panes.set(entry.pane.pty, entry);
-            return new vscode.TerminalProfile({
-                name: TERMINAL_NAME,
-                pty: entry.pane.pty,
                 iconPath: create_terminal_icon(),
             });
         }
@@ -527,6 +681,10 @@ function register_console_terminal(
                 `${TARGET_SETTING_SECTION}.${TARGET_SETTING_KEY}`
             )) {
                 handle_target_setting_changed();
+            }
+            if (event.affectsConfiguration('sight.sendToStata.stataApp')) {
+                clear_stata_cli_cache();
+                console_stata_cli = null;
             }
         }),
         pending_status_item,
@@ -595,11 +753,11 @@ export async function get_or_create_stata_terminal(
 }
 
 /**
- * Open a new Stata pane running sight console on local Windows. Sends
- * wait in its queue until the console shows its first prompt.
+ * Open a new Stata pane running sight console. Sends wait in its queue
+ * until the console shows its first prompt.
  */
-function create_console_terminal(): vscode.Terminal {
-    const entry = create_pane_entry();
+function create_console_terminal(pty?: EditorConsolePty): vscode.Terminal {
+    const entry = create_pane_entry(pty);
     const terminal = vscode.window.createTerminal({
         name: TERMINAL_NAME,
         pty: entry.pane.pty,
@@ -729,19 +887,32 @@ export async function send_to_stata_terminal(
         );
     }
 
-    if (is_local_windows()) {
-        // No await before the send is queued, so concurrent sends queue
-        // in the order they were made.
-        const terminal = last_active_profile_terminal
-            ?? create_console_terminal();
-        // Readiness can take minutes (the take-over question), so no
-        // timeout applies: the send waits in the terminal's queue.
-        const queued = get_console_queue().send(
-            terminal,
+    // Sends go to the last-used Stata terminal, of either kind. A new
+    // one is a console pane where possible (see the top of this file).
+    let pane_terminal = last_active_profile_terminal;
+    if (!pane_terminal && !creation_in_flight) {
+        const kind = console_pane_kind();
+        if (kind === 'automation') {
+            // No await before the send is queued, so concurrent sends
+            // queue in the order they were made.
+            pane_terminal = create_console_terminal();
+        } else if (kind === 'pty') {
+            const new_pane = await resolve_new_pane();
+            // An earlier send may have opened one meanwhile.
+            pane_terminal = last_active_profile_terminal
+                ?? (new_pane ? create_console_terminal(new_pane.pty) : null);
+        }
+    }
+    if (pane_terminal && console_queue?.is_tracked(pane_terminal)) {
+        // Readiness can take minutes (Windows' take-over question,
+        // Stata's startup), so no timeout applies: the send waits in
+        // the terminal's queue.
+        const queued = console_queue.send(
+            pane_terminal,
             { command, temp_file_path }
         );
         // Focus a terminal still starting so its question is seen.
-        terminal.show(!queued);
+        pane_terminal.show(!queued);
         return queued;
     }
 
@@ -785,6 +956,11 @@ export function reset_stata_terminal_manager_for_tests(
         timings?: Partial<ConsoleQueueTimings>;
         load_console_module?: () => Promise<EditorConsoleModule>;
         ask?: (question: ConsoleQuestion) => Promise<ConsoleAnswer>;
+        /**
+         * The sight-pty helper to report (null: none); by default it
+         * is looked up in the extension.
+         */
+        pty_helper_path?: string | null;
     } = {}
 ): void {
     console_queue?.dispose();
@@ -797,6 +973,9 @@ export function reset_stata_terminal_manager_for_tests(
     the_console_panes.clear();
     pending_status_item = null;
     session_override_snapshot = null;
+    helper_fallback_reason = null;
+    console_stata_cli = null;
+    helper_path_override = options.pty_helper_path;
     the_profile_terminals.clear();
     the_activation_order.length = 0;
     the_terminal_ready_promises.clear();
