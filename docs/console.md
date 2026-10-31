@@ -222,7 +222,8 @@ console.
   Mata or Python that is still open, because Stata's Automation break
   doesn't. Type `}` (or `end`) to finish it.
 - If Stata stops responding (a dialog is open), the console waits. Press
-  Ctrl+C twice to end it, which closes Stata.
+  Ctrl+C twice to end it; Stata's window may stay open, so close it
+  yourself.
 
 ### Exit codes on Windows
 
