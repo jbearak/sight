@@ -12,11 +12,14 @@ import type {
     FilterEntry,
     FilterState,
     FilterStatusMessage,
+    FileChangedMessage,
+    FullTextMessage,
     HistogramBin,
     HistogramDataMessage,
     MetadataMessage,
     RestorePendingMessage,
     RestoreSettledMessage,
+    RowCellsMessage,
     RowResponse,
     RowsStaleMessage,
     SortAppliedMessage,
@@ -89,6 +92,15 @@ export interface UseRowLoaderResult {
     cancel_restore: () => void;
     /** Stop the running sort/filter (the progress line's Cancel). */
     cancel_compute: () => void;
+    /**
+     * Whole text of strLs shown as previews, by file row and column;
+     * null when the host could not read them.
+     */
+    request_full_text: (
+        cells: { row: number; col: number }[]
+    ) => Promise<string[] | null>;
+    /** The file was rewritten in place; nothing more will load. */
+    file_changed: boolean;
 }
 
 type IncomingMessage =
@@ -102,7 +114,10 @@ type IncomingMessage =
     | RestorePendingMessage
     | RestoreSettledMessage
     | ComputeCancelledMessage
-    | RowsStaleMessage;
+    | RowsStaleMessage
+    | RowCellsMessage
+    | FullTextMessage
+    | FileChangedMessage;
 
 export function use_row_loader(): UseRowLoaderResult {
     const vscode_api = useMemo(() => acquireVsCodeApi(), []);
@@ -130,6 +145,15 @@ export function use_row_loader(): UseRowLoaderResult {
         useState<number | undefined>(undefined);
     const [histograms, set_histograms] =
         useState<Map<number, HistogramBin[]>>(() => new Map());
+    const [file_changed, set_file_changed] = useState(false);
+    // The request each page shown came from, so a `rowCells` follow-up
+    // completes only the page it belongs to.
+    const page_request_ids = useRef(new Map<number, string>());
+    // Waiting requestFullText calls, by request id.
+    const full_text_waiters = useRef(
+        new Map<string, (texts: string[] | null) => void>()
+    );
+    const next_full_text_id = useRef(0);
     // Saved-preference restore UI: `restore_pending` is set only after
     // the debounce timer fires, so a fast restore never flashes it.
     const [restore_pending, set_restore_pending] =
@@ -310,6 +334,7 @@ export function use_row_loader(): UseRowLoaderResult {
                 )) {
                     return;
                 }
+                page_request_ids.current.set(my_msg.start, my_msg.request_id);
                 set_pages(my_previous => {
                     const my_next = new Map(my_previous);
                     my_next.set(my_msg.start, my_msg.rows);
@@ -317,6 +342,32 @@ export function use_row_loader(): UseRowLoaderResult {
                     return my_next;
                 });
                 timing.on_rows();
+                return;
+            }
+
+            if (my_msg.type === 'rowCells') {
+                if (
+                    page_request_ids.current.get(my_msg.start)
+                    !== my_msg.request_id
+                ) {
+                    return;
+                }
+                set_pages(my_previous => {
+                    const my_page = my_previous.get(my_msg.start);
+                    if (!my_page) return my_previous;
+                    const my_next = new Map(my_previous);
+                    my_next.set(my_msg.start, my_page.map((my_row, i) => {
+                        const my_cells = my_msg.rows[i];
+                        if (!my_cells) return my_row;
+                        const my_out = my_row.slice();
+                        my_msg.columns.forEach((my_col, j) => {
+                            my_out[my_col] = my_cells[j];
+                        });
+                        return my_out;
+                    }));
+                    pages_ref.current = my_next;
+                    return my_next;
+                });
                 return;
             }
 
@@ -438,6 +489,20 @@ export function use_row_loader(): UseRowLoaderResult {
                 if (my_order_changed) {
                     reset_pages_and_refetch_viewport();
                 }
+                return;
+            }
+
+            if (my_msg.type === 'fullText') {
+                const my_waiter = full_text_waiters.current.get(
+                    my_msg.request_id
+                );
+                full_text_waiters.current.delete(my_msg.request_id);
+                my_waiter?.(my_msg.texts);
+                return;
+            }
+
+            if (my_msg.type === 'fileChanged') {
+                set_file_changed(true);
                 return;
             }
 
@@ -566,6 +631,20 @@ export function use_row_loader(): UseRowLoaderResult {
         [vscode_api]
     );
 
+    const request_full_text = useCallback(
+        (cells: { row: number; col: number }[]) =>
+            new Promise<string[] | null>(resolve => {
+                const my_id = `full-${next_full_text_id.current++}`;
+                full_text_waiters.current.set(my_id, resolve);
+                vscode_api.postMessage({
+                    type: 'requestFullText',
+                    request_id: my_id,
+                    cells,
+                });
+            }),
+        [vscode_api]
+    );
+
     return {
         metadata,
         ensure_rows,
@@ -586,5 +665,7 @@ export function use_row_loader(): UseRowLoaderResult {
         restore_cancelling,
         cancel_restore,
         cancel_compute,
+        request_full_text,
+        file_changed,
     };
 }

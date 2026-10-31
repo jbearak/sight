@@ -33,7 +33,9 @@ import {
     type SortState,
     type FilterState,
 } from '../../../client/src/data-browser/types';
+import type { Cell, Column } from '../../../client/src/data-browser/dta-source';
 import { VSCODE_MOCK_SHARED_EXPORTS } from '../../vscode-mock-shared-exports';
+import { column_of, fake_source } from './cells';
 
 // Mirror what dta-parser actually throws on abort (a DOMException, not a
 // plain Error) so the tests exercise is_abort_error's real input type.
@@ -114,7 +116,6 @@ async function make_restore_panel(opts: {
     panel_like.restore_id = -1;
     panel_like.send_metadata_chain = Promise.resolve();
     panel_like.action_chain = Promise.resolve();
-    panel_like.row_cache = { clear: () => undefined };
     panel_like.disposed = false;
 
     panel_like.panel = {
@@ -359,17 +360,14 @@ describe('send_metadata restore', () => {
                 { name: 'c', type: 'str10', format: '%10s',
                     label: '', value_label_name: '' },
             ],
-            read_columns: async (
-                col_indices: number[],
-                options?: { signal?: AbortSignal }
-            ) => {
-                expect(options?.signal).toBe(
-                    panel_like.restore_abort.signal
-                );
+            read_columns: (col_indices: number[]) => {
                 the_read_columns_calls.push([...col_indices]);
-                const out = new Map<number, unknown[]>();
+                const out = new Map<number, Column>();
                 for (const my_col of col_indices) {
-                    out.set(my_col, the_values.get(my_col) ?? []);
+                    out.set(
+                        my_col,
+                        column_of((the_values.get(my_col) ?? []) as Cell[])
+                    );
                 }
                 return out;
             },
@@ -508,7 +506,7 @@ describe('send_metadata restore', () => {
         expect(my_meta.stored_sort).toBeUndefined();
     });
 
-    it('a settle to natural order does not bump generation or clear cache (Codex round 4)', async () => {
+    it('a settle to natural order does not bump generation (Codex round 4)', async () => {
         const { panel_like, posted } = await make_restore_panel({
             stored_sort: STORED_SORT,
         });
@@ -517,8 +515,6 @@ describe('send_metadata restore', () => {
             panel_like.restore_abort?.abort();
             throw abort_error();
         };
-        let cache_cleared = 0;
-        panel_like.row_cache = { clear: () => { cache_cleared++; } };
         const my_gen_before = panel_like.generation;
 
         await panel_like.send_metadata();
@@ -527,27 +523,23 @@ describe('send_metadata restore', () => {
         // row read in flight during restore stay valid (no stranded blanks).
         expect(panel_like.effective_perm).toBeNull();
         expect(panel_like.generation).toBe(my_gen_before);
-        expect(cache_cleared).toBe(0);
         const my_settled = posted.find(m => m.type === 'restoreSettled');
         expect(my_settled.sort.keys.length).toBe(0);
     });
 
-    it('a settle that changes order bumps generation and clears cache', async () => {
+    it('a settle that changes order bumps generation', async () => {
         const { panel_like } = await make_restore_panel({
             stored_sort: STORED_SORT,
         });
         panel_like.compute_sort_permutation = async () =>
             new Uint32Array(10);
-        let cache_cleared = 0;
-        panel_like.row_cache = { clear: () => { cache_cleared++; } };
         const my_gen_before = panel_like.generation;
 
         await panel_like.send_metadata();
 
-        // Order changed: invalidate the natural-order pages/reads.
+        // Order changed: invalidate the natural-order reads in flight.
         expect(panel_like.effective_perm).not.toBeNull();
-        expect(panel_like.generation).toBe(my_gen_before + 1);
-        expect(cache_cleared).toBe(1);
+        expect(panel_like.generation).toBeGreaterThan(my_gen_before);
     });
 });
 
@@ -873,38 +865,16 @@ describe('interactive row ordering', () => {
             [1, 'a'],
             [2, 'b'],
         ];
-        let cache_cleared = 0;
-        panel_like.dta_file = {
-            ...panel_like.dta_file,
-            nobs: the_rows.length,
-            nvar: 2,
+        panel_like.dta_file = fake_source({
             variables: [
                 { name: 'x', type: 'int', format: '%9.0g',
                     label: '', value_label_name: '' },
                 { name: 'name', type: 'str10', format: '%10s',
                     label: '', value_label_name: '' },
             ],
-            value_label_tables: new Map(),
-            read_rows: async (
-                start: number,
-                count: number,
-                col_start = 0,
-                col_end = 2
-            ) => the_rows
-                .slice(start, start + count)
-                .map(my_row => my_row.slice(col_start, col_end)),
-            read_columns: async (cols: number[]) => new Map(
-                cols.map(my_col => [
-                    my_col,
-                    the_rows.map(my_row => my_row[my_col]),
-                ])
-            ),
-        };
-        panel_like.row_cache = {
-            clear: () => { cache_cleared++; },
-            get_page: () => undefined,
-            set_page: () => undefined,
-        };
+            rows: the_rows,
+        });
+        const my_gen_before = panel_like.generation;
 
         await panel_like.handle_set_sort({
             type: 'setSort',
@@ -920,7 +890,7 @@ describe('interactive row ordering', () => {
 
         expect([...panel_like.permutation]).toEqual([1, 2, 0]);
         expect([...panel_like.effective_perm]).toEqual([1, 2, 0]);
-        expect(cache_cleared).toBe(1);
+        expect(panel_like.generation).toBeGreaterThan(my_gen_before);
         const my_response = posted[posted.length - 1];
         expect(my_response.type).toBe('rowData');
         expect(my_response.rows.map((my_row: any[]) => my_row[0].raw))
@@ -930,24 +900,15 @@ describe('interactive row ordering', () => {
     it('fresh user sort reads the sort column through read_columns', async () => {
         const { panel_like } = await make_restore_panel();
         const the_sort_values = [3, 1, 2];
-        panel_like.dta_file = {
-            ...panel_like.dta_file,
-            nobs: the_sort_values.length,
-            nvar: 1,
+        const the_reads: number[][] = [];
+        panel_like.dta_file = fake_source({
             variables: [
                 { name: 'x', type: 'int', format: '%9.0g',
                     label: '', value_label_name: '' },
             ],
-            value_label_tables: new Map(),
-            read_rows: async () => {
-                throw new Error('full row scan should not be used');
-            },
-            read_columns: async (cols: number[]) => {
-                expect(cols).toEqual([0]);
-                return new Map([[0, the_sort_values]]);
-            },
-        };
-        panel_like.row_cache = { clear: () => undefined };
+            rows: the_sort_values.map(my_v => [my_v]),
+            on_read_columns: my_cols => the_reads.push([...my_cols]),
+        });
 
         await panel_like.handle_set_sort({
             type: 'setSort',
@@ -957,29 +918,21 @@ describe('interactive row ordering', () => {
 
         expect([...panel_like.permutation]).toEqual([1, 2, 0]);
         expect([...panel_like.effective_perm]).toEqual([1, 2, 0]);
+        expect(the_reads).toEqual([[0]]);
     });
 
     it('fresh user filter reads filter columns through read_columns', async () => {
         const { panel_like } = await make_restore_panel();
         const the_filter_values = ['', 'a', 'b'];
-        panel_like.dta_file = {
-            ...panel_like.dta_file,
-            nobs: the_filter_values.length,
-            nvar: 1,
+        const the_reads: number[][] = [];
+        panel_like.dta_file = fake_source({
             variables: [
                 { name: 'name', type: 'str10', format: '%10s',
                     label: '', value_label_name: '' },
             ],
-            value_label_tables: new Map(),
-            read_rows: async () => {
-                throw new Error('full row scan should not be used');
-            },
-            read_columns: async (cols: number[]) => {
-                expect(cols).toEqual([0]);
-                return new Map([[0, the_filter_values]]);
-            },
-        };
-        panel_like.row_cache = { clear: () => undefined };
+            rows: the_filter_values.map(my_v => [my_v]),
+            on_read_columns: my_cols => the_reads.push([...my_cols]),
+        });
 
         await panel_like.handle_set_filters({
             type: 'setFilters',
@@ -995,15 +948,15 @@ describe('interactive row ordering', () => {
 
         expect([...panel_like.filtered_indices]).toEqual([1, 2]);
         expect([...panel_like.effective_perm]).toEqual([1, 2]);
+        expect(the_reads).toEqual([[0]]);
     });
 });
 
 describe('interactive action queue', () => {
     it('serializes filter then sort so neither pending state is stranded', async () => {
         const { panel_like, posted } = await make_restore_panel();
-        let cache_cleared = 0;
-        panel_like.row_cache = { clear: () => { cache_cleared++; } };
         panel_like.current_schema_hash = () => 'h';
+        const my_gen_before = panel_like.generation;
 
         const filter_started = deferred();
         const release_filter = deferred();
@@ -1056,14 +1009,14 @@ describe('interactive action queue', () => {
         expect([...panel_like.filtered_indices]).toEqual([1, 2]);
         expect([...panel_like.permutation]).toEqual([2, 1, 0]);
         expect([...panel_like.effective_perm]).toEqual([2, 1]);
-        expect(cache_cleared).toBe(2);
+        // Each committed order invalidates the reads before it.
+        expect(panel_like.generation).toBeGreaterThanOrEqual(my_gen_before + 2);
     });
 
     it('serializes sort then filter so neither pending state is stranded', async () => {
         const { panel_like, posted } = await make_restore_panel();
-        let cache_cleared = 0;
-        panel_like.row_cache = { clear: () => { cache_cleared++; } };
         panel_like.current_schema_hash = () => 'h';
+        const my_gen_before = panel_like.generation;
 
         const sort_started = deferred();
         const release_sort = deferred();
@@ -1116,7 +1069,8 @@ describe('interactive action queue', () => {
         expect([...panel_like.permutation]).toEqual([2, 1, 0]);
         expect([...panel_like.filtered_indices]).toEqual([1, 2]);
         expect([...panel_like.effective_perm]).toEqual([2, 1]);
-        expect(cache_cleared).toBe(2);
+        // Each committed order invalidates the reads before it.
+        expect(panel_like.generation).toBeGreaterThanOrEqual(my_gen_before + 2);
     });
 
     it('drops a queued sort if the dataset changes before it starts', async () => {
@@ -1324,7 +1278,7 @@ describe('reset_restored_prefs / forget_persisted_prefs', () => {
 });
 
 describe('late-cancel invalidation ordering (finding C-2)', () => {
-    it('bumps generation and clears cache before awaiting persistence', async () => {
+    it('bumps generation before awaiting persistence', async () => {
         const { panel_like } = await make_restore_panel({
             stored_sort: STORED_SORT,
         });
@@ -1337,28 +1291,20 @@ describe('late-cancel invalidation ordering (finding C-2)', () => {
         panel_like.post_sort_applied = () => undefined;
         panel_like.post_filter_applied = () => undefined;
 
-        let cache_cleared_at: number | null = null;
-        let order = 0;
-        panel_like.row_cache = {
-            clear: () => { cache_cleared_at = order++; },
-        };
-        // A slow store write: generation/cache must already be
-        // invalidated by the time this is awaited.
-        let persisted_at: number | null = null;
+        // A slow store write: the generation must already be bumped
+        // (invalidating reads in flight) by the time this is awaited.
+        const my_gen_before = panel_like.generation;
+        let my_gen_at_persist: number | null = null;
         panel_like.sort_state_store.set = async () => {
-            persisted_at = order++;
+            my_gen_at_persist = panel_like.generation;
         };
 
-        const my_gen_before = panel_like.generation;
         await panel_like.handle_cancel_restore({
             type: 'cancelRestore', restore_id: 2,
         });
 
         expect(panel_like.generation).toBe(my_gen_before + 1);
-        expect(cache_cleared_at).toBe(0);
-        // Persistence happened strictly after invalidation.
-        expect(persisted_at).not.toBeNull();
-        expect(persisted_at! > cache_cleared_at!).toBe(true);
+        expect(my_gen_at_persist).toBe(my_gen_before + 1);
     });
 });
 
@@ -1632,16 +1578,11 @@ describe('running sorts and filters off the host (Phase 1a)', () => {
         const { panel_like, posted } = await make_restore_panel();
         const my_read_started = deferred();
         const my_release = deferred();
-        panel_like.dta_file.read_rows = async () => {
-            my_read_started.resolve();
-            await my_release.promise;
-            return [[1, 'a']];
-        };
-        panel_like.row_cache = {
-            clear: () => undefined,
-            get_page: () => undefined,
-            set_page: () => {
-                throw new Error('a discarded read must not be cached');
+        panel_like.reader = {
+            read_page: async () => {
+                my_read_started.resolve();
+                await my_release.promise;
+                return [[{ raw: 1 }, { raw: 'a' }]];
             },
         };
 

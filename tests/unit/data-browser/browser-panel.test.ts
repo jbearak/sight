@@ -1,5 +1,5 @@
 import { describe, expect, it, mock } from 'bun:test';
-import { make_missing_value } from '@jbearak/dta-parser';
+import { column_of, miss } from './cells';
 import { build_cell_value } from '../../../client/src/data-browser/cell-format';
 import {
     build_grid_columns,
@@ -25,7 +25,7 @@ import { VSCODE_MOCK_SHARED_EXPORTS } from '../../vscode-mock-shared-exports';
 describe('build_cell_value', () => {
     it('preserves exact missing markers', () => {
         const my_cell = build_cell_value(
-            make_missing_value('.a'),
+            miss('.a'),
             {
                 type: 'double',
                 format: '%9.0g',
@@ -35,8 +35,10 @@ describe('build_cell_value', () => {
 
         expect(my_cell.raw).toBeNull();
         expect(my_cell.missing_type).toBe('.a');
-        expect(my_cell.raw_display).toBe('.a');
-        expect(my_cell.formatted_display).toBe('.a');
+        // The grid shows the code itself; no copies of it are sent.
+        expect(get_cell_display_value(my_cell, false, true)).toBe('.a');
+        expect(get_cell_display_value(my_cell, false, false)).toBe('.a');
+        expect(my_cell.raw_display).toBeUndefined();
     });
 
     it('looks up value label for extended missing values', () => {
@@ -45,7 +47,7 @@ describe('build_cell_value', () => {
             [2147483622, 'Not applicable'],
         ]);
         const my_cell = build_cell_value(
-            make_missing_value('.a'),
+            miss('.a'),
             {
                 type: 'double',
                 format: '%9.0g',
@@ -56,8 +58,44 @@ describe('build_cell_value', () => {
 
         expect(my_cell.raw).toBeNull();
         expect(my_cell.missing_type).toBe('.a');
-        expect(my_cell.raw_display).toBe('.a');
         expect(my_cell.label_display).toBe('Not applicable');
+    });
+
+    it('can leave labels to the webview, which looks them up', () => {
+        const my_table = new Map<number, string>([
+            [1, 'Foreign'],
+            [2147483622, 'Not applicable'],
+        ]);
+        const my_variable = {
+            type: 'byte',
+            format: '%9.0g',
+            value_label_name: 'foreign_lbl',
+        };
+        const my_shipped = { '1': 'Foreign', '2147483622': 'Not applicable' };
+        const my_value = build_cell_value(1, my_variable, my_table, false);
+        const my_missing = build_cell_value(
+            miss('.a'), my_variable, my_table, false
+        );
+        expect(my_value).toEqual({ raw: 1 });
+        expect(my_missing).toEqual({ raw: null, missing_type: '.a' });
+        expect(get_cell_display_value(my_value, true, true, my_shipped))
+            .toBe('Foreign');
+        expect(get_cell_display_value(my_missing, true, true, my_shipped))
+            .toBe('Not applicable');
+        expect(get_cell_display_value(my_value, false, true, my_shipped))
+            .toBe('1');
+    });
+
+    it('sends a formatted display only where it differs from the value', () => {
+        const my_plain = build_cell_value(
+            42, { type: 'double', format: '%9.0g', value_label_name: '' }
+        );
+        expect(my_plain).toEqual({ raw: 42 });
+        const my_date = build_cell_value(
+            21521, { type: 'long', format: '%td', value_label_name: '' }
+        );
+        expect(my_date).toEqual({ raw: 21521, formatted_display: '2018-12-03' });
+        expect(get_cell_display_value(my_date, false, false)).toBe('21521');
     });
 
     it('preserves raw, formatted, and labeled views', () => {
@@ -75,8 +113,8 @@ describe('build_cell_value', () => {
         );
 
         expect(my_cell.raw).toBe(1);
-        expect(my_cell.raw_display).toBe('1');
-        expect(my_cell.formatted_display).toBe('1');
+        expect(get_cell_display_value(my_cell, false, false)).toBe('1');
+        expect(get_cell_display_value(my_cell, false, true)).toBe('1');
         expect(my_cell.label_display).toBe('Foreign');
     });
 });
@@ -453,12 +491,12 @@ async function make_histogram_panel(
     };
     // Histograms are computed by a job (in-process here, since no worker
     // bundle is configured) that reads the column through read_columns.
-    panel_like.dta_file.read_columns = async (indices: number[]) => {
+    panel_like.dta_file.read_columns = (indices: number[]) => {
         read_count += 1;
         if (values_or_error instanceof Error) {
             throw values_or_error;
         }
-        return new Map([[indices[0], values_or_error]]);
+        return new Map([[indices[0], column_of(values_or_error)]]);
     };
 
     return {

@@ -559,6 +559,99 @@ the wide strL filter (budget ≤ 2.5 GiB until 1b). Page reads still run on the 
 in 1a, which is why wide's open and scrolling still stall (630 ms for the
 first 5 MB page); 1b moves them off.
 
+## Phase 1b as built
+
+Phase 1b moved Sight to `@jbearak/dta-parser` 1.0.0 (published
+2026-10-31; tarball sha256 7b797cb0…2e86, the build gate 3 passed) and
+met its acceptance criterion (no host stall > 50 ms during any page read
+or full-column operation on either fixture) with a smaller design than
+the 1b row above. What shipped, and what moved:
+
+- **One adapter.** `dta-source.ts` is the only module that imports
+  dta-parser. `DtaSource` keeps the field names the browser used
+  (`value_label_name`, `nobs`, `nvar`) and 0.6's value-label keys
+  (missing value `.a` is 2147483622, `label-keys.ts`), so stored filters
+  and the webview's label tables are unchanged.
+- **One descriptor.** The host opens the file once (`fs.openSync`),
+  records `fstat` identity, and reads metadata only. The row reader and
+  the step workers read that descriptor (`openDtaFile(fd)`). vview temp
+  files are unlinked right after open again on POSIX (Windows keeps them
+  until close, as before Phase 1a). Phase 1a's leases are gone: no thread
+  reopens a path, and 1a never shipped in a release, so the startup sweep
+  is back to its pre-1a form. Refresh and dispose terminate every thread
+  and close the descriptor only when all of them exited within 5 s;
+  otherwise it is left open and logged.
+- **Row reader thread, no separate strL thread.** One long-lived thread
+  per open file (`row-reader-worker.ts`) reads pages: `readRows` or
+  `readRowsAt` for non-strL columns, `readColumns` with
+  `maxStringBytes: 256` per contiguous run for strLs. It formats cells
+  itself, so the host only forwards them. The first page that shows a
+  strL would wait for the file's strL index (about 100 ms on wide), so
+  that page is sent in two messages: the other columns at once, its strL
+  cells `pending`, then a `rowCells` patch matched to the page's
+  `request_id`. Later pages come whole. A separate strL thread with a
+  newest-first queue was not needed for the budget and is not built.
+- **Smaller pages, same wire shape.** Pages are still `rowData` with
+  `CellValue`s, but a cell carries only what the webview cannot derive:
+  a string once, a number without `raw_display` and with
+  `formatted_display` only where it differs, and no `label_display` when
+  the column's label set is in the metadata (≤ 10,000 entries; the grid
+  looks it up). The wide page fell from 5.28 MB to 1.22 MB. Tiles,
+  `order_epoch` on the wire and formatting in the webview move to Phase 2,
+  where the cell model changes anyway.
+- **Long strLs.** A strL over 256 bytes shows its first 256 bytes (cut at
+  a character) and `…`; copying cells fetches whole values
+  (`requestFullText`, by file row), and Copy column reads whole values.
+  The cell overlay shows the preview until Phase 5's strL viewer. A binary
+  strL shows `binary, N bytes`.
+- **Typed columns.** `build_sort_column`, the filter's column readers, the
+  histogram and copy take dta-parser 1.0 `Column`s directly; algorithms
+  are unchanged until Phase 3. A binary strL sorts and matches as `""` but
+  is not missing.
+- **Display follows R, by the user's decision (2026-10-31).** dta-parser
+  1.0's `formatValue` shows `%td` as R Dates and `%tc`/`%tC` as UTC
+  date-times whatever the mask, and `%g` as R's `format()` does; `%f`,
+  `%e`, `%fc` and the other `%t` formats keep Stata's text. This replaces
+  the "display formats … correct end to end" constraint for those formats
+  and retires D5. The display-truth battery now holds R's output, taken
+  from Rscript, not Stata's.
+- **File changes.** Every thread compares `fstat` of the descriptor
+  (size, mtime) with the host's identity after each read; a rewrite in
+  place stops the panel serving the file, with a banner and a message. A
+  file replaced at its path keeps showing the opened snapshot; the path
+  watcher and Reload prompt are not built.
+- **No host page cache.** The 10-page host cache is gone: reads are off
+  the host and take milliseconds, and the webview caches pages.
+- `reader-bench.ts` is removed: it compared 0.6 with the unpublished 1.0,
+  and its numbers above stay as the record.
+
+Benchmark (M4 Max, Node 26, warm cache, full-scale fixtures; host blocked
+is the longest event-loop stall):
+
+| Operation | 1a host blocked | 1b host blocked | 1b time | 1b peak RSS (1a) |
+|---|---|---|---|---|
+| narrow open, first page | 2.1 ms | 2.5 ms | 18.9 ms | 63 MiB (50) |
+| narrow scroll 20 pages | 15.3 ms | 0.8 ms | p50 1 ms | 80 MiB (68) |
+| narrow numeric sort | 7.4 ms | 0.9 ms | 3,270 ms | 581 MiB (979) |
+| narrow string sort | 8 ms | 3.6 ms | 14,114 ms | 709 MiB (1,060) |
+| narrow numeric filter | 6.7 ms | 0.6 ms | 173 ms | 206 MiB (499) |
+| narrow string filter | 8.5 ms | 0.8 ms | 841 ms | 288 MiB (697) |
+| narrow histogram | 5.7 ms | 1.3 ms | 219 ms | 387 MiB (700) |
+| narrow copy column | 10.3 ms | 4.7 ms | 1,222 ms | 884 MiB (1,283) |
+| narrow restore sort + filter | 16.4 ms | 19.9 ms | 3,366 ms | 615 MiB (1,056) |
+| wide open, first page | 617 ms | 12.1 ms | 49 ms; strLs 178 ms | 197 MiB (951) |
+| wide scroll 20 pages | 250.7 ms | 12.9 ms | p50 22 ms | 388 MiB (1,134) |
+| wide scroll during sort | 64.4 ms | 11.1 ms | page p50 22 ms | 453 MiB (1,411) |
+| wide numeric sort | 0.6 ms | 0.6 ms | 393 ms | 281 MiB (1,169) |
+| wide strL filter | 2.1 ms | 0.7 ms | 650 ms | 609 MiB (2,413) |
+| wide copy column | 0.9 ms | 0.5 ms | 246 ms | 356 MiB (1,262) |
+
+Page replies: narrow 53 KiB (146 in 1a), wide 1,220 KiB (5,173). A wide
+page now takes 22 ms in the reader thread rather than 13 ms on the host:
+the cost of copying it out of the thread, paid off the host. The string
+filter is 841 ms (1a: 901 ms), not the 2× slowdown the budget section
+feared, thanks to 1.0's faster string decoding since the spike.
+
 ## Revision history
 
 - Revision 1 (2026-10-30): first draft.
@@ -567,3 +660,4 @@ first 5 MB page); 1b moves them off.
 - Revision 4 (2026-10-30): third review round (above).
 - Revision 5 (2026-10-30): fourth review round (above).
 - Revision 6 (2026-10-30): fifth review round and confirmation passes (above); agreed by both reviewers.
+- 2026-10-31: "Phase 1a as built" and "Phase 1b as built" record what shipped.

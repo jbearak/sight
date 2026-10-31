@@ -3,24 +3,25 @@
  * extension host's event loop, then exits.
  *
  * Spawned by {@link WorkerComputeRunner} (compute-runner.ts) with the
- * job, the dataset path and the identity (inode, size, mtime) the host
- * recorded when it opened the file. dta-parser 0.6 opens by path only,
- * so the worker opens the file itself; if the path no longer names the
- * file the host opened, the job fails with "The file changed on disk"
- * rather than computing an order for different data.
+ * job, the descriptor the host opened the dataset on and the identity
+ * (inode, size, mtime) the host recorded then. The worker reads that
+ * descriptor, so it reads the file the host opened even if the path now
+ * names another file. If the file was rewritten in place since, the job
+ * fails with "The file changed on disk" rather than computing an order
+ * for different data.
  *
  * Bundled as its own CommonJS entry point (dist/data-browser-worker.js).
  */
 
 import * as fs from 'fs';
 import { parentPort, workerData } from 'worker_threads';
-import { DtaFile } from '@jbearak/dta-parser/node';
 import { run_compute_job, type ComputeResult } from './compute-jobs.js';
 import {
     same_file_identity,
     type ComputeWorkerData,
     type ComputeWorkerReply,
 } from './compute-protocol.js';
+import { DtaSource } from './dta-source.js';
 
 function transfer_list(result: ComputeResult): ArrayBuffer[] {
     if (result.kind !== 'order') return [];
@@ -33,29 +34,42 @@ function transfer_list(result: ComputeResult): ArrayBuffer[] {
     return the_buffers;
 }
 
-async function main(): Promise<void> {
+function main(): void {
     const my_data = workerData as ComputeWorkerData;
-    let my_file: DtaFile | null = null;
+    let my_source: DtaSource | null = null;
     let my_reply: ComputeWorkerReply;
     let the_transfer: ArrayBuffer[] = [];
+    const unchanged = () =>
+        same_file_identity(fs.fstatSync(my_data.fd), my_data.identity);
     try {
-        my_file = await DtaFile.open(my_data.path);
-        const my_stat = fs.statSync(my_data.path);
-        if (!same_file_identity(my_stat, my_data.identity)) {
+        if (!unchanged()) {
             my_reply = { ok: false, reason: 'changed' };
         } else {
-            const my_result = await run_compute_job(my_data.job, my_file);
-            the_transfer = transfer_list(my_result);
-            my_reply = { ok: true, result: my_result };
+            my_source = DtaSource.open(my_data.fd);
+            const my_result = run_compute_job(my_data.job, my_source);
+            // A rewrite during the job may have mixed old and new data.
+            if (!unchanged()) {
+                my_reply = { ok: false, reason: 'changed' };
+            } else {
+                the_transfer = transfer_list(my_result);
+                my_reply = { ok: true, result: my_result };
+            }
         }
     } catch (my_err) {
-        const my_code = (my_err as NodeJS.ErrnoException | null)?.code;
-        my_reply = my_code === 'ENOENT'
-            ? { ok: false, reason: 'missing' }
+        // A read error from a file rewritten under the job is the change.
+        let my_changed = false;
+        try {
+            my_changed = !unchanged();
+        } catch {
+            /* report the original error */
+        }
+        my_reply = my_changed
+            ? { ok: false, reason: 'changed' }
             : { ok: false, reason: 'failed', message: String(my_err) };
     } finally {
         try {
-            my_file?.close();
+            // The descriptor is the host's; this releases the reader only.
+            my_source?.close();
         } catch {
             /* the reply below is what matters */
         }
@@ -63,4 +77,4 @@ async function main(): Promise<void> {
     parentPort?.postMessage(my_reply, the_transfer);
 }
 
-void main();
+main();

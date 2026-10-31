@@ -86,8 +86,9 @@ export interface ComputeRunner {
         signal?: AbortSignal
     ): Promise<ComputeResult>;
     /** Stop every job (pending ones reject with ComputeAbortError) and
-     *  wait, bounded, for running workers to exit. */
-    dispose(): Promise<void>;
+     *  wait, bounded, for running workers to exit. Resolves true when
+     *  every worker exited, so the descriptor they read can be closed. */
+    dispose(): Promise<boolean>;
 }
 
 /** Runs jobs on the caller's thread, against the panel's reader. */
@@ -100,13 +101,14 @@ export class InProcessComputeRunner implements ComputeRunner {
         signal?: AbortSignal
     ): Promise<ComputeResult> {
         if (signal?.aborted) throw new ComputeAbortError();
-        const my_result = await run_compute_job(job, this.source, signal);
+        const my_result = run_compute_job(job, this.source);
         if (signal?.aborted) throw new ComputeAbortError();
         return my_result;
     }
 
-    async dispose(): Promise<void> {
+    async dispose(): Promise<boolean> {
         /* nothing runs outside the caller */
+        return true;
     }
 }
 
@@ -120,12 +122,13 @@ interface PendingJob {
 export interface WorkerComputeRunnerOptions {
     /** Absolute path of the bundled compute-worker entry point. */
     script_path: string;
-    /** The dataset the panel opened, and its identity at open. */
-    data_path: string;
+    /** The descriptor the panel opened the dataset on, and its identity
+     *  at open. The panel keeps it open until every worker has exited. */
+    fd: number;
     identity: FileIdentity;
     deadline_ms?: number;
-    /** Called before each worker spawn (the panel refreshes its lease). */
-    before_spawn?: () => void;
+    /** Called as each worker is spawned (tests count them). */
+    on_spawn?: () => void;
 }
 
 /** Runs each job in its own worker thread. */
@@ -181,11 +184,11 @@ export class WorkerComputeRunner implements ComputeRunner {
 
     private start(pool: ComputePool, pending: PendingJob): void {
         const my_data: ComputeWorkerData = {
-            path: this.options.data_path,
+            fd: this.options.fd,
             identity: this.options.identity,
             job: pending.job,
         };
-        this.options.before_spawn?.();
+        this.options.on_spawn?.();
         let my_worker: Worker;
         try {
             my_worker = new Worker(this.options.script_path, {
@@ -243,8 +246,8 @@ export class WorkerComputeRunner implements ComputeRunner {
         });
     }
 
-    async dispose(): Promise<void> {
-        if (this.disposed) return;
+    async dispose(): Promise<boolean> {
+        if (this.disposed) return this.exits.size === 0;
         this.disposed = true;
         for (const my_pool of ['transform', 'action'] as ComputePool[]) {
             for (const my_pending of this.queues[my_pool].splice(0)) {
@@ -256,9 +259,24 @@ export class WorkerComputeRunner implements ComputeRunner {
         }
         // A worker stuck in a native read may not exit; don't hang the
         // panel's close on it.
-        await Promise.race([
-            Promise.allSettled([...this.exits]),
-            new Promise(resolve => setTimeout(resolve, TERMINATE_WAIT_MS)),
-        ]);
+        return wait_for_exits([...this.exits], TERMINATE_WAIT_MS);
     }
+}
+
+/**
+ * Wait up to `wait_ms` for `exits`; true when all settled in time.
+ * Shared with the row reader.
+ */
+export async function wait_for_exits(
+    exits: Promise<unknown>[],
+    wait_ms: number = TERMINATE_WAIT_MS
+): Promise<boolean> {
+    let my_timer: ReturnType<typeof setTimeout> | undefined;
+    const my_all = Promise.allSettled(exits).then(() => true);
+    const my_timeout = new Promise<boolean>(resolve => {
+        my_timer = setTimeout(() => resolve(false), wait_ms);
+    });
+    const my_done = await Promise.race([my_all, my_timeout]);
+    clearTimeout(my_timer);
+    return my_done;
 }

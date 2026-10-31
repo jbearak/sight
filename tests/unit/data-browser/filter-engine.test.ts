@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { make_missing_value, type RowCell } from '@jbearak/dta-parser';
+import type { Cell } from '../../../client/src/data-browser/dta-source';
+import { column_of, miss } from './cells';
 import {
     compute_filtered_indices,
     iso_to_stata_date,
@@ -22,11 +23,11 @@ const entry = (
 });
 
 const cols = (
-    map: Record<number, RowCell[] | FilterColumn>
+    map: Record<number, Cell[] | FilterColumn>
 ): Map<number, FilterColumn> => {
     const m = new Map<number, FilterColumn>();
     for (const [k, v] of Object.entries(map)) {
-        m.set(Number(k), Array.isArray(v) ? { values: v } : v);
+        m.set(Number(k), Array.isArray(v) ? { column: column_of(v) } : v);
     }
     return m;
 };
@@ -70,7 +71,7 @@ describe('data-browser iso_to_stata_date', () => {
 });
 
 describe('data-browser compute_filtered_indices', () => {
-    const mv = make_missing_value('.');
+    const mv = miss('.');
 
     it('returns undefined when no entry is enabled', () => {
         expect(run(cols({ 0: [1, 2] }), [], 2)).toBeUndefined();
@@ -132,10 +133,32 @@ describe('data-browser compute_filtered_indices', () => {
 
     it('isNotEmpty excludes missing rows even when include_missing is true', () => {
         expect(run(
-            cols({ 0: ['alpha', '', mv, 'bravo'] }),
+            cols({ 0: ['alpha', '', 'bravo'] }),
             [entry(0, { kind: 'isNotEmpty' }, true)],
-            4
-        )).toEqual([0, 3]);
+            3
+        )).toEqual([0, 2]);
+        expect(run(
+            cols({ 0: [5, mv, 20] }),
+            [entry(0, { kind: 'isNotEmpty' }, true)],
+            3
+        )).toEqual([0, 2]);
+    });
+
+    it('treats a binary strL as present, matching as ""', () => {
+        const my_bytes = new Uint8Array([0, 1, 2]);
+        expect(run(
+            cols({ 0: ['alpha', my_bytes, ''] }),
+            [entry(0, { kind: 'isNotEmpty' })],
+            3
+        )).toEqual([0, 1]);
+        expect(run(
+            cols({ 0: ['alpha', my_bytes, ''] }),
+            [entry(0, {
+                kind: 'strContains', value: 'alp',
+                case_sensitive: true, negate: true,
+            })],
+            3
+        )).toEqual([1]);
     });
 
     it('string contains is case-insensitive when asked', () => {
@@ -169,7 +192,7 @@ describe('data-browser compute_filtered_indices', () => {
     it('date between converts ISO to the Stata day domain', () => {
         // 23376 = 2024-01-01, 23741 = 2024-12-31
         expect(run(
-            cols({ 0: { values: [23376, 0, 23741], is_timestamp: false } }),
+            cols({ 0: { column: column_of([23376, 0, 23741]), is_timestamp: false } }),
             [entry(0, {
                 kind: 'dateBetween', lo: '2024-01-01', hi: '2024-12-31',
                 inclusive: true,

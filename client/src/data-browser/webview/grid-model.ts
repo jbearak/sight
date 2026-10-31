@@ -5,6 +5,7 @@ import type {
     VariableDescription,
 } from '../types.js';
 
+import { missing_label_key } from '../label-keys.js';
 export { PAGE_SIZE } from '../page-size.js';
 import { PAGE_SIZE } from '../page-size.js';
 export const MIN_COLUMN_WIDTH_PX = 72;
@@ -170,24 +171,50 @@ export function get_variable_header_tooltip(
     return get_variable_header_subtitle(variable);
 }
 
+/**
+ * The text a cell shows. `value_labels` is the column's label set from
+ * the metadata, when the host shipped it there (its cells then carry no
+ * `label_display`).
+ */
 export function get_cell_display_value(
     cell: CellValue,
     show_labels: boolean,
-    show_formats: boolean
+    show_formats: boolean,
+    value_labels?: Record<string, string>
 ): string {
+    const my_label = cell.label_display ?? label_for(cell, value_labels);
     if (cell.missing_type) {
-        if (show_labels && cell.label_display) {
-            return cell.label_display;
+        if (show_labels && my_label) {
+            return my_label;
         }
         return cell.missing_type;
     }
-    if (show_labels && cell.label_display) {
-        return cell.label_display;
+    if (show_labels && my_label) {
+        return my_label;
     }
-    if (show_formats) {
-        return cell.formatted_display;
+    if (cell.pending) return '';
+    const my_display = show_formats
+        ? cell.formatted_display
+        : cell.raw_display;
+    if (my_display !== undefined) return my_display;
+    // Left out where it would repeat the value: a number shows as
+    // itself, a string as its text, and a strL preview with an ellipsis.
+    if (typeof cell.raw === 'number') return String(cell.raw);
+    const my_text = typeof cell.raw === 'string' ? cell.raw : '';
+    return cell.truncated ? `${my_text}…` : my_text;
+}
+
+function label_for(
+    cell: CellValue,
+    value_labels: Record<string, string> | undefined
+): string | undefined {
+    if (!value_labels) return undefined;
+    if (cell.missing_type) {
+        return value_labels[String(missing_label_key(cell.missing_type))];
     }
-    return cell.raw_display;
+    return typeof cell.raw === 'number'
+        ? value_labels[String(cell.raw)]
+        : undefined;
 }
 
 export function collect_sampled_value_width_hints(
@@ -239,7 +266,8 @@ export function collect_sampled_value_width_hints(
                     get_cell_display_value(
                         my_cell,
                         show_labels,
-                        show_formats
+                        show_formats,
+                        my_variable.value_labels
                     )
                 );
             }

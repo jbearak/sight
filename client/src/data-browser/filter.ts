@@ -4,8 +4,8 @@
  * column values.
  *
  * Ported from Raven's data-viewer filter.ts, adapted to Stata's data
- * model: columns arrive as RowCell[] (number | string | MissingValue)
- * rather than Arrow batches, there are no factor/bool kinds, value labels
+ * model: columns arrive as dta-parser's typed columns (numbers with a
+ * missing-code array, or strings) rather than Arrow batches, there are no factor/bool kinds, value labels
  * live only on numeric columns, and dates are numeric storage (Stata day
  * or clock counts) carrying a date display format.
  *
@@ -28,11 +28,11 @@
  * short-circuit once the mask is all-zero; final compaction is O(nobs).
  */
 
-import { is_missing_value_object, type RowCell } from '@jbearak/dta-parser';
+import type { Column } from './dta-source.js';
 import type { FilterEntry, FilterPredicate, FilterState } from './types.js';
 
 export interface FilterColumn {
-    values: readonly RowCell[];
+    column: Column;
     // True for %tc/%tC clock formats (ms since 1960-01-01); false/absent
     // for daily formats (days since 1960-01-01). Consulted only by date
     // predicates, to convert user-typed ISO strings into the column's
@@ -308,39 +308,43 @@ function acceptor_for(
 }
 
 function to_numbers(column: FilterColumn, nobs: number): Float64Array {
-    const out = new Float64Array(nobs);
-    const the_values = column.values;
-    for (let i = 0; i < nobs; i++) {
-        const my_value = the_values[i];
-        out[i] = typeof my_value === 'number' ? my_value : NaN;
-    }
-    return out;
+    const my_column = column.column;
+    // Missing rows are NaN in a NumberColumn, and never reach a
+    // predicate anyway; strings never equal a number.
+    if (my_column.kind === 'number') return my_column.values;
+    return new Float64Array(nobs).fill(NaN);
 }
 
 function to_strings(column: FilterColumn, nobs: number): string[] {
     const out: string[] = new Array(nobs).fill('');
-    const the_values = column.values;
-    for (let i = 0; i < nobs; i++) {
-        const my_value = the_values[i];
-        if (typeof my_value === 'string') out[i] = my_value;
-        else if (typeof my_value === 'number') out[i] = String(my_value);
+    const my_column = column.column;
+    if (my_column.kind === 'string') {
+        // A binary strL matches as "".
+        for (let i = 0; i < nobs; i++) {
+            const my_value = my_column.values[i];
+            if (typeof my_value === 'string') out[i] = my_value;
+        }
+    } else {
+        for (let i = 0; i < nobs; i++) {
+            if (my_column.missing[i] === 0) {
+                out[i] = String(my_column.values[i]);
+            }
+        }
     }
     return out;
 }
 
 function missing_mask(column: FilterColumn, nobs: number): Uint8Array {
     const out = new Uint8Array(nobs);
-    const the_values = column.values;
-    for (let i = 0; i < nobs; i++) {
-        const my_value = the_values[i];
-        if (my_value === null || my_value === undefined) {
-            out[i] = 1;
-        } else if (my_value === '') {
-            out[i] = 1;
-        } else if (is_missing_value_object(my_value)) {
-            out[i] = 1;
-        } else if (typeof my_value === 'number' && Number.isNaN(my_value)) {
-            out[i] = 1;
+    const my_column = column.column;
+    if (my_column.kind === 'number') {
+        for (let i = 0; i < nobs; i++) {
+            if (my_column.missing[i] !== 0) out[i] = 1;
+        }
+    } else {
+        // "" is Stata's string missing value; a binary strL is not.
+        for (let i = 0; i < nobs; i++) {
+            if (my_column.values[i] === '') out[i] = 1;
         }
     }
     return out;
