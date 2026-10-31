@@ -24,10 +24,15 @@ import {
 import type { StataCommand } from './index.js';
 import { send_to_stata_windows } from './windows-sender.js';
 import { compute_cursor_position } from './cursor-advance-core.js';
+import {
+    register_target_choice_command,
+    resolve_ask_target
+} from './target-choice.js';
 import { escape_path_for_stata } from './cd-commands.js';
 
 export type WorkingDirectoryOption = 'none' | 'file' | 'workspace' | 'lsp';
-export type SendTargetSetting = 'auto' | 'integrated' | 'external';
+/** `auto` is the older name of `ask`, still accepted. */
+export type SendTargetSetting = 'ask' | 'auto' | 'integrated' | 'external';
 
 let language_client: LanguageClient | null = null;
 
@@ -125,12 +130,14 @@ export async function prepare_content_with_cd(
  * Resolve the effective send target based on the user's target setting
  * and whether VS Code is running in a remote environment.
  *
- * - 'app' commands respect the target setting (auto/integrated/external)
+ * - 'app' commands respect the target setting (ask/integrated/external);
+ *   under `ask` (and `auto`, its older name) the first send in a window
+ *   may ask the user, and null means they cancelled
  * - 'terminal' commands always go to the active terminal (unchanged)
  */
-export function resolve_effective_target(
+export async function resolve_effective_target(
     requested_target: 'app' | 'terminal'
-): 'app' | 'integrated' | 'terminal' | null {
+): Promise<'app' | 'integrated' | 'terminal' | null> {
     if (requested_target === 'terminal') {
         return 'terminal';
     }
@@ -139,31 +146,17 @@ export function resolve_effective_target(
         'sight.sendToStata'
     );
     const setting = my_config.get<SendTargetSetting>(
-        'target', 'auto'
+        'target', 'ask'
     );
     const is_remote = vscode.env.remoteName !== undefined
         && vscode.env.remoteName !== '';
-
-    if (setting === 'integrated') {
-        // On local Windows the integrated terminal runs sight console.
-        // If the user chose send-to-stata instead when the console
-        // couldn't use Stata, use the app for the rest of the session.
-        if (
-            process.platform === 'win32'
-            && !is_remote
-            && is_console_session_override_set()
-        ) {
-            return 'app';
-        }
-        return 'integrated';
-    }
 
     if (setting === 'external') {
         if (is_remote) {
             vscode.window.showErrorMessage(
                 'The "external" send target is not available ' +
                 'in remote sessions. Change ' +
-                'sight.sendToStata.target to "auto" or ' +
+                'sight.sendToStata.target to "ask" or ' +
                 '"integrated".'
             );
             return null;
@@ -175,21 +168,30 @@ export function resolve_effective_target(
             vscode.window.showErrorMessage(
                 'The "external" send target is not available ' +
                 'on Linux. Change sight.sendToStata.target ' +
-                'to "auto" or "integrated".'
+                'to "ask" or "integrated".'
             );
             return null;
         }
         return 'app';
     }
 
-    // 'auto': remote → integrated, local macOS/Windows → app,
-    // local Linux → integrated
-    if (is_remote) {
-        return 'integrated';
+    if (setting !== 'integrated') {
+        const choice = await resolve_ask_target();
+        if (choice === null) {
+            return null;
+        }
+        if (choice === 'external') {
+            return 'app';
+        }
     }
+
+    // On local Windows the integrated terminal runs sight console. If
+    // the user chose send-to-stata instead when the console couldn't
+    // use Stata, use the app for the rest of the session.
     if (
-        process.platform === 'darwin'
-        || process.platform === 'win32'
+        process.platform === 'win32'
+        && !is_remote
+        && is_console_session_override_set()
     ) {
         return 'app';
     }
@@ -247,7 +249,7 @@ async function handle_send_command(
     my_code = await prepare_content_with_cd(my_code, my_editor.document, working_dir);
 
     try {
-        const effective_target = resolve_effective_target(target);
+        const effective_target = await resolve_effective_target(target);
 
         if (effective_target === null) {
             return;
@@ -336,4 +338,5 @@ export function register_send_to_stata_commands(
         );
         context.subscriptions.push(my_disposable);
     }
+    register_target_choice_command(context);
 }

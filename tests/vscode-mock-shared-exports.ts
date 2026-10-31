@@ -22,6 +22,10 @@ export const VSCODE_MOCK_SHARED_EXPORTS = {
         Workspace: 2,
         WorkspaceFolder: 3,
     },
+    QuickPickItemKind: {
+        Separator: -1,
+        Default: 0,
+    },
     StatusBarAlignment: {
         Left: 1,
         Right: 2,
