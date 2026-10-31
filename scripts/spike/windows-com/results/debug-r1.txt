@@ -1,0 +1,42 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261031061923
+Username: WIN-VM\jmb
+RunAs User: WIN-VM\jmb
+Configuration Name:
+Machine: WIN-VM (Microsoft Windows NT 10.0.26200.0)
+Host Application: powershell.exe -Sta -NoProfile -ExecutionPolicy Bypass -File Y:\sight\scripts\spike\windows-com\debug-r1.ps1
+Process ID: 15184
+PSVersion: 5.1.26100.6899
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.6899
+BuildVersion: 10.0.26100.6899
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+2026-10-31T06:19:23.9090009-04:00 no-argument launch PID=13472
+
+
+ProcessId   : 13472
+CommandLine : "C:\Program Files\Stata18\StataMP-64.exe"
+
+
+
+2026-10-31T06:19:24.7281906-04:00 CreateObject returned
+2026-10-31T06:19:24.8937464-04:00 title rc=0 free=1
+
+
+Id              : 13472
+MainWindowTitle : Sight R1 no-argument
+
+
+
+2026-10-31T06:19:24.9177523-04:00 close-window result=True
+2026-10-31T06:19:26.9615884-04:00 alive=False
+2026-10-31T06:19:26.9972079-04:00 COM error=The RPC server is unavailable. (Exception from HRESULT: 0x800706BA)
+**********************
+Windows PowerShell transcript end
+End time: 20261031061927
+**********************

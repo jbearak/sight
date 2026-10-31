@@ -1,0 +1,37 @@
+﻿**********************
+Windows PowerShell transcript start
+Start time: 20261031062932
+Username: WIN-VM\jmb
+RunAs User: WIN-VM\jmb
+Configuration Name:
+Machine: WIN-VM (Microsoft Windows NT 10.0.26200.0)
+Host Application: powershell.exe -Sta -NoProfile -ExecutionPolicy Bypass -File Y:\sight\scripts\spike\windows-com\debug-r2-r3.ps1
+Process ID: 7296
+PSVersion: 5.1.26100.6899
+PSEdition: Desktop
+PSCompatibleVersions: 1.0, 2.0, 3.0, 4.0, 5.0, 5.1.26100.6899
+BuildVersion: 10.0.26100.6899
+CLRVersion: 4.0.30319.42000
+WSManStackVersion: 3.0
+PSRemotingProtocolVersion: 2.3
+SerializationVersion: 1.1.0.1
+**********************
+2026-10-31T06:29:35.7870541-04:00 before COM PID=13416
+2026-10-31T06:29:35.9694187-04:00 first marker=[r2_first]
+2026-10-31T06:29:36.3236215-04:00 second marker=[]
+
+
+ProcessId   : 13416
+CommandLine : "C:\Program Files\Stata18\StataMP-64.exe"
+
+ProcessId   : 2548
+CommandLine : "C:\Program Files\Stata18\StataMP-64.exe" -Embedding
+
+
+
+2026-10-31T06:29:38.5790302-04:00 changed-data PID=13416 alive=False
+2026-10-31T06:29:40.6928974-04:00 remaining processes
+**********************
+Windows PowerShell transcript end
+End time: 20261031062940
+**********************

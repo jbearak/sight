@@ -1,0 +1,6 @@
+2026-10-31T10:33:31.108Z exit {"code":86,"reason":2}
+2026-10-31T10:33:41.217Z FAIL AssertionError [ERR_ASSERTION]: Expected values to be strictly equal:
+
+0 !== 1
+
+	at Object.run (c:\sight-debug\scripts\spike\windows-com\debug-extension-fallback.cjs:36:16)

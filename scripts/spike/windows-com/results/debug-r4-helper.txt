@@ -1,0 +1,3 @@
+2026-10-31T06:23:44.4480173-04:00 helper PID=5396; target PID=10232; connecting
+2026-10-31T06:23:44.5802859-04:00 marker=[r4_owned]
+2026-10-31T06:23:44.5993571-04:00 holding reference; free=1

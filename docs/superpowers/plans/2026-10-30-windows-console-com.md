@@ -1212,3 +1212,109 @@ The startup do-file in `s7-s13-start.ps1` opened the Data Editor with auto data
 `UtilIsStataFree` calls returned 1, in at most about 9 ms each by the logged
 timestamps (`results/s13.txt`). A true modal-dialog free-call test was not
 completed, so timeout tolerance for that case is unresolved.
+
+## Windows debug results
+
+Tested 2026-10-31 on the Windows 11 Arm64 Parallels VM, Stata/MP 18,
+Windows PowerShell 5.1, and Bun 1.4.4 x64 under emulation. All Stata
+instances used for these checks were started for the test; the only data
+loaded was `sysuse auto`. Scripts and evidence are under
+`scripts/spike/windows-com/`; `README-debug.md` explains how to rerun them.
+
+### Core console and fixes
+
+- The production bridge started, passed `self_test`, found the registered
+  executable, connected to a new Stata and displayed a first prompt. A real
+  backend run executed `display`, `foreach`, `program define`, Mata, and
+  Python one line at a time and exited Stata. See `results/debug-backend.txt`.
+- A real CLI driven through ConPTY loaded the auto data, displayed a value,
+  executed a `foreach`, rendered an `r(111)` error in red, interrupted
+  `sleep 10000`, and exited via Ctrl+D. History Up repeated a command. Tab
+  was sent, but the resulting abbreviated command also works without
+  completion, so this does not establish a successful Tab completion.
+  The byte-exact terminal traces are `results/debug-conpty-*.bin.gz`.
+- On initial log opening, Stata emitted the first command without a prompt
+  prefix; the backend showed it twice. It now recognizes an unprefixed first
+  echo, including wrapped echoes. It also matches an echo that arrives after
+  Ctrl+C; the real typeahead test interrupted `sleep`, cleared a queued line,
+  and showed the sleep command once. Regression tests cover both cases.
+- The CLI failed silently when run from the Parallels shared drive because
+  Bun's argv and file URL used different case for the UNC server name. Entry
+  detection now compares UNC server names case-insensitively, while retaining
+  exact case for the path. The mapped-drive `--version` invocation works.
+- The ConPTY take-over tests observed exit 81 for `n`, exit 80 with two open
+  Stata processes, a successful `y` share, and successful `--yes` sharing
+  without a question. The user instances in those tests were throwaways.
+- Windows Terminal displayed the first prompt with the titled Stata window
+  (`results/debug-wt.png`). WM_CLOSE of the dedicated terminal closed Stata
+  within approximately 0.53 s; closing Stata ended the console in about
+  0.8 s (`results/debug-terminal-close.txt`, `debug-stata-close.txt`).
+- Both the real backend and ConPTY showed the lost-log message and continued
+  to provide prompts after `log close _all`. Output in the Stata window
+  was not independently checked in that test.
+
+### Unresolved design contradictions
+
+- **Ctrl+C at an open block is unsafe.** In the ConPTY block-break test,
+  Sight redrew a top-level prompt, but Stata remained in the `foreach` block.
+  Its own log shows the subsequent `display 56789` and `exit` entered as
+  block lines, and the console timed out. See
+  `results/debug-conpty-basic.bin.gz` and `results/debug-block.log.gz`.
+  Do not infer that a break at a block prompt restored top-level mode.
+- **The prescribed VS Code launcher is not a usable terminal here.** The
+  extension launches `Code.exe` with `ELECTRON_RUN_AS_NODE`; in the real
+  extension host both `process.stdin.isTTY` and `process.stdout.isTTY` were
+  absent (`results/debug-tty.json`). The console exited before Stata started.
+  This contradicts the plan's launcher assumption; no alternative runtime or
+  ownership design was substituted. The integrated send/readiness flow is
+  therefore not verified on Windows.
+- Missing TTY previously returned generic exit 2, so VS Code did not offer
+  its documented fallback. It now returns the planned code 86, with a
+  regression test. The real extension displayed the fallback offer and its
+  pending-send count (`results/debug-extension-fallback.png`). The test
+  harness could not intercept the notification across the extension API
+  boundary, so the This session and Always dispatch paths remain unverified
+  in the Windows extension host.
+- Killing a reference-holding PowerShell helper left its Stata process alive
+  for the entire roughly 63-second observation; it was then closed through its
+  window (`results/debug-r4.txt`, `debug-r4-helper.txt`). This differs from
+  orderly reference release and leaves crash cleanup timing unestablished.
+  The real Windows Terminal close above followed the orderly path.
+
+The extension's Windows build also failed on an unquoted `node:*` shell
+argument and `cp -r`. Quoting the argument and using Bun's recursive file copy
+made `bun run vscode:prepublish` succeed on Windows. The scripts continue to
+produce CommonJS extension and server bundles.
+
+### Phase 0b follow-up
+
+- **R1:** A no-argument Stata was claimed by `CreateObject`, accepted commands,
+  and could be closed by WM_CLOSE while held; the next COM call reported
+  `0x800706BA` (`results/debug-r1.txt`). Direct Command-window interaction
+  while held was not tested.
+- **R2:** When that no-argument Stata was already held, a second
+  `CreateObject` started a second process with `-Embedding`
+  (`results/debug-r2-r3.txt`). Simultaneous-launch race identification was
+  not tested.
+- **R3:** Releasing the first reference after modifying auto data closed that
+  Stata within two seconds (`results/debug-r2-r3.txt`). The test did not
+  independently capture whether a transient prompt appeared.
+- **R4:** Orderly Windows Terminal close and helper-crash observations are
+  above. Conhost and VS Code terminal closure were not tested.
+- **R5:** Simple Python entry, `>>>`, and `end` worked in the real backend.
+  Python compound entry and a cold-start timing measurement remain open.
+- **R6:** Mata entry, an expression, and `end` worked. A compound statement
+  ended by a blank line was not verified.
+- **R7:** Break at a `foreach` prompt failed as described above. Separate Mata
+  and program-definition break tests were not run.
+- **R8:** The earlier S5 probe showed lines sent during `input` being consumed
+  as values; completing input with `end` and `_request` remain unverified.
+- **R9:** The earlier busy-Stata probe measured a fast `CreateObject` and a
+  roughly 1.93 s `MacroValue` call while Stata remained busy. Connecting to a
+  block already open in the GUI was not tested.
+
+The normal standalone CLI path is promising, but the block-break failure and
+VS Code launcher failure make this branch unsuitable to call experimentally
+usable until the plan author resolves those behaviors. Other unverified cases
+include conhost, real extension dispatch choices, and the R-item cases listed
+above.
