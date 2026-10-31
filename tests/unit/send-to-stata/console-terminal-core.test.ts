@@ -6,7 +6,6 @@ import {
     CONSOLE_EXIT_SEVERAL_STATA_WINDOWS,
     CONSOLE_EXIT_STATA_HELD_ELSEWHERE,
     CONSOLE_EXIT_TAKE_OVER_DECLINED,
-    CONSOLE_EXIT_TERMINAL_UNSUPPORTED,
     CONSOLE_OFFER_REASONS,
     ConsoleExit,
     ConsoleQueueHost,
@@ -48,7 +47,6 @@ class FakeHost implements ConsoleQueueHost<FakeTerminal> {
     readonly the_errors: string[] = [];
     readonly the_counts: number[] = [];
     readonly the_offer_answers: Deferred<OfferAnswer>[] = [];
-    readonly the_existing_files = new Set<string>();
     readonly the_failing_paths = new Set<string>();
     readonly the_dispatch_gates = new Map<string, Promise<void>>();
     fallback_in_effect = false;
@@ -92,11 +90,6 @@ class FakeHost implements ConsoleQueueHost<FakeTerminal> {
 
     delete_file(file_path: string): void {
         this.the_deleted.push(file_path);
-        this.the_existing_files.delete(file_path);
-    }
-
-    async file_exists(file_path: string): Promise<boolean> {
-        return this.the_existing_files.has(file_path);
     }
 
     is_fallback_in_effect(): boolean {
@@ -129,11 +122,10 @@ class FakeHost implements ConsoleQueueHost<FakeTerminal> {
     }
 }
 
-const POLL_MS = 2;
+const SHORT_MS = 2;
 
 function create_queue(host: FakeHost, offer_timeout_ms = 60000) {
     return new ConsoleTerminalQueue<FakeTerminal>(host, {
-        ready_poll_interval_ms: POLL_MS,
         offer_timeout_ms,
     });
 }
@@ -155,23 +147,18 @@ describe('console terminal queue: readiness', () => {
         const host = new FakeHost();
         const queue = create_queue(host);
         const terminal = { id: 't1' };
-        queue.track(terminal, '/ready/t1');
+        queue.track(terminal);
 
         expect(queue.send(terminal, send('/a.do'))).toBe(true);
         expect(queue.send(terminal, send('/b.do'))).toBe(true);
         expect(queue.send(terminal, send('/c.do'))).toBe(true);
         expect(queue.pending_count()).toBe(3);
-        await delay(POLL_MS * 10);
+        await delay(SHORT_MS * 10);
         expect(host.the_typed).toEqual([]);
         // The queue owns the files: no cleanup before they are typed.
         expect(host.the_cleanups).toEqual([]);
 
-        host.the_existing_files.add('/ready/t1');
-        await wait_until(
-            () => host.the_typed.length === 3,
-            'queued sends to be typed',
-            1000
-        );
+        queue.mark_ready(terminal);
         expect(host.the_typed).toEqual([
             't1:/a.do', 't1:/b.do', 't1:/c.do',
         ]);
@@ -193,34 +180,27 @@ describe('console terminal queue: readiness', () => {
         const host = new FakeHost();
         const queue = create_queue(host);
         const terminal = { id: 't1' };
-        queue.track(terminal, '/ready/t1');
+        queue.track(terminal);
         queue.send(terminal, send('/a.do'));
 
-        // Many polls with no ready file: still starting, nothing lost.
-        await delay(POLL_MS * 50);
+        // A long wait (the take-over question): still starting,
+        // nothing lost.
+        await delay(SHORT_MS * 50);
         expect(queue.get_state(terminal)).toBe('starting');
         expect(host.the_deleted).toEqual([]);
         expect(host.resolutions_of('/a.do')).toBe(0);
 
-        host.the_existing_files.add('/ready/t1');
-        await wait_until(
-            () => host.the_typed.length === 1,
-            'the queued send to be typed',
-            1000
-        );
+        queue.mark_ready(terminal);
+        expect(host.the_typed).toEqual(['t1:/a.do']);
     });
 
     test('a close after readiness has nothing to dispatch', async () => {
         const host = new FakeHost();
         const queue = create_queue(host);
         const terminal = { id: 't1' };
-        host.the_existing_files.add('/ready/t1');
-        queue.track(terminal, '/ready/t1');
-        await wait_until(
-            () => queue.get_state(terminal) === 'ready',
-            'the terminal to be ready',
-            1000
-        );
+        queue.track(terminal);
+        queue.mark_ready(terminal);
+        expect(queue.get_state(terminal)).toBe('ready');
         queue.send(terminal, send('/a.do'));
 
         await queue.handle_closed(terminal, process_exit(0));
@@ -228,8 +208,7 @@ describe('console terminal queue: readiness', () => {
             .toEqual([]);
         expect(host.the_offers).toEqual([]);
         expect(host.the_notices).toEqual([]);
-        // The ready file is deleted on close.
-        expect(host.the_deleted).toEqual(['/ready/t1']);
+        expect(host.the_deleted).toEqual([]);
     });
 
     test('drops the rest if typing fails', async () => {
@@ -242,17 +221,13 @@ describe('console terminal queue: readiness', () => {
         };
         const queue = create_queue(host);
         const terminal = { id: 't1' };
-        queue.track(terminal, '/ready/t1');
+        queue.track(terminal);
         queue.send(terminal, send('/a.do'));
         queue.send(terminal, send('/b.do'));
         queue.send(terminal, send('/c.do'));
 
-        host.the_existing_files.add('/ready/t1');
-        await wait_until(
-            () => host.the_errors.length === 1,
-            'the typing error to show',
-            1000
-        );
+        queue.mark_ready(terminal);
+        expect(host.the_errors).toHaveLength(1);
         expect(host.the_typed).toEqual(['t1:/a.do']);
         expect(host.the_cleanups).toEqual(['/a.do']);
         expect(host.the_deleted).toEqual(['/b.do', '/c.do']);
@@ -263,19 +238,18 @@ describe('console terminal queue: readiness', () => {
         expect(queue.pending_count()).toBe(0);
     });
 
-    test('ignores a ready file that appears after the close', async () => {
+    test('ignores readiness reported after the close', async () => {
         const host = new FakeHost();
         const queue = create_queue(host);
         const terminal = { id: 't1' };
-        queue.track(terminal, '/ready/t1');
+        queue.track(terminal);
         queue.send(terminal, send('/a.do'));
 
         await queue.handle_closed(
             terminal,
             { reason: 'user', code: undefined }
         );
-        host.the_existing_files.add('/ready/t1');
-        await delay(POLL_MS * 10);
+        queue.mark_ready(terminal);
 
         expect(host.the_typed).toEqual([]);
         expect(queue.is_tracked(terminal)).toBe(false);
@@ -286,8 +260,6 @@ describe('console terminal queue: readiness', () => {
 describe('console terminal queue: closes without an offer', () => {
     const NO_OFFER_CASES: Array<[string, ConsoleExit, boolean]> = [
         ['a user close', { reason: 'user', code: 1 }, false],
-        ['a shutdown', { reason: 'shutdown', code: 80 }, true],
-        ['an extension close', { reason: 'extension', code: 80 }, true],
         ['exit code 0', process_exit(0), true],
         ['a missing exit code', process_exit(undefined), true],
         ['an unknown exit code', process_exit(1), true],
@@ -299,7 +271,7 @@ describe('console terminal queue: closes without an offer', () => {
             const host = new FakeHost();
             const queue = create_queue(host);
             const terminal = { id: 't1' };
-            queue.track(terminal, '/ready/t1');
+            queue.track(terminal);
             queue.send(terminal, send('/a.do'));
             queue.send(terminal, send('/b.do'));
 
@@ -308,7 +280,7 @@ describe('console terminal queue: closes without an offer', () => {
             expect(host.the_offers).toEqual([]);
             expect(host.the_dispatched).toEqual([]);
             expect(host.the_deleted).toEqual([
-                '/ready/t1', '/a.do', '/b.do',
+                '/a.do', '/b.do',
             ]);
             expect(queue.pending_count()).toBe(0);
             if (my_expects_notice) {
@@ -326,7 +298,7 @@ describe('console terminal queue: closes without an offer', () => {
         const host = new FakeHost();
         const queue = create_queue(host);
         const terminal = { id: 't1' };
-        queue.track(terminal, '/ready/t1');
+        queue.track(terminal);
         await queue.handle_closed(terminal, process_exit(1));
         expect(host.the_notices).toEqual([]);
     });
@@ -339,12 +311,11 @@ describe('console terminal queue: the offer', () => {
         CONSOLE_EXIT_STATA_HELD_ELSEWHERE,
         CONSOLE_EXIT_AUTOMATION_NOT_REGISTERED,
         CONSOLE_EXIT_BRIDGE_BLOCKED,
-        CONSOLE_EXIT_TERMINAL_UNSUPPORTED,
     ];
 
-    test('the exit codes are 80 to 86', () => {
+    test('the exit codes are 80 to 85', () => {
         expect([...CONSOLE_OFFER_REASONS.keys()].sort()).toEqual(
-            [80, 81, 82, 83, 84, 85, 86]
+            [80, 81, 82, 83, 84, 85]
         );
         expect(CONSOLE_EXIT_SEND_FROM_EDITOR).toBe(82);
     });
@@ -354,7 +325,7 @@ describe('console terminal queue: the offer', () => {
             const host = new FakeHost();
             const queue = create_queue(host);
             const terminal = { id: 't1' };
-            queue.track(terminal, '/ready/t1');
+            queue.track(terminal);
             queue.send(terminal, send('/a.do'));
 
             const done = queue.handle_closed(
@@ -385,14 +356,14 @@ describe('console terminal queue: the offer', () => {
         const host = new FakeHost();
         const queue = create_queue(host);
         const terminal = { id: 't1' };
-        queue.track(terminal, '/ready/t1');
+        queue.track(terminal);
         queue.send(terminal, send('/a.do'));
         queue.send(terminal, send('/b.do'));
         queue.send(terminal, send('/c.do'));
 
         const done = queue.handle_closed(terminal, process_exit(80));
         // Temp files stay intact while the offer shows.
-        expect(host.the_deleted).toEqual(['/ready/t1']);
+        expect(host.the_deleted).toEqual([]);
         host.the_offer_answers[0].resolve(OFFER_CHOICE_SESSION);
         await done;
 
@@ -411,7 +382,7 @@ describe('console terminal queue: the offer', () => {
         const host = new FakeHost();
         const queue = create_queue(host);
         const terminal = { id: 't1' };
-        queue.track(terminal, '/ready/t1');
+        queue.track(terminal);
         queue.send(terminal, send('/a.do'));
 
         const done = queue.handle_closed(terminal, process_exit(81));
@@ -429,7 +400,7 @@ describe('console terminal queue: the offer', () => {
         host.always_is_effective = false;
         const queue = create_queue(host);
         const terminal = { id: 't1' };
-        queue.track(terminal, '/ready/t1');
+        queue.track(terminal);
         queue.send(terminal, send('/a.do'));
 
         const done = queue.handle_closed(terminal, process_exit(81));
@@ -447,7 +418,7 @@ describe('console terminal queue: the offer', () => {
         const host = new FakeHost();
         const queue = create_queue(host);
         const first = { id: 't1' };
-        queue.track(first, '/ready/t1');
+        queue.track(first);
         queue.send(first, send('/a.do'));
 
         const done = queue.handle_closed(first, process_exit(80));
@@ -455,14 +426,14 @@ describe('console terminal queue: the offer', () => {
         await done;
 
         expect(host.the_dispatched).toEqual([]);
-        expect(host.the_deleted).toEqual(['/ready/t1', '/a.do']);
+        expect(host.the_deleted).toEqual(['/a.do']);
         expect(host.override_set_count).toBe(0);
         expect(host.the_notices).toEqual([]);
 
         // The next send starts a new console, which may now succeed or
         // ask again.
         const second = { id: 't2' };
-        queue.track(second, '/ready/t2');
+        queue.track(second);
         queue.send(second, send('/b.do'));
         const second_done = queue.handle_closed(second, process_exit(80));
         expect(host.the_offers).toHaveLength(2);
@@ -475,7 +446,7 @@ describe('console terminal queue: the offer', () => {
         const host = new FakeHost();
         const queue = create_queue(host);
         const terminal = { id: 't1' };
-        queue.track(terminal, '/ready/t1');
+        queue.track(terminal);
         queue.send(terminal, send('/a.do'));
 
         const done = queue.handle_closed(terminal, process_exit(80));
@@ -490,7 +461,7 @@ describe('console terminal queue: the offer', () => {
         const host = new FakeHost();
         const queue = create_queue(host, 20);
         const terminal = { id: 't1' };
-        queue.track(terminal, '/ready/t1');
+        queue.track(terminal);
         queue.send(terminal, send('/a.do'));
 
         await queue.handle_closed(terminal, process_exit(80));
@@ -513,7 +484,7 @@ describe('console terminal queue: the offer', () => {
         host.fallback_in_effect = true;
         const queue = create_queue(host);
         const terminal = { id: 't1' };
-        queue.track(terminal, '/ready/t1');
+        queue.track(terminal);
         queue.send(terminal, send('/a.do'));
 
         await queue.handle_closed(terminal, process_exit(80));
@@ -525,7 +496,7 @@ describe('console terminal queue: the offer', () => {
         const host = new FakeHost();
         const queue = create_queue(host);
         const terminal = { id: 't1' };
-        queue.track(terminal, '/ready/t1');
+        queue.track(terminal);
         queue.send(terminal, send('/a.do'));
         queue.send(terminal, send('/b.do'));
 
@@ -554,8 +525,8 @@ describe('console terminal queue: overlapping closes', () => {
                 ? 30 : 60000);
             const first = { id: 't1' };
             const second = { id: 't2' };
-            queue.track(first, '/ready/t1');
-            queue.track(second, '/ready/t2');
+            queue.track(first);
+            queue.track(second);
             queue.send(first, send('/a.do'));
             queue.send(first, send('/b.do'));
             queue.send(second, send('/c.do'));
@@ -597,8 +568,8 @@ describe('console terminal queue: overlapping closes', () => {
         const queue = create_queue(host);
         const first = { id: 't1' };
         const second = { id: 't2' };
-        queue.track(first, '/ready/t1');
-        queue.track(second, '/ready/t2');
+        queue.track(first);
+        queue.track(second);
         queue.send(first, send('/a.do'));
         queue.send(second, send('/b.do'));
 
@@ -617,8 +588,8 @@ describe('console terminal queue: overlapping closes', () => {
         const queue = create_queue(host);
         const first = { id: 't1' };
         const second = { id: 't2' };
-        queue.track(first, '/ready/t1');
-        queue.track(second, '/ready/t2');
+        queue.track(first);
+        queue.track(second);
         queue.send(first, send('/a.do'));
         queue.send(second, send('/b.do'));
 
@@ -642,8 +613,8 @@ describe('console terminal queue: overlapping closes', () => {
         const queue = create_queue(host);
         const first = { id: 't1' };
         const second = { id: 't2' };
-        queue.track(first, '/ready/t1');
-        queue.track(second, '/ready/t2');
+        queue.track(first);
+        queue.track(second);
         queue.send(first, send('/a1.do'));
         queue.send(first, send('/a2.do'));
         queue.send(first, send('/a3.do'));
@@ -693,7 +664,7 @@ describe('console terminal queue: overlapping closes', () => {
         host.the_failing_paths.add('/a.do');
         const queue = create_queue(host);
         const terminal = { id: 't1' };
-        queue.track(terminal, '/ready/t1');
+        queue.track(terminal);
         queue.send(terminal, send('/a.do'));
         queue.send(terminal, send('/b.do'));
         queue.send(terminal, send('/c.do'));
@@ -708,7 +679,7 @@ describe('console terminal queue: overlapping closes', () => {
             'Dropped 2 sends to Stata after the error.',
         ]);
         expect(host.the_deleted).toEqual([
-            '/ready/t1', '/a.do', '/b.do', '/c.do',
+            '/a.do', '/b.do', '/c.do',
         ]);
         expect(queue.pending_count()).toBe(0);
     });

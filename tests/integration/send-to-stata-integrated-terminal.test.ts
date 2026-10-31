@@ -79,6 +79,17 @@ interface CreateTerminalOptions {
     shellPath?: string;
     shellArgs?: string[];
     env?: Record<string, string>;
+    pty?: MockPty;
+}
+
+interface MockPty {
+    onDidWrite: (listener: (text: string) => void) => { dispose(): void };
+    onDidClose?: (listener: (code: number | void) => void) => {
+        dispose(): void;
+    };
+    open(dimensions?: { columns: number; rows: number }): void;
+    close(): void;
+    handleInput?(data: string): void;
 }
 
 interface TargetSettingValues {
@@ -89,6 +100,7 @@ interface TargetSettingValues {
 interface WarningCall {
     message: string;
     the_items: string[];
+    modal?: boolean;
     answer: Deferred<string | undefined>;
 }
 
@@ -386,14 +398,21 @@ function register_module_mocks(): void {
             },
             showWarningMessage: (
                 message: string,
-                ...the_items: string[]
+                ...the_args: unknown[]
             ) => {
                 if (!current_vscode_state) {
                     return Promise.resolve(undefined);
                 }
                 const answer = create_deferred<string | undefined>();
+                const the_items = the_args.filter(
+                    (my_arg): my_arg is string => typeof my_arg === 'string'
+                );
+                const modal = the_args.some(my_arg =>
+                    typeof my_arg === 'object' && my_arg !== null
+                    && (my_arg as { modal?: boolean }).modal === true
+                );
                 current_vscode_state.the_warning_calls.push({
-                    message, the_items, answer,
+                    message, the_items, answer, modal,
                 });
                 return answer.promise;
             },
@@ -725,13 +744,38 @@ describe.serial('Feature: integrated terminal first-send reliability', () => {
     });
 });
 
+
 const EXTENSION_PATH = path.join(os.tmpdir(), 'sight-test-extension');
-const READY_POLL_MS = 5;
 const REAL_PLATFORM = process.platform;
+
+interface ConsoleEndResult {
+    code: number;
+    took_stata: boolean;
+}
+
+/** A fake of the console runtime's per-pane console. */
+interface FakeConsole {
+    the_inputs: string[];
+    is_closed: boolean;
+    ready: Deferred<boolean>;
+    done: Deferred<ConsoleEndResult>;
+    host: {
+        write(text: string): void;
+        ask(question: {
+            kind: 'take_over' | 'keep';
+            text: string;
+            allow_send_instead: boolean;
+        }): Promise<'yes' | 'no' | 'send'>;
+    };
+}
 
 interface ConsoleHarness {
     vscode_state: VscodeMockState;
     the_terminals: MockTerminal[];
+    the_consoles: FakeConsole[];
+    /** Codes each pane closed itself with (onDidClose), by terminal. */
+    the_pane_closes: Map<MockTerminal, Array<number | void>>;
+    the_pane_output: Map<MockTerminal, string[]>;
     terminal_manager: Record<string, (...args: never[]) => unknown> & {
         send_to_stata_terminal: (
             command: string,
@@ -755,14 +799,45 @@ function set_platform(platform: string): void {
     });
 }
 
-function create_console_terminal(
+function create_fake_console_module(the_consoles: FakeConsole[]) {
+    return {
+        EDITOR_CONSOLE_API_VERSION: 1,
+        start_editor_console: (host: FakeConsole['host']) => {
+            const fake: FakeConsole = {
+                the_inputs: [],
+                is_closed: false,
+                ready: create_deferred<boolean>(),
+                done: create_deferred<ConsoleEndResult>(),
+                host,
+            };
+            the_consoles.push(fake);
+            return {
+                handle_input: (text: string) => {
+                    fake.the_inputs.push(text);
+                },
+                handle_resize: () => {},
+                close: () => {
+                    fake.is_closed = true;
+                },
+                ready: fake.ready.promise,
+                done: fake.done.promise,
+            };
+        },
+    };
+}
+
+/** A terminal for a pane; VS Code opens the pane after creating it. */
+function create_pane_terminal(
+    harness_state: {
+        the_pane_closes: Map<MockTerminal, Array<number | void>>;
+        the_pane_output: Map<MockTerminal, string[]>;
+    },
     vscode_state: VscodeMockState,
     options: CreateTerminalOptions
 ): MockTerminal {
     const terminal: MockTerminal = {
         name: options.name ?? 'Stata',
-        // A console's process exists long before it is ready.
-        processId: new Promise<number | undefined>(() => {}),
+        processId: Promise.resolve(undefined),
         show: (preserve_focus = false) => {
             vscode_state.the_show_calls.push(preserve_focus);
         },
@@ -771,18 +846,33 @@ function create_console_terminal(
         },
         creationOptions: options,
     };
+    const the_closes: Array<number | void> = [];
+    const the_output: string[] = [];
+    harness_state.the_pane_closes.set(terminal, the_closes);
+    harness_state.the_pane_output.set(terminal, the_output);
+    const pty = options.pty;
+    if (pty) {
+        pty.onDidClose?.(code => the_closes.push(code));
+        pty.onDidWrite(text => the_output.push(text));
+        setTimeout(() => pty.open({ columns: 80, rows: 24 }), 0);
+    }
     return terminal;
 }
 
 async function create_console_harness(
     offer_timeout_ms = 60000
 ): Promise<ConsoleHarness> {
-    const vscode_state = create_vscode_mock_state(
-        new Promise<number | undefined>(() => {})
-    );
+    const vscode_state = create_vscode_mock_state(Promise.resolve(1));
     const the_terminals: MockTerminal[] = [];
+    const the_consoles: FakeConsole[] = [];
+    const harness_state = {
+        the_pane_closes: new Map<MockTerminal, Array<number | void>>(),
+        the_pane_output: new Map<MockTerminal, string[]>(),
+    };
     vscode_state.make_terminal = options => {
-        const terminal = create_console_terminal(vscode_state, options);
+        const terminal = create_pane_terminal(
+            harness_state, vscode_state, options
+        );
         the_terminals.push(terminal);
         return terminal;
     };
@@ -797,39 +887,59 @@ async function create_console_harness(
     const context = { extensionPath: EXTENSION_PATH, subscriptions: [] };
     terminal_manager.reset_stata_terminal_manager_for_tests({
         context,
-        timings: {
-            ready_poll_interval_ms: READY_POLL_MS,
-            offer_timeout_ms,
-        },
+        timings: { offer_timeout_ms },
+        load_console_module: async () =>
+            create_fake_console_module(the_consoles),
     });
     terminal_manager.register_stata_terminal(context);
+    the_live_terminals.push(the_terminals);
     return {
         vscode_state,
         the_terminals,
+        the_consoles,
+        ...harness_state,
         terminal_manager,
         commands_module,
         context,
     };
 }
 
-function get_ready_file_path(options: CreateTerminalOptions): string {
-    const ready_file_path = options.env?.SIGHT_CONSOLE_READY_FILE;
-    if (!ready_file_path) {
-        throw new Error('The console terminal has no ready file.');
+/** Every harness's terminals, so each test's panes can be closed. */
+const the_live_terminals: MockTerminal[][] = [];
+
+/**
+ * Close a test's panes, so one that is still opening can't start its
+ * console against the next test's fake runtime.
+ */
+function close_live_panes(): void {
+    for (const my_terminals of the_live_terminals.splice(0)) {
+        for (const my_terminal of my_terminals) {
+            my_terminal.creationOptions?.pty?.close();
+        }
     }
-    return ready_file_path;
 }
 
-function close_terminal(
-    vscode_state: VscodeMockState,
-    terminal: MockTerminal,
-    reason: number,
-    code: number | undefined
-): void {
-    terminal.exitStatus = { reason, code };
-    for (const my_listener of [...vscode_state.the_close_listeners]) {
-        my_listener(terminal);
-    }
+async function console_started(
+    harness: ConsoleHarness,
+    count = 1
+): Promise<FakeConsole> {
+    await wait_until(
+        () => harness.the_consoles.length >= count,
+        'the pane to start its console',
+        2000
+    );
+    return harness.the_consoles[count - 1];
+}
+
+/** The console ended on its own, without taking Stata. */
+async function end_console(
+    harness: ConsoleHarness,
+    code: number,
+    index = 0
+): Promise<void> {
+    const fake = await console_started(harness, index + 1);
+    fake.done.resolve({ code, took_stata: false });
+    await new Promise(resolve => setTimeout(resolve, 0));
 }
 
 async function create_send_file(name: string): Promise<string> {
@@ -853,7 +963,7 @@ function wrap(file_path: string): string {
     return '`"' + file_path + `"'`;
 }
 
-describe.serial('Feature: sight console terminal on local Windows', () => {
+describe.serial('Feature: Stata pane running sight console on local Windows', () => {
     beforeAll(register_module_mocks);
 
     beforeEach(() => {
@@ -862,6 +972,7 @@ describe.serial('Feature: sight console terminal on local Windows', () => {
     });
 
     afterEach(async () => {
+        close_live_panes();
         set_platform(REAL_PLATFORM);
         const terminal_manager = await import(TERMINAL_MANAGER_MODULE_URL);
         terminal_manager.reset_stata_terminal_manager_for_tests();
@@ -871,7 +982,7 @@ describe.serial('Feature: sight console terminal on local Windows', () => {
         }
     });
 
-    test('the profile runs sight console under VS Code as Node', async () => {
+    test('the profile opens an extension terminal, not a program', async () => {
         const { vscode_state } = await create_console_harness();
         const provider = vscode_state.the_profile_providers.get(
             'sight.stataTerminal'
@@ -881,37 +992,25 @@ describe.serial('Feature: sight console terminal on local Windows', () => {
         const profile = await provider!.provideTerminalProfile() as {
             options: CreateTerminalOptions;
         };
-        expect(profile.options.shellPath).toBe(process.execPath);
-        expect(profile.options.shellArgs).toEqual([
-            path.join(EXTENSION_PATH, 'cli', 'cli.js'),
-            'console',
-        ]);
-        expect(profile.options.env?.ELECTRON_RUN_AS_NODE).toBe('1');
-        expect(profile.options.env?.SIGHT_CONSOLE_FROM_EDITOR).toBe('1');
-        const ready_file_path = get_ready_file_path(profile.options);
-        expect(path.dirname(ready_file_path)).toBe(
-            path.join(os.tmpdir(), 'sight-console')
-        );
-        // Each terminal gets its own ready file.
+        expect(profile.options.name).toBe('Stata');
+        expect(profile.options.pty).toBeDefined();
+        expect(profile.options.shellPath).toBeUndefined();
+        expect(profile.options.env).toBeUndefined();
         const second = await provider!.provideTerminalProfile() as {
             options: CreateTerminalOptions;
         };
-        expect(get_ready_file_path(second.options)).not.toBe(
-            ready_file_path
-        );
+        expect(second.options.pty).not.toBe(profile.options.pty);
     });
 
-    test('sends queue until the ready file appears, then are typed in order', async () => {
-        const { vscode_state, the_terminals, terminal_manager } =
-            await create_console_harness();
+    test('sends queue until the console is ready, then are typed in order', async () => {
+        const harness = await create_console_harness();
+        const { vscode_state, terminal_manager } = harness;
         const the_files = [
             await create_tracked_send_file('a.do'),
             await create_tracked_send_file('b.do'),
             await create_tracked_send_file('c.do'),
         ];
 
-        // processId never resolves and nothing waits on it: the sends
-        // return queued at once, with no 5 s readiness timeout.
         const the_results = await Promise.all(the_files.map(
             my_file => terminal_manager.send_to_stata_terminal(
                 'do', my_file
@@ -919,56 +1018,48 @@ describe.serial('Feature: sight console terminal on local Windows', () => {
         ));
         expect(the_results).toEqual([true, true, true]);
         expect(vscode_state.create_terminal_calls).toBe(1);
-        const options = vscode_state.the_create_options[0];
-        expect(options.shellPath).toBe(process.execPath);
-        expect(options.shellArgs).toEqual([
-            path.join(EXTENSION_PATH, 'cli', 'cli.js'),
-            'console',
-        ]);
-        expect(options.env?.ELECTRON_RUN_AS_NODE).toBe('1');
-        expect(options.env?.SIGHT_CONSOLE_FROM_EDITOR).toBe('1');
+        expect(vscode_state.the_create_options[0].pty).toBeDefined();
         // Shown with focus so the take-over question is seen.
         expect(vscode_state.the_show_calls).toContain(false);
-        expect(vscode_state.the_send_calls).toEqual([]);
         expect(vscode_state.the_cleanups).toEqual([]);
-        expect(vscode_state.status_item?.is_shown).toBe(true);
         expect(vscode_state.status_item?.text).toContain('3 sends');
 
-        await fs.promises.writeFile(get_ready_file_path(options), '');
-        the_created_files.push(get_ready_file_path(options));
+        const fake = await console_started(harness);
+        expect(fake.the_inputs).toEqual([]);
+        fake.ready.resolve(true);
         await wait_until(
-            () => vscode_state.the_send_calls.length === 3,
+            () => fake.the_inputs.length === 3,
             'queued sends to be typed',
             2000
         );
-        expect(vscode_state.the_send_calls).toEqual(
-            the_files.map(my_file => `do ${wrap(my_file)}`)
+        expect(fake.the_inputs).toEqual(
+            the_files.map(my_file => `do ${wrap(my_file)}\r`)
         );
         expect(vscode_state.the_cleanups).toEqual(the_files);
         expect(vscode_state.status_item?.is_shown).toBe(false);
+        // Nothing goes through sendText: the pane types into the
+        // console directly.
+        expect(vscode_state.the_send_calls).toEqual([]);
 
         // Once ready, sends are typed directly.
         const later = await create_tracked_send_file('d.do');
         expect(
             await terminal_manager.send_to_stata_terminal('include', later)
         ).toBe(false);
-        expect(vscode_state.the_send_calls.at(-1)).toBe(
-            `include ${wrap(later)}`
-        );
-        expect(the_terminals).toHaveLength(1);
+        expect(fake.the_inputs.at(-1)).toBe(`include ${wrap(later)}\r`);
     });
 
-    test('a profile-opened console terminal queues the same way', async () => {
-        const { vscode_state, terminal_manager } =
-            await create_console_harness();
+    test('a profile-opened pane queues the same way', async () => {
+        const harness = await create_console_harness();
+        const { vscode_state, terminal_manager } = harness;
         const provider = vscode_state.the_profile_providers.get(
             'sight.stataTerminal'
         );
         const profile = await provider!.provideTerminalProfile() as {
             options: CreateTerminalOptions;
         };
-        const terminal = create_console_terminal(
-            vscode_state, profile.options
+        const terminal = create_pane_terminal(
+            harness, vscode_state, profile.options
         );
         for (const my_listener of vscode_state.the_open_listeners) {
             my_listener(terminal);
@@ -979,22 +1070,49 @@ describe.serial('Feature: sight console terminal on local Windows', () => {
             await terminal_manager.send_to_stata_terminal('do', my_file)
         ).toBe(true);
         expect(vscode_state.create_terminal_calls).toBe(0);
-        expect(vscode_state.the_send_calls).toEqual([]);
 
-        const ready_file_path = get_ready_file_path(profile.options);
-        await fs.promises.writeFile(ready_file_path, '');
-        the_created_files.push(ready_file_path);
+        const fake = await console_started(harness);
+        fake.ready.resolve(true);
         await wait_until(
-            () => vscode_state.the_send_calls.length === 1,
+            () => fake.the_inputs.length === 1,
             'the queued send to be typed',
             2000
         );
-        expect(vscode_state.the_send_calls).toEqual([
-            `do ${wrap(my_file)}`,
-        ]);
+        expect(fake.the_inputs).toEqual([`do ${wrap(my_file)}\r`]);
     });
 
-    test('integrated resolves to the console, with no warning', async () => {
+    test('the console\'s questions are modal dialogs', async () => {
+        const harness = await create_console_harness();
+        await harness.terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('a.do')
+        );
+        const fake = await console_started(harness);
+
+        const take_over = fake.host.ask({
+            kind: 'take_over',
+            text: 'sight console will take over the open Stata.',
+            allow_send_instead: true,
+        });
+        const call = harness.vscode_state.the_warning_calls[0];
+        expect(call.modal).toBe(true);
+        expect(call.the_items).toEqual([
+            'Take over', 'Send code to it instead',
+        ]);
+        call.answer.resolve('Send code to it instead');
+        expect(await take_over).toBe('send');
+
+        const keep = fake.host.ask({
+            kind: 'keep', text: 'Keep using it here?',
+            allow_send_instead: false,
+        });
+        const keep_call = harness.vscode_state.the_warning_calls[1];
+        expect(keep_call.the_items).toEqual(['Keep using it']);
+        // Dismissing a modal (Cancel) counts as no.
+        keep_call.answer.resolve(undefined);
+        expect(await keep).toBe('no');
+    });
+
+    test('integrated resolves to the pane, with no warning', async () => {
         const { vscode_state, commands_module } =
             await create_console_harness();
         vscode_state.target_setting = { globalValue: 'integrated' };
@@ -1008,9 +1126,8 @@ describe.serial('Feature: sight console terminal on local Windows', () => {
     });
 
     test('This session dispatches to the app until the setting changes', async () => {
-        const {
-            vscode_state, the_terminals, terminal_manager, commands_module,
-        } = await create_console_harness();
+        const harness = await create_console_harness();
+        const { vscode_state, terminal_manager, commands_module } = harness;
         vscode_state.target_setting = { globalValue: 'integrated' };
         const the_files = [
             await create_tracked_send_file('a.do'),
@@ -1020,10 +1137,7 @@ describe.serial('Feature: sight console terminal on local Windows', () => {
             await terminal_manager.send_to_stata_terminal('do', my_file);
         }
 
-        close_terminal(
-            vscode_state, the_terminals[0],
-            TERMINAL_EXIT_REASON.Process, 80
-        );
+        await end_console(harness, 80);
         expect(vscode_state.the_warning_calls).toHaveLength(1);
         const offer = vscode_state.the_warning_calls[0];
         expect(offer.message).toContain('several Stata windows are open');
@@ -1043,7 +1157,6 @@ describe.serial('Feature: sight console terminal on local Windows', () => {
             2000
         );
         expect(vscode_state.the_app_dispatches).toEqual(the_files);
-        expect(vscode_state.the_cleanups).toEqual(the_files);
         expect(terminal_manager.is_console_session_override_set())
             .toBe(true);
         expect(commands_module.resolve_effective_target('app'))
@@ -1067,17 +1180,14 @@ describe.serial('Feature: sight console terminal on local Windows', () => {
     });
 
     test('Always writes external globally', async () => {
-        const {
-            vscode_state, the_terminals, terminal_manager, commands_module,
-        } = await create_console_harness();
+        const harness = await create_console_harness();
+        const { vscode_state, terminal_manager, commands_module } = harness;
         vscode_state.target_setting = { globalValue: 'integrated' };
-        const my_file = await create_tracked_send_file('a.do');
-        await terminal_manager.send_to_stata_terminal('do', my_file);
-
-        close_terminal(
-            vscode_state, the_terminals[0],
-            TERMINAL_EXIT_REASON.Process, 81
+        await terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('a.do')
         );
+
+        await end_console(harness, 81);
         vscode_state.the_warning_calls[0].answer.resolve('Always');
         await wait_until(
             () => vscode_state.the_app_dispatches.length === 1,
@@ -1095,17 +1205,14 @@ describe.serial('Feature: sight console terminal on local Windows', () => {
     });
 
     test('Always with a workspace value still winning says so and sets the override', async () => {
-        const {
-            vscode_state, the_terminals, terminal_manager, commands_module,
-        } = await create_console_harness();
+        const harness = await create_console_harness();
+        const { vscode_state, terminal_manager, commands_module } = harness;
         vscode_state.target_setting = { workspaceValue: 'integrated' };
-        const my_file = await create_tracked_send_file('a.do');
-        await terminal_manager.send_to_stata_terminal('do', my_file);
-
-        close_terminal(
-            vscode_state, the_terminals[0],
-            TERMINAL_EXIT_REASON.Process, 81
+        await terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('a.do')
         );
+
+        await end_console(harness, 81);
         vscode_state.the_warning_calls[0].answer.resolve('Always');
         await wait_until(
             () => vscode_state.the_app_dispatches.length === 1,
@@ -1115,23 +1222,19 @@ describe.serial('Feature: sight console terminal on local Windows', () => {
         expect(vscode_state.the_update_calls).toHaveLength(1);
         expect(vscode_state.the_info_messages).toHaveLength(1);
         expect(vscode_state.the_info_messages[0]).toContain('overrides');
-        // The extension's own write didn't clear the override.
         expect(terminal_manager.is_console_session_override_set())
             .toBe(true);
         expect(commands_module.resolve_effective_target('app'))
             .toBe('app');
     });
 
-    test('Cancel drops the sends and the next send starts a console again', async () => {
-        const { vscode_state, the_terminals, terminal_manager } =
-            await create_console_harness();
+    test('Cancel drops the sends and the next send opens a new pane', async () => {
+        const harness = await create_console_harness();
+        const { vscode_state, terminal_manager } = harness;
         const my_file = await create_tracked_send_file('a.do');
         await terminal_manager.send_to_stata_terminal('do', my_file);
 
-        close_terminal(
-            vscode_state, the_terminals[0],
-            TERMINAL_EXIT_REASON.Process, 80
-        );
+        await end_console(harness, 80);
         vscode_state.the_warning_calls[0].answer.resolve('Cancel');
         await wait_until(
             () => !fs.existsSync(my_file),
@@ -1150,15 +1253,13 @@ describe.serial('Feature: sight console terminal on local Windows', () => {
     });
 
     test('code 82 dispatches at once without asking', async () => {
-        const { vscode_state, the_terminals, terminal_manager } =
-            await create_console_harness();
-        const my_file = await create_tracked_send_file('a.do');
-        await terminal_manager.send_to_stata_terminal('do', my_file);
-
-        close_terminal(
-            vscode_state, the_terminals[0],
-            TERMINAL_EXIT_REASON.Process, 82
+        const harness = await create_console_harness();
+        const { vscode_state, terminal_manager } = harness;
+        await terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('a.do')
         );
+
+        await end_console(harness, 82);
         await wait_until(
             () => vscode_state.the_app_dispatches.length === 1,
             'the send to reach the app',
@@ -1169,34 +1270,16 @@ describe.serial('Feature: sight console terminal on local Windows', () => {
             .toBe(true);
     });
 
-    test('a host with no exit reason still offers on an exit code', async () => {
-        const { vscode_state, the_terminals, terminal_manager } =
-            await create_console_harness();
-        const my_file = await create_tracked_send_file('a.do');
-        await terminal_manager.send_to_stata_terminal('do', my_file);
-
-        // VS Code before 1.77 sets only the code.
-        the_terminals[0].exitStatus = { code: 80 };
-        for (const my_listener of [...vscode_state.the_close_listeners]) {
-            my_listener(the_terminals[0]);
-        }
-        expect(vscode_state.the_warning_calls).toHaveLength(1);
-        vscode_state.the_warning_calls[0].answer.resolve('Cancel');
-    });
-
     test('a helper failure during dispatch shows the error and drops the rest', async () => {
-        const { vscode_state, the_terminals, terminal_manager } =
-            await create_console_harness();
+        const harness = await create_console_harness();
+        const { vscode_state, terminal_manager } = harness;
         const first = await create_tracked_send_file('a.do');
         const second = await create_tracked_send_file('b.do');
         await terminal_manager.send_to_stata_terminal('do', first);
         await terminal_manager.send_to_stata_terminal('do', second);
         vscode_state.the_failing_app_paths.add(first);
 
-        close_terminal(
-            vscode_state, the_terminals[0],
-            TERMINAL_EXIT_REASON.Process, 82
-        );
+        await end_console(harness, 82);
         await wait_until(
             () => !fs.existsSync(first) && !fs.existsSync(second),
             'both temp files to be deleted',
@@ -1211,24 +1294,20 @@ describe.serial('Feature: sight console terminal on local Windows', () => {
         ]);
     });
 
-    const NO_OFFER_CLOSES: Array<[string, number, number | undefined]> = [
-        ['a user close', TERMINAL_EXIT_REASON.User, undefined],
-        ['a shutdown', TERMINAL_EXIT_REASON.Shutdown, 80],
-        ['exit code 0', TERMINAL_EXIT_REASON.Process, 0],
-        ['a missing code', TERMINAL_EXIT_REASON.Process, undefined],
-        ['an unknown code', TERMINAL_EXIT_REASON.Process, 1],
+    const NO_OFFER_CODES: Array<[string, number]> = [
+        ['a normal end (0)', 0],
+        ['an error (1)', 1],
+        ['a cancelled start (130)', 130],
     ];
 
-    for (const [my_name, my_reason, my_code] of NO_OFFER_CLOSES) {
+    for (const [my_name, my_code] of NO_OFFER_CODES) {
         test(`${my_name} makes no offer and deletes pending temp files`, async () => {
-            const { vscode_state, the_terminals, terminal_manager } =
-                await create_console_harness();
+            const harness = await create_console_harness();
+            const { vscode_state, terminal_manager } = harness;
             const my_file = await create_tracked_send_file('a.do');
             await terminal_manager.send_to_stata_terminal('do', my_file);
 
-            close_terminal(
-                vscode_state, the_terminals[0], my_reason, my_code
-            );
+            await end_console(harness, my_code);
             await wait_until(
                 () => !fs.existsSync(my_file),
                 'the pending temp file to be deleted',
@@ -1236,39 +1315,73 @@ describe.serial('Feature: sight console terminal on local Windows', () => {
             );
             expect(vscode_state.the_warning_calls).toEqual([]);
             expect(vscode_state.the_app_dispatches).toEqual([]);
-            if (my_reason === TERMINAL_EXIT_REASON.User) {
-                expect(vscode_state.the_info_messages).toEqual([]);
-            } else {
-                expect(vscode_state.the_info_messages).toHaveLength(1);
-                expect(vscode_state.the_info_messages[0]).toStartWith(
-                    'Dropped 1 send to Stata: '
-                );
-            }
+            expect(vscode_state.the_info_messages).toHaveLength(1);
+            expect(vscode_state.the_info_messages[0]).toStartWith(
+                'Dropped 1 send to Stata: '
+            );
         });
     }
 
-    test('a ready file that appears after the close is ignored', async () => {
-        const { vscode_state, the_terminals, terminal_manager } =
-            await create_console_harness();
+    test('closing the pane ends its console and drops sends quietly', async () => {
+        const harness = await create_console_harness();
+        const { vscode_state, terminal_manager, the_terminals } = harness;
         const my_file = await create_tracked_send_file('a.do');
         await terminal_manager.send_to_stata_terminal('do', my_file);
-        const ready_file_path = get_ready_file_path(
-            vscode_state.the_create_options[0]
+        const fake = await console_started(harness);
+
+        the_terminals[0].creationOptions?.pty?.close();
+        expect(fake.is_closed).toBe(true);
+        await wait_until(
+            () => !fs.existsSync(my_file),
+            'the pending temp file to be deleted',
+            2000
+        );
+        expect(vscode_state.the_info_messages).toEqual([]);
+        expect(vscode_state.the_warning_calls).toEqual([]);
+
+        // Readiness or an end reported after the close changes nothing.
+        fake.ready.resolve(true);
+        fake.done.resolve({ code: 81, took_stata: false });
+        await new Promise(resolve => setTimeout(resolve, 10));
+        expect(fake.the_inputs).toEqual([]);
+        expect(vscode_state.the_warning_calls).toEqual([]);
+    });
+
+    test('a pane closes itself after a normal end, and waits for a key after an error', async () => {
+        const harness = await create_console_harness();
+        const { terminal_manager, the_terminals } = harness;
+        await terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('a.do')
+        );
+        const fake = await console_started(harness);
+        fake.ready.resolve(true);
+        fake.done.resolve({ code: 0, took_stata: true });
+        await wait_until(
+            () => (harness.the_pane_closes.get(the_terminals[0]) ?? [])
+                .length === 1,
+            'the pane to close',
+            2000
         );
 
-        close_terminal(
-            vscode_state, the_terminals[0],
-            TERMINAL_EXIT_REASON.User, undefined
+        await terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('b.do')
         );
-        await fs.promises.writeFile(ready_file_path, '');
-        the_created_files.push(ready_file_path);
-        await new Promise(resolve => setTimeout(resolve, READY_POLL_MS * 6));
-        expect(vscode_state.the_send_calls).toEqual([]);
+        const second = await console_started(harness, 2);
+        second.done.resolve({ code: 1, took_stata: false });
+        await wait_until(
+            () => (harness.the_pane_output.get(the_terminals[1]) ?? [])
+                .join('').includes('Press any key'),
+            'the pane to wait for a key',
+            2000
+        );
+        expect(harness.the_pane_closes.get(the_terminals[1])).toEqual([]);
+        the_terminals[1].creationOptions?.pty?.handleInput?.('x');
+        expect(harness.the_pane_closes.get(the_terminals[1])).toHaveLength(1);
     });
 
     test('a send from the editor leaves a queued temp file to the queue', async () => {
-        const { vscode_state, the_terminals, commands_module, context } =
-            await create_console_harness();
+        const harness = await create_console_harness();
+        const { vscode_state, commands_module, context } = harness;
         vscode_state.target_setting = { globalValue: 'integrated' };
         const the_registered = new Map<
             string, (...args: unknown[]) => unknown
@@ -1305,10 +1418,7 @@ describe.serial('Feature: sight console terminal on local Windows', () => {
         expect(vscode_state.the_cleanups).toEqual([]);
         expect(vscode_state.status_item?.text).toContain('1 send');
 
-        close_terminal(
-            vscode_state, the_terminals[0],
-            TERMINAL_EXIT_REASON.Process, 82
-        );
+        await end_console(harness, 82);
         await wait_until(
             () => vscode_state.the_cleanups.length === 1,
             'the dispatched send to be scheduled for cleanup',
@@ -1318,6 +1428,5 @@ describe.serial('Feature: sight console terminal on local Windows', () => {
         the_created_files.push(dispatched);
         expect(fs.readFileSync(dispatched, 'utf8'))
             .toBe('display "queued"');
-        expect(vscode_state.the_cleanups).toEqual([dispatched]);
     });
 });

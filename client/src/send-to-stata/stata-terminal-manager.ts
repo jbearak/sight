@@ -1,15 +1,21 @@
 import * as vscode from 'vscode';
-import * as crypto from 'crypto';
 import * as fs from 'fs';
-import * as os from 'os';
-import * as path from 'path';
 import { StataCommand, VALID_COMMANDS } from './index.js';
 import { detect_stata_cli, clear_stata_cli_cache } from './stata-cli-detector.js';
 import { wrap_path_for_stata_terminal } from './terminal.js';
 import { schedule_temp_file_cleanup } from './temp-file.js';
 import { send_to_stata_windows } from './windows-sender.js';
 import {
-    ConsoleCloseReason,
+    ask_with_dialog,
+    create_console_pane,
+    load_console_module,
+    type ConsolePane,
+    type ConsoleAnswer,
+    type ConsoleQuestion,
+    type EditorConsoleModule,
+    type PaneEnd,
+} from './console-pane.js';
+import {
     ConsoleExit,
     ConsoleQueueTimings,
     ConsoleTerminalQueue,
@@ -63,22 +69,33 @@ let pending_profile_creation_count = 0;
 let creation_in_flight: Promise<vscode.Terminal> | null = null;
 const the_terminal_ready_promises = new Map<vscode.Terminal, Promise<void>>();
 
-// On local Windows the Stata terminal runs `sight console` from the
-// extension's CLI bundle (client/cli/cli.js) under VS Code's own
-// runtime. Without ELECTRON_RUN_AS_NODE, Code.exe would open another
-// editor window instead of running the script.
-const CONSOLE_CLI_RELATIVE_PATH = path.join('cli', 'cli.js');
-const CONSOLE_READY_FILE_DIR_NAME = 'sight-console';
+// On local Windows the Stata terminal is an extension terminal (a
+// pane) running `sight console` inside the extension process; see
+// console-pane.ts.
 const TARGET_SETTING_SECTION = 'sight.sendToStata';
 const TARGET_SETTING_KEY = 'target';
 
 let extension_context: vscode.ExtensionContext | null = null;
 
-/**
- * Ready-file paths handed to profile-created console terminals, oldest
- * first, until onDidOpenTerminal claims them.
- */
-const the_pending_profile_ready_paths: string[] = [];
+/** What happened to a pane before its terminal was known. */
+interface PaneState {
+    terminal: vscode.Terminal | null;
+    is_ready: boolean;
+    end: PaneEnd | null;
+}
+
+interface PaneEntry extends PaneState {
+    pane: ConsolePane;
+}
+
+/** Panes from the profile list, until onDidOpenTerminal claims them. */
+const the_pending_profile_panes = new Map<vscode.Pseudoterminal, PaneEntry>();
+const the_console_panes = new Map<vscode.Terminal, ConsolePane>();
+
+// Test hooks: a fake console runtime and question answers.
+let console_module_override: (() => Promise<EditorConsoleModule>) | null = null;
+let console_ask_override:
+    ((question: ConsoleQuestion) => Promise<ConsoleAnswer>) | null = null;
 
 let console_queue: ConsoleTerminalQueue<vscode.Terminal> | null = null;
 let console_queue_timings: Partial<ConsoleQueueTimings> = {};
@@ -135,41 +152,82 @@ function get_effective_target_setting(): string | undefined {
         .get<string>(TARGET_SETTING_KEY);
 }
 
-function create_ready_file_path(): string {
-    const ready_dir = path.join(os.tmpdir(), CONSOLE_READY_FILE_DIR_NAME);
-    fs.mkdirSync(ready_dir, { recursive: true });
-    const random_hex = crypto.randomBytes(16).toString('hex');
-    return path.join(ready_dir, `ready-${random_hex}`);
+function load_module(): Promise<EditorConsoleModule> {
+    if (console_module_override) {
+        return console_module_override();
+    }
+    if (!extension_context) {
+        return Promise.reject(new Error(
+            'The Sight extension is not activated; cannot start sight '
+            + 'console.'
+        ));
+    }
+    return load_console_module(extension_context.extensionPath);
 }
 
-/** Options for a terminal running `sight console` on local Windows. */
-function create_console_terminal_options(
-    ready_file_path: string
-): vscode.TerminalOptions {
-    if (!extension_context) {
-        throw new Error(
-            'The Sight extension is not activated; cannot start ' +
-            'sight console.'
-        );
-    }
-    return {
-        name: TERMINAL_NAME,
-        shellPath: process.execPath,
-        shellArgs: [
-            path.join(
-                extension_context.extensionPath,
-                CONSOLE_CLI_RELATIVE_PATH
-            ),
-            'console',
-        ],
-        env: {
-            ELECTRON_RUN_AS_NODE: '1',
-            SIGHT_CONSOLE_FROM_EDITOR: '1',
-            SIGHT_CONSOLE_READY_FILE: ready_file_path,
+function create_pane_entry(): PaneEntry {
+    const state: PaneState = { terminal: null, is_ready: false, end: null };
+    const pane = create_console_pane({
+        load_module,
+        ask: question => (console_ask_override ?? ask_with_dialog)(question),
+        working_directory:
+            vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
+        on_ready: () => {
+            state.is_ready = true;
+            if (state.terminal) {
+                get_console_queue().mark_ready(state.terminal);
+            }
         },
-        isTransient: false,
-        iconPath: create_terminal_icon(),
-    };
+        on_end: end => {
+            state.end = end;
+            if (state.terminal) {
+                handle_pane_end(state.terminal, end);
+            }
+        },
+    });
+    return Object.assign(state, { pane });
+}
+
+/** Start managing a pane's terminal, replaying what already happened. */
+function adopt_pane(terminal: vscode.Terminal, entry: PaneEntry): void {
+    entry.terminal = terminal;
+    the_profile_terminals.add(terminal);
+    track_activation(terminal);
+    last_active_profile_terminal = terminal;
+    the_console_panes.set(terminal, entry.pane);
+    get_console_queue().track(terminal);
+    if (entry.end) {
+        handle_pane_end(terminal, entry.end);
+    } else if (entry.is_ready) {
+        get_console_queue().mark_ready(terminal);
+    }
+}
+
+function handle_pane_end(terminal: vscode.Terminal, end: PaneEnd): void {
+    const exit: ConsoleExit = end.reason === 'user'
+        ? { reason: 'user', code: undefined }
+        : { reason: 'process', code: end.code };
+    // A finished console no longer takes sends; the next send starts
+    // a new pane.
+    forget_console_terminal(terminal);
+    get_console_queue().handle_closed(terminal, exit).catch(my_error => {
+        vscode.window.showErrorMessage(
+            `Error: ${my_error instanceof Error ? my_error.message : my_error}`
+        );
+    });
+}
+
+function forget_console_terminal(terminal: vscode.Terminal): void {
+    the_console_panes.delete(terminal);
+    the_profile_terminals.delete(terminal);
+    the_terminal_ready_promises.delete(terminal);
+    const idx = the_activation_order.indexOf(terminal);
+    if (idx !== -1) {
+        the_activation_order.splice(idx, 1);
+    }
+    if (last_active_profile_terminal === terminal) {
+        last_active_profile_terminal = the_activation_order.at(-1) ?? null;
+    }
 }
 
 function update_pending_status(count: number): void {
@@ -198,8 +256,12 @@ function to_offer_answer(choice: string | undefined): OfferAnswer {
 }
 
 function type_send(terminal: vscode.Terminal, send: PendingSend): void {
+    const pane = the_console_panes.get(terminal);
+    if (!pane) {
+        throw new Error('The Stata pane has closed.');
+    }
     const escaped_path = wrap_path_for_stata_terminal(send.temp_file_path);
-    terminal.sendText(`${send.command} ${escaped_path}`);
+    pane.type_line(`${send.command} ${escaped_path}`);
 }
 
 function get_console_queue(): ConsoleTerminalQueue<vscode.Terminal> {
@@ -238,14 +300,6 @@ function get_console_queue(): ConsoleTerminalQueue<vscode.Terminal> {
         delete_file: file_path => {
             fs.promises.unlink(file_path).catch(() => {});
         },
-        file_exists: async file_path => {
-            try {
-                await fs.promises.access(file_path);
-                return true;
-            } catch {
-                return false;
-            }
-        },
         is_fallback_in_effect: () => {
             return is_console_session_override_set()
                 || get_effective_target_setting() === 'external';
@@ -264,59 +318,6 @@ function get_console_queue(): ConsoleTerminalQueue<vscode.Terminal> {
         on_pending_count_changed: update_pending_status,
     }, console_queue_timings);
     return console_queue;
-}
-
-function to_console_exit(
-    exit_status: vscode.TerminalExitStatus | undefined
-): ConsoleExit {
-    // TerminalExitReason needs VS Code 1.77. Older hosts report no
-    // reason; there an exit code means the process exited.
-    const the_reasons = vscode.TerminalExitReason;
-    let reason: ConsoleCloseReason = 'unknown';
-    if (exit_status && exit_status.reason === undefined) {
-        if (exit_status.code !== undefined) {
-            reason = 'process';
-        }
-    } else if (the_reasons && exit_status) {
-        if (exit_status.reason === the_reasons.Process) {
-            reason = 'process';
-        } else if (exit_status.reason === the_reasons.User) {
-            reason = 'user';
-        } else if (exit_status.reason === the_reasons.Shutdown) {
-            reason = 'shutdown';
-        } else if (exit_status.reason === the_reasons.Extension) {
-            reason = 'extension';
-        }
-    }
-    return { reason, code: exit_status?.code };
-}
-
-/**
- * Claim the ready-file path for a console terminal the user opened
- * from the profile list: by its environment when VS Code exposes the
- * creation options, otherwise the oldest unclaimed path.
- */
-function take_profile_ready_path(
-    terminal: vscode.Terminal
-): string | undefined {
-    const options = terminal.creationOptions;
-    const env_path = options && 'env' in options
-        ? options.env?.SIGHT_CONSOLE_READY_FILE
-        : undefined;
-    if (typeof env_path === 'string') {
-        const idx = the_pending_profile_ready_paths.indexOf(env_path);
-        if (idx !== -1) {
-            the_pending_profile_ready_paths.splice(idx, 1);
-            return env_path;
-        }
-    }
-    if (
-        terminal.name === TERMINAL_NAME
-        && the_pending_profile_ready_paths.length > 0
-    ) {
-        return the_pending_profile_ready_paths.shift();
-    }
-    return undefined;
 }
 
 function delay(time_ms: number): Promise<void> {
@@ -345,15 +346,15 @@ function handle_terminal_opened(terminal: vscode.Terminal): void {
         if (the_profile_terminals.has(terminal)) {
             return;
         }
-        const ready_file_path = take_profile_ready_path(terminal);
-        if (ready_file_path === undefined) {
+        const options = terminal.creationOptions;
+        const pty = options && 'pty' in options ? options.pty : undefined;
+        const entry = pty ? the_pending_profile_panes.get(pty) : undefined;
+        if (!pty || !entry) {
             return;
         }
-        the_profile_terminals.add(terminal);
-        track_activation(terminal);
-        last_active_profile_terminal = terminal;
+        the_pending_profile_panes.delete(pty);
         // Sends made before the console's first prompt are queued.
-        get_console_queue().track(terminal, ready_file_path);
+        adopt_pane(terminal, entry);
         return;
     }
     if (
@@ -392,9 +393,12 @@ function track_terminal_ready(terminal: vscode.Terminal): void {
 }
 
 function handle_terminal_closed(terminal: vscode.Terminal): void {
+    the_console_panes.delete(terminal);
     if (console_queue?.is_tracked(terminal)) {
+        // Normally the pane reported its end already; this covers a
+        // pane VS Code disposed without closing it.
         console_queue
-            .handle_closed(terminal, to_console_exit(terminal.exitStatus))
+            .handle_closed(terminal, { reason: 'user', code: undefined })
             .catch(my_error => {
                 vscode.window.showErrorMessage(
                     `Error: ${my_error instanceof Error
@@ -435,7 +439,8 @@ export function register_stata_terminal(
 ): void {
     extension_context = context;
     // Windows has no interactive Stata CLI, so on local Windows the
-    // profile runs sight console, which drives the Stata app. Remote
+    // profile opens a pane running sight console, which drives the
+    // Stata app. Remote
     // sessions (SSH, WSL, Dev Container) connect to a host that may
     // have a CLI and keep the CLI profile.
     if (is_local_windows()) {
@@ -493,11 +498,13 @@ function register_console_terminal(
 ): void {
     const provider: vscode.TerminalProfileProvider = {
         provideTerminalProfile(): vscode.TerminalProfile {
-            const ready_file_path = create_ready_file_path();
-            the_pending_profile_ready_paths.push(ready_file_path);
-            return new vscode.TerminalProfile(
-                create_console_terminal_options(ready_file_path)
-            );
+            const entry = create_pane_entry();
+            the_pending_profile_panes.set(entry.pane.pty, entry);
+            return new vscode.TerminalProfile({
+                name: TERMINAL_NAME,
+                pty: entry.pane.pty,
+                iconPath: create_terminal_icon(),
+            });
         }
     };
 
@@ -588,20 +595,17 @@ export async function get_or_create_stata_terminal(
 }
 
 /**
- * Start `sight console` in a new terminal on local Windows. Sends wait
- * in its queue until the console shows its first prompt; nothing is
- * baked into its arguments.
+ * Open a new Stata pane running sight console on local Windows. Sends
+ * wait in its queue until the console shows its first prompt.
  */
 function create_console_terminal(): vscode.Terminal {
-    const ready_file_path = create_ready_file_path();
-    const terminal = vscode.window.createTerminal(
-        create_console_terminal_options(ready_file_path)
-    );
-    the_profile_terminals.add(terminal);
-    track_activation(terminal);
-    last_active_profile_terminal = terminal;
-    get_console_queue().track(terminal, ready_file_path);
-    // With focus, so the console's take-over question is seen.
+    const entry = create_pane_entry();
+    const terminal = vscode.window.createTerminal({
+        name: TERMINAL_NAME,
+        pty: entry.pane.pty,
+        iconPath: create_terminal_icon(),
+    });
+    adopt_pane(terminal, entry);
     terminal.show(false);
     return terminal;
 }
@@ -779,13 +783,18 @@ export function reset_stata_terminal_manager_for_tests(
     options: {
         context?: vscode.ExtensionContext | null;
         timings?: Partial<ConsoleQueueTimings>;
+        load_console_module?: () => Promise<EditorConsoleModule>;
+        ask?: (question: ConsoleQuestion) => Promise<ConsoleAnswer>;
     } = {}
 ): void {
     console_queue?.dispose();
     console_queue = null;
     console_queue_timings = options.timings ?? {};
     extension_context = options.context ?? null;
-    the_pending_profile_ready_paths.length = 0;
+    console_module_override = options.load_console_module ?? null;
+    console_ask_override = options.ask ?? null;
+    the_pending_profile_panes.clear();
+    the_console_panes.clear();
     pending_status_item = null;
     session_override_snapshot = null;
     the_profile_terminals.clear();

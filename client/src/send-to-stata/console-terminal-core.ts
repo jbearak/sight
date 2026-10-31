@@ -1,8 +1,8 @@
 /**
- * The extension's side of `sight console` terminals on local Windows,
- * without VS Code: per-terminal readiness, the queue of sends made
- * before readiness, and the offer to use send-to-stata (the Stata app)
- * when the console exits without taking Stata.
+ * The extension's side of `sight console` panes on local Windows,
+ * without VS Code: per-pane readiness, the queue of sends made before
+ * readiness, and the offer to use send-to-stata (the Stata app) when
+ * the console ends without taking Stata.
  *
  * Every pending send ends exactly once: typed into its ready terminal,
  * dispatched to the app, or dropped (its temp file deleted).
@@ -10,16 +10,15 @@
 
 import type { StataCommand } from './index.js';
 
-// Exit codes from `sight console` when it didn't take Stata. These
-// mirror the console's own constants (src/console/); keep them in
-// sync.
+// Codes from `sight console` when it didn't take Stata. These mirror
+// src/console/automation/exit-codes.ts; keep them in sync. (Code 86,
+// no raw terminal input, can't happen in the extension's own pane.)
 export const CONSOLE_EXIT_SEVERAL_STATA_WINDOWS = 80;
 export const CONSOLE_EXIT_TAKE_OVER_DECLINED = 81;
 export const CONSOLE_EXIT_SEND_FROM_EDITOR = 82;
 export const CONSOLE_EXIT_STATA_HELD_ELSEWHERE = 83;
 export const CONSOLE_EXIT_AUTOMATION_NOT_REGISTERED = 84;
 export const CONSOLE_EXIT_BRIDGE_BLOCKED = 85;
-export const CONSOLE_EXIT_TERMINAL_UNSUPPORTED = 86;
 
 /**
  * Why the console couldn't use Stata, worded for what send-to-stata
@@ -56,29 +55,21 @@ export const CONSOLE_OFFER_REASONS: ReadonlyMap<number, string | null> =
             + 'blocked here (by its language mode or a policy). '
             + "send-to-stata doesn't use PowerShell.",
         ],
-        [
-            CONSOLE_EXIT_TERMINAL_UNSUPPORTED,
-            "this terminal can't give the console the raw keyboard "
-            + "input it needs. send-to-stata doesn't use the terminal.",
-        ],
     ]);
 
 export const OFFER_CHOICE_SESSION = 'This session';
 export const OFFER_CHOICE_ALWAYS = 'Always';
 export const OFFER_CHOICE_CANCEL = 'Cancel';
 
-export const DEFAULT_READY_POLL_INTERVAL_MS = 200;
 export const DEFAULT_OFFER_TIMEOUT_MS = 60000;
 
 export type ConsoleTerminalState = 'starting' | 'ready' | 'closed';
 
-/** How a console terminal ended, from VS Code's `exitStatus`. */
-export type ConsoleCloseReason =
-    | 'process'
-    | 'user'
-    | 'shutdown'
-    | 'extension'
-    | 'unknown';
+/**
+ * How a console pane ended: the console finished on its own
+ * (`process`, with its code), or the user closed the pane.
+ */
+export type ConsoleCloseReason = 'process' | 'user';
 
 export interface ConsoleExit {
     reason: ConsoleCloseReason;
@@ -109,7 +100,6 @@ export interface ConsoleQueueHost<TTerminal> {
     schedule_cleanup(file_path: string): void;
     /** Delete a file now, ignoring errors. */
     delete_file(file_path: string): void;
-    file_exists(file_path: string): Promise<boolean>;
     /** True if the session override or `external` is in effect. */
     is_fallback_in_effect(): boolean;
     set_session_override(): void;
@@ -122,15 +112,12 @@ export interface ConsoleQueueHost<TTerminal> {
 }
 
 export interface ConsoleQueueTimings {
-    ready_poll_interval_ms: number;
     offer_timeout_ms: number;
 }
 
 interface ConsoleTerminalEntry {
     state: ConsoleTerminalState;
-    ready_file_path: string;
     pending: PendingSend[];
-    poll_timer: ReturnType<typeof setTimeout> | null;
 }
 
 interface ShowingOffer {
@@ -148,7 +135,7 @@ function count_sends(count: number): string {
 /** Why a close that makes no offer dropped its pending sends. */
 function describe_drop(exit: ConsoleExit): string {
     if (exit.reason !== 'process') {
-        return 'the Stata terminal closed before it was ready';
+        return 'the Stata pane closed before it was ready';
     }
     if (exit.code === undefined) {
         return 'sight console ended before it was ready';
@@ -166,7 +153,7 @@ export function format_offer_message(reason: string): string {
 }
 
 /**
- * Tracks `sight console` terminals: each goes `starting` -> `ready` ->
+ * Tracks `sight console` panes: each goes `starting` -> `ready` ->
  * `closed`, and `closed` is final.
  */
 export class ConsoleTerminalQueue<TTerminal> {
@@ -180,26 +167,28 @@ export class ConsoleTerminalQueue<TTerminal> {
         timings: Partial<ConsoleQueueTimings> = {}
     ) {
         this.timings = {
-            ready_poll_interval_ms: timings.ready_poll_interval_ms
-                ?? DEFAULT_READY_POLL_INTERVAL_MS,
             offer_timeout_ms: timings.offer_timeout_ms
                 ?? DEFAULT_OFFER_TIMEOUT_MS,
         };
     }
 
-    /** Start tracking a console terminal and watching its ready file. */
-    track(terminal: TTerminal, ready_file_path: string): void {
+    /** Start tracking a console pane. */
+    track(terminal: TTerminal): void {
         if (this.entries.has(terminal)) {
             return;
         }
-        const entry: ConsoleTerminalEntry = {
-            state: 'starting',
-            ready_file_path,
-            pending: [],
-            poll_timer: null,
-        };
-        this.entries.set(terminal, entry);
-        this.schedule_poll(entry, terminal);
+        this.entries.set(terminal, { state: 'starting', pending: [] });
+    }
+
+    /**
+     * The console showed its first prompt: type the queued sends, in
+     * order. A pane that already closed stays closed.
+     */
+    mark_ready(terminal: TTerminal): void {
+        const entry = this.entries.get(terminal);
+        if (entry) {
+            this.make_ready(terminal, entry);
+        }
     }
 
     is_tracked(terminal: TTerminal): boolean {
@@ -253,8 +242,6 @@ export class ConsoleTerminalQueue<TTerminal> {
         }
         this.entries.delete(terminal);
         entry.state = 'closed';
-        this.stop_poll(entry);
-        this.host.delete_file(entry.ready_file_path);
 
         const the_sends = entry.pending;
         entry.pending = [];
@@ -295,11 +282,9 @@ export class ConsoleTerminalQueue<TTerminal> {
         return this.make_offer(reason ?? '', the_sends);
     }
 
-    /** Stop every ready-file watch (extension deactivation). */
+    /** Forget every pane (extension deactivation). */
     dispose(): void {
-        for (const my_entry of this.entries.values()) {
-            this.stop_poll(my_entry);
-        }
+        this.entries.clear();
     }
 
     private make_offer(
@@ -449,12 +434,11 @@ export class ConsoleTerminalQueue<TTerminal> {
         }
     }
 
-    private mark_ready(terminal: TTerminal, entry: ConsoleTerminalEntry) {
+    private make_ready(terminal: TTerminal, entry: ConsoleTerminalEntry) {
         if (entry.state !== 'starting') {
             return;
         }
         entry.state = 'ready';
-        this.stop_poll(entry);
         const the_sends = entry.pending;
         entry.pending = [];
         for (let i = 0; i < the_sends.length; i++) {
@@ -476,37 +460,6 @@ export class ConsoleTerminalQueue<TTerminal> {
             this.host.schedule_cleanup(my_send.temp_file_path);
         }
         this.report_pending_count();
-    }
-
-    private schedule_poll(
-        entry: ConsoleTerminalEntry,
-        terminal: TTerminal
-    ): void {
-        entry.poll_timer = setTimeout(async () => {
-            entry.poll_timer = null;
-            let exists = false;
-            try {
-                exists = await this.host.file_exists(entry.ready_file_path);
-            } catch {
-                exists = false;
-            }
-            // A ready file seen after the close is ignored.
-            if (entry.state !== 'starting') {
-                return;
-            }
-            if (exists) {
-                this.mark_ready(terminal, entry);
-                return;
-            }
-            this.schedule_poll(entry, terminal);
-        }, this.timings.ready_poll_interval_ms);
-    }
-
-    private stop_poll(entry: ConsoleTerminalEntry): void {
-        if (entry.poll_timer !== null) {
-            clearTimeout(entry.poll_timer);
-            entry.poll_timer = null;
-        }
     }
 
     private report_pending_count(): void {

@@ -164,6 +164,10 @@ window stays open next to the terminal, so graphs, the Data Editor and the
 Variables window work as usual. The editing, completion, history and
 colors are the same as on macOS and Linux.
 
+In VS Code, Sight's extension runs the same console in a Stata pane in
+the terminal panel when `sight.sendToStata.target` is `integrated`; see
+[Send to Stata](send-to-stata.md#windows-sight-console).
+
 ### Setup
 
 Register Stata's Automation interface once: open a command prompt as
@@ -231,6 +235,9 @@ window instead):
 | 84 | Stata's Automation interface isn't registered |
 | 85 | PowerShell couldn't run the console's helper (a security policy) |
 | 86 | The terminal doesn't support raw input |
+
+The VS Code extension's pane gets the same results directly, without
+exit codes, and offers send-to-stata for 80-85.
 
 ## See also
 

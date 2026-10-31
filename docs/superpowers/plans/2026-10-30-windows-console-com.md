@@ -1318,3 +1318,38 @@ VS Code launcher failure make this branch unsuitable to call experimentally
 usable until the plan author resolves those behaviors. Other unverified cases
 include conhost, real extension dispatch choices, and the R-item cases listed
 above.
+
+## Rev 9: the VS Code side runs the console in an extension terminal
+
+Debugging on Windows showed that Phase 5's launcher can't work: VS
+Code's `Code.exe` is a GUI-subsystem program, so run with
+`ELECTRON_RUN_AS_NODE` it gets no OS console, and `sight console` exits
+before Stata starts (`results/debug-tty.json`).
+
+The extension now runs the console inside its own process and shows
+it in an extension terminal (VS Code's `Pseudoterminal`), a pane in the
+terminal panel with no program behind it. The console only needs to
+write bytes and read keystrokes, which the pane carries; its Windows
+work (PowerShell bridge, log polling) needs no terminal.
+
+- `src/console/session-host.ts` runs a session for any display;
+  `run_interactive` wraps it for the real terminal.
+- `src/console/automation/open.ts` opens the Automation connection for
+  both the CLI and the editor. Connect questions are structured, so the
+  CLI asks `[y/N]` and the extension shows modal dialogs ("Take over",
+  "Send code to it instead", "Keep using it").
+- `src/console/editor-console.ts` is the editor entry point, bundled as
+  `client/console-runtime/console.js` (`copy-console`) and loaded on
+  first use. `client/src/send-to-stata/console-pane.ts` is the pane.
+- Gone: the CLI bundle in the extension, the ready file,
+  `SIGHT_CONSOLE_FROM_EDITOR`, exit-status parsing, and code 86 in the
+  extension (it can't happen there). Readiness and the end of the
+  console are reported to the queue directly; the queue, the offer and
+  the session override are unchanged.
+- The pane closes after a normal end and waits for a key after an
+  error, so the reason stays readable. Closing the pane ends the
+  console, which closes its Stata.
+
+Also fixed after debugging: Ctrl+C at a block prompt no longer claims
+to leave the block (Stata's Automation break doesn't), and console
+history on Windows lives under `%APPDATA%`, as documented.

@@ -29,4 +29,25 @@ export const VSCODE_MOCK_SHARED_EXPORTS = {
     TerminalProfile: class TerminalProfile {
         constructor(public options: unknown) {}
     },
+    EventEmitter: class EventEmitter<T> {
+        private the_listeners: Array<(value: T) => void> = [];
+        event = (listener: (value: T) => void) => {
+            this.the_listeners.push(listener);
+            return {
+                dispose: () => {
+                    this.the_listeners = this.the_listeners.filter(
+                        my_listener => my_listener !== listener
+                    );
+                },
+            };
+        };
+        fire(value: T): void {
+            for (const my_listener of [...this.the_listeners]) {
+                my_listener(value);
+            }
+        }
+        dispose(): void {
+            this.the_listeners = [];
+        }
+    },
 };
