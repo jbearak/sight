@@ -29,6 +29,23 @@ export interface BuildTarget {
 type BinaryBuilder = (target: BuildTarget) => Promise<void>;
 
 /**
+ * Oldest Bun whose runtime has PTY support (`Bun.Terminal`). A compiled
+ * binary embeds the runtime of the Bun that built it, so an older Bun
+ * yields a binary whose `sight console` cannot start.
+ */
+export const MIN_BINARY_BUN_VERSION = '1.3.5';
+
+/** Throw unless `bun_version` can build a fully working binary. */
+export function assert_binary_bun_version(bun_version: string): void {
+    if (!Bun.semver.satisfies(bun_version, `>=${MIN_BINARY_BUN_VERSION}`)) {
+        throw new Error(`Native binaries need Bun ${MIN_BINARY_BUN_VERSION} `
+            + `or later (found ${bun_version}); older runtimes lack the `
+            + 'pseudo-terminal support sight console needs. Run '
+            + '"bun upgrade" and rebuild.');
+    }
+}
+
+/**
  * Platform detection result.
  */
 export interface PlatformInfo {
@@ -170,6 +187,7 @@ function get_current_target(): BuildTarget | undefined {
  * Build a native binary for a specific target using Bun compile.
  */
 export async function build_binary(target: BuildTarget): Promise<void> {
+    assert_binary_bun_version(Bun.version);
     console.log(`Building binary for ${target.platform}-${target.arch}...`);
     
     ensure_dir(PATHS.bin);
@@ -182,7 +200,9 @@ export async function build_binary(target: BuildTarget): Promise<void> {
         // The --compile flag creates a standalone executable
         // --target specifies the platform/arch
         // The cache JSON is imported directly in server-factory.ts and bundled automatically
-        await $`bun build ${PATHS.entry} --compile --target=${bun_target} --outfile=${output_path} --minify`;
+        // process.execPath is the Bun whose version was checked above,
+        // not whichever bun comes first on PATH.
+        await $`${process.execPath} build ${PATHS.entry} --compile --target=${bun_target} --outfile=${output_path} --minify`;
 
         // Ad-hoc sign macOS binaries when building on macOS. On Apple Silicon
         // (and with stricter provenance enforcement on recent macOS releases),
