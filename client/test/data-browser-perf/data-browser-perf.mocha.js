@@ -22,6 +22,7 @@ const vscode = require('vscode');
 const HEARTBEAT_MS = 2;
 const PAINT_TIMEOUT_MS = 150000;
 const POLL_MS = 50;
+const SIGHT_EXTENSION_ID = 'jbearak.sight';
 
 function start_loop_monitor() {
     let my_last = performance.now();
@@ -65,6 +66,12 @@ describe('data browser timing (VS Code-hosted)', function () {
     const the_results = [];
 
     before(async function () {
+        // Activate Sight first: on a fresh profile its onStartupFinished
+        // activation may still be pending, and the snapshot command below
+        // is registered only by activate().
+        const my_extension = vscode.extensions.getExtension(SIGHT_EXTENSION_ID);
+        assert.ok(my_extension, `${SIGHT_EXTENSION_ID} is not installed`);
+        await my_extension.activate();
         await vscode.workspace
             .getConfiguration('sight.dataBrowser')
             .update('debugTiming', true, vscode.ConfigurationTarget.Global);

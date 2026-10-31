@@ -126,7 +126,10 @@ class FakeWebview {
             postMessage: (msg: ExtensionMessage) => {
                 // VS Code serializes webview messages on the host
                 // thread; do the same so the cost lands in the stalls.
-                const my_json_bytes = JSON.stringify(msg).length;
+                const my_json_bytes = Buffer.byteLength(
+                    JSON.stringify(msg),
+                    'utf8'
+                );
                 const my_posted = {
                     at: performance.now(),
                     json_bytes: my_json_bytes,

@@ -33,7 +33,8 @@ function memory(): Record<string, number> {
     return {
         rss_mib: mib(my_m.rss),
         heap_used_mib: mib(my_m.heapUsed),
-        external_mib: mib(my_m.external + my_m.arrayBuffers),
+        // `external` already includes `arrayBuffers`.
+        external_mib: mib(my_m.external),
     };
 }
 
