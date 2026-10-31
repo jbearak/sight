@@ -16,6 +16,7 @@ import {
     match_echo,
     type AutomationClock,
 } from '../../../src/console/automation/automation-backend';
+import { BROWSE_IN_STATA_NOTE, browse_to_vview, is_browse_command } from '../../../src/console/automation/browse-alias';
 import type { Bridge, BridgeReply, RequestOptions } from '../../../src/console/automation/bridge';
 import type { LogPoll, LogSource } from '../../../src/console/automation/log-tail';
 import { ModeTracker, brace_balance } from '../../../src/console/automation/mode-tracker';
@@ -120,7 +121,7 @@ async function flush(): Promise<void> {
     }
 }
 
-function setup() {
+function setup(extra: { has_vview?: boolean } = {}) {
     const clock = new ManualClock();
     const log = new FakeLog();
     const bridge = new FakeBridge();
@@ -133,6 +134,7 @@ function setup() {
         log,
         clock,
         start_size: 0,
+        has_vview: extra.has_vview ?? true,
         events: {
             on_output: (text) => output.push(text),
             on_notice: (text) => notices.push(text),
@@ -425,6 +427,37 @@ describe('AutomationBackend', () => {
         expect(screen()).toBe('. \r\x1b[K. display 9\r\n9\r\n\r\n. ');
     });
 
+    it('sends browse as vview, showing the line as typed', async () => {
+        const { backend, bridge, log, advance, screen, sight } = setup();
+        backend.submit_line('br price if foreign', true);
+        expect(bridge.commands).toEqual(['vview price if foreign']);
+        log.append('. vview price if foreign\nOpened in Sight Data Browser\n\n');
+        await advance(200);
+        expect(screen()).toContain('br price if foreign\r\nOpened');
+        expect(screen()).not.toContain('vview');
+        expect(sight).toEqual([]);
+    });
+
+    it('leaves browse alone in Mata', async () => {
+        const { backend, bridge, log, advance } = setup();
+        bridge.free = false;
+        backend.submit_line('mata', true);
+        log.append('. mata\n---- mata (type end to exit) ----\n');
+        await advance(300);
+        backend.submit_line('browse = 1', true);
+        expect(bridge.commands).toEqual(['mata', 'browse = 1']);
+    });
+
+    it('sends browse as is without vview, and says why once', async () => {
+        const { backend, bridge, log, advance, sight } = setup({ has_vview: false });
+        backend.submit_line('browse', true);
+        log.append('. browse\n\n');
+        await advance(200);
+        backend.submit_line('browse', true);
+        expect(bridge.commands).toEqual(['browse', 'browse']);
+        expect(sight).toEqual([BROWSE_IN_STATA_NOTE]);
+    });
+
     it('refuses a line with a NUL character', () => {
         const { backend, bridge, notices } = setup();
         backend.submit_line('display "a\0b"', true);
@@ -483,5 +516,28 @@ describe('ModeTracker', () => {
     it('counts braces outside strings and comments', () => {
         expect(brace_balance('display "{" // {')).toBe(0);
         expect(brace_balance('if 1 {')).toBe(1);
+    });
+});
+
+describe('browse_to_vview', () => {
+    it('rewrites browse and its abbreviations, after prefixes', () => {
+        expect(browse_to_vview('browse')).toBe('vview');
+        expect(browse_to_vview('br')).toBe('vview');
+        expect(browse_to_vview('bro make, rows(5)')).toBe('vview make, rows(5)');
+        expect(browse_to_vview('brow if foreign')).toBe('vview if foreign');
+        expect(browse_to_vview('  brows price')).toBe('  vview price');
+        expect(browse_to_vview('quietly browse')).toBe('quietly vview');
+        expect(browse_to_vview('cap noi br price')).toBe('cap noi vview price');
+        expect(browse_to_vview('capture: browse')).toBe('capture: vview');
+    });
+
+    it('leaves other commands and other cases alone', () => {
+        for (const my_line of [
+            'b', 'browser', 'brx', 'Browse', 'BR', 'display "browse"',
+            'gen br = 1', 'qu browse', 'browse_count = 1',
+        ]) {
+            expect(is_browse_command(my_line)).toBe(false);
+            expect(browse_to_vview(my_line)).toBe(my_line);
+        }
     });
 });

@@ -32,6 +32,7 @@ interface Script {
     after?: StataProcess[];
     title_pid?: number | null;
     title_rc?: number;
+    vview_rc?: number;
     busy_polls?: number;
 }
 
@@ -74,6 +75,9 @@ class ScriptedBridge implements Bridge {
                 this.sync_commands.push(String(params.cmd));
                 if (String(params.cmd).startsWith('window manage')) {
                     return ok({ rc: this.script.title_rc ?? 0 });
+                }
+                if (String(params.cmd) === 'quietly which vview') {
+                    return ok({ rc: this.script.vview_rc ?? 0 });
                 }
                 return ok({ rc: 0 });
             case 'title_pid':
@@ -123,12 +127,15 @@ describe('connect_to_stata', () => {
         });
         const { deps: d, questions } = deps(bridge);
         const result = await connect_to_stata(d);
-        expect(result).toMatchObject({ ok: true, pid: 10, start_size: 1234, log_rc: 0 });
+        expect(result).toMatchObject({
+            ok: true, pid: 10, start_size: 1234, log_rc: 0, has_vview: true,
+        });
         expect(questions).toEqual([]);
         expect(bridge.ops).toContain('release_mutex');
         expect(bridge.sync_commands).toEqual([
             'window manage maintitle "Stata - sight console abcdef01"',
             'set more off',
+            'quietly which vview',
             'set linesize 100',
             'log using "C:\\Users\\X\\AppData\\Local\\Temp\\SIGHT-~1\\ABC\\out.log", text replace name(_scabcdef01)',
         ]);
@@ -181,6 +188,18 @@ describe('connect_to_stata', () => {
         const result = await connect_to_stata(deps(bridge, ['y']).deps);
         expect(result).toMatchObject({ ok: false, exit_code: EXIT_STATA_HELD_ELSEWHERE });
         expect(bridge.ops).not.toContain('do_sync');
+    });
+
+    it('notes when Sight\'s vview isn\'t installed', async () => {
+        const bridge = new ScriptedBridge({
+            open: [[]],
+            after: [stata(10, { com_started: true })],
+            title_pid: 10,
+            vview_rc: 111,
+        });
+        const { deps: d } = deps(bridge);
+        const result = await connect_to_stata(d);
+        expect(result).toMatchObject({ ok: true, has_vview: false, log_rc: 0 });
     });
 
     it('asks again when the set of open Statas changed before connecting', async () => {

@@ -24,6 +24,7 @@
 import type { BackendEvents, BackendHandle, BackendLifecycle, ShutdownReason, StataBackend } from '../backend';
 import { is_server_gone, type Bridge, type BridgeReply } from './bridge';
 import type { LogSource } from './log-tail';
+import { BROWSE_IN_STATA_NOTE, browse_to_vview, is_browse_command } from './browse-alias';
 import { ModeTracker, parse_echo } from './mode-tracker';
 
 /** `DoCommandAsync` accepted 8192 bytes in the spike (S10). */
@@ -90,6 +91,8 @@ export interface AutomationBackendOptions {
     start_size: number;
     /** Stata couldn't open the log (already reported to the user). */
     start_lost?: boolean;
+    /** Sight's `vview` is installed, so `browse` can become `vview`. */
+    has_vview?: boolean;
 }
 
 export class AutomationBackend implements StataBackend {
@@ -102,6 +105,8 @@ export class AutomationBackend implements StataBackend {
     private readonly fifo: Array<{ line: string; drawn: boolean }> = [];
     private in_flight: InFlight | null = null;
     private first_command = true;
+    private readonly has_vview: boolean;
+    private browse_noted = false;
     private readonly records: EchoRecord[] = [];
 
     /** Complete lines read but not yet handled, and the trailing part. */
@@ -136,6 +141,7 @@ export class AutomationBackend implements StataBackend {
         this.events = options.events;
         this.log_size = options.start_size;
         this.log_lost = options.start_lost === true;
+        this.has_vview = options.has_vview === true;
         this.last_growth_ms = options.clock.now();
         this.exit_status = new Promise<number>((resolve) => {
             this.resolve_exit = resolve;
@@ -260,8 +266,9 @@ export class AutomationBackend implements StataBackend {
 
     private dispatch(line: string, drawn: boolean): void {
         const now = this.clock.now();
+        const sent = this.browse_alias(line);
         const entering = this.tracker.advance(line);
-        const trimmed = line.trim();
+        const trimmed = sent.trim();
         const in_flight: InFlight = {
             first_command: this.first_command,
             line, trimmed, drawn, blank: trimmed.length === 0,
@@ -278,10 +285,29 @@ export class AutomationBackend implements StataBackend {
             in_flight.echo_seen = true;
             this.mark_echoed(this.records.length - 1);
         }
-        void this.bridge.request('do_async', { cmd: line }).then((reply) => {
+        void this.bridge.request('do_async', { cmd: sent }).then((reply) => {
             this.handle_failure(reply);
         });
         this.schedule(BUSY_POLL_MS);
+    }
+
+    /**
+     * `browse` as console Stata runs it elsewhere: `vview` (see
+     * browse-alias.ts). Without `vview`, say once why nothing shows.
+     */
+    private browse_alias(line: string): string {
+        const kind = this.tracker.current.kind;
+        if (kind === 'mata' || kind === 'python' || !is_browse_command(line)) {
+            return line;
+        }
+        if (this.has_vview) {
+            return browse_to_vview(line);
+        }
+        if (!this.browse_noted) {
+            this.browse_noted = true;
+            this.events.on_sight_text(BROWSE_IN_STATA_NOTE);
+        }
+        return line;
     }
 
     private finish(): void {

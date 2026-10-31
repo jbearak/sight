@@ -208,8 +208,12 @@ console.
 - Output comes from a log Stata writes. A do-file that runs
   `log close _all` (a common first line) stops output in the terminal;
   it still shows in the Stata window. Restart the console to get it back.
-- `help`, `browse`, `edit`, `db` and `doedit` open windows in Stata.
-  Output of `shell` and `!` isn't shown.
+- `browse` (and `br`, `bro`, `brow`, `brows`) opens the data in Sight's
+  Data Browser, as in console Stata on macOS and Linux: the console sends
+  it as `vview`, if Sight's Stata commands are installed. Otherwise it
+  opens Stata's Data Editor in the Stata window, and the console says so.
+- `help`, `edit`, `db` and `doedit` open windows in Stata. Output of
+  `shell` and `!` isn't shown.
 - Python compound statements typed line by line may fail, because Stata
   drops leading whitespace from lines it is sent.
 - Commands typed in the Stata window show in the terminal too, but the

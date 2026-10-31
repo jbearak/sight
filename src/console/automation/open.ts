@@ -178,6 +178,7 @@ async function open(
                     events,
                     start_size: connected.start_size,
                     start_lost: log_failed,
+                    has_vview: connected.has_vview,
                 });
                 if (log_failed) {
                     events.on_sight_text('Stata couldn\'t open Sight\'s log, so output shows only '

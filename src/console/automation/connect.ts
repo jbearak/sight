@@ -58,7 +58,11 @@ export interface ConnectDeps {
 }
 
 export type ConnectResult =
-    | { ok: true; log_path: string; start_size: number; pid: number | null; log_rc: number }
+    | {
+        ok: true; log_path: string; start_size: number; pid: number | null; log_rc: number;
+        /** Sight's `vview` is installed (see browse-alias.ts). */
+        has_vview: boolean;
+    }
     | { ok: false; exit_code: number; message: string | null };
 
 const WAIT_NOTE_MS = 2000;
@@ -280,15 +284,17 @@ export async function connect_to_stata(deps: ConnectDeps): Promise<ConnectResult
         deps.say(`Warning: the log path ${log_path} can't be passed to Stata; set `
             + 'SIGHT_CONSOLE_TMPDIR to a plain ASCII directory. Output will show only in the '
             + 'Stata window.');
-        return { ok: true, log_path, start_size: 0, pid, log_rc: -1 };
+        return { ok: true, log_path, start_size: 0, pid, log_rc: -1, has_vview: false };
     }
     const linesize = Math.min(255, Math.max(40, deps.columns));
     const setup = [
         'set more off',
+        WHICH_VVIEW,
         `set linesize ${linesize}`,
         `log using "${log_path}", text replace name(_sc${short})`,
     ];
     let log_rc = 0;
+    let has_vview = false;
     for (const my_command of setup) {
         const reply = await bridge.request('do_sync', { cmd: my_command }, {
             slow_ms: SETUP_SLOW_MS,
@@ -297,6 +303,8 @@ export async function connect_to_stata(deps: ConnectDeps): Promise<ConnectResult
         const rc = reply.ok && typeof reply.value.rc === 'number' ? reply.value.rc : -1;
         if (my_command.startsWith('log using')) {
             log_rc = rc;
+        } else if (my_command === WHICH_VVIEW) {
+            has_vview = rc === 0;
         }
     }
 
@@ -309,8 +317,11 @@ export async function connect_to_stata(deps: ConnectDeps): Promise<ConnectResult
     } catch {
         start_size = 0;
     }
-    return { ok: true, log_path, start_size, pid, log_rc };
+    return { ok: true, log_path, start_size, pid, log_rc, has_vview };
 }
+
+/** Fails (r(111)) unless Sight's `vview` is on the ado-path. */
+const WHICH_VVIEW = 'quietly which vview';
 
 export const NOT_REGISTERED_MESSAGE = (exe_hint: string): string =>
     'Stata\'s Automation interface isn\'t registered, so sight console can\'t drive Stata. '
