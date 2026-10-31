@@ -72,6 +72,7 @@ jobs:
               - '.github/workflows/release-build.yml'
               - '.github/actions/setup-zig/**'
               - 'scripts/build-pty-helper.ts'
+              - 'scripts/check-vsix-pty-helpers.ts'
               - 'src/**'
               - 'package.json'
               - 'bun.lock'

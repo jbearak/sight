@@ -259,6 +259,29 @@ describe_helper('sight-pty helper', () => {
         expect(Date.now() - started_ms).toBeGreaterThanOrEqual(1500);
     });
 
+    it('hangs up what the command started, too', async () => {
+        // Not sh as the command: bash takes the terminal when it leads
+        // a session, and its end would then hang up its jobs anyway.
+        let output = '';
+        const pty = spawn_helper_pty({
+            helper_path: HELPER,
+            command: process.execPath,
+            args: ['-e', "const c = require('child_process').spawn('sleep', ['30'], { stdio: 'ignore' });"
+                + " console.log('bg=' + c.pid);"],
+            columns: 80,
+            rows: 24,
+            on_data: (text) => {
+                output += text;
+            },
+        });
+        await wait_for(() => /bg=\d+/.test(output), 'the background pid');
+        const background_pid = Number(/bg=(\d+)/.exec(output)?.[1]);
+        pty.kill('SIGHUP');
+        await pty.exit_status;
+        await sleep(100);
+        expect(() => process.kill(background_pid, 0)).toThrow();
+    });
+
     it('hangs up the command when its input closes', async () => {
         const shell = run_shell('sleep 10');
         await sleep(200);

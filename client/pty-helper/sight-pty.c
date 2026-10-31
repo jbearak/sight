@@ -17,7 +17,10 @@
  * fd 0 (in):  bytes for the command's terminal.
  * fd 3 (in):  control lines: "W COLS ROWS" (resize, then SIGWINCH),
  *             "I" (SIGINT), "H" (SIGHUP, then SIGKILL after a grace
- *             period), "K" (SIGKILL now).
+ *             period), "K" (SIGKILL now). Hang-up and kill go to the
+ *             command's process group, so what it started (such as
+ *             Stata's `shell`) ends with it: with no controlling
+ *             terminal, nothing else would hang those up.
  * fd 1 (out): frames of 1 type byte, a 4-byte big-endian length and
  *             the payload, in order:
  *               'O'  bytes the command wrote;
@@ -223,23 +226,33 @@ static int parse_size(const char *text)
  */
 static void close_other_fds(int keep)
 {
-    int the_fds[FALLBACK_MAX_FD];
-    int count = 0;
     DIR *listing = opendir("/dev/fd");
     if (listing) {
+        int *the_fds = NULL;
+        size_t count = 0;
+        size_t capacity = 0;
         struct dirent *entry;
-        while ((entry = readdir(listing)) != NULL
-               && count < FALLBACK_MAX_FD) {
+        while ((entry = readdir(listing)) != NULL) {
             int fd = atoi(entry->d_name);
-            if (fd > STDERR_FILENO && fd != keep
-                && fd != dirfd(listing)) {
-                the_fds[count++] = fd;
+            if (fd <= STDERR_FILENO || fd == keep
+                || fd == dirfd(listing)) {
+                continue;
             }
+            if (count == capacity) {
+                capacity = capacity ? capacity * 2 : 64;
+                int *grown = realloc(the_fds, capacity * sizeof *grown);
+                if (!grown) {
+                    _exit(126);
+                }
+                the_fds = grown;
+            }
+            the_fds[count++] = fd;
         }
         closedir(listing);
-        for (int i = 0; i < count; i++) {
+        for (size_t i = 0; i < count; i++) {
             close(the_fds[i]);
         }
+        free(the_fds);
         return;
     }
     for (int fd = STDERR_FILENO + 1; fd < FALLBACK_MAX_FD; fd++) {
@@ -388,7 +401,7 @@ int main(int argc, char **argv)
 #define HANG_UP() do { \
         if (!hangup_sent && !child_done) { \
             hangup_sent = 1; \
-            kill(child, SIGHUP); \
+            kill(-child, SIGHUP); \
             kill_at_ms = now_ms() + HANGUP_GRACE_MS; \
         } \
     } while (0)
@@ -533,7 +546,7 @@ int main(int argc, char **argv)
                         } else if (line[0] == 'H') {
                             HANG_UP();
                         } else if (line[0] == 'K' && !child_done) {
-                            kill(child, SIGKILL);
+                            kill(-child, SIGKILL);
                         }
                     }
                     buffer_consume(&control, line_length + 1);
@@ -557,7 +570,7 @@ int main(int argc, char **argv)
             REPORT_FLAGS();
         }
         if (kill_at_ms >= 0 && !child_done && now_ms() >= kill_at_ms) {
-            kill(child, SIGKILL);
+            kill(-child, SIGKILL);
             kill_at_ms = -1;
         }
     }
