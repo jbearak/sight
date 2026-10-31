@@ -201,10 +201,15 @@ export function arbitrary_string_literal(): fc.Arbitrary<string> {
 
 /**
  * Generate valid Stata varlist (space-separated variable names).
+ * Excludes `if` and `in`, which would end the varlist and start a
+ * qualifier.
  */
 export function arbitrary_varlist(): fc.Arbitrary<string> {
+  const my_name = arbitrary_variable_name().filter(
+    (name) => !RESERVED_QUALIFIER_KEYWORDS.includes(name)
+  );
   return fc
-    .array(arbitrary_variable_name(), { minLength: 1, maxLength: 5 })
+    .array(my_name, { minLength: 1, maxLength: 5 })
     .map((my_vars) => my_vars.join(' '));
 }
 

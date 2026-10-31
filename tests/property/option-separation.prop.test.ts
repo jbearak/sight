@@ -5,6 +5,7 @@ import { StataLexer } from '../../src/lexer';
 import { detect_completion_context } from '../../src/providers/completion';
 import { DocumentState } from '../../src/document-store';
 import { Position } from 'vscode-languageserver-textdocument';
+import { RESERVED_QUALIFIER_KEYWORDS } from './generators';
 
 /**
  * Property-based tests for Option Separation
@@ -24,10 +25,14 @@ describe('Option Separation Property Tests', () => {
     }
 
     /**
-     * Generator for variable names
+     * Generator for variable names. Excludes `if` and `in`: right
+     * after the command they parse as qualifiers, so `generate if = ...`
+     * is not an assignment.
      */
     function arbitrary_variable_name(): fc.Arbitrary<string> {
-        return fc.stringMatching(/^[a-zA-Z][a-zA-Z0-9_]{0,8}$/);
+        return fc.stringMatching(/^[a-zA-Z][a-zA-Z0-9_]{0,8}$/).filter(
+            name => !RESERVED_QUALIFIER_KEYWORDS.includes(name)
+        );
     }
 
     /**

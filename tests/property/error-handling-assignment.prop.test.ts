@@ -2,7 +2,7 @@ import { describe, it, expect, beforeEach } from 'bun:test';
 import * as fc from 'fast-check';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
-import { arbitrary_identifier } from './generators';
+import { arbitrary_non_reserved_identifier } from './generators';
 
 describe('Assignment Expression Error Handling Property Tests', () => {
   let lexer: StataLexer;
@@ -20,7 +20,7 @@ describe('Assignment Expression Error Handling Property Tests', () => {
     return fc
       .tuple(
         fc.constantFrom('gen', 'generate', 'egen', 'replace'),
-        arbitrary_identifier()
+        arbitrary_non_reserved_identifier()
       )
       .map(([cmd, varname]) => `${cmd} ${varname} =`);
   }
@@ -32,7 +32,7 @@ describe('Assignment Expression Error Handling Property Tests', () => {
     return fc
       .tuple(
         fc.constantFrom('gen', 'generate', 'egen'),
-        arbitrary_identifier(),
+        arbitrary_non_reserved_identifier(),
         fc.oneof(
           // Missing closing parenthesis
           fc.constantFrom('max(x', 'sum(a, b', 'func(arg1, arg2'),
