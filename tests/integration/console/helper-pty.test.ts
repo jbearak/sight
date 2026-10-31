@@ -21,6 +21,7 @@ import {
     type HelperPty,
 } from '../../../src/console/helper-pty';
 import { start_editor_console } from '../../../src/console/editor-console';
+import { create_pty_handle } from '../../../src/console/pty-backend';
 
 const ROOT = path.resolve(import.meta.dir, '../../..');
 const SOURCE = path.join(ROOT, 'client/pty-helper/sight-pty.c');
@@ -162,6 +163,52 @@ describe_helper('sight-pty helper', () => {
         expect(await pty.exit_status).toBe(127);
         expect(pty.helper_failed()).toBe(true);
     });
+
+    it('marks a helper that reports a failure without an exit as failed', async () => {
+        // As when the helper can't open a pseudo-terminal: an 'E'
+        // frame and no 'X'.
+        const fake_helper = path.join(BUILD_DIR, 'fake-failing-helper');
+        fs.writeFileSync(fake_helper, "#!/bin/sh\nprintf 'E\\000\\000\\000\\004boom'\nexit 1\n");
+        fs.chmodSync(fake_helper, 0o755);
+        let errors = '';
+        const pty = spawn_helper_pty({
+            helper_path: fake_helper,
+            command: 'stata-mp',
+            args: [],
+            columns: 80,
+            rows: 24,
+            on_data: () => undefined,
+            on_helper_error: (message) => {
+                errors += message;
+            },
+        });
+        expect(await pty.exit_status).toBe(1);
+        expect(errors).toBe('boom');
+        expect(pty.helper_failed()).toBe(true);
+    });
+
+    it('shutdown ends a command that ignores the hangup', async () => {
+        let output = '';
+        const handle = create_pty_handle({
+            stata_path: '/bin/sh',
+            stata_args: ['-c', 'trap "" HUP; echo "pid=$$"; while :; do sleep 1; done'],
+            columns: 80,
+            rows: 24,
+            stata_echoes: false,
+        }, {
+            on_output: (text) => {
+                output += text;
+            },
+            on_notice: () => undefined,
+            on_sight_text: () => undefined,
+            on_stata_error: () => undefined,
+        }, (pty_options) => spawn_helper_pty({ ...pty_options, helper_path: HELPER }));
+        await wait_for(() => /pid=\d+/.test(output), 'the pid');
+        const pid = Number(/pid=(\d+)/.exec(output)?.[1]);
+        await handle.lifecycle.shutdown('user');
+        await sleep(100);
+        expect(() => process.kill(pid, 0)).toThrow();
+    }, 10000);
 
     it('starts with echo off and tracks terminal mode changes in order', async () => {
         const shell = run_shell('read go; stty echo -icanon; echo changed; read done');

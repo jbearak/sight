@@ -17,13 +17,14 @@
  * fd 0 (in):  bytes for the command's terminal.
  * fd 3 (in):  control lines: "W COLS ROWS" (resize, then SIGWINCH),
  *             "I" (SIGINT), "H" (SIGHUP, then SIGKILL after a grace
- *             period).
+ *             period), "K" (SIGKILL now).
  * fd 1 (out): frames of 1 type byte, a 4-byte big-endian length and
  *             the payload, in order:
  *               'O'  bytes the command wrote;
  *               'L'  the terminal's c_lflag, in hex, whenever it
  *                    changes (and first, before any output);
- *               'E'  a helper failure message;
+ *               'E'  a failure message (if the helper itself failed,
+ *                    no 'X' follows);
  *               'X'  "CODE SIGNAL" when the command ended (last frame).
  *
  * EOF on fd 0, or SIGHUP/SIGTERM to the helper, acts as "H".
@@ -297,7 +298,6 @@ int main(int argc, char **argv)
         snprintf(message, sizeof message,
                  "cannot open a pseudo-terminal: %s", strerror(errno));
         append_text_frame(&out, 'E', message);
-        append_text_frame(&out, 'X', "1 0");
         flush_all(STDOUT_FILENO, &out);
         return 1;
     }
@@ -500,6 +500,8 @@ int main(int argc, char **argv)
                             kill(child, SIGINT);
                         } else if (line[0] == 'H') {
                             HANG_UP();
+                        } else if (line[0] == 'K' && !child_done) {
+                            kill(child, SIGKILL);
                         }
                     }
                     buffer_consume(&control, line_length + 1);

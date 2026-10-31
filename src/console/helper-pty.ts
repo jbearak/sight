@@ -7,8 +7,10 @@
  * (1 type byte, a 4-byte big-endian length, the payload): 'O' output,
  * 'L' the terminal's local flags in hex, 'E' a helper error, 'X' the
  * exit ("CODE SIGNAL"). Control lines go to its fd 3: "W COLS ROWS",
- * "I" (interrupt), "H" (hang up, then kill). The helper owns Stata's
- * pid, so nothing here signals a pid that may have been reused.
+ * "I" (interrupt), "H" (hang up, then kill), "K" (kill). The helper
+ * owns Stata's pid, so nothing here signals a pid that may have been
+ * reused. Stata has no controlling terminal, so killing the helper
+ * wouldn't end it: the helper is asked to kill Stata instead.
  */
 
 import { spawn } from 'child_process';
@@ -199,13 +201,7 @@ export function spawn_helper_pty(options: HelperPtyOptions): HelperPty {
         canonical_mode: () => closed || (local_flags & bits.icanon) !== 0,
         kill: (signal) => {
             if (signal === 'SIGKILL') {
-                // The helper's end closes the terminal, which hangs up
-                // Stata's session.
-                try {
-                    child.kill('SIGKILL');
-                } catch {
-                    // Already gone.
-                }
+                send_control('K');
                 return;
             }
             send_control(signal === 'SIGINT' ? 'I' : 'H');
