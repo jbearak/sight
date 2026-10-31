@@ -123,7 +123,7 @@ export async function execute_cd_command(
     const cd_command = format_cd_command(directory_path);
 
     // Resolve effective target using same logic as send commands
-    const effective_target = resolve_effective_target(target);
+    const effective_target = await resolve_effective_target(target);
 
     if (effective_target === null) {
         return;

@@ -20,11 +20,28 @@ The `sight.sendToStata.target` setting controls where the main send commands (`C
 
 | Value | Behavior |
 |-------|----------|
-| **auto** (default) | Uses the Stata GUI when running locally on macOS/Windows (on Windows, `auto` doesn't use sight console). Uses the integrated Stata terminal in remote sessions and on Linux. |
-| **integrated** | Always uses the integrated VS Code Stata terminal. On native Windows this runs sight console; if the console can't use Stata, the extension offers to send to the Stata GUI instead (see below). |
+| **ask** (default) | The first send in a VS Code window asks where code should go (see [Choosing where code goes](#choosing-where-code-goes)). In remote sessions and on Linux, where only the integrated terminal works, it uses that without asking. `"auto"`, the older name, means the same. |
+| **integrated** | Always uses the integrated VS Code Stata terminal (the Stata pane). On native Windows this runs sight console; if the console can't use Stata, the extension offers to send to the Stata GUI instead (see below). |
 | **external** | Always uses the external Stata GUI application. macOS and Windows only; not available in remote sessions or on Linux. |
 
-When the integrated terminal is selected (directly or via auto-detection), the extension automatically opens a Stata terminal if one is not already running. If multiple Stata terminals are open, commands are sent to the most recently activated one.
+When the integrated terminal is selected, the extension automatically opens a Stata terminal if one is not already running. If multiple Stata terminals are open, commands are sent to the most recently activated one.
+
+### Choosing where code goes
+
+With `ask`, on macOS and Windows, the first send in a VS Code window shows a menu:
+
+- **Stata pane** or **Stata app**, for this session: until VS Code reloads the window.
+- **Always use the Stata pane** or **Always use the Stata app**: saves `integrated` or `external` in your user settings. If a workspace or folder setting overrides it, the extension says so and uses your choice for this session.
+- **Read more…** opens this section.
+
+Dismissing the menu (Escape) cancels that send; the next send asks again. Sends made while the menu is open wait for the one answer.
+
+Which to pick:
+
+- **The Stata pane** runs Stata in VS Code's terminal panel, beside your code, with output in VS Code. On macOS and Linux it runs console Stata (`stata-mp` and so on); there's no Data Editor or graph window, but `browse` opens Sight's [Data Browser](data-browser.md). On Windows it runs [sight console](console.md), which drives the Stata app; see [Windows: sight console](#windows-sight-console).
+- **The Stata app** sends code to the Stata application's window, as if you'd run it there: graphs, the Data Editor and Stata's own windows all work as usual.
+
+To change your answer later, run **Sight: Choose Where to Send Code** from the Command Palette. When the setting is `integrated` or `external`, the same command can switch between them or go back to asking.
 
 ### Stata Terminal Profile
 
@@ -86,6 +103,7 @@ Closing the pane ends the console and closes its Stata, with any unsaved data. W
 - **Send Downward Lines**: Sends all lines from current line to end of file
 - **CD to File Folder**: Changes Stata's working directory to the current file's folder
 - **CD to Workspace Folder**: Changes Stata's working directory to the workspace root
+- **Sight: Choose Where to Send Code**: Picks the Stata pane or the Stata app (see [Choosing where code goes](#choosing-where-code-goes))
 
 > [!TIP]
 > The toolbar button (`▶`) lists all commands.
@@ -131,7 +149,7 @@ A toolbar button (▶) appears in the editor title bar for Stata files, providin
 
 | Setting | Type | Default | Description |
 |---------|------|---------|-------------|
-| `sight.sendToStata.target` | enum | `"auto"` | Where to send commands: "auto", "integrated", or "external" |
+| `sight.sendToStata.target` | enum | `"ask"` | Where to send commands: "ask", "integrated", or "external" |
 | `sight.sendToStata.stataApp` | string | `""` | Override Stata variant (macOS only). Auto-detects if empty. |
 | `sight.sendToStata.saveBeforeSend` | boolean | `true` | Automatically save file before sending |
 | `sight.sendToStata.advanceCursorOnSend` | boolean | `true` | Advance cursor to next line after single-line send |

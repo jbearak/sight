@@ -286,6 +286,12 @@ describe.serial('Feature: send-to-stata app temp file lifecycle', () => {
                     return Promise.resolve(undefined);
                 },
                 showWarningMessage: () => Promise.resolve(undefined),
+                // `auto` (now `ask`) asks on macOS and Windows: answer
+                // the Stata app for this session.
+                showQuickPick: (the_items: Array<{ label: string }>) =>
+                    Promise.resolve(the_items.find(my_item =>
+                        my_item.label === '$(window) Stata app'
+                    )),
                 createTerminal: (
                     options?: { shellArgs?: string[] }
                 ) => {

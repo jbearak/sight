@@ -50,6 +50,9 @@ const COMMANDS_MODULE_URL = pathToFileURL(
 const TEMP_FILE_MODULE_URL = pathToFileURL(
     path.join(SEND_TO_STATA_DIR, 'temp-file.ts')
 ).href;
+const TARGET_CHOICE_MODULE_URL = pathToFileURL(
+    path.join(SEND_TO_STATA_DIR, 'target-choice.ts')
+).href;
 const WINDOWS_SENDER_MODULE_URL = pathToFileURL(
     path.join(SEND_TO_STATA_DIR, 'windows-sender.ts')
 ).href;
@@ -119,6 +122,9 @@ interface VscodeMockState {
     the_show_calls: boolean[];
     the_warning_calls: WarningCall[];
     the_info_messages: string[];
+    /** Labels of each quick pick shown, and the label to answer. */
+    the_quick_picks: string[][];
+    quick_pick_answer?: string;
     the_error_messages: string[];
     the_update_calls: Array<[string, unknown, number]>;
     the_cleanups: string[];
@@ -189,6 +195,7 @@ function create_vscode_mock_state(
         the_show_calls,
         the_warning_calls: [],
         the_info_messages: [],
+        the_quick_picks: [],
         the_error_messages: [],
         the_update_calls: [],
         the_cleanups: [],
@@ -419,6 +426,18 @@ function register_module_mocks(): void {
             showInformationMessage: (message: string) => {
                 current_vscode_state?.the_info_messages.push(message);
                 return Promise.resolve(undefined);
+            },
+            showQuickPick: (the_items: Array<{ label: string }>) => {
+                const state = current_vscode_state;
+                if (!state) {
+                    return Promise.resolve(undefined);
+                }
+                state.the_quick_picks.push(
+                    the_items.map(my_item => my_item.label)
+                );
+                return Promise.resolve(the_items.find(
+                    my_item => my_item.label === state.quick_pick_answer
+                ));
             },
         },
         commands: {
@@ -786,7 +805,7 @@ interface ConsoleHarness {
     commands_module: {
         resolve_effective_target: (
             target: 'app' | 'terminal'
-        ) => string | null;
+        ) => Promise<string | null>;
         register_send_to_stata_commands: (context: unknown) => void;
     };
     context: { extensionPath: string; subscriptions: unknown[] };
@@ -1116,13 +1135,33 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
         const { vscode_state, commands_module } =
             await create_console_harness();
         vscode_state.target_setting = { globalValue: 'integrated' };
-        expect(commands_module.resolve_effective_target('app'))
+        expect(await commands_module.resolve_effective_target('app'))
             .toBe('integrated');
         expect(vscode_state.the_warning_calls).toEqual([]);
-        // auto still uses the app on local Windows.
+        expect(vscode_state.the_quick_picks).toEqual([]);
+    });
+
+    test('ask (and auto) asks once, then keeps the choice this session', async () => {
+        const { vscode_state, commands_module } =
+            await create_console_harness();
+        const target_choice = await import(TARGET_CHOICE_MODULE_URL);
+        target_choice.reset_target_choice_for_tests();
         vscode_state.target_setting = { globalValue: 'auto' };
-        expect(commands_module.resolve_effective_target('app'))
+        // Dismissing the menu cancels the send.
+        expect(await commands_module.resolve_effective_target('app'))
+            .toBeNull();
+        vscode_state.quick_pick_answer = '$(window) Stata app';
+        expect(await commands_module.resolve_effective_target('app'))
             .toBe('app');
+        vscode_state.target_setting = { globalValue: 'ask' };
+        expect(await commands_module.resolve_effective_target('app'))
+            .toBe('app');
+        expect(vscode_state.the_quick_picks).toHaveLength(2);
+        expect(vscode_state.the_quick_picks[0]).toContain(
+            '$(terminal) Stata pane'
+        );
+        expect(vscode_state.the_update_calls).toEqual([]);
+        target_choice.reset_target_choice_for_tests();
     });
 
     test('This session dispatches to the app until the setting changes', async () => {
@@ -1159,7 +1198,7 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
         expect(vscode_state.the_app_dispatches).toEqual(the_files);
         expect(terminal_manager.is_console_session_override_set())
             .toBe(true);
-        expect(commands_module.resolve_effective_target('app'))
+        expect(await commands_module.resolve_effective_target('app'))
             .toBe('app');
 
         // Changing the target setting clears the override.
@@ -1175,7 +1214,7 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
         }
         expect(terminal_manager.is_console_session_override_set())
             .toBe(false);
-        expect(commands_module.resolve_effective_target('app'))
+        expect(await commands_module.resolve_effective_target('app'))
             .toBe('integrated');
     });
 
@@ -1199,7 +1238,7 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
         ]);
         expect(terminal_manager.is_console_session_override_set())
             .toBe(false);
-        expect(commands_module.resolve_effective_target('app'))
+        expect(await commands_module.resolve_effective_target('app'))
             .toBe('app');
         expect(vscode_state.the_info_messages).toEqual([]);
     });
@@ -1224,7 +1263,7 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
         expect(vscode_state.the_info_messages[0]).toContain('overrides');
         expect(terminal_manager.is_console_session_override_set())
             .toBe(true);
-        expect(commands_module.resolve_effective_target('app'))
+        expect(await commands_module.resolve_effective_target('app'))
             .toBe('app');
     });
 
@@ -1377,6 +1416,39 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
         expect(harness.the_pane_closes.get(the_terminals[1])).toEqual([]);
         the_terminals[1].creationOptions?.pty?.handleInput?.('x');
         expect(harness.the_pane_closes.get(the_terminals[1])).toHaveLength(1);
+    });
+
+    test('Always that a workspace setting overrides wins this session', async () => {
+        const target_choice = await import(TARGET_CHOICE_MODULE_URL);
+        for (const [my_workspace, my_label, my_expected] of [
+            ['integrated', '$(window) Always use the Stata app', 'app'],
+            ['external', '$(terminal) Always use the Stata pane', 'integrated'],
+        ]) {
+            target_choice.reset_target_choice_for_tests();
+            const harness = await create_console_harness();
+            const { vscode_state, commands_module, context } = harness;
+            vscode_state.target_setting = { workspaceValue: my_workspace };
+            vscode_state.quick_pick_answer = my_label;
+            const the_registered = new Map<
+                string, (...args: unknown[]) => unknown
+            >();
+            (globalThis as Record<string, unknown>)[
+                SHARED_VSCODE_TEST_STATE_KEY
+            ] = { registered_commands: the_registered };
+            try {
+                commands_module.register_send_to_stata_commands(context);
+                await the_registered.get('sight.chooseSendTarget')?.();
+            } finally {
+                delete (globalThis as Record<string, unknown>)[
+                    SHARED_VSCODE_TEST_STATE_KEY
+                ];
+            }
+            expect(vscode_state.the_quick_picks).toHaveLength(1);
+            expect(vscode_state.the_info_messages[0]).toContain('overrides');
+            expect(await commands_module.resolve_effective_target('app'))
+                .toBe(my_expected);
+        }
+        target_choice.reset_target_choice_for_tests();
     });
 
     test('a send from the editor leaves a queued temp file to the queue', async () => {
