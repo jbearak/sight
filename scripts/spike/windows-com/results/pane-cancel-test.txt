@@ -1,0 +1,5 @@
+2026-10-31T11:29:56.319Z started foreign test Stata 312
+2026-10-31T11:29:56.707Z pane created
+2026-10-31T11:29:58.376Z observed warning {"message":"sight console will take over the open Stata (Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta). It closes when the console ends, so unsaved work in it would be lost then.","args":[{"modal":true},"Take over","Send code to it instead"]}
+2026-10-31T11:29:59.040Z declined takeover and observed fallback offer
+2026-10-31T11:29:59.042Z PASS

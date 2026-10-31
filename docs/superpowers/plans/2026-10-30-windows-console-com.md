@@ -1353,3 +1353,62 @@ work (PowerShell bridge, log polling) needs no terminal.
 Also fixed after debugging: Ctrl+C at a block prompt no longer claims
 to leave the block (Stata's Automation break doesn't), and console
 history on Windows lives under `%APPDATA%`, as documented.
+
+## Windows pane results
+
+Tested 2026-10-31 in the Windows 11 Parallels VM as `win-vm\jmb`,
+with Stata/MP 18 and the Windows Bun 1.4.4 build. The VS Code runs used
+an isolated Windows checkout and user profile, and all Stata processes
+were started by the tests with `sysuse auto`. Evidence and reproducible
+harnesses are under `scripts/spike/windows-com/`; the `pane-cli-*.bin.gz`
+files decompress to unmodified ConPTY byte streams. The harness instruments the
+isolated extension build to observe pane writes and stub choices; it does
+not change the shipped extension.
+
+- **CLI:** `pane-cli-suite.ps1` passed basic output and error coloring,
+  break during `sleep`, Ctrl+D, takeover declined (`81`), takeover
+  accepted, `--yes`, two open Statas (`80`), and the closed-log notice.
+  The `rev9` ConPTY transcript shows Ctrl+C at `foreach`, `program
+  define`, and Mata prompts leaves the input context open and displays
+  the instruction to finish it. The loop produced `90801` and `90802`,
+  the program produced `343434`, and Mata produced `7`; the console
+  returned to the top-level prompt. See `results/pane-cli-*.bin.gz` and
+  `results/pane-cli-suite.txt`.
+- **Pane and packaging:** Windows `bun run vscode:prepublish` succeeded,
+  including `console-runtime/console.js`. The actual VS Code extension
+  host loaded that bundle and passed its API-version check. With no
+  Stata open, a queued send ran exactly once and its output appeared in
+  the pane; `terminal.sendText` also ran a command and displayed its
+  output. Both `exit` and `terminal.dispose()` closed the pane and the
+  test-owned Stata. See `results/pane-basic.png` and the corresponding
+  `pane-basic-*` and `pane-dispose-*` traces.
+- **Takeover and cancellation:** With one test-owned Stata, stubbed
+  **Take over** shared it and executed the queued and typed commands;
+  closing the pane closed it. Stubbed Cancel offered the external
+  fallback and left the Stata running. The VS Code extension test host
+  refuses to display modal dialogs, so a separate normal development
+  window was used to display the real modal; `results/pane-dialog.png`
+  shows its three choices. `pane-takeover-*`, `pane-cancel-*`, and
+  `pane-dialog-writes.jsonl` contain the observations.
+- **Two windows:** The fallback offer appeared. Stubbed **This session**
+  and **Always** each executed the waiting command exactly once in one
+  of the two Stata logs; **Always** also persisted the `external`
+  setting. See `results/pane-two_session-*` and `pane-two_always-*`.
+- **Unresolved one-window fallback:** In two attempts, stubbed **Send
+  code to it instead** launched the downloaded `send-to-stata` helper
+  with the waiting do-file and the helper returned exit code 0, but the
+  command did not appear in the Stata log, even after closing that
+  test-owned Stata. This contradicts the intended dispatch behavior;
+  the cause has not been established. A later two-window fallback did
+  execute successfully, so helper success alone is not sufficient
+  evidence that code ran. See `results/pane-send-first-*` and
+  `pane-send-*`. No production fix or design change was made without a
+  confirmed cause; this one-window choice remains unverified/failed.
+
+The CLI and the ordinary pane workflow worked in these tests. The
+one-window fallback failure prevents calling every path end-to-end
+reliable; the feature is experimental, and users should verify execution
+when choosing that fallback. The test-only harness was corrected to
+re-read VS Code configuration after an update; no production behavior was
+changed in this round. Repository gates: line endings, typecheck and
+lint passed; `bun test ./tests` passed 8,083 tests with nine skipped.

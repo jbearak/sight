@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('basic', 'editing', 'lostlog', 'blockbreak', 'decline', 'share', 'yes', 'two')][string]$Scenario = 'basic',
+    [ValidateSet('basic', 'editing', 'lostlog', 'blockbreak', 'rev9', 'decline', 'share', 'yes', 'two')][string]$Scenario = 'basic',
     [string]$OutputPath = "$PSScriptRoot\results\debug-conpty-$Scenario.bin"
 )
 $ErrorActionPreference = 'Stop'
@@ -62,7 +62,19 @@ public static class SightConpty {
         var reader = new FileStream(new SafeFileHandle(outRead, true), FileAccess.Read, 4096, false);
         var writer = new FileStream(new SafeFileHandle(inWrite, true), FileAccess.Write, 4096, false);
         var transcript = new MemoryStream();
-        Task readTask = Task.Run(() => { try { reader.CopyTo(transcript); } catch (IOException) { } });
+        var observed = new StringBuilder();
+        Task readTask = Task.Run(() => {
+            try {
+                byte[] buffer = new byte[4096]; int count;
+                while ((count = reader.Read(buffer, 0, buffer.Length)) > 0) {
+                    lock (observed) {
+                        transcript.Write(buffer, 0, count);
+                        observed.Append(Encoding.UTF8.GetString(buffer, 0, count));
+                    }
+                }
+            } catch (IOException) { }
+        });
+        Func<string> snapshot = () => { lock (observed) { return observed.ToString(); } };
         Action<string> send = text => { byte[] bytes=Encoding.UTF8.GetBytes(text); writer.Write(bytes,0,bytes.Length); writer.Flush(); };
         try {
             if (scenario == "decline" || scenario == "share") {
@@ -78,6 +90,23 @@ public static class SightConpty {
             }
             Thread.Sleep(14000);
             send("sysuse auto, clear\r"); Thread.Sleep(2500);
+            if (scenario == "rev9") {
+                send("foreach x in 1 2 {\r"); Thread.Sleep(1800); send("\x03"); Thread.Sleep(1000);
+                send("display `x'\r"); Thread.Sleep(1200);
+                send("display 90800 + `x'\r"); Thread.Sleep(1200);
+                send("}\r"); Thread.Sleep(2000);
+                send("program define spike_rev9\r"); Thread.Sleep(1800); send("\x03"); Thread.Sleep(1000);
+                send("display 343434\r"); Thread.Sleep(1200); send("end\r"); Thread.Sleep(1500);
+                send("spike_rev9\r"); Thread.Sleep(1500);
+                send("mata\r"); Thread.Sleep(2500); send("\x03"); Thread.Sleep(1000);
+                send("3+4\r"); Thread.Sleep(1200); send("end\r"); Thread.Sleep(1500);
+                send("display 7654321\r"); Thread.Sleep(1500); send("\x04");
+                if (WaitForSingleObject(info.process, 15000) != 0) { TerminateProcess(info.process, 99); }
+                uint revCode; GetExitCodeProcess(info.process, out revCode);
+                writer.Dispose(); ClosePseudoConsole(pseudo); readTask.Wait(5000);
+                File.WriteAllBytes(output, transcript.ToArray());
+                return (int)revCode;
+            }
             if (scenario == "lostlog") {
                 send("log close _all\r"); Thread.Sleep(2000);
                 send("display 77\r"); Thread.Sleep(2000);
@@ -102,7 +131,14 @@ public static class SightConpty {
                 send("displa\t 2468\r"); Thread.Sleep(2000);
                 send("\x1b[A\r"); Thread.Sleep(2000);
             }
-            send("sleep 10000\r"); Thread.Sleep(1200); send("\x03"); Thread.Sleep(2500);
+            send("sleep 10000\r"); Thread.Sleep(1200);
+            int beforeBreak = snapshot().Length;
+            send("\x03");
+            var breakDeadline = DateTime.UtcNow.AddSeconds(20);
+            while (DateTime.UtcNow < breakDeadline && !snapshot().Substring(beforeBreak).Contains("--Break--")) {
+                Thread.Sleep(100);
+            }
+            Thread.Sleep(1200); // Let the editor recognize the returned prompt.
             send("\x04");
             if (WaitForSingleObject(info.process, 15000) != 0) { TerminateProcess(info.process, 99); }
             uint code; GetExitCodeProcess(info.process, out code);
@@ -126,7 +162,7 @@ try {
         $owned += Start-Process 'C:\Program Files\Stata18\StataMP-64.exe' -PassThru
         Start-Sleep -Seconds 2
     }
-    $yes = if ($Scenario -in @('basic', 'editing', 'lostlog', 'blockbreak', 'yes')) { ' --yes' } else { '' }
+    $yes = if ($Scenario -in @('basic', 'editing', 'lostlog', 'blockbreak', 'rev9', 'yes')) { ' --yes' } else { '' }
     $command = '"' + $bun + '" "' + $repo + '\src\cli.ts" console' + $yes
     Write-Output "$(Get-Date -Format o) scenario=$Scenario owned=$($owned.Id) starting $command"
     $code = [SightConpty]::Run($command, $repo, $OutputPath, $Scenario)
@@ -148,6 +184,13 @@ try {
     }
     if ($Scenario -eq 'share' -and $text -notmatch 'take over') { throw 'No takeover prompt' }
     if ($Scenario -eq 'yes' -and $text -match 'take over') { throw 'Unexpected takeover prompt' }
+    if ($Scenario -eq 'rev9') {
+        foreach ($needle in @('Stata still waits for the rest of this', '90801', '90802', '343434', '7654321', 'Stata exited')) {
+            if (-not $text.Contains($needle)) { throw "Missing $needle in transcript" }
+        }
+        if ([regex]::Matches($text, 'Stata still waits for the rest of this').Count -lt 3) { throw 'Expected a note in each mode' }
+        if (-not $text.Contains("  7`r`n")) { throw 'Mata expression did not produce 7' }
+    }
     if ($Scenario -eq 'lostlog' -and -not $text.Contains("Sight's log was closed")) { throw 'Missing log-loss message' }
     if ($Scenario -eq 'editing' -and -not $text.Contains('2468')) { throw 'Completion value missing' }
     if ($Scenario -in @('basic', 'editing') -and -not $text.Contains("$([char]27)[31m")) { throw 'No red error output' }
