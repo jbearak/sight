@@ -498,8 +498,10 @@ export function use_row_loader(): UseRowLoaderResult {
                 const my_waiter = full_text_waiters.current.get(
                     my_msg.request_id
                 );
+                // Only a request this webview made has a waiter.
+                if (typeof my_waiter !== 'function') return;
                 full_text_waiters.current.delete(my_msg.request_id);
-                my_waiter?.(my_msg.texts);
+                my_waiter(my_msg.texts);
                 return;
             }
 
