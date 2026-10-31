@@ -50,6 +50,11 @@ const TARGET_NAMES: Record<TargetChoice, string> = {
 
 export class TargetChooser {
     private session_choice: TargetChoice | null = null;
+    /**
+     * An Always choice that a workspace setting overrode (or that
+     * couldn't be saved): it wins over the setting this session.
+     */
+    private override: TargetChoice | null = null;
     private pending: Promise<TargetChoice | null> | null = null;
 
     constructor(private readonly host: TargetChoiceHost) {}
@@ -74,6 +79,11 @@ export class TargetChooser {
             return Promise.resolve(this.session_choice);
         }
         return this.ask_once();
+    }
+
+    /** A choice that wins over any setting this session, if any. */
+    session_override(): TargetChoice | null {
+        return this.override;
     }
 
     /** The "Choose Where to Send Code" command. */
@@ -110,6 +120,7 @@ export class TargetChooser {
                     continue;
                 case 'session':
                     this.session_choice = action.target;
+                    this.override = null;
                     return action.target;
                 case 'always':
                     await this.save(action.target);
@@ -134,6 +145,7 @@ export class TargetChooser {
             );
             if (value) {
                 this.session_choice = value;
+                this.override = value;
             }
             return;
         }
@@ -142,17 +154,20 @@ export class TargetChooser {
             ? effective === value
             : is_ask_setting(effective);
         if (in_effect) {
+            this.override = null;
             return;
         }
         // A workspace or folder setting overrides the user setting.
         if (value) {
             this.session_choice = value;
+            this.override = value;
             this.host.inform(
                 `Saved in your user settings, but this workspace's `
                 + 'sight.sendToStata.target overrides it; using '
                 + `${TARGET_NAMES[value]} for this session.`
             );
         } else {
+            this.override = null;
             this.host.inform(
                 'Saved in your user settings, but this workspace\'s '
                 + 'sight.sendToStata.target overrides it.'
@@ -162,6 +177,7 @@ export class TargetChooser {
 
     reset_for_tests(): void {
         this.session_choice = null;
+        this.override = null;
         this.pending = null;
     }
 }

@@ -1418,6 +1418,39 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
         expect(harness.the_pane_closes.get(the_terminals[1])).toHaveLength(1);
     });
 
+    test('Always that a workspace setting overrides wins this session', async () => {
+        const target_choice = await import(TARGET_CHOICE_MODULE_URL);
+        for (const [my_workspace, my_label, my_expected] of [
+            ['integrated', '$(window) Always use the Stata app', 'app'],
+            ['external', '$(terminal) Always use the Stata pane', 'integrated'],
+        ]) {
+            target_choice.reset_target_choice_for_tests();
+            const harness = await create_console_harness();
+            const { vscode_state, commands_module, context } = harness;
+            vscode_state.target_setting = { workspaceValue: my_workspace };
+            vscode_state.quick_pick_answer = my_label;
+            const the_registered = new Map<
+                string, (...args: unknown[]) => unknown
+            >();
+            (globalThis as Record<string, unknown>)[
+                SHARED_VSCODE_TEST_STATE_KEY
+            ] = { registered_commands: the_registered };
+            try {
+                commands_module.register_send_to_stata_commands(context);
+                await the_registered.get('sight.chooseSendTarget')?.();
+            } finally {
+                delete (globalThis as Record<string, unknown>)[
+                    SHARED_VSCODE_TEST_STATE_KEY
+                ];
+            }
+            expect(vscode_state.the_quick_picks).toHaveLength(1);
+            expect(vscode_state.the_info_messages[0]).toContain('overrides');
+            expect(await commands_module.resolve_effective_target('app'))
+                .toBe(my_expected);
+        }
+        target_choice.reset_target_choice_for_tests();
+    });
+
     test('a send from the editor leaves a queued temp file to the queue', async () => {
         const harness = await create_console_harness();
         const { vscode_state, commands_module, context } = harness;

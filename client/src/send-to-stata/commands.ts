@@ -26,7 +26,8 @@ import { send_to_stata_windows } from './windows-sender.js';
 import { compute_cursor_position } from './cursor-advance-core.js';
 import {
     register_target_choice_command,
-    resolve_ask_target
+    resolve_ask_target,
+    session_target_override
 } from './target-choice.js';
 import { escape_path_for_stata } from './cd-commands.js';
 
@@ -145,9 +146,8 @@ export async function resolve_effective_target(
     const my_config = vscode.workspace.getConfiguration(
         'sight.sendToStata'
     );
-    const setting = my_config.get<SendTargetSetting>(
-        'target', 'ask'
-    );
+    const setting: SendTargetSetting = session_target_override()
+        ?? my_config.get<SendTargetSetting>('target', 'ask');
     const is_remote = vscode.env.remoteName !== undefined
         && vscode.env.remoteName !== '';
 

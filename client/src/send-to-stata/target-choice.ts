@@ -69,6 +69,14 @@ export function resolve_ask_target(): Promise<TargetChoice | null> {
     return chooser.resolve();
 }
 
+/**
+ * A menu choice that wins over the setting this session (a workspace
+ * setting overrode Always), or null.
+ */
+export function session_target_override(): TargetChoice | null {
+    return chooser.session_override();
+}
+
 export function register_target_choice_command(
     context: vscode.ExtensionContext
 ): void {
