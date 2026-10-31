@@ -810,7 +810,7 @@
   },
   "scripts": {
     "vscode:prepublish": "bun run copy-vview-ado && bun run bundle && bun run copy-server && bun run copy-console",
-    "bundle": "bunx esbuild src/extension.ts --bundle --platform=node --format=cjs --outfile=dist/extension.js --external:vscode --minify && bunx esbuild src/data-browser/compute-worker.ts --bundle --platform=node --format=cjs --outfile=dist/data-browser-worker.js --minify && node -e \"require('fs').writeFileSync('dist/package.json', '{\\\"type\\\":\\\"commonjs\\\"}')\"",
+    "bundle": "bunx esbuild src/extension.ts --bundle --platform=node --format=cjs --outfile=dist/extension.js --external:vscode --minify && bunx esbuild src/data-browser/compute-worker.ts --bundle --platform=node --format=cjs --outfile=dist/data-browser-worker.js --minify && bunx esbuild src/data-browser/row-reader-worker.ts --bundle --platform=node --format=cjs --outfile=dist/data-browser-reader.js --minify && node -e \"require('fs').writeFileSync('dist/package.json', '{\\\"type\\\":\\\"commonjs\\\"}')\"",
     "bundle:webview": "bunx esbuild src/data-browser/webview/index.tsx --bundle --platform=browser --format=iife --outfile=dist/data-browser-webview/index.js --loader:.css=css --minify",
     "bundle:webview-test": "bunx esbuild src/data-browser/webview/test-harness/index.tsx --bundle --platform=browser --format=iife --outfile=dist-test/toolbar-wrap-harness/index.js --loader:.css=css",
     "copy-vview-ado": "mkdir -p stata && rm -f stata/*.ado && cp ../stata/*.ado stata/",
@@ -831,7 +831,7 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@jbearak/dta-parser": "^0.6.0",
+    "@jbearak/dta-parser": "^1.0.0",
     "@glideapps/glide-data-grid": "^6.0.3",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",

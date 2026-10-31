@@ -10,7 +10,6 @@ export const BROWSE_DIR = path.join(
 );
 const SIGNAL_PREFIX = 'signal_';
 const MAX_TEMP_FILE_AGE_MS = 24 * 60 * 60 * 1000;
-const LEASE_SUFFIX = '.lease';
 const SIGNAL_READ_RETRY_DELAY_MS = 25;
 const MAX_SIGNAL_READ_RETRIES = 8;
 
@@ -120,36 +119,10 @@ function is_browse_temp_filename(filename: string): boolean {
     return (
         filename.endsWith('.dta')
         || filename.endsWith('.json')
-        || filename.endsWith(LEASE_SUFFIX)
         || filename.startsWith(SIGNAL_PREFIX)
     );
 }
 
-/**
- * The lease beside a browse temp file (`<uuid>.dta` -> `<uuid>.lease`).
- * An open data browser panel keeps its temp file's lease fresh (see
- * browse-lease.ts), because step workers reopen the temp file by path
- * for as long as the panel is open.
- */
-export function lease_path_for(dta_path: string): string {
-    return dta_path.replace(/\.dta$/, LEASE_SUFFIX);
-}
-
-function age_ms(file_path: string, now_ms: number): number | null {
-    try {
-        return now_ms - fs.statSync(file_path).mtimeMs;
-    } catch {
-        return null;
-    }
-}
-
-/**
- * Delete browse temp files older than 24 hours. A `.dta` with a lease is
- * judged by the lease's age instead of its own, so a panel that is still
- * open (and refreshing its lease) keeps its file however old the data
- * is. A lease older than 24 hours, or whose temp file is gone, is
- * deleted too.
- */
 export function prune_stale_browse_files(
     browse_dir: string = BROWSE_DIR,
     now_ms: number = Date.now()
@@ -160,7 +133,6 @@ export function prune_stale_browse_files(
     } catch {
         return;
     }
-    const the_names = new Set(the_filenames);
 
     for (const my_filename of the_filenames) {
         if (!is_browse_temp_filename(my_filename)) {
@@ -168,28 +140,16 @@ export function prune_stale_browse_files(
         }
 
         const my_path = path.join(browse_dir, my_filename);
-        let my_age_ms = age_ms(my_path, now_ms);
-        if (my_age_ms === null) continue;
-        if (my_filename.endsWith('.dta')) {
-            const my_lease = lease_path_for(my_filename);
-            if (the_names.has(my_lease)) {
-                my_age_ms = age_ms(
-                    path.join(browse_dir, my_lease),
-                    now_ms
-                ) ?? my_age_ms;
-            }
-        } else if (my_filename.endsWith(LEASE_SUFFIX)) {
-            const my_dta = my_filename.slice(
-                0, -LEASE_SUFFIX.length
-            ) + '.dta';
-            if (!the_names.has(my_dta)) my_age_ms = Infinity;
-        }
-        if (my_age_ms > MAX_TEMP_FILE_AGE_MS) {
-            try {
+        try {
+            const my_stat = fs.statSync(my_path);
+            if (
+                now_ms - my_stat.mtimeMs
+                > MAX_TEMP_FILE_AGE_MS
+            ) {
                 fs.unlinkSync(my_path);
-            } catch {
-                // Ignore races and permission issues.
             }
+        } catch {
+            // Ignore races and permission issues.
         }
     }
 }

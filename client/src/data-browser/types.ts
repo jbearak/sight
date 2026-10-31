@@ -1,4 +1,7 @@
-import type { MissingType } from '@jbearak/dta-parser';
+import type { MissingName } from './dta-source.js';
+
+/** A Stata numeric missing value: `.` or `.a`–`.z`. */
+export type MissingType = MissingName;
 
 // -----------------------------------------------------------
 // Data browser postMessage protocol types
@@ -77,6 +80,17 @@ export interface CancelComputeMessage {
     type: 'cancelCompute';
 }
 
+/**
+ * Whole values of strLs the grid shows as previews (`truncated` cells),
+ * for copying them. Cells are given by file row (`CellValue.file_row`)
+ * and column index. Answered with `fullText`.
+ */
+export interface RequestFullTextMessage {
+    type: 'requestFullText';
+    request_id: string;
+    cells: { row: number; col: number }[];
+}
+
 /** Webview timing marks, sent only when `debug_timing` is on. */
 export type TimingMark =
     | 'metadata_received'
@@ -101,6 +115,7 @@ export type WebviewMessage =
     | RequestHistogramMessage
     | CancelRestoreMessage
     | CancelComputeMessage
+    | RequestFullTextMessage
     | TimingMessage;
 
 // Extension → Webview messages
@@ -216,6 +231,20 @@ export interface ComputeCancelledMessage {
 }
 
 /**
+ * Cells that complete the page `rowData` sent for `request_id` with some
+ * cells `pending` (the strLs of the first page that shows any, while the
+ * file's strL index is built). `rows[i][j]` is variable `columns[j]` of
+ * the page's row `i`. Ignored unless the page still holds that reply.
+ */
+export interface RowCellsMessage {
+    type: 'rowCells';
+    start: number;
+    request_id: string;
+    columns: number[];
+    rows: CellValue[][];
+}
+
+/**
  * The page read for `request_id` was discarded because the order or
  * dataset changed while it ran; the webview may ask for the page again.
  */
@@ -223,6 +252,22 @@ export interface RowsStaleMessage {
     type: 'rowsStale';
     start: number;
     request_id: string;
+}
+
+/** The answer to `requestFullText`: null when the values could not be
+ *  read. */
+export interface FullTextMessage {
+    type: 'fullText';
+    request_id: string;
+    texts: string[] | null;
+}
+
+/**
+ * The open file was rewritten in place; the host serves nothing more
+ * from it, and the dataset must be reopened.
+ */
+export interface FileChangedMessage {
+    type: 'fileChanged';
 }
 
 export type ExtensionMessage =
@@ -236,7 +281,10 @@ export type ExtensionMessage =
     | RestorePendingMessage
     | RestoreSettledMessage
     | ComputeCancelledMessage
-    | RowsStaleMessage;
+    | RowsStaleMessage
+    | RowCellsMessage
+    | FullTextMessage
+    | FileChangedMessage;
 
 export interface VariableDescription {
     name: string;
@@ -252,10 +300,35 @@ export interface VariableDescription {
 
 export interface CellValue {
     raw: number | string | null;
-    raw_display: string;
-    formatted_display: string;
+    /**
+     * How the value shows without and with its display format. Absent
+     * where it would repeat `raw` (strings, a number shown as itself) or
+     * `missing_type`, so a page carries each value once; see
+     * `get_cell_display_value`.
+     */
+    raw_display?: string;
+    formatted_display?: string;
+    /**
+     * The value's label. Absent when the value has none, and when the
+     * column's label set is in the metadata (`value_labels`), where the
+     * grid looks it up.
+     */
     label_display?: string;
     missing_type?: MissingType;
+    /**
+     * A long strL sent as a preview: `raw` holds its first bytes, and it
+     * shows with an ellipsis. Copying the cell asks the host for the
+     * whole value (`requestFullText`).
+     */
+    truncated?: boolean;
+    /** File row (0-based) of a truncated cell, for `requestFullText`. */
+    file_row?: number;
+    /** A binary strL: the displays say so, and `raw` is null. */
+    binary?: boolean;
+    /** A strL not read yet; a `rowCells` message fills it in. */
+    pending?: boolean;
+    /** Full stored length in bytes, for truncated and binary strLs. */
+    stored_bytes?: number;
 }
 
 // Sidecar JSON written by vview.ado

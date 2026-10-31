@@ -252,6 +252,8 @@ function headline(s: Record<string, number | string>): string[] {
     } else {
         my_time = `metadata ${num('open.metadata_ms')} ms; first page `
             + `${num('open.first_rows_ms')} ms`;
+        const my_strl = num('open.strl_cells_ms');
+        if (my_strl !== undefined) my_time += `; its strLs ${my_strl} ms`;
         my_stall = num('open.max_stall_ms');
         my_bytes = num('open.first_page_json_bytes');
     }
@@ -277,27 +279,37 @@ function main(): void {
         [
             path.join(ROOT, 'scripts/bench-data-browser/bench.ts'),
             '--bundle', '--platform=node', '--format=esm',
+            // dta-parser is CommonJS and requires Node built-ins.
+            '--banner:js=import { createRequire } from "module"; '
+                + 'const require = createRequire(import.meta.url);',
             `--alias:vscode=${path.join(ROOT, 'scripts/bench-data-browser/vscode-stub.ts')}`,
             `--outfile=${my_bundle}`, '--log-level=warning',
         ],
         { stdio: 'inherit' }
     );
     if (my_build.status !== 0) process.exit(1);
-    // The step worker the panel spawns for sorts, filters, histograms and
-    // copies (CommonJS, as the extension ships it).
-    const my_worker = path.join(my_opts.dir, 'data-browser-worker.cjs');
+    // The worker threads the panel starts: step workers for sorts,
+    // filters, histograms and copies, and the row reader for pages
+    // (CommonJS, as the extension ships them).
     if (!my_opts.in_process) {
-        const my_worker_build = spawnSync(
-            path.join(ROOT, 'node_modules/.bin/esbuild'),
-            [
-                path.join(ROOT, 'client/src/data-browser/compute-worker.ts'),
-                '--bundle', '--platform=node', '--format=cjs',
-                `--outfile=${my_worker}`, '--log-level=warning',
-            ],
-            { stdio: 'inherit' }
-        );
-        if (my_worker_build.status !== 0) process.exit(1);
-        process.env.SIGHT_BENCH_WORKER = my_worker;
+        const the_workers: [string, string, string][] = [
+            ['compute-worker.ts', 'data-browser-worker.cjs', 'SIGHT_BENCH_WORKER'],
+            ['row-reader-worker.ts', 'data-browser-reader.cjs', 'SIGHT_BENCH_READER'],
+        ];
+        for (const [my_entry, my_out, my_env] of the_workers) {
+            const my_file = path.join(my_opts.dir, my_out);
+            const my_worker_build = spawnSync(
+                path.join(ROOT, 'node_modules/.bin/esbuild'),
+                [
+                    path.join(ROOT, 'client/src/data-browser', my_entry),
+                    '--bundle', '--platform=node', '--format=cjs',
+                    `--outfile=${my_file}`, '--log-level=warning',
+                ],
+                { stdio: 'inherit' }
+            );
+            if (my_worker_build.status !== 0) process.exit(1);
+            process.env[my_env] = my_file;
+        }
     }
 
     const my_node = spawnSync('node', ['--version'], { encoding: 'utf8' })
@@ -308,7 +320,7 @@ function main(): void {
         `Node ${my_node}, ${os.cpus()[0]?.model ?? 'unknown CPU'}, `
             + `${process.platform}; scale ${my_opts.scale}; `
             + `${my_opts.cold ? 'cold page cache' : 'warm page cache'}; `
-            + `${my_opts.in_process ? 'jobs on the host' : 'jobs in step workers'}. `
+            + `${my_opts.in_process ? 'reads and jobs on the host' : 'pages in the reader thread, jobs in step workers'}. `
             + 'Times are medians; "host blocked" is the longest event-loop '
             + 'stall; "peak RSS" is the benchmark process\'s maxRSS.',
     ];

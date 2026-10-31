@@ -85,12 +85,13 @@ When you run `vview` in Stata:
 2. A JSON sidecar file is written alongside it with metadata (variable count, observation count, source file, Stata's working directory, etc.)
 3. A signal file is created that triggers the VS Code extension
 4. The extension claims the signal (atomically, so only one VS Code window processes it), reads the metadata, and opens the data browser panel
-5. The temporary files are cleaned up automatically. The temporary `.dta`
-   stays in `~/.sight/browse/` while its panel is open, because sorts,
-   filters and copies reopen it; a `<uuid>.lease` file beside it, refreshed
-   while the panel is open, keeps other VS Code windows' cleanup (which
-   deletes browse files older than 24 hours) from removing it. The panel
-   deletes its own temporary file when it closes.
+5. The temporary files are cleaned up automatically. The panel deletes the
+   temporary `.dta` as soon as it has opened it: the panel and its
+   background threads keep reading the open file, so nothing needs the
+   file on disk. On Windows, which cannot delete an open file, it stays in
+   `~/.sight/browse/` until the panel closes. Leftovers (from a crash, say)
+   are deleted by the next VS Code window to start once they are 24 hours
+   old.
 
 **Multi-window support**: When multiple VS Code windows are open, Sight prioritizes the window whose workspace folder matches Stata's current working directory. This means the data browser is more likely to open in the "right" window when you have multiple projects open.
 
@@ -102,7 +103,8 @@ You can also open `.dta` files directly in the data browser without using `vview
 - Right-click a `.dta` file and select **Open in Sight Data Browser**
 - Run **Sight: Open Data Browser** from the Command Palette
 
-This supports Stata formats 105–119 (Stata 5 through Stata 18).
+This reads `.dta` releases 104–119, which covers files saved by Stata 4
+and later.
 
 ## Features
 
@@ -110,13 +112,45 @@ This supports Stata formats 105–119 (Stata 5 through Stata 18).
 - **Column resizing**: Drag column borders to resize; widths are persisted across sessions
 - **Column visibility**: Hide/show columns from the column header context menu
 - **Value labels**: Toggle between raw values, formatted values, and value labels
+- **Display formats**: Dates and numbers are shown the way R shows them (see
+  [Display formats](#display-formats))
+- **Long strLs**: A strL longer than 256 bytes shows its beginning and an
+  ellipsis; copying the cell copies the whole value (see
+  [Long strings](#long-strings))
 - **Missing values**: Extended missing values (`.a` through `.z`) are highlighted; style configurable via `sight.dataBrowser.missingValueStyle`
 - **Theme-aware**: The grid automatically adapts to your VS Code color theme
 - **Sorting**: Sort rows by one or more columns (see below)
 - **Filtering**: Filter rows by per-column predicates (see below)
-- **Responsive on large datasets**: sorting, filtering, histograms and
-  **Copy column** run in background worker threads, so VS Code stays
-  responsive while they work (see [Background work](#background-work))
+- **Responsive on large datasets**: reading rows, sorting, filtering,
+  histograms and **Copy column** run in background threads, so VS Code
+  stays responsive while they work (see [Background work](#background-work))
+
+### Display formats
+
+With **Formats** on, cells are shown the way R's `format()` shows the same
+value, which is how Sight's `.dta` reader formats them:
+
+- Daily dates (`%td`, `%d`) as R Dates, such as `2018-12-03`, and clock
+  times (`%tc`, `%tC`) as UTC date-times, such as `2018-12-04 08:00:00`,
+  whatever display mask the format carries (`%tdDD/NN/CCYY` shows the
+  same `2018-12-03`).
+- `%g` formats as R shows the number: `0.5` rather than Stata's `.5`, and
+  up to seven significant digits (`1234568`); `%9.3g` keeps three.
+- Fixed (`%9.2f`, `%12.0fc`), exponential (`%9.2e`), and the weekly,
+  monthly, quarterly, half-yearly and yearly date formats (`2018w36`,
+  `2018m5`, `2018q4`, `2018h2`, `2018`) look as they do in Stata.
+
+With **Formats** off, numbers show their stored value. Missing values show
+as `.`, `.a`–`.z`, or their value label when **Labels** is on.
+
+### Long strings
+
+A strL longer than 256 bytes is sent to the grid as its first 256 bytes
+(cut at a character boundary) followed by `…`, so a page of a dataset with
+long open-ended answers loads quickly however long the answers are.
+Copying cells (**Ctrl+C**/**Cmd+C**) fetches and copies the whole value,
+and **Copy column** copies whole values too. Opening a cell's text shows
+only the preview. A binary strL shows as `binary, 1,204 bytes`.
 
 ## Sorting Rows
 
@@ -221,10 +255,17 @@ filters. The status bar appends `filtered to N of M (P%)`.
 
 ## Background work
 
-Sorting, filtering, the filter editor's histogram, reapplying a saved sort or
-filter when a dataset opens, and **Copy column** each read whole columns. They
-run in short-lived worker threads, not on VS Code's extension host, so the
-editor, the grid and scrolling stay responsive however long they take.
+The panel opens the dataset once and reads only its description (variables,
+labels, row count) on VS Code's extension host. Everything else reads data in
+worker threads that share the panel's open file:
+
+- A reader thread, started when the dataset opens, reads the rows the grid
+  shows. A slow disk or a page of long strLs delays only the grid, not the
+  editor.
+- Sorting, filtering, the filter editor's histogram, reapplying a saved sort
+  or filter when a dataset opens, and **Copy column** each read whole
+  columns, in short-lived worker threads, so the editor, the grid and
+  scrolling stay responsive however long they take.
 
 - While a sort or filter runs, the toolbar shows "Sorting…" or "Filtering…"
   over the rows in their current order. After half a second it offers
@@ -236,9 +277,13 @@ editor, the grid and scrolling stay responsive however long they take.
   message.
 - **Copy column** copies the rows in the order shown when you clicked it,
   even if a sort or filter finishes meanwhile.
-- The workers reopen the dataset file. If it was changed or replaced on disk
-  since the panel opened it, the sort or filter is not applied and Sight asks
-  you to reopen the dataset.
+- The threads read the file the panel opened. If a program replaces the
+  dataset with a new file of the same name (writing a new file and renaming
+  it over the old one), the panel keeps showing the version it opened until
+  you reopen it. If a program rewrites the open file in place, the next read
+  notices (by its size and modification time): the panel stops reading it,
+  shows "This file changed on disk", asks you to reopen it, and does not
+  apply a sort or filter computed from the changed file.
 
 ## Layout Persistence
 

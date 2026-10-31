@@ -6,14 +6,20 @@
  * event loop (each blocking it for the whole operation: 3.5 s for a
  * 10M-row numeric sort, 29 s for a slow regex). They are pure functions
  * of a {@link ColumnSource}, so the same code runs in a step worker
- * (compute-worker.ts, opened on the file by path) and, where no worker
- * is available (unit tests), in-process on the panel's own reader.
+ * (compute-worker.ts, on the descriptor the panel opened) and, where no
+ * worker is available (unit tests), in-process on the panel's own
+ * reader.
  *
  * Nothing here imports `vscode`.
  */
 
-import type { RowCell, VariableInfo } from '@jbearak/dta-parser';
 import { build_cell_value } from './cell-format.js';
+import {
+    missing_cell,
+    type BrowserVariable,
+    type Column,
+    type PageCell,
+} from './dta-source.js';
 import {
     build_sort_column,
     classify_sort_kind,
@@ -25,19 +31,20 @@ import {
     type FilterColumn,
 } from './filter.js';
 import { compute_histogram } from './histograms.js';
+import { get_cell_display_value } from './webview/grid-model.js';
 import type { FilterState, HistogramBin, SortState } from './types.js';
 
-/** The part of dta-parser 0.6's `DtaFile` a job reads. */
+/** The part of a {@link DtaSource} a job reads. */
 export interface ColumnSource {
     readonly nobs: number;
     readonly nvar: number;
-    readonly variables: VariableInfo[];
+    readonly variables: readonly BrowserVariable[];
     readonly value_label_tables: Map<string, Map<number, string>>;
-    read_columns(
-        col_indices: number[],
-        options?: { signal?: AbortSignal }
-    ): Promise<Map<number, RowCell[]>>;
+    read_columns(col_indices: readonly number[]): Map<number, Column>;
 }
+
+/** An empty column, for a column a read did not return. */
+const NO_COLUMN: Column = { kind: 'string', values: [] };
 
 /**
  * Compute the sort permutation and/or filter survivor set for one
@@ -99,7 +106,7 @@ function is_timestamp_format(format: string): boolean {
 
 function has_value_labels(
     source: ColumnSource,
-    variable: VariableInfo
+    variable: BrowserVariable
 ): boolean {
     return variable.value_label_name !== ''
         && source.value_label_tables.has(variable.value_label_name);
@@ -157,11 +164,7 @@ function filter_columns_needed(
     return the_active.map(my_entry => my_entry.col_index);
 }
 
-async function run_order_job(
-    job: OrderJob,
-    source: ColumnSource,
-    signal?: AbortSignal
-): Promise<OrderResult> {
+function run_order_job(job: OrderJob, source: ColumnSource): OrderResult {
     const the_sort_columns = sort_columns_needed(source, job.sort);
     const the_filter_columns = filter_columns_needed(source, job.filter);
     const the_needed = [
@@ -171,11 +174,8 @@ async function run_order_job(
         ]),
     ];
     const the_values = the_needed.length > 0
-        ? await source.read_columns(
-            the_needed,
-            signal ? { signal } : undefined
-        )
-        : new Map<number, RowCell[]>();
+        ? source.read_columns(the_needed)
+        : new Map<number, Column>();
 
     let my_permutation: Uint32Array | null = null;
     if (the_sort_columns && job.sort) {
@@ -189,7 +189,7 @@ async function run_order_job(
                 has_value_labels: has_value_labels(source, my_var),
             });
             the_columns.push(build_sort_column(
-                the_values.get(my_key.col_index) ?? [],
+                the_values.get(my_key.col_index) ?? NO_COLUMN,
                 my_kind,
                 source.value_label_tables.get(my_var.value_label_name),
                 job.sort.labels_on_when_sorted
@@ -209,7 +209,7 @@ async function run_order_job(
         for (const my_col_index of new Set(the_filter_columns)) {
             const my_var = source.variables[my_col_index];
             the_columns.set(my_col_index, {
-                values: the_values.get(my_col_index) ?? [],
+                column: the_values.get(my_col_index) ?? NO_COLUMN,
                 is_timestamp: is_timestamp_format(my_var.format),
             });
         }
@@ -227,11 +227,10 @@ async function run_order_job(
     };
 }
 
-async function run_histogram_job(
+function run_histogram_job(
     job: HistogramJob,
-    source: ColumnSource,
-    signal?: AbortSignal
-): Promise<HistogramResult> {
+    source: ColumnSource
+): HistogramResult {
     if (
         job.col_index < 0
         || job.col_index >= source.nvar
@@ -239,77 +238,69 @@ async function run_histogram_job(
     ) {
         return { kind: 'histogram', bins: [] };
     }
-    const the_columns = await source.read_columns(
-        [job.col_index],
-        signal ? { signal } : undefined
-    );
+    const my_column = source.read_columns([job.col_index])
+        .get(job.col_index);
     const the_numbers: number[] = [];
-    for (const my_value of the_columns.get(job.col_index) ?? []) {
-        // Missing cells are MissingValue objects; only finite doubles
-        // enter the brush distribution.
-        if (typeof my_value === 'number') the_numbers.push(my_value);
+    if (my_column?.kind === 'number') {
+        // Only present values enter the brush distribution.
+        for (let i = 0; i < my_column.values.length; i++) {
+            if (my_column.missing[i] === 0) {
+                the_numbers.push(my_column.values[i]);
+            }
+        }
     }
     return { kind: 'histogram', bins: compute_histogram(the_numbers) };
 }
 
-async function run_copy_job(
-    job: CopyJob,
-    source: ColumnSource,
-    signal?: AbortSignal
-): Promise<CopyResult> {
+/** Row `i` of a whole column, as a page cell. */
+function column_cell(column: Column, i: number): PageCell {
+    if (column.kind === 'string') return column.values[i];
+    const my_code = column.missing[i];
+    return my_code === 0 ? column.values[i] : missing_cell(my_code);
+}
+
+function run_copy_job(job: CopyJob, source: ColumnSource): CopyResult {
     const my_variable = source.variables[job.col_index];
     if (!my_variable) return { kind: 'copy', text: '' };
     const my_table = source.value_label_tables.get(
         my_variable.value_label_name
     );
-    const display_for = (raw: RowCell): string => {
-        const my_cell = build_cell_value(raw, my_variable, my_table);
-        if (my_cell.missing_type) {
-            return (job.show_labels && my_cell.label_display)
-                ? my_cell.label_display
-                : my_cell.missing_type;
-        }
-        if (job.show_labels && my_cell.label_display) {
-            return my_cell.label_display;
-        }
-        return job.show_formats
-            ? my_cell.formatted_display
-            : my_cell.raw_display;
-    };
-
-    const the_columns = await source.read_columns(
-        [job.col_index],
-        signal ? { signal } : undefined
+    // Each cell as the grid shows it in the chosen mode.
+    const display_for = (raw: PageCell): string => get_cell_display_value(
+        build_cell_value(raw, my_variable, my_table),
+        job.show_labels,
+        job.show_formats
     );
-    const the_column = the_columns.get(job.col_index) ?? [];
+
+    const my_column = source.read_columns([job.col_index])
+        .get(job.col_index) ?? NO_COLUMN;
     const the_lines: string[] = [my_variable.name];
     if (job.order) {
         // Display (filtered + sorted) order, pinned when the user
         // clicked Copy, so the clipboard matches what was on screen.
         for (let i = 0; i < job.order.length; i++) {
-            the_lines.push(display_for(the_column[job.order[i]]));
+            the_lines.push(display_for(column_cell(my_column, job.order[i])));
         }
     } else {
-        for (let i = 0; i < the_column.length; i++) {
-            the_lines.push(display_for(the_column[i]));
+        for (let i = 0; i < my_column.values.length; i++) {
+            the_lines.push(display_for(column_cell(my_column, i)));
         }
     }
     return { kind: 'copy', text: the_lines.join('\n') };
 }
 
-/** Run one job against `source`. Rejects with the reader's AbortError
- *  when `signal` aborts during a column read. */
+/** Run one job against `source`, synchronously (dta-parser 1.x reads
+ *  synchronously; a job is stopped by terminating its worker). */
 export function run_compute_job(
     job: ComputeJob,
-    source: ColumnSource,
-    signal?: AbortSignal
-): Promise<ComputeResult> {
+    source: ColumnSource
+): ComputeResult {
     switch (job.kind) {
         case 'order':
-            return run_order_job(job, source, signal);
+            return run_order_job(job, source);
         case 'histogram':
-            return run_histogram_job(job, source, signal);
+            return run_histogram_job(job, source);
         case 'copy':
-            return run_copy_job(job, source, signal);
+            return run_copy_job(job, source);
     }
 }

@@ -1,8 +1,8 @@
 /**
  * Sort engine for the data browser (pure; no I/O).
  *
- * `build_sort_column` turns one whole-column read (`RowCell[]`) plus its
- * variable metadata into a {@link SortColumn}; `compute_permutation`
+ * `build_sort_column` turns one whole-column read (a typed `Column`) plus
+ * its variable metadata into a {@link SortColumn}; `compute_permutation`
  * lexicographically orders rows across one or more columns into a
  * `Uint32Array` permutation over original row indices.
  *
@@ -17,10 +17,7 @@
  *   - **Format independence**: display format never affects order.
  */
 
-import {
-    is_missing_value_object,
-    type RowCell,
-} from '@jbearak/dta-parser';
+import type { Column } from './dta-source.js';
 
 export type SortKind = 'numeric' | 'labelledNumeric' | 'date' | 'string';
 
@@ -72,36 +69,45 @@ export function classify_sort_kind(variable: {
  * (or no `value_label_table`) sorts exactly like a `numeric` column.
  */
 export function build_sort_column(
-    values: readonly RowCell[],
+    column: Column,
     kind: SortKind,
     value_label_table: Map<number, string> | undefined,
     labels_on: boolean
 ): SortColumn {
-    const my_count = values.length;
-    const my_missing = new Uint8Array(my_count);
-
     const use_labels =
         kind === 'labelledNumeric'
         && labels_on
         && value_label_table !== undefined;
 
-    if (kind === 'string' || use_labels) {
+    if (column.kind === 'string') {
+        // Strings are never missing; a binary strL sorts as "".
+        const the_text = column.values.map(
+            my_value => typeof my_value === 'string' ? my_value : ''
+        );
+        return {
+            missing: new Uint8Array(the_text.length),
+            compare: (a, b) => COLLATOR.compare(the_text[a], the_text[b]),
+        };
+    }
+
+    const my_count = column.values.length;
+    const my_missing = new Uint8Array(my_count);
+    for (let i = 0; i < my_count; i++) {
+        my_missing[i] = column.missing[i] !== 0 ? 1 : 0;
+    }
+
+    if (use_labels) {
         const the_display: string[] = new Array(my_count);
         for (let i = 0; i < my_count; i++) {
-            const my_value = values[i];
-            if (is_missing_value_object(my_value)) {
-                my_missing[i] = 1;
+            if (my_missing[i]) {
                 the_display[i] = '';
                 continue;
             }
-            if (use_labels && typeof my_value === 'number') {
-                const my_label = value_label_table!.get(my_value);
-                the_display[i] = my_label !== undefined
-                    ? my_label
-                    : String(my_value);
-            } else {
-                the_display[i] = String(my_value);
-            }
+            const my_value = column.values[i];
+            const my_label = value_label_table!.get(my_value);
+            the_display[i] = my_label !== undefined
+                ? my_label
+                : String(my_value);
         }
         return {
             missing: my_missing,
@@ -110,20 +116,9 @@ export function build_sort_column(
         };
     }
 
-    // numeric / date / labelledNumeric-by-code
-    const the_values = new Float64Array(my_count);
-    for (let i = 0; i < my_count; i++) {
-        const my_value = values[i];
-        if (
-            is_missing_value_object(my_value)
-            || typeof my_value !== 'number'
-        ) {
-            my_missing[i] = 1;
-            the_values[i] = 0;
-        } else {
-            the_values[i] = my_value;
-        }
-    }
+    // numeric / date / labelledNumeric-by-code; missing rows are NaN in
+    // `values` but never reach `compare`.
+    const the_values = column.values;
     return {
         missing: my_missing,
         compare: (a, b) => Math.sign(the_values[a] - the_values[b]),

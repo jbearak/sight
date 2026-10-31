@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'bun:test';
-import { make_missing_value, type RowCell } from '@jbearak/dta-parser';
+import type { Cell } from '../../../client/src/data-browser/dta-source';
+import { column_of, miss } from './cells';
 import {
     build_sort_column,
     classify_sort_kind,
@@ -7,13 +8,13 @@ import {
 } from '../../../client/src/data-browser/sort';
 
 const perm = (
-    values: RowCell[],
+    values: Cell[],
     kind: Parameters<typeof build_sort_column>[1],
     direction: 1 | -1,
     labels_on = true,
     table?: Map<number, string>
 ) => {
-    const col = build_sort_column(values, kind, table, labels_on);
+    const col = build_sort_column(column_of(values), kind, table, labels_on);
     return [...compute_permutation([col], [direction], values.length)];
 };
 
@@ -57,26 +58,26 @@ describe('data-browser compute_permutation', () => {
     });
 
     it('sorts numeric ascending, missing last', () => {
-        const mv = make_missing_value('.');
+        const mv = miss('.');
         expect(perm([3, mv, 1], 'numeric', 1)).toEqual([2, 0, 1]);
     });
 
     it('keeps missing last in descending too', () => {
-        const mv = make_missing_value('.');
+        const mv = miss('.');
         expect(perm([3, mv, 1], 'numeric', -1)).toEqual([0, 2, 1]);
     });
 
     it('breaks ties with a secondary key (stable, lexicographic)', () => {
         // primary: [1,1,0]; secondary: [9,2,5]
-        const c1 = build_sort_column([1, 1, 0], 'numeric', undefined, true);
-        const c2 = build_sort_column([9, 2, 5], 'numeric', undefined, true);
+        const c1 = build_sort_column(column_of([1, 1, 0]), 'numeric', undefined, true);
+        const c2 = build_sort_column(column_of([9, 2, 5]), 'numeric', undefined, true);
         // asc primary then asc secondary: row2(0,5), row1(1,2), row0(1,9)
         expect([...compute_permutation([c1, c2], [1, 1], 3)])
             .toEqual([2, 1, 0]);
     });
 
     it('is stable: equal rows keep input order', () => {
-        const col = build_sort_column([5, 5, 5], 'numeric', undefined, true);
+        const col = build_sort_column(column_of([5, 5, 5]), 'numeric', undefined, true);
         expect([...compute_permutation([col], [1], 3)]).toEqual([0, 1, 2]);
     });
 

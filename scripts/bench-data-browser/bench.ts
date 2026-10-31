@@ -241,10 +241,13 @@ function open_panel(
         my_null_store as unknown as Args[5],
         make_store(() => stores.sort) as unknown as Args[6],
         make_store(() => stores.filter) as unknown as Args[7],
-        // run.ts sets this unless --in-process.
-        process.env.SIGHT_BENCH_WORKER
-            ? { compute_worker_path: process.env.SIGHT_BENCH_WORKER }
-            : {}
+        // run.ts sets these unless --in-process.
+        {
+            ...(process.env.SIGHT_BENCH_WORKER
+                && { compute_worker_path: process.env.SIGHT_BENCH_WORKER }),
+            ...(process.env.SIGHT_BENCH_READER
+                && { reader_worker_path: process.env.SIGHT_BENCH_READER }),
+        }
     );
 }
 
@@ -265,8 +268,10 @@ async function main(): Promise<void> {
     open_panel(webview, my_path, my_stores);
     if (my_scenario.kind === 'restore') {
         // Resolve the columns from the file's header before `ready`.
-        const { DtaFile } = await import('@jbearak/dta-parser/node');
-        const my_header = await DtaFile.open(my_path);
+        const { DtaSource } = await import(
+            '../../client/src/data-browser/dta-source.js'
+        );
+        const my_header = DtaSource.open(my_path);
         const index_of = (name: string): number =>
             my_header.variables.findIndex(my_v => my_v.name === name);
         my_stores.sort = {
@@ -293,10 +298,21 @@ async function main(): Promise<void> {
     const my_meta = my_meta_posted.msg as MetadataMessage;
     const my_page_size = my_meta.page_size ?? 200;
     const my_first = await request_rows(webview, 0, my_page_size);
+    // The first page that shows strLs may come with them pending, while
+    // the reader builds the strL index; they follow in a rowCells.
+    const my_first_id = (my_first.msg as { request_id?: string }).request_id;
+    const my_has_pending = my_first.msg.type === 'rowData'
+        && my_first.msg.rows.some(my_row => my_row.some(my_c => my_c.pending));
+    const my_rest = my_has_pending
+        ? await webview.wait_for(
+            my_m => my_m.type === 'rowCells' && my_m.request_id === my_first_id
+        )
+        : null;
     const my_open_loop = my_monitor.stop();
     my_result.open = {
         metadata_ms: round(my_meta_posted.at - my_t0),
         first_rows_ms: round(my_first.at - my_t0),
+        ...(my_rest && { strl_cells_ms: round(my_rest.at - my_t0) }),
         metadata_json_bytes: my_meta_posted.json_bytes,
         first_page_json_bytes: my_first.json_bytes,
         page_rows: my_page_size,

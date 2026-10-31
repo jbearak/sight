@@ -2,7 +2,6 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { DtaFile } from '@jbearak/dta-parser/node';
 import { make_fixture } from '../../../scripts/bench-data-browser/make-fixtures';
 import {
     ComputeDeadlineError,
@@ -11,6 +10,7 @@ import {
     WorkerComputeRunner,
 } from '../../../client/src/data-browser/compute-runner';
 import { file_identity } from '../../../client/src/data-browser/compute-protocol';
+import { DtaSource } from '../../../client/src/data-browser/dta-source';
 import type {
     ComputeJob,
     OrderResult,
@@ -54,21 +54,25 @@ const SORT_INCOME: ComputeJob = {
 
 let the_dir = '';
 let the_path = '';
+// The descriptor every worker reads, as the panel opens it.
+let the_fd = -1;
 
 beforeAll(() => {
     the_dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sight-compute-'));
     the_path = make_fixture(the_dir, 'small', 1);
+    the_fd = fs.openSync(the_path, 'r');
 });
 
 afterAll(() => {
+    fs.closeSync(the_fd);
     fs.rmSync(the_dir, { recursive: true, force: true });
 });
 
 function make_runner(deadline_ms?: number): WorkerComputeRunner {
     return new WorkerComputeRunner({
         script_path: WORKER_PATH,
-        data_path: the_path,
-        identity: file_identity(fs.statSync(the_path)),
+        fd: the_fd,
+        identity: file_identity(fs.fstatSync(the_fd)),
         deadline_ms,
     });
 }
@@ -83,8 +87,31 @@ async function rejection(promise: Promise<unknown>): Promise<unknown> {
 }
 
 describe('WorkerComputeRunner', () => {
+    it('reads the descriptor, so an unlinked file still computes', async () => {
+        // vview temp files are unlinked right after the panel opens them.
+        const my_copy = path.join(the_dir, 'unlinked.dta');
+        fs.copyFileSync(the_path, my_copy);
+        const my_fd = fs.openSync(my_copy, 'r');
+        fs.unlinkSync(my_copy);
+        try {
+            const my_runner = new WorkerComputeRunner({
+                script_path: WORKER_PATH,
+                fd: my_fd,
+                identity: file_identity(fs.fstatSync(my_fd)),
+            });
+            const my_result = await my_runner.run(
+                SORT_INCOME,
+                'transform'
+            ) as OrderResult;
+            expect(my_result.permutation?.length).toBeGreaterThan(0);
+            await my_runner.dispose();
+        } finally {
+            fs.closeSync(my_fd);
+        }
+    });
+
     it('computes the same order in a worker as in-process', async () => {
-        const my_file = await DtaFile.open(the_path);
+        const my_file = DtaSource.open(the_fd);
         try {
             expect(my_file.variables[3].name).toBe('income');
             expect(my_file.variables[8].name).toBe('district');
@@ -141,9 +168,9 @@ describe('WorkerComputeRunner', () => {
     it('refuses a file that no longer matches the open one', async () => {
         const my_runner = new WorkerComputeRunner({
             script_path: WORKER_PATH,
-            data_path: the_path,
+            fd: the_fd,
             identity: {
-                ...file_identity(fs.statSync(the_path)),
+                ...file_identity(fs.fstatSync(the_fd)),
                 size: 1,
             },
         });
@@ -159,9 +186,9 @@ describe('WorkerComputeRunner', () => {
         let my_spawns = 0;
         const my_runner = new WorkerComputeRunner({
             script_path: WORKER_PATH,
-            data_path: the_path,
-            identity: file_identity(fs.statSync(the_path)),
-            before_spawn: () => { my_spawns++; },
+            fd: the_fd,
+            identity: file_identity(fs.fstatSync(the_fd)),
+            on_spawn: () => { my_spawns++; },
         });
         const my_aborts = [0, 1, 2].map(() => new AbortController());
         const the_jobs = my_aborts.map(my_abort => my_runner.run(
@@ -196,7 +223,8 @@ describe('WorkerComputeRunner', () => {
             'transform'
         ).catch(my_err => my_err));
         await new Promise(resolve => setTimeout(resolve, 100));
-        await my_runner.dispose();
+        // True: every worker exited, so the descriptor may be closed.
+        expect(await my_runner.dispose()).toBe(true);
         for (const my_err of await Promise.all(the_jobs)) {
             expect((my_err as Error).name).toBe('AbortError');
         }

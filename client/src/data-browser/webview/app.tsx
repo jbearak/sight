@@ -7,12 +7,16 @@ import {
 } from 'react';
 import {
     DataEditor,
+    type CellArray,
     type DataEditorRef,
     type DrawHeaderCallback,
+    type GetCellsThunk,
     GridCellKind,
+    type GridCell,
     type GridSelection,
     type GridMouseEventArgs,
     type Item,
+    type Rectangle,
     type Theme,
 } from '@glideapps/glide-data-grid';
 import '@glideapps/glide-data-grid/dist/index.css';
@@ -283,6 +287,8 @@ export function App(): ReactElement {
         restore_cancelling,
         cancel_restore,
         cancel_compute,
+        request_full_text,
+        file_changed,
     } = use_row_loader();
     const [show_labels, set_show_labels] = useState(true);
     const [show_formats, set_show_formats] = useState(true);
@@ -1092,6 +1098,103 @@ export function App(): ReactElement {
         persist_hidden_columns(next_hidden);
     };
 
+    const get_cell_content = ([col, row]: Item): GridCell => {
+        const my_row = get_row(row);
+        const my_var_index =
+            visible_col_map[col];
+        const my_cell =
+            my_row?.[my_var_index];
+        const my_display = my_cell
+            ? get_cell_display_value(
+                my_cell,
+                show_labels,
+                show_formats,
+                metadata?.variables[my_var_index]?.value_labels
+            )
+            : '';
+
+        const my_missing_style =
+            metadata?.missing_value_style
+            ?? 'foreground';
+        const my_theme_override =
+            my_cell?.missing_type
+            && my_missing_style !== 'none'
+                ? my_missing_style === 'background'
+                    ? missing_bg
+                    : missing_fg
+                : undefined;
+
+        return {
+            kind: GridCellKind.Text,
+            data: my_display,
+            displayData: my_display,
+            readonly: true,
+            allowOverlay: true,
+            ...(my_theme_override && {
+                themeOverride: my_theme_override,
+            }),
+        };
+    };
+
+    /**
+     * The cells a copy takes: what the grid shows, except that a long
+     * strL shown as a preview is copied whole, fetched from the host.
+     */
+    const get_cells_for_selection = (
+        rect: Rectangle
+    ): GetCellsThunk | CellArray => {
+        const my_rows = nobs_effective ?? metadata?.nobs ?? 0;
+        const the_cells: GridCell[][] = [];
+        const the_full: {
+            y: number;
+            x: number;
+            address: { row: number; col: number };
+        }[] = [];
+        for (let y = 0; y < rect.height; y++) {
+            const my_row_cells: GridCell[] = [];
+            const my_row = rect.y + y;
+            for (let x = 0; x < rect.width; x++) {
+                const my_col = rect.x + x;
+                if (my_col < 0 || my_row >= my_rows) {
+                    my_row_cells.push({
+                        kind: GridCellKind.Loading,
+                        allowOverlay: false,
+                    });
+                    continue;
+                }
+                my_row_cells.push(get_cell_content([my_col, my_row]));
+                const my_var_index = visible_col_map[my_col];
+                const my_value = get_row(my_row)?.[my_var_index];
+                if (my_value?.truncated && my_value.file_row !== undefined) {
+                    the_full.push({
+                        y,
+                        x,
+                        address: { row: my_value.file_row, col: my_var_index },
+                    });
+                }
+            }
+            the_cells.push(my_row_cells);
+        }
+        if (the_full.length === 0) return the_cells;
+        return async () => {
+            const the_texts = await request_full_text(
+                the_full.map(my_full => my_full.address)
+            );
+            // Unreadable: copy the previews rather than nothing.
+            if (!the_texts) return the_cells;
+            the_full.forEach((my_full, i) => {
+                const my_cell = the_cells[my_full.y][my_full.x];
+                if (my_cell.kind === GridCellKind.Text) {
+                    the_cells[my_full.y][my_full.x] = {
+                        ...my_cell,
+                        copyData: the_texts[i],
+                    };
+                }
+            });
+            return the_cells;
+        };
+    };
+
     return (
         <div className="browser-root">
             <div
@@ -1216,6 +1319,14 @@ export function App(): ReactElement {
             {subset_text && (
                 <div className="toolbar-subset-row">{subset_text}</div>
             )}
+            {file_changed && (
+                <div className="toolbar-restore" role="alert">
+                    <span>
+                        This file changed on disk. Reopen it to keep
+                        browsing.
+                    </span>
+                </div>
+            )}
             <div className="grid-shell" ref={grid_shell_ref}>
                 <DataEditor
                     ref={data_editor_ref}
@@ -1228,7 +1339,7 @@ export function App(): ReactElement {
                     headerHeight={HEADER_HEIGHT_PX}
                     rowMarkers="number"
                     columnSelect="multi"
-                    getCellsForSelection={true}
+                    getCellsForSelection={get_cells_for_selection}
                     gridSelection={grid_selection}
                     smoothScrollX={true}
                     smoothScrollY={true}
@@ -1292,42 +1403,7 @@ export function App(): ReactElement {
                             my_range.y + my_range.height + 10
                         );
                     }}
-                    getCellContent={([col, row]: Item) => {
-                        const my_row = get_row(row);
-                        const my_var_index =
-                            visible_col_map[col];
-                        const my_cell =
-                            my_row?.[my_var_index];
-                        const my_display = my_cell
-                            ? get_cell_display_value(
-                                my_cell,
-                                show_labels,
-                                show_formats
-                            )
-                            : '';
-
-                        const my_missing_style =
-                            metadata?.missing_value_style
-                            ?? 'foreground';
-                        const my_theme_override =
-                            my_cell?.missing_type
-                            && my_missing_style !== 'none'
-                                ? my_missing_style === 'background'
-                                    ? missing_bg
-                                    : missing_fg
-                                : undefined;
-
-                        return {
-                            kind: GridCellKind.Text,
-                            data: my_display,
-                            displayData: my_display,
-                            readonly: true,
-                            allowOverlay: true,
-                            ...(my_theme_override && {
-                                themeOverride: my_theme_override,
-                            }),
-                        };
-                    }}
+                    getCellContent={get_cell_content}
                 />
                 {filter_editor && metadata && (() => {
                     const my_col =

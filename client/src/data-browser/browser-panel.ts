@@ -2,26 +2,20 @@
  * Data Browser Panel
  *
  * Manages a single webview panel for browsing a Stata .dta
- * dataset.  Handles file opening, row requests from the
- * webview, cell value formatting, and temp file cleanup.
+ * dataset. Opens the file once, on a descriptor every worker thread
+ * reads; reads metadata on the host and nothing else: pages come from
+ * the row reader thread (row-reader.ts) and full-column work from step
+ * workers (compute-runner.ts). Owns sort/filter state, the order shown
+ * and temp file cleanup.
  */
 
 import * as vscode from 'vscode';
 import * as fs from 'fs';
 import * as path from 'path';
-import {
-    type VariableInfo,
-    type Row,
-    type RowCell,
-} from '@jbearak/dta-parser';
-import { DtaFile } from '@jbearak/dta-parser/node';
-import { build_cell_value } from './cell-format.js';
+import { DtaSource, type BrowserVariable, type PageRows } from './dta-source.js';
 import { classify_sort_kind } from './sort.js';
-import {
-    compose_effective,
-    group_contiguous_runs,
-    permuted_window_indices,
-} from './permuted-rows.js';
+import { labels_shipped } from './label-keys.js';
+import { compose_effective } from './permuted-rows.js';
 import {
     can_compute_histogram,
     type ComputeJob,
@@ -36,8 +30,14 @@ import {
     type ComputePool,
     type ComputeRunner,
 } from './compute-runner.js';
-import { file_identity } from './compute-protocol.js';
-import { BrowseLease } from './browse-lease.js';
+import { file_identity, type FileIdentity } from './compute-protocol.js';
+import {
+    InProcessPageReader,
+    WorkerPageReader,
+    type CellPatch,
+    type PageRead,
+    type PageReader,
+} from './row-reader.js';
 import {
     build_dataset_key,
     build_dataset_key_aliases,
@@ -49,7 +49,6 @@ import type {
 import type { DataBrowserSortStateStore } from './sort-state.js';
 import type { DataBrowserFilterStateStore } from './filter-state.js';
 import { should_unlink_data_browser_path } from './opening.js';
-import { RowCache } from './row-cache.js';
 import { page_size_for_column_count } from './page-size.js';
 import { schema_hash } from './schema-hash.js';
 import {
@@ -61,7 +60,6 @@ import type {
     WebviewMessage,
     RowResponse,
     MetadataMessage,
-    CellValue,
     VviewSidecar,
     MissingValueStyle,
     SetSortMessage,
@@ -81,6 +79,10 @@ import type {
     CancelRestoreMessage,
     ComputeCancelledMessage,
     RowsStaleMessage,
+    FullTextMessage,
+    FileChangedMessage,
+    RequestFullTextMessage,
+    RowCellsMessage,
 } from './types.js';
 import { EMPTY_SORT, EMPTY_FILTER } from './types.js';
 
@@ -95,44 +97,56 @@ function is_abort_error(err: unknown): boolean {
         && (err as { name?: unknown }).name === 'AbortError';
 }
 
-const MAX_CACHED_PAGES = 10;
-// Upper bound on value-label entries shipped per column to the webview.
-const MAX_SHIPPED_VALUE_LABELS = 10_000;
-
-/** Options a host passes when it can run step workers. */
+/** Options a host passes when it can run worker threads. */
 export interface DataBrowserPanelOptions {
     /**
      * Absolute path of the bundled compute worker
      * (dist/data-browser-worker.js). Without it, sorts, filters,
-     * histograms and copies run in-process on the host, as before
-     * Phase 1a.
+     * histograms and copies run in-process on the host.
      */
     compute_worker_path?: string;
-    /** Diagnostic log for lease and worker problems. */
+    /**
+     * Absolute path of the bundled row reader
+     * (dist/data-browser-reader.js). Without it, pages are read on the
+     * host.
+     */
+    reader_worker_path?: string;
+    /** Diagnostic log for worker and descriptor problems. */
     log?: (message: string) => void;
 }
 
-/** Bundled step-worker entry point, beside the extension bundle. */
+/** Bundled worker entry points, beside the extension bundle. */
 const COMPUTE_WORKER_BUNDLE = path.join('dist', 'data-browser-worker.js');
+const READER_WORKER_BUNDLE = path.join('dist', 'data-browser-reader.js');
 
 /**
- * Panel options for an installed extension: step workers when the
- * worker bundle is present (it is in every packaged build; a source
- * checkout that has not run `bundle` falls back to in-process jobs).
+ * Panel options for an installed extension: worker threads when their
+ * bundles are present (they are in every packaged build; a source
+ * checkout that has not run `bundle` falls back to in-process reads).
  */
 export function panel_options_for_extension(
     extension_path: string
 ): DataBrowserPanelOptions {
-    const my_worker_path = path.join(extension_path, COMPUTE_WORKER_BUNDLE);
-    return fs.existsSync(my_worker_path)
-        ? { compute_worker_path: my_worker_path }
-        : {};
+    const my_options: DataBrowserPanelOptions = {};
+    const my_compute = path.join(extension_path, COMPUTE_WORKER_BUNDLE);
+    if (fs.existsSync(my_compute)) my_options.compute_worker_path = my_compute;
+    const my_reader = path.join(extension_path, READER_WORKER_BUNDLE);
+    if (fs.existsSync(my_reader)) my_options.reader_worker_path = my_reader;
+    return my_options;
 }
 
 export class DataBrowserPanel implements vscode.Disposable {
     private panel: vscode.WebviewPanel;
-    private dta_file: DtaFile | null = null;
-    private row_cache = new RowCache(MAX_CACHED_PAGES);
+    // Metadata of the open file (data reads go through `reader`).
+    private dta_file: DtaSource | null = null;
+    // The descriptor every thread reads, and its identity at open; open
+    // until every thread reading it has exited.
+    private fd: number | null = null;
+    private identity: FileIdentity | null = null;
+    private reader: PageReader | null = null;
+    // Set once a read finds the file rewritten in place: nothing more
+    // is served from it.
+    private file_changed = false;
     private disposables: vscode.Disposable[] = [];
     private sidecar: VviewSidecar;
     private dta_path: string;
@@ -177,9 +191,6 @@ export class DataBrowserPanel implements vscode.Disposable {
     // a worker bundle was given, else in-process (see compute_runner()).
     private compute: ComputeRunner | null = null;
     private readonly options: DataBrowserPanelOptions;
-    // Keeps another window's startup sweep off this panel's vview temp
-    // file while step workers may still reopen it (browse-lease.ts).
-    private lease: BrowseLease | null = null;
     // The running user sort/filter and how to stop it. A newer request
     // of the same kind supersedes it; Cancel stops it and every queued
     // action (cancel_seq, read by enqueue_user_action).
@@ -246,33 +257,44 @@ export class DataBrowserPanel implements vscode.Disposable {
         this.panel.reveal(column);
     }
 
-    async refresh(
+    // Refreshes run one at a time: each releases the file the previous
+    // one opened before opening its own.
+    private refresh_chain: Promise<void> = Promise.resolve();
+
+    refresh(sidecar: VviewSidecar, dta_path: string): Promise<void> {
+        const my_next = this.refresh_chain
+            .catch(() => {})
+            .then(() => this.refresh_now(sidecar, dta_path));
+        this.refresh_chain = my_next;
+        return my_next;
+    }
+
+    private async refresh_now(
         sidecar: VviewSidecar,
         dta_path: string
     ): Promise<void> {
         this.generation++;
-        // Abort any in-flight background restore BEFORE closing the file,
-        // so its chunked reads bail on the abort signal instead of racing
-        // a closed fd (the generation bump above also makes the aborted
-        // restore discard its result without forgetting prefs).
+        // Abort any in-flight background restore BEFORE closing the file
+        // (the generation bump above also makes the aborted restore
+        // discard its result without forgetting prefs).
         this.abort_and_clear_restore();
         this.stop_running_actions();
         const my_old_path = this.dta_path;
-        // Stop the old file's step workers before closing and deleting
-        // it, so none reads a file that is going away.
-        await this.release_compute();
-        // The panel may have closed while the workers stopped; dispose
-        // cleaned up the old file, so don't reopen, and delete the
-        // incoming vview temp file no panel will now own.
+        const my_kept = this.temp_file_kept;
+        // Stop the old file's threads, then close its descriptor, before
+        // deleting it, so none reads a file that is going away.
+        this.dta_file?.close();
+        this.dta_file = null;
+        await this.release_file();
+        // The panel may have closed meanwhile; dispose cleaned up the
+        // old file, so don't reopen, and delete the incoming vview temp
+        // file no panel will now own.
         if (this.disposed) {
             if (dta_path !== my_old_path) {
                 this.unlink_kept_temp_file(dta_path);
             }
             return;
         }
-        this.dta_file?.close();
-        this.dta_file = null;
-        this.row_cache.clear();
         this.sort = EMPTY_SORT;
         this.permutation = null;
         this.sort_restored = false;
@@ -281,14 +303,16 @@ export class DataBrowserPanel implements vscode.Disposable {
         this.filter_restored = false;
         this.effective_perm = null;
         this.histogram_cache.clear();
+        this.file_changed = false;
+        this.page_error_reported = false;
         // (The in-flight restore was already aborted above, before the
         // file was closed; a fresh restore begins, if applicable, when
         // initialize() re-sends metadata.)
 
-        // Clean up the old temp file before overwriting the path. It
-        // was kept on disk while open if step workers could reopen it
-        // (and always on Windows, which cannot unlink an open file).
-        if (this.temp_file_kept && my_old_path !== dta_path) {
+        // Clean up the old temp file before overwriting the path. It is
+        // kept on disk while open only on Windows, which cannot unlink
+        // an open file.
+        if (my_kept && my_old_path !== dta_path) {
             this.unlink_kept_temp_file(my_old_path);
         }
         this.temp_file_kept = false;
@@ -319,11 +343,10 @@ export class DataBrowserPanel implements vscode.Disposable {
         if (this.disposed) return;
         this.disposed = true;
 
-        // Under paint-first a restore can still be reading in the
-        // background when the panel closes. Bump the generation and abort
-        // its reads BEFORE closing the file, so the awaited restore bails
-        // (its `this.disposed` / generation checks) instead of reading a
-        // closed fd and surfacing an error dialog on a dead panel.
+        // Under paint-first a restore can still be running when the
+        // panel closes. Bump the generation and abort it, so the awaited
+        // restore bails (its `this.disposed` / generation checks) instead
+        // of surfacing an error dialog on a dead panel.
         this.generation++;
         this.abort_and_clear_restore();
         this.stop_running_actions();
@@ -331,13 +354,11 @@ export class DataBrowserPanel implements vscode.Disposable {
         this.dta_file?.close();
         this.dta_file = null;
 
-        // Stop the step workers, then delete the temp .dta file if it
-        // was kept open for them (or on Windows, which cannot unlink an
-        // open file). Other platforms without workers unlinked it in
-        // initialize().
+        // Stop the threads and close the descriptor, then delete the
+        // temp .dta file if it was kept (Windows).
         const my_path = this.dta_path;
         const my_kept = this.temp_file_kept;
-        void this.release_compute().then(() => {
+        void this.release_file().then(() => {
             if (my_kept) this.unlink_kept_temp_file(my_path);
         });
 
@@ -354,33 +375,34 @@ export class DataBrowserPanel implements vscode.Disposable {
     // -------------------------------------------------------
 
     private async initialize(): Promise<void> {
+        let my_fd: number | null = null;
         try {
-            const my_file = await DtaFile.open(this.dta_path);
+            // One descriptor for the panel's life: the host reads
+            // metadata from it, and every worker thread reads data from
+            // it, so all of them read the same file whatever happens to
+            // the path.
+            my_fd = fs.openSync(this.dta_path, 'r');
+            const my_identity = file_identity(fs.fstatSync(my_fd));
+            const my_source = DtaSource.open(my_fd);
             if (this.disposed) {
                 // Closed while the file was opening: nothing else will
                 // close it or delete a vview temp file.
-                my_file.close();
+                my_source.close();
+                fs.closeSync(my_fd);
                 this.unlink_kept_temp_file(this.dta_path);
                 return;
             }
-            this.dta_file = my_file;
-            this.start_compute();
+            this.dta_file = my_source;
+            this.fd = my_fd;
+            this.identity = my_identity;
+            this.start_threads();
 
-            // A vview temp file stays on disk while step workers may
-            // reopen it by path (dta-parser 0.6 cannot share the
-            // descriptor), protected from the startup sweep by a lease,
-            // and always on Windows, which cannot unlink an open file.
-            // Otherwise unlink it now: the open file handle (held inside
-            // DtaFile) keeps the data readable until close().
+            // A vview temp file is unlinked as soon as it is open: the
+            // descriptor keeps it readable until the panel closes it.
+            // Windows cannot unlink an open file, so there it stays on
+            // disk until close.
             if (should_unlink_data_browser_path(this.dta_path)) {
-                if (this.compute instanceof WorkerComputeRunner) {
-                    this.temp_file_kept = true;
-                    this.lease = new BrowseLease(
-                        this.dta_path,
-                        this.options?.log
-                    );
-                    this.lease.start();
-                } else if (process.platform === 'win32') {
+                if (process.platform === 'win32') {
                     this.temp_file_kept = true;
                 } else {
                     try {
@@ -391,6 +413,13 @@ export class DataBrowserPanel implements vscode.Disposable {
                 }
             }
         } catch (my_err: unknown) {
+            if (my_fd !== null && this.fd !== my_fd) {
+                try {
+                    fs.closeSync(my_fd);
+                } catch {
+                    /* nothing more to release */
+                }
+            }
             // Browse-dir temp files may be gone if another
             // VS Code window already claimed and deleted
             // the .dta file. Silently close the panel
@@ -418,27 +447,42 @@ export class DataBrowserPanel implements vscode.Disposable {
     }
 
     // Whether this panel still owns its vview temp file on disk and must
-    // delete it when it closes or moves to another file.
+    // delete it when it closes or moves to another file (Windows only).
     private temp_file_kept = false;
 
-    /** Start step workers for the open file, when a bundle was given. */
-    private start_compute(): void {
-        const my_worker_path = this.options?.compute_worker_path;
-        if (!my_worker_path) return;
-        let my_identity;
-        try {
-            my_identity = file_identity(fs.statSync(this.dta_path));
-        } catch {
-            // Without an identity a worker could read a different file;
-            // run in-process instead.
-            return;
+    /** Start the row reader and step workers, where bundles exist. */
+    private start_threads(): void {
+        if (this.fd === null || this.identity === null) return;
+        const my_reader_path = this.options?.reader_worker_path;
+        if (my_reader_path) {
+            try {
+                this.reader = new WorkerPageReader({
+                    script_path: my_reader_path,
+                    fd: this.fd,
+                    identity: this.identity,
+                });
+            } catch (my_err) {
+                this.options?.log?.(
+                    `Data browser: reading pages on the host (${my_err})`
+                );
+            }
         }
-        this.compute = new WorkerComputeRunner({
-            script_path: my_worker_path,
-            data_path: this.dta_path,
-            identity: my_identity,
-            before_spawn: () => this.lease?.refresh(),
-        });
+        const my_worker_path = this.options?.compute_worker_path;
+        if (my_worker_path) {
+            this.compute = new WorkerComputeRunner({
+                script_path: my_worker_path,
+                fd: this.fd,
+                identity: this.identity,
+            });
+        }
+    }
+
+    /** Where pages are read: the row reader, or in-process on dta_file. */
+    private page_reader(): PageReader | null {
+        if (this.reader) return this.reader;
+        return this.dta_file
+            ? new InProcessPageReader(this.dta_file)
+            : null;
     }
 
     /** Where jobs run: the step workers, or in-process on dta_file. */
@@ -459,16 +503,51 @@ export class DataBrowserPanel implements vscode.Disposable {
         if (!my_runner) {
             return Promise.reject(new Error('No dataset is open'));
         }
-        return my_runner.run(job, pool, signal);
+        const my_file = this.dta_file;
+        // A step worker that finds the file rewritten stops the panel
+        // reading it, whichever job it was running.
+        return my_runner.run(job, pool, signal).catch((my_err: unknown) => {
+            if (
+                my_err instanceof FileChangedError
+                && this.dta_file === my_file
+            ) {
+                this.mark_file_changed();
+            }
+            throw my_err;
+        });
     }
 
-    /** Stop this file's step workers and its lease. */
-    private async release_compute(): Promise<void> {
+    /**
+     * Stop this file's threads, then close its descriptor. A thread
+     * stuck in a read on a slow disk is abandoned after a bounded wait;
+     * its descriptor is then left open (and logged) rather than closed
+     * under it, and process exit reclaims it.
+     */
+    private async release_file(): Promise<void> {
         const my_compute = this.compute;
+        const my_reader = this.reader;
+        const my_fd = this.fd;
         this.compute = null;
-        this.lease?.stop();
-        this.lease = null;
-        await my_compute?.dispose();
+        this.reader = null;
+        this.fd = null;
+        this.identity = null;
+        const the_stopped = await Promise.all([
+            my_compute?.dispose() ?? true,
+            my_reader?.dispose() ?? true,
+        ]);
+        if (my_fd === null) return;
+        if (the_stopped.every(Boolean)) {
+            try {
+                fs.closeSync(my_fd);
+            } catch {
+                /* already closed */
+            }
+        } else {
+            this.options?.log?.(
+                'Data browser: a worker did not stop; leaving its file '
+                + 'descriptor open'
+            );
+        }
     }
 
     /** Delete a vview temp file this panel kept on disk. */
@@ -552,7 +631,7 @@ export class DataBrowserPanel implements vscode.Disposable {
                     );
 
             const my_variables = this.dta_file.variables.map(
-                (my_v: VariableInfo) => {
+                (my_v: BrowserVariable) => {
                     const my_table =
                         my_v.value_label_name !== ''
                             ? this.dta_file!.value_label_tables.get(
@@ -564,10 +643,7 @@ export class DataBrowserPanel implements vscode.Disposable {
                     // Ship the code->label map for the filter UI, but
                     // bound it so a pathological label set can't bloat
                     // the metadata message.
-                    if (
-                        my_table
-                        && my_table.size <= MAX_SHIPPED_VALUE_LABELS
-                    ) {
+                    if (my_table && labels_shipped(my_table)) {
                         my_value_labels = {};
                         for (const [my_code, my_label] of my_table) {
                             my_value_labels[String(my_code)] =
@@ -709,7 +785,6 @@ export class DataBrowserPanel implements vscode.Disposable {
             // webview's `my_order_changed` gate so the two sides agree.
             if (this.effective_perm !== null) {
                 this.generation++;
-                this.row_cache.clear();
             }
             this.post_restore_settled(my_restore_id);
             my_settled = true;
@@ -823,6 +898,11 @@ export class DataBrowserPanel implements vscode.Disposable {
         };
 
         this.panel.webview.postMessage(my_metadata);
+        // A reloaded webview clears its banner on metadata; restate it.
+        if (this.file_changed) {
+            const my_changed: FileChangedMessage = { type: 'fileChanged' };
+            this.panel.webview.postMessage(my_changed);
+        }
         if (
             this.debug_timing
             && this.debug_timing.metadata_posted_epoch_ms === undefined
@@ -1037,7 +1117,6 @@ export class DataBrowserPanel implements vscode.Disposable {
         // sorted/filtered rows after the user has cancelled.
         this.reset_restored_prefs();
         this.generation++;
-        this.row_cache.clear();
         this.recompute_effective();
         this.post_sort_applied();
         this.post_filter_applied();
@@ -1053,11 +1132,13 @@ export class DataBrowserPanel implements vscode.Disposable {
     ): Promise<void> {
         switch (msg.type) {
             case 'ready':
+                // A refresh releases the old file before opening the new
+                // one; opening here meanwhile would reopen the old path.
+                await this.refresh_chain.catch(() => {});
                 if (!this.dta_file) {
                     await this.initialize();
                 } else {
                     this.generation++;
-                    this.row_cache.clear();
                     // If a webview reload interrupts an in-flight
                     // restore, the bumped generation makes that restore
                     // discard its result — but it already consumed the
@@ -1135,6 +1216,9 @@ export class DataBrowserPanel implements vscode.Disposable {
                         msg.epoch_ms
                     );
                 }
+                break;
+            case 'requestFullText':
+                await this.handle_request_full_text(msg);
                 break;
             case 'copyColumn':
                 await this.handle_copy_column(
@@ -1535,7 +1619,7 @@ export class DataBrowserPanel implements vscode.Disposable {
      */
     private predicate_fits_column(
         predicate: FilterPredicate,
-        variable: VariableInfo
+        variable: BrowserVariable
     ): boolean {
         if (!this.dta_file) return false;
         const my_kind = classify_sort_kind({
@@ -1645,9 +1729,7 @@ export class DataBrowserPanel implements vscode.Disposable {
             return true;
         }
         if (error instanceof FileChangedError) {
-            vscode.window.showWarningMessage(
-                `${error.message}; reopen the dataset to ${what} it.`
-            );
+            // run_job already showed the banner and the message.
             this.post_compute_cancelled();
             return true;
         }
@@ -1655,13 +1737,12 @@ export class DataBrowserPanel implements vscode.Disposable {
     }
 
     /**
-     * A new row order was committed: drop cached pages and bump the
-     * generation so page reads still in flight under the old order are
-     * discarded (each answered with `rowsStale`).
+     * A new row order was committed: bump the generation so page reads
+     * still in flight under the old order are discarded (each answered
+     * with `rowsStale`).
      */
     private commit_order_change(): void {
         this.generation++;
-        this.row_cache.clear();
     }
 
     /**
@@ -1793,91 +1874,155 @@ export class DataBrowserPanel implements vscode.Disposable {
     private async handle_row_request(
         request: WebviewMessage & { type: 'requestRows' }
     ): Promise<void> {
-        if (!this.dta_file) return;
+        const my_reader = this.page_reader();
+        if (!my_reader || this.file_changed) return;
 
-        // Check cache first. Cached pages already reflect the active
-        // permutation (the cache is cleared whenever sort changes).
-        const my_cached = this.row_cache.get_page(
-            request.start
-        );
-        if (my_cached) {
-            const my_response: RowResponse = {
-                type: 'rowData',
-                start: request.start,
-                rows: this.format_rows(
-                    my_cached,
-                    request.col_start
+        // Map the visible window to file rows. The effective permutation
+        // folds in any active sort and filter; slice() copies the window
+        // so only it, not the whole order, goes to the reader thread.
+        const my_generation = this.generation;
+        let my_rows: PageRows;
+        if (this.effective_perm) {
+            const my_start = Math.max(0, request.start);
+            my_rows = {
+                rows: this.effective_perm.slice(
+                    my_start,
+                    Math.min(my_start + request.count, this.effective_perm.length)
                 ),
-                request_id: request.request_id,
             };
-            this.panel.webview.postMessage(my_response);
-            this.note_rows_posted();
-            return;
+        } else {
+            my_rows = { start: request.start, count: request.count };
         }
 
-        // Cache miss — read from the .dta file
-        const my_generation = this.generation;
-        let the_raw_rows: Row[];
-
-        if (this.effective_perm) {
-            // Map the visible window to original rows (display order)
-            // and read them, batching ascending-contiguous runs. The
-            // effective permutation already folds in any active filter.
-            const the_indices = permuted_window_indices(
-                this.effective_perm,
-                request.start,
-                request.count,
-                this.effective_nobs()
+        let my_read: PageRead;
+        try {
+            my_read = await my_reader.read_page(
+                my_rows,
+                request.col_start ?? 0,
+                request.col_end ?? Number.MAX_SAFE_INTEGER
             );
-            the_raw_rows = new Array(the_indices.length);
-            let my_pos = 0;
-            for (
-                const my_run of group_contiguous_runs(the_indices)
-            ) {
-                const my_chunk = await this.dta_file.read_rows(
-                    my_run.start,
-                    my_run.len,
-                    request.col_start,
-                    request.col_end
-                );
-                if (my_generation !== this.generation) {
-                    this.post_rows_stale(request);
-                    return;
-                }
-                for (let j = 0; j < my_chunk.length; j++) {
-                    the_raw_rows[my_pos++] = my_chunk[j];
-                }
-            }
-        } else {
-            the_raw_rows = await this.dta_file.read_rows(
-                request.start,
-                request.count,
-                request.col_start,
-                request.col_end
-            );
-            // Drop stale responses after a refresh
-            if (my_generation !== this.generation) {
+        } catch (my_err) {
+            if (this.disposed || my_generation !== this.generation) {
                 this.post_rows_stale(request);
                 return;
             }
+            this.page_read_failed(my_err);
+            return;
         }
-
-        // Cache the (display-order) raw rows for future requests
-        this.row_cache.set_page(request.start, the_raw_rows);
+        // Drop a page read under an order or file no longer shown.
+        if (my_generation !== this.generation) {
+            this.post_rows_stale(request);
+            return;
+        }
 
         const my_response: RowResponse = {
             type: 'rowData',
             start: request.start,
             col_start: request.col_start,
-            rows: this.format_rows(
-                the_raw_rows,
-                request.col_start
-            ),
+            rows: my_read.rows,
             request_id: request.request_id,
         };
 
         this.panel.webview.postMessage(my_response);
         this.note_rows_posted();
+        if (my_read.rest) {
+            await this.forward_rest_of_page(request, my_read.rest, my_read.rows);
+        }
+    }
+
+    /**
+     * Post the strL cells of a page that went out with them pending
+     * (`pending`, as posted). If they cannot be read, they are posted as
+     * unreadable rather than left pending.
+     */
+    private async forward_rest_of_page(
+        request: WebviewMessage & { type: 'requestRows' },
+        rest: Promise<CellPatch>,
+        pending: RowResponse['rows']
+    ): Promise<void> {
+        let my_patch: CellPatch;
+        try {
+            my_patch = await rest;
+        } catch (my_err) {
+            if (this.disposed) return;
+            this.page_read_failed(my_err);
+            if (this.file_changed) return;
+            my_patch = unreadable_patch(pending);
+        }
+        if (this.disposed) return;
+        // Posted even if the order changed meanwhile: the webview applies
+        // it only to a page still holding this request's reply, whose
+        // rows the cells belong to (a cancelled sort keeps such pages).
+        const my_msg: RowCellsMessage = {
+            type: 'rowCells',
+            start: request.start,
+            request_id: request.request_id,
+            columns: my_patch.columns,
+            rows: my_patch.rows,
+        };
+        this.panel.webview.postMessage(my_msg);
+    }
+
+    /**
+     * A page read failed. A file rewritten in place stops the panel
+     * reading it (once, with a message and a banner); any other failure
+     * is reported once per open file.
+     */
+    private page_read_failed(error: unknown): void {
+        if (is_abort_error(error)) return;
+        if (error instanceof FileChangedError) {
+            this.mark_file_changed();
+            return;
+        }
+        if (this.page_error_reported) return;
+        this.page_error_reported = true;
+        vscode.window.showErrorMessage(
+            `The data browser could not read ${this.sidecar.name}: ${
+                error instanceof Error ? error.message : String(error)}`
+        );
+    }
+
+    private page_error_reported = false;
+
+    /** The open file was rewritten in place: stop serving it. */
+    private mark_file_changed(): void {
+        if (this.file_changed || this.disposed) return;
+        this.file_changed = true;
+        const my_msg: FileChangedMessage = { type: 'fileChanged' };
+        this.panel.webview.postMessage(my_msg);
+        vscode.window.showWarningMessage(
+            `${this.sidecar.name} changed on disk; reopen it to keep `
+            + 'browsing.'
+        );
+    }
+
+    /**
+     * Whole values of long strLs the grid shows as previews, for copying
+     * cells. Cells are given by file row, which the preview carries, so
+     * an order change meanwhile does not matter.
+     */
+    private async handle_request_full_text(
+        msg: RequestFullTextMessage
+    ): Promise<void> {
+        const my_reader = this.page_reader();
+        let my_texts: string[] | null = null;
+        if (my_reader && !this.file_changed) {
+            try {
+                my_texts = await my_reader.read_full_text(msg.cells);
+            } catch (my_err) {
+                if (my_err instanceof FileChangedError) {
+                    this.mark_file_changed();
+                }
+                my_texts = null;
+            }
+        }
+        if (this.disposed) return;
+        const my_reply: FullTextMessage = {
+            type: 'fullText',
+            request_id: msg.request_id,
+            texts: my_texts,
+        };
+        this.panel.webview.postMessage(my_reply);
     }
 
     /**
@@ -1942,7 +2087,13 @@ export class DataBrowserPanel implements vscode.Disposable {
                 'action'
             );
         } catch (my_err) {
-            if (is_abort_error(my_err) || this.disposed) return;
+            if (
+                is_abort_error(my_err)
+                || my_err instanceof FileChangedError
+                || this.disposed
+            ) {
+                return;
+            }
             vscode.window.showErrorMessage(
                 `Copy failed: ${my_err instanceof Error
                     ? my_err.message
@@ -1955,40 +2106,21 @@ export class DataBrowserPanel implements vscode.Disposable {
         if (my_result.kind !== 'copy') return;
         await vscode.env.clipboard.writeText(my_result.text);
     }
+}
 
-    // -------------------------------------------------------
-    // Cell formatting
-    // -------------------------------------------------------
-
-    private format_rows(
-        raw_rows: Row[],
-        col_start?: number
-    ): CellValue[][] {
-        const my_col_offset = col_start ?? 0;
-
-        return raw_rows.map((my_row: Row) =>
-            my_row.map((my_raw: RowCell, my_idx: number) => {
-                const my_var = this.dta_file!.variables[
-                    my_col_offset + my_idx
-                ];
-                return this.format_cell(my_raw, my_var);
-            })
-        );
-    }
-
-    private format_cell(
-        raw: Row[number],
-        variable: {
-            type: string;
-            format: string;
-            value_label_name: string;
-        }
-    ): CellValue {
-        return build_cell_value(
-            raw,
-            variable,
-            this.dta_file?.value_label_tables
-                .get(variable.value_label_name)
-        );
-    }
+/** Unreadable cells for the pending cells of `rows`. */
+function unreadable_patch(rows: RowResponse['rows']): CellPatch {
+    const the_columns: number[] = [];
+    rows[0]?.forEach((my_cell, j) => {
+        if (my_cell.pending) the_columns.push(j);
+    });
+    const my_cell = {
+        raw: null,
+        raw_display: '(unreadable)',
+        formatted_display: '(unreadable)',
+    };
+    return {
+        columns: the_columns,
+        rows: rows.map(() => the_columns.map(() => my_cell)),
+    };
 }
