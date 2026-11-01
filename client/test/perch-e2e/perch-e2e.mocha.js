@@ -11,7 +11,10 @@
  * reaches it detached and after reattaching), then `adopt` (after the
  * window restarts, Perch restores the terminal, Sight adopts it, and a
  * send reaches the same session; after the session ends, the next send
- * starts a new one).
+ * starts a new one), then `launcher`, as a local window (no remote
+ * override): Sight's console from Perch's "New Persistent Terminal"
+ * list runs in a Perch session and receives a send; after it ends, a
+ * send opens the ordinary pane.
  */
 
 const assert = require('assert');
@@ -106,14 +109,23 @@ function sight_terminals(api) {
     return api.terminals().filter(my_entry => my_entry.session.owner === OWNER);
 }
 
+function sight_panes() {
+    return vscode.window.terminals.filter(my_terminal =>
+        my_terminal.name === 'Stata'
+        && my_terminal.creationOptions
+        && 'pty' in my_terminal.creationOptions
+    );
+}
+
 describe(`Sight in a Perch session (${PHASE})`, function () {
     let api;
+    let perch_exports;
 
     before(async function () {
         const perch = vscode.extensions.getExtension('jbearak.perch');
         assert.ok(perch, 'Perch is loaded');
-        const exports = await perch.activate();
-        api = exports.getApi(1, 'sight-e2e');
+        perch_exports = await perch.activate();
+        api = perch_exports.getApi(1, 'sight-e2e');
         assert.ok(await api.available(), 'Perch is available');
         const sight = vscode.extensions.getExtension('jbearak.sight');
         assert.ok(sight, 'Sight is loaded');
@@ -212,6 +224,63 @@ describe(`Sight in a Perch session (${PHASE})`, function () {
             report(`after the session ended, a new one: ${the_sessions[0].id}`);
             await api.kill(the_sessions[0].id);
             report(`perch list at the end:\n${perch_list()}`);
+        });
+    }
+    if (PHASE === 'launcher') {
+        it('starts Sight\'s console from Perch\'s list in a local window; it gets sends', async function () {
+            assert.strictEqual(vscode.env.remoteName, undefined, 'a local window');
+            assert.notStrictEqual(process.env.SIGHT_TEST_PERCH_REMOTE, '1');
+            assert.deepStrictEqual(await sight_sessions(api), []);
+
+            let the_offered = [];
+            await perch_exports.testing.newTerminal(the_choices => {
+                the_offered = the_choices;
+                return the_choices.find(my_choice =>
+                    my_choice.command === 'sight.perch.newConsole'
+                );
+            });
+            const offered = the_offered.find(my_choice =>
+                my_choice.command === 'sight.perch.newConsole'
+            );
+            assert.ok(offered, 'Perch lists Sight\'s launcher');
+            report(`Perch lists: ${offered.label} (${offered.description})`);
+            assert.strictEqual(offered.label, 'Stata console');
+            assert.strictEqual(offered.description, 'Sight');
+
+            const the_sessions = await sight_sessions(api);
+            assert.strictEqual(the_sessions.length, 1);
+            const session = the_sessions[0];
+            assert.strictEqual(session.kind, 'stata');
+            assert.strictEqual(session.annotations['sight.console'], 'editor');
+            assert.strictEqual(sight_terminals(api).length, 1);
+            report(`launcher started Perch session ${session.id}:\n${perch_list()}`);
+
+            await send_marker('marker-L1');
+            assert.deepStrictEqual(
+                (await sight_sessions(api)).map(my_session => my_session.id),
+                [session.id]
+            );
+            assert.strictEqual(sight_panes().length, 0);
+            report('send after the launcher: same session, no pane');
+
+            const ended = new Promise(resolve => {
+                const listener = api.onDidEndSession(my_session => {
+                    if (my_session.id === session.id) {
+                        listener.dispose();
+                        resolve();
+                    }
+                });
+            });
+            await api.kill(session.id);
+            await ended;
+            await sleep(500);
+            await send_marker('marker-L2');
+            assert.deepStrictEqual(await sight_sessions(api), []);
+            assert.strictEqual(sight_panes().length, 1);
+            report('after the session ended, a send opened the pane, not a session');
+            for (const my_pane of sight_panes()) {
+                my_pane.dispose();
+            }
         });
     }
 });

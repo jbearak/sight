@@ -2,7 +2,9 @@
  * Perch (github.com/jbearak/perch) keeps terminal sessions alive
  * across closed windows and dropped connections. In a remote window
  * with Perch installed on the remote host, Sight runs its Stata console
- * in a Perch session; everywhere else nothing here runs.
+ * in a Perch session. In a local window with Perch, only consoles
+ * started from Perch's own list (and their restored terminals) are
+ * Perch sessions; without Perch nothing here runs.
  *
  * This is the VS Code-free part: finding Perch and keeping track of
  * Sight's sessions (as in the `connectPerch` sample of Perch's
@@ -182,10 +184,12 @@ export interface PerchTracked<TTerminal> {
 
 export interface PerchConnectionHost<TApi, TTerminal> {
     /**
-     * The window is remote and Sight runs in the remote (workspace)
-     * extension host, next to Perch.
+     * Sight runs in the extension host Perch runs in: a local window's,
+     * or a remote window's remote (workspace) host.
      */
-    is_remote_workspace(): boolean;
+    is_beside_perch(): boolean;
+    /** The window is remote: Sight's own new consoles use Perch. */
+    is_remote_window(): boolean;
     find_extension(): PerchExtensionLike | undefined;
     /** Narrow `getApi`'s result; undefined if it isn't usable. */
     to_api(value: unknown): TApi | undefined;
@@ -237,12 +241,20 @@ export class PerchConnection<
     }
 
     /**
-     * Perch might be in use for a new console: the synchronous checks
-     * pass. Without Perch nothing else is awaited.
+     * Perch might be usable here: the synchronous checks pass. Without
+     * Perch nothing else is awaited.
      */
     may_use_perch(): boolean {
-        return this.host.is_remote_workspace()
+        return this.host.is_beside_perch()
             && this.host.find_extension() !== undefined;
+    }
+
+    /**
+     * Sight's own new consoles might use Perch: a remote window, checked
+     * first, so a local window never waits on Perch for them.
+     */
+    may_default_to_perch(): boolean {
+        return this.host.is_remote_window() && this.may_use_perch();
     }
 
     /** Settles when the latest lookup has. */
@@ -265,7 +277,7 @@ export class PerchConnection<
     }
 
     private async find_api(): Promise<TApi | undefined> {
-        if (!this.host.is_remote_workspace()) {
+        if (!this.host.is_beside_perch()) {
             return undefined;
         }
         const extension = this.host.find_extension();

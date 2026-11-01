@@ -96,6 +96,8 @@ interface Harness {
     the_ended: string[];
     the_logged: string[];
     state: {
+        /** Sight runs in Perch's extension host. */
+        beside: boolean;
         remote: boolean;
         extension: PerchExtensionLike | undefined;
         find_count: number;
@@ -104,6 +106,7 @@ interface Harness {
 
 function create_harness(api: FakeApi | null, overrides: Partial<Harness['state']> = {}): Harness {
     const state: Harness['state'] = {
+        beside: true,
         remote: true,
         extension: api === null ? undefined : {
             isActive: true,
@@ -120,7 +123,8 @@ function create_harness(api: FakeApi | null, overrides: Partial<Harness['state']
         the_logged: [],
         state,
         connection: new PerchConnection<FakeApi, Terminal>({
-            is_remote_workspace: () => state.remote,
+            is_beside_perch: () => state.beside,
+            is_remote_window: () => state.remote,
             find_extension: () => {
                 state.find_count += 1;
                 return state.extension;
@@ -184,12 +188,31 @@ describe('build_perch_launch', () => {
 });
 
 describe('PerchConnection', () => {
-    test('a local window never looks for the extension', async () => {
-        const harness = create_harness(new FakeApi(), { remote: false });
+    test('Sight away from Perch (a UI extension in a remote window) never looks for it', async () => {
+        const harness = create_harness(new FakeApi(), { beside: false });
         expect(harness.connection.may_use_perch()).toBe(false);
+        expect(harness.connection.may_default_to_perch()).toBe(false);
         await harness.connection.connect();
         expect(harness.state.find_count).toBe(0);
         expect(harness.connection.api).toBeUndefined();
+    });
+
+    test('a local window connects, but new consoles don\'t default to Perch', async () => {
+        const harness = create_harness(new FakeApi(), { remote: false });
+        expect(harness.connection.may_use_perch()).toBe(true);
+        harness.state.find_count = 0;
+        // The window is checked first: no lookup for a new console.
+        expect(harness.connection.may_default_to_perch()).toBe(false);
+        expect(harness.state.find_count).toBe(0);
+        await harness.connection.connect();
+        expect(harness.connection.api).toBeDefined();
+    });
+
+    test('a remote window beside Perch defaults to it', async () => {
+        const harness = create_harness(new FakeApi());
+        expect(harness.connection.may_default_to_perch()).toBe(true);
+        await harness.connection.connect();
+        expect(harness.connection.api).toBeDefined();
     });
 
     test('no extension, an unusable getApi, or unavailable Perch: no API', async () => {

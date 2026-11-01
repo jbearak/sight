@@ -534,11 +534,14 @@ function get_console_queue(): ConsoleTerminalQueue<vscode.Terminal> {
 //
 // In a remote window with Perch installed on the remote host (see
 // perch-core.ts), a new Stata console runs in a Perch session, which
-// outlives a closed window or a dropped connection: the editor console
-// (console-runtime/tty.js) under the extension host's Node, or, with
-// sight.sendToStata.console off or after a helper failure, the Stata
-// CLI. Sends go through Perch (`send`), never `terminal.sendText`,
-// which reaches nothing while the session is detached.
+// outlives a closed window or a dropped connection. In a local window
+// with Perch, only a console started from Perch's list (the
+// sight.perch.newConsole command) or restored by Perch is one. A
+// session runs the editor console (console-runtime/tty.js) under the
+// extension host's Node, or, with sight.sendToStata.console off or
+// after a helper failure, the Stata CLI. Sends go through Perch
+// (`send`), never `terminal.sendText`, which reaches nothing while the
+// session is detached.
 //
 // A session's terminal closing is a detach: the session stays this
 // window's console. It ends on Perch's onDidEndSession (or when the
@@ -548,6 +551,12 @@ function get_console_queue(): ConsoleTerminalQueue<vscode.Terminal> {
 const PERCH_READY_POLL_MS = 100;
 const PERCH_END_POLL_MS = 1000;
 const PERCH_NEW_CONSOLE_LABEL = '$(add) Start a new Stata console';
+/** Perch's "New Persistent Terminal" list runs this (package.json). */
+export const PERCH_LAUNCHER_COMMAND = 'sight.perch.newConsole';
+/** How long the launcher command waits for the Perch lookup. */
+const PERCH_LOOKUP_TIMEOUT_MS = 5000;
+let perch_lookup_timeout_ms = PERCH_LOOKUP_TIMEOUT_MS;
+const PERCH_UNAVAILABLE_MESSAGE = 'Perch is not available here.';
 
 interface PerchConsole {
     id: string;
@@ -580,13 +589,27 @@ function describe_error(my_error: unknown): string {
 }
 
 /**
- * The window is remote and Sight runs in its remote (workspace)
- * extension host, next to Perch. A user who set Sight's
- * remote.extensionKind to UI runs it locally, where Perch's API can't
- * be reached. SIGHT_TEST_PERCH_REMOTE=1 treats a local window as remote
- * in extension tests only (the end-to-end test of this path).
+ * Sight runs in the extension host Perch runs in: a local window's, or
+ * a remote window's remote (workspace) host. A user who set Sight's
+ * remote.extensionKind to UI runs it locally in a remote window, where
+ * Perch's API (on the remote host) can't be reached.
  */
-function is_remote_workspace(): boolean {
+function is_beside_perch(): boolean {
+    if (!extension_context) {
+        return false;
+    }
+    return !vscode.env.remoteName
+        // `extension` is absent in some test hosts.
+        || extension_context.extension?.extensionKind
+            === vscode.ExtensionKind.Workspace;
+}
+
+/**
+ * The window is remote: Sight's own new consoles run in Perch.
+ * SIGHT_TEST_PERCH_REMOTE=1 treats a local window as remote in
+ * extension tests only (the end-to-end test of this path).
+ */
+function is_remote_window(): boolean {
     if (!extension_context) {
         return false;
     }
@@ -596,10 +619,7 @@ function is_remote_workspace(): boolean {
     ) {
         return true;
     }
-    return Boolean(vscode.env.remoteName)
-        // `extension` is absent in some test hosts.
-        && extension_context.extension?.extensionKind
-            === vscode.ExtensionKind.Workspace;
+    return Boolean(vscode.env.remoteName);
 }
 
 /** Perch's API, if `getApi` gave one with the members Sight uses. */
@@ -638,7 +658,8 @@ function perch_error_code(my_error: unknown): PerchApiErrorCode | undefined {
 function create_perch_connection():
     PerchConnection<PerchApiV1, vscode.Terminal> {
     return new PerchConnection<PerchApiV1, vscode.Terminal>({
-        is_remote_workspace,
+        is_beside_perch,
+        is_remote_window,
         find_extension: () => vscode.extensions.getExtension(
             PERCH_EXTENSION_ID
         ),
@@ -662,11 +683,12 @@ function create_perch_connection():
 }
 
 /**
- * Perch's API for a new console, or undefined to start one as before.
- * Without Perch only synchronous checks run.
+ * Perch's API for one of Sight's own new consoles, or undefined to
+ * start one as before. Outside a remote window, or without Perch, only
+ * synchronous checks run.
  */
 async function perch_for_new_console(): Promise<PerchApiV1 | undefined> {
-    if (!perch_connection?.may_use_perch()) {
+    if (!perch_connection?.may_default_to_perch()) {
         return undefined;
     }
     await perch_connection.settled();
@@ -1080,22 +1102,26 @@ async function open_perch_console(
     return { id: session.id, carried_send: true };
 }
 
-/** Send through Perch to the session a new console became. */
-async function send_to_new_perch_console(
-    api: PerchApiV1,
-    send: PendingSend
-): Promise<boolean> {
-    const opening = open_perch_console(api, send);
-    const creation = opening.then(
-        my_opened => my_opened?.id ?? null,
-        () => null
-    );
+/** Sends made while `creation` runs go to its session, if any. */
+function note_perch_creation(creation: Promise<string | null>): void {
     perch_creation_in_flight = creation;
     void creation.finally(() => {
         if (perch_creation_in_flight === creation) {
             perch_creation_in_flight = null;
         }
     });
+}
+
+/** Send through Perch to the session a new console became. */
+async function send_to_new_perch_console(
+    api: PerchApiV1,
+    send: PendingSend
+): Promise<boolean> {
+    const opening = open_perch_console(api, send);
+    note_perch_creation(opening.then(
+        my_opened => my_opened?.id ?? null,
+        () => null
+    ));
     const opened = await opening;
     if (!opened) {
         return false;
@@ -1113,7 +1139,9 @@ async function send_to_new_perch_console(
 
 /**
  * Send through Perch if this window uses it for the send: returns
- * whether the send was queued, or null for the old path.
+ * whether the send was queued, or null for the old path. A Perch
+ * console of this window gets it in any window; only a remote window
+ * starts one for it.
  */
 async function send_with_perch(send: PendingSend): Promise<boolean | null> {
     const target = current_perch_target();
@@ -1160,6 +1188,59 @@ export async function send_to_perch_terminal(
         return null;
     }
     return send_to_perch_console(record, { command, temp_file_path });
+}
+
+/**
+ * Perch's API for the launcher command: the lookup may still be
+ * running (Sight may have just activated), so wait for it, briefly.
+ */
+async function perch_for_launcher(): Promise<PerchApiV1 | undefined> {
+    const connection = perch_connection;
+    if (!connection?.may_use_perch()) {
+        return undefined;
+    }
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timed_out = new Promise<void>(resolve => {
+        timer = setTimeout(resolve, perch_lookup_timeout_ms);
+    });
+    try {
+        await Promise.race([connection.settled(), timed_out]);
+    } finally {
+        clearTimeout(timer);
+    }
+    return connection.api;
+}
+
+/**
+ * The launcher command: Perch's "New Persistent Terminal" list runs it
+ * (`perch.launchers` in package.json), in any window. It starts a new
+ * console in a Perch session, with no first send and no offer of a
+ * session from another window, shows it and makes it this window's
+ * console. Resolves once the session has started; rejects with a
+ * message Perch shows.
+ */
+export async function new_perch_console(): Promise<void> {
+    const opening = open_launched_perch_console();
+    // A send made meanwhile waits for it, rather than opening a pane.
+    note_perch_creation(opening.catch(() => null));
+    await opening;
+}
+
+async function open_launched_perch_console(): Promise<string> {
+    const api = await perch_for_launcher();
+    if (!api) {
+        throw new Error(PERCH_UNAVAILABLE_MESSAGE);
+    }
+    const options = await perch_launch_options();
+    const { session, terminal } = await api.createSession({
+        ...options,
+        terminal: { iconPath: create_terminal_icon() },
+        show: false,
+    });
+    track_perch_console(api, session);
+    bind_perch_terminal(api, session, terminal);
+    terminal.show(false);
+    return session.id;
 }
 
 /** Queue behind a session being opened; dropped if that failed. */
@@ -1386,8 +1467,8 @@ export function register_stata_terminal(
         { dispose: () => perch_queue?.dispose() },
     );
 
-    // Perch: looked up now and whenever extensions change. Outside a
-    // remote window this does nothing more.
+    // Perch: looked up now and whenever extensions change. Without
+    // Perch this does nothing more.
     const connection = create_perch_connection();
     perch_connection = connection;
     context.subscriptions.push(
@@ -1395,6 +1476,9 @@ export function register_stata_terminal(
             void connection.connect();
         }),
         { dispose: () => connection.dispose() },
+        vscode.commands.registerCommand(
+            PERCH_LAUNCHER_COMMAND, new_perch_console
+        ),
     );
     void connection.connect();
 }
@@ -1618,8 +1702,8 @@ export async function send_to_stata_terminal(
         );
     }
 
-    // In a remote window with Perch, sends go to a Perch session (see
-    // "Perch sessions" above).
+    // Sends go to this window's Perch session, if any; in a remote
+    // window with Perch, to a new one (see "Perch sessions" above).
     const perch_queued = await send_with_perch({ command, temp_file_path });
     if (perch_queued !== null) {
         return perch_queued;
@@ -1704,6 +1788,8 @@ export function reset_stata_terminal_manager_for_tests(
          * is looked up in the extension.
          */
         pty_helper_path?: string | null;
+        /** How long the launcher command waits for the Perch lookup. */
+        perch_lookup_timeout_ms?: number;
     } = {}
 ): void {
     console_queue?.dispose();
@@ -1713,6 +1799,8 @@ export function reset_stata_terminal_manager_for_tests(
     perch_connection?.dispose();
     perch_connection = null;
     perch_creation_in_flight = null;
+    perch_lookup_timeout_ms =
+        options.perch_lookup_timeout_ms ?? PERCH_LOOKUP_TIMEOUT_MS;
     the_perch_consoles.clear();
     the_perch_terminals.clear();
     the_detached_perch_ids.length = 0;

@@ -148,8 +148,8 @@ interface VscodeMockState {
     the_extension_listeners: Array<() => void>;
     /** The first workspace folder's path, if any. */
     workspace_folder?: string;
-    /** What the Stata CLI detector finds. */
-    stata_cli?: string;
+    /** What the Stata CLI detector finds (null: nothing). */
+    stata_cli?: string | null;
 }
 
 interface SharedVscodeTestState {
@@ -576,8 +576,11 @@ function register_module_mocks(): void {
     }));
 
     mock.module(CLI_DETECTOR_MODULE_URL, () => ({
-        detect_stata_cli: async () =>
-            current_vscode_state?.stata_cli ?? '/usr/local/bin/stata-mp',
+        detect_stata_cli: async () => {
+            const stata_cli = current_vscode_state?.stata_cli;
+            return stata_cli === undefined
+                ? '/usr/local/bin/stata-mp' : stata_cli;
+        },
         clear_stata_cli_cache: () => {},
     }));
 
@@ -936,10 +939,12 @@ async function create_console_harness(
     pty_helper_path?: string | null,
     setup?: (vscode_state: VscodeMockState) => {
         extension_kind?: number;
+        perch_lookup_timeout_ms?: number;
     }
 ): Promise<ConsoleHarness> {
     const vscode_state = create_vscode_mock_state(Promise.resolve(1));
-    const extension_kind = setup?.(vscode_state).extension_kind;
+    const { extension_kind, perch_lookup_timeout_ms } =
+        setup?.(vscode_state) ?? {};
     const the_terminals: MockTerminal[] = [];
     const the_consoles: FakeConsole[] = [];
     const harness_state = {
@@ -973,6 +978,7 @@ async function create_console_harness(
         load_console_module: async () =>
             create_fake_console_module(the_consoles),
         pty_helper_path,
+        perch_lookup_timeout_ms,
     });
     terminal_manager.register_stata_terminal(context);
     the_live_terminals.push(the_terminals);
@@ -1919,7 +1925,10 @@ async function create_perch_harness(
                 ? options.perch(vscode_state)
                 : create_fake_perch(vscode_state);
             vscode_state.perch_extension = perch?.extension;
-            return { extension_kind: options.extension_kind ?? 2 };
+            return {
+                extension_kind: options.extension_kind ?? 2,
+                perch_lookup_timeout_ms: 200,
+            };
         }
     );
     return { harness, perch };
@@ -1964,19 +1973,6 @@ describe.serial('Feature: Stata console in a Perch session (remote windows)', ()
         for (const my_dir of the_perch_dirs.splice(0)) {
             fs.rmSync(my_dir, { recursive: true, force: true });
         }
-    });
-
-    test('a local window never looks for Perch and opens the pane', async () => {
-        const { harness, perch } = await create_perch_harness({
-            remote_name: '', extension_kind: 1,
-        });
-        const first = await create_tracked_send_file('first');
-        expect(await harness.terminal_manager.send_to_stata_terminal('do', first)).toBe(true);
-        expect(harness.the_terminals).toHaveLength(1);
-        expect(harness.the_terminals[0].creationOptions?.pty).toBeDefined();
-        expect(perch?.activate_count).toBe(0);
-        expect(perch?.the_creates).toEqual([]);
-        expect(harness.vscode_state.the_get_extension_ids).toEqual([]);
     });
 
     test('a remote window without Perch opens the pane', async () => {
@@ -2458,5 +2454,209 @@ describe.serial('Feature: Stata console in a Perch session (remote windows)', ()
             options: CreateTerminalOptions;
         };
         expect(profile.options.pty).toBeDefined();
+    });
+});
+
+const LOCAL_WINDOW = { remote_name: '', extension_kind: 1 } as const;
+
+/** Run Sight's launcher command, as Perch's terminal list does. */
+async function run_perch_launcher(harness: ConsoleHarness): Promise<unknown> {
+    const the_registered = new Map<string, (...args: unknown[]) => unknown>();
+    (globalThis as Record<string, unknown>)[SHARED_VSCODE_TEST_STATE_KEY] = {
+        registered_commands: the_registered,
+    };
+    try {
+        harness.terminal_manager.register_stata_terminal(harness.context as never);
+    } finally {
+        delete (globalThis as Record<string, unknown>)[SHARED_VSCODE_TEST_STATE_KEY];
+    }
+    const handler = the_registered.get('sight.perch.newConsole');
+    expect(handler).toBeDefined();
+    return handler!();
+}
+
+/** A Perch whose extension never finishes activating. */
+function stuck_perch(vscode_state: VscodeMockState): FakePerch {
+    const fake = create_fake_perch(vscode_state);
+    fake.extension.activate = () => new Promise(() => {});
+    return fake;
+}
+
+describe.serial('Feature: Perch\'s launcher, and Perch in local windows', () => {
+    beforeAll(register_module_mocks);
+
+    beforeEach(() => {
+        current_vscode_state = null;
+        set_platform('linux');
+    });
+
+    afterEach(async () => {
+        close_live_panes();
+        set_platform(REAL_PLATFORM);
+        const terminal_manager = await import(TERMINAL_MANAGER_MODULE_URL);
+        terminal_manager.reset_stata_terminal_manager_for_tests();
+        current_vscode_state = null;
+        for (const my_file of the_created_files.splice(0)) {
+            await fs.promises.unlink(my_file).catch(() => {});
+        }
+        for (const my_dir of the_perch_dirs.splice(0)) {
+            fs.rmSync(my_dir, { recursive: true, force: true });
+        }
+    });
+
+    test('a local window connects to Perch and adopts Sight\'s restored terminal', async () => {
+        const { harness, perch } = await create_perch_harness({
+            ...LOCAL_WINDOW,
+            perch: vscode_state => {
+                const fake = create_fake_perch(vscode_state);
+                const here = fake.make_session();
+                write_ready_file(here.dir);
+                fake.the_terminals.push({ session: here, terminal: fake.make_terminal(here) });
+                fake.the_listed.push(here);
+                return fake;
+            },
+        });
+        const here = perch!.the_listed[0];
+        await wait_until(() => perch_terminals(harness).length === 1, 'adoption', 2000);
+        const first = await create_tracked_send_file('first');
+        await harness.terminal_manager.send_to_stata_terminal('do', first);
+        await wait_until(() => perch!.the_sends.length === 1, 'the send', 2000);
+        expect(perch!.the_sends[0]).toEqual({
+            id: here.id, text: `do ${wrap(first)}`, options: { submit: true },
+        });
+        expect(perch!.the_creates).toEqual([]);
+        expect(harness.the_terminals).toEqual([]);
+    });
+
+    test('in a local window with Perch, a new console and the profile take the old path, without waiting on Perch', async () => {
+        const { harness, perch } = await create_perch_harness({
+            ...LOCAL_WINDOW, perch: stuck_perch,
+        });
+        const provider = harness.vscode_state.the_profile_providers.get(
+            'sight.stataTerminal'
+        );
+        const profile = await provider!.provideTerminalProfile(NO_CANCEL) as {
+            options: CreateTerminalOptions;
+        };
+        expect(profile.options.pty).toBeDefined();
+        const first = await create_tracked_send_file('first');
+        expect(await harness.terminal_manager.send_to_stata_terminal('do', first)).toBe(true);
+        expect(harness.the_terminals).toHaveLength(1);
+        expect(harness.the_terminals[0].creationOptions?.pty).toBeDefined();
+        expect(perch!.the_creates).toEqual([]);
+        expect(perch!.the_prepared).toEqual([]);
+    });
+
+    test('in a local window with Perch usable, a send with no Perch console opens the pane', async () => {
+        const { harness, perch } = await create_perch_harness(LOCAL_WINDOW);
+        // The lookup has finished: Perch is usable here.
+        await new Promise(resolve => setTimeout(resolve, 20));
+        const first = await create_tracked_send_file('first');
+        expect(await harness.terminal_manager.send_to_stata_terminal('do', first)).toBe(true);
+        expect(harness.the_terminals).toHaveLength(1);
+        expect(harness.the_terminals[0].creationOptions?.pty).toBeDefined();
+        expect(perch!.the_creates).toEqual([]);
+        expect(perch!.the_sends).toEqual([]);
+    });
+
+    for (const [my_window, my_options] of [
+        ['a local window', LOCAL_WINDOW],
+        ['a remote window', {}],
+    ] as const) {
+        test(`the launcher in ${my_window} starts a session that becomes the send target`, async () => {
+            const { harness, perch } = await create_perch_harness({
+                ...my_options,
+                perch: vscode_state => {
+                    const fake = create_fake_perch(vscode_state);
+                    // A session from another window is not offered.
+                    fake.the_listed.push(fake.make_session({
+                        cwd: '/other/workspace', attachedHere: false,
+                    }));
+                    return fake;
+                },
+            });
+            harness.vscode_state.workspace_folder = '/work/project';
+            expect(await run_perch_launcher(harness)).toBeUndefined();
+            expect(harness.vscode_state.the_quick_picks).toEqual([]);
+            expect(perch!.the_creates).toHaveLength(1);
+            const created = perch!.the_creates[0];
+            expect(created.show).toBe(false);
+            expect(created.annotations).toEqual({ 'sight.console': 'editor' });
+            expect(created.command).toEqual([
+                process.execPath,
+                path.join(EXTENSION_PATH, 'console-runtime', 'tty.js'),
+                '--helper', PERCH_HELPER_PATH,
+                '--stata', '/usr/local/bin/stata-mp',
+                '--ready-file', '{dir}/sight-console-ready',
+                '--end-file', '{dir}/sight-console-end',
+                '--cwd', '/work/project',
+            ]);
+            // Shown, with focus.
+            expect(harness.vscode_state.the_show_calls).toEqual([false]);
+            expect(perch_terminals(harness)).toHaveLength(1);
+
+            const session = perch!.the_listed.at(-1)!;
+            write_ready_file(session.dir);
+            const first = await create_tracked_send_file('first');
+            await harness.terminal_manager.send_to_stata_terminal('do', first);
+            await wait_until(() => perch!.the_sends.length === 1, 'the send', 2000);
+            expect(perch!.the_sends[0]).toEqual({
+                id: session.id, text: `do ${wrap(first)}`, options: { submit: true },
+            });
+            expect(perch!.the_creates).toHaveLength(1);
+            expect(harness.the_terminals).toEqual([]);
+            expect(harness.vscode_state.the_send_calls).toEqual([]);
+        });
+    }
+
+    test('a send made while the launcher starts its console goes to it', async () => {
+        const { harness, perch } = await create_perch_harness(LOCAL_WINDOW);
+        const launching = run_perch_launcher(harness);
+        const first = await create_tracked_send_file('first');
+        const sending = harness.terminal_manager.send_to_stata_terminal('do', first);
+        await launching;
+        write_ready_file(perch!.the_listed[0].dir);
+        await sending;
+        await wait_until(() => perch!.the_sends.length === 1, 'the send', 2000);
+        expect(perch!.the_creates).toHaveLength(1);
+        expect(harness.the_terminals).toEqual([]);
+    });
+
+    for (const [my_case, my_options] of [
+        ['without Perch', { ...LOCAL_WINDOW, perch: () => undefined }],
+        ['as a UI extension in a remote window', { extension_kind: 1 }],
+        ['when Perch is unavailable', {
+            ...LOCAL_WINDOW,
+            perch: (vscode_state: VscodeMockState) => {
+                const fake = create_fake_perch(vscode_state);
+                fake.is_available = false;
+                return fake;
+            },
+        }],
+        ['when the Perch lookup doesn\'t finish in time', {
+            ...LOCAL_WINDOW, perch: stuck_perch,
+        }],
+    ] as const) {
+        test(`the launcher rejects ${my_case}`, async () => {
+            const { harness, perch } = await create_perch_harness(my_options);
+            await expect(run_perch_launcher(harness)).rejects.toThrow(
+                'Perch is not available here.'
+            );
+            expect(perch?.the_creates ?? []).toEqual([]);
+            expect(harness.the_terminals).toEqual([]);
+        });
+    }
+
+    test('the launcher rejects clearly when Stata is not configured', async () => {
+        const { harness, perch } = await create_perch_harness(LOCAL_WINDOW);
+        harness.vscode_state.stata_cli = null;
+        await expect(run_perch_launcher(harness)).rejects.toThrow('Stata CLI not found');
+        expect(perch!.the_creates).toEqual([]);
+        // A later send isn't held for it, or dropped: it takes the old
+        // path, which reports the same problem.
+        const first = await create_tracked_send_file('first');
+        await expect(
+            harness.terminal_manager.send_to_stata_terminal('do', first)
+        ).rejects.toThrow('Stata CLI not found');
     });
 });

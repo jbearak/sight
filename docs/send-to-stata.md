@@ -69,7 +69,9 @@ The console has been tested with real Stata on macOS; on Linux it has been teste
 
 ### Remote windows with Perch
 
-In a remote window (Remote-SSH, WSL, Dev Containers, Tunnels), if the [Perch](https://github.com/jbearak/perch) extension is installed on the remote host, the Stata pane runs in a Perch session. Stata then keeps running when you close the window or the connection drops, and the next send, or reopening the window, finds it again. There's no setting: installing Perch on the remote host turns this on, and without Perch (or in a local window) nothing changes. Installing or removing Perch affects consoles started after that.
+In a remote window (Remote-SSH, WSL, Dev Containers, Tunnels), if the [Perch](https://github.com/jbearak/perch) extension is installed on the remote host, the Stata pane runs in a Perch session. Stata then keeps running when you close the window or the connection drops, and the next send, or reopening the window, finds it again. There's no setting: installing Perch on the remote host turns this on, and without Perch nothing changes. Installing or removing Perch affects consoles started after that.
+
+In any window, local or remote, Perch's **Perch: New Persistent Terminal...** list includes **Stata console** (from Sight), which starts a console in a Perch session and makes it the window's console. In a local window, that's the only way a console starts in Perch (along with Perch restoring its terminal when the window reloads); consoles Sight starts on its own still open in the ordinary pane.
 
 What differs from the pane described above:
 
