@@ -57,7 +57,7 @@ describe('Formatter Source Preservation Properties', () => {
     // Generator for macro references
     const macro_name = fc.stringMatching(/^[a-zA-Z_][a-zA-Z0-9_]{0,10}$/);
     const local_macro_ref = macro_name.map(name => `\`${name}'`);
-    const global_macro_ref = macro_name.map(name => `${name}`);
+    const global_macro_ref = macro_name.map(name => `$${name}`);
 
     for_each_formatter_mode_property(
         'Property 2: Token Content Preservation',
