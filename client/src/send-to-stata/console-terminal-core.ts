@@ -219,6 +219,25 @@ export class ConsoleTerminalQueue<TTerminal> {
         }
     }
 
+    /**
+     * A send the console's command line carries, for a console tracked
+     * before its launch was known: pending until readiness, cleaned up
+     * at once if it is ready already, dropped if it has closed.
+     */
+    carry(terminal: TTerminal, send: PendingSend): void {
+        const entry = this.entries.get(terminal);
+        if (!entry) {
+            this.host.delete_file(send.temp_file_path);
+            return;
+        }
+        if (entry.state === 'ready') {
+            this.host.schedule_cleanup(send.temp_file_path);
+            return;
+        }
+        entry.baked.push(send);
+        this.report_pending_count();
+    }
+
     is_tracked(terminal: TTerminal): boolean {
         return this.entries.has(terminal);
     }

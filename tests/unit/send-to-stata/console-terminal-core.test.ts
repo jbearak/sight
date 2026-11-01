@@ -732,3 +732,23 @@ describe('console terminal queue: sends carried on the command line', () => {
         expect(queue.pending_count()).toBe(0);
     });
 });
+
+describe('console terminal queue: carry', () => {
+    test('adds to a starting console, cleans up for a ready one, drops for a closed one', () => {
+        const host = new FakeHost();
+        const queue = create_queue(host);
+        const starting = { id: 't1' };
+        queue.track(starting);
+        queue.carry(starting, send('/a.do'));
+        expect(queue.pending_count()).toBe(1);
+        queue.mark_ready(starting);
+        expect(host.the_cleanups).toEqual(['/a.do']);
+        expect(host.the_typed).toEqual([]);
+
+        queue.carry(starting, send('/b.do'));
+        expect(host.the_cleanups).toEqual(['/a.do', '/b.do']);
+
+        queue.carry({ id: 'gone' }, send('/c.do'));
+        expect(host.the_deleted).toEqual(['/c.do']);
+    });
+});

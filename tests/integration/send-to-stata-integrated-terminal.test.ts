@@ -1753,6 +1753,8 @@ interface FakePerch {
     the_listed: FakeSession[];
     /** Holds listSessions until resolved. */
     list_gate: Deferred<void> | null;
+    /** Fire onDidAttach before createSession resolves, as Perch can. */
+    attach_before_create: boolean;
     fire_attach: (session: FakeSession, terminal: MockTerminal) => void;
     fire_end: (session: FakeSession) => void;
     make_session: (overrides?: Partial<FakeSession>) => FakeSession;
@@ -1809,6 +1811,7 @@ function create_fake_perch(vscode_state: VscodeMockState): FakePerch {
         the_terminals: [],
         the_listed: [],
         list_gate: null,
+        attach_before_create: false,
         fire_attach: (session, terminal) => {
             for (const my_listener of [...the_attach_listeners]) {
                 my_listener({ session, terminal });
@@ -1848,6 +1851,9 @@ function create_fake_perch(vscode_state: VscodeMockState): FakePerch {
             });
             const terminal = make_terminal(session);
             perch.the_listed.push(session);
+            if (perch.attach_before_create) {
+                perch.fire_attach(session, terminal);
+            }
             return { session, terminal };
         },
         waitForSession: async () => make_session(),
@@ -2088,6 +2094,36 @@ describe.serial('Feature: Stata console in a Perch session (remote windows)', ()
         expect(perch!.the_sends[2].text).toBe(`do ${wrap(fourth)}`);
         expect(perch!.the_creates).toHaveLength(1);
         expect(harness.vscode_state.the_send_calls).toEqual([]);
+    });
+
+    test('the first send is kept when onDidAttach comes before createSession resolves', async () => {
+        const { harness, perch } = await create_perch_harness();
+        perch!.attach_before_create = true;
+        const first = await create_tracked_send_file('first');
+        const second = await create_tracked_send_file('second');
+        await harness.terminal_manager.send_to_stata_terminal('do', first);
+        await harness.terminal_manager.send_to_stata_terminal('do', second);
+        expect(harness.vscode_state.status_item?.text).toContain('2 sends');
+        // A helper failure hands both to the Stata CLI, first included.
+        fs.writeFileSync(
+            path.join(perch!.the_listed[0].dir, 'sight-console-end'),
+            JSON.stringify({ code: 1, took_stata: false, helper_failed: true })
+        );
+        await wait_until(() => perch!.the_creates.length === 2, 'the CLI session', 2000);
+        expect(perch!.the_creates[1].command).toEqual([
+            '/usr/local/bin/stata-mp', 'do', wrap(first),
+        ]);
+    });
+
+    test('with onDidAttach first, the first send is still cleaned up at readiness', async () => {
+        const { harness, perch } = await create_perch_harness();
+        perch!.attach_before_create = true;
+        const first = await create_tracked_send_file('first');
+        await harness.terminal_manager.send_to_stata_terminal('do', first);
+        write_ready_file(perch!.the_listed[0].dir);
+        await wait_until(
+            () => harness.vscode_state.the_cleanups.includes(first), 'cleanup', 2000
+        );
     });
 
     test('literal braces in user strings are escaped; only Sight\'s {dir} stays raw', async () => {

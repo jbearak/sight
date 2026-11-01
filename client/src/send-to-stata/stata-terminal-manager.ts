@@ -710,6 +710,10 @@ function track_perch_console(
 ): PerchConsole {
     const existing = the_perch_consoles.get(session.id);
     if (existing) {
+        // Perch's onDidAttach can come before createSession resolves.
+        if (baked) {
+            get_perch_queue().carry(existing.id, baked);
+        }
         return existing;
     }
     const record: PerchConsole = {
