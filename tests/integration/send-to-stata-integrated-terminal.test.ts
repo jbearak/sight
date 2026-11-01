@@ -2393,6 +2393,9 @@ describe.serial('Feature: Stata console in a Perch session (remote windows)', ()
         expect(perch!.the_sends[0].text).toBe(`do ${wrap(second)}`);
         expect(harness.vscode_state.the_warning_calls.map(my_call => my_call.message))
             .toEqual([expect.stringContaining('Stata CLI directly')]);
+        // The new session's queue owns the files: one cleanup each.
+        await new Promise(resolve => setTimeout(resolve, 20));
+        expect(harness.vscode_state.the_cleanups).toEqual([first, second]);
     });
 
     test('the active-terminal commands send to a Perch terminal through Perch', async () => {

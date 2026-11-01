@@ -401,10 +401,13 @@ async function resend_without_console(
             continue;
         }
         try {
-            await send_to_stata_terminal(
+            const is_queued = await send_to_stata_terminal(
                 my_send.command, my_send.temp_file_path
             );
-            schedule_temp_file_cleanup(my_send.temp_file_path);
+            // A queued send's temp file belongs to its queue.
+            if (!is_queued) {
+                schedule_temp_file_cleanup(my_send.temp_file_path);
+            }
         } catch (my_error) {
             vscode.window.showErrorMessage(
                 `Error: ${my_error instanceof Error
