@@ -580,8 +580,13 @@ const the_detached_perch_ids: string[] = [];
 let perch_queue: ConsoleTerminalQueue<string> | null = null;
 let perch_connection: PerchConnection<PerchApiV1, vscode.Terminal> | null =
     null;
-/** A new session (or a picked one) on its way; null if cancelled. */
-let perch_creation_in_flight: Promise<string | null> | null = null;
+/**
+ * A new session (or a picked one) on its way: its ID; null if
+ * cancelled or failed (sends waiting for it are dropped); undefined if
+ * the launcher command failed (they take the old path).
+ */
+let perch_creation_in_flight: Promise<string | null | undefined> | null =
+    null;
 let log_line: (message: string) => void = () => {};
 
 function describe_error(my_error: unknown): string {
@@ -1103,7 +1108,9 @@ async function open_perch_console(
 }
 
 /** Sends made while `creation` runs go to its session, if any. */
-function note_perch_creation(creation: Promise<string | null>): void {
+function note_perch_creation(
+    creation: Promise<string | null | undefined>
+): void {
     perch_creation_in_flight = creation;
     void creation.finally(() => {
         if (perch_creation_in_flight === creation) {
@@ -1222,7 +1229,7 @@ async function perch_for_launcher(): Promise<PerchApiV1 | undefined> {
 export async function new_perch_console(): Promise<void> {
     const opening = open_launched_perch_console();
     // A send made meanwhile waits for it, rather than opening a pane.
-    note_perch_creation(opening.catch(() => null));
+    note_perch_creation(opening.catch(() => undefined));
     await opening;
 }
 
@@ -1243,12 +1250,18 @@ async function open_launched_perch_console(): Promise<string> {
     return session.id;
 }
 
-/** Queue behind a session being opened; dropped if that failed. */
-async function join_perch_creation(send: PendingSend): Promise<boolean> {
+/**
+ * Queue behind a session being opened; dropped if that failed, or the
+ * old path (null) if the launcher command did.
+ */
+async function join_perch_creation(
+    send: PendingSend
+): Promise<boolean | null> {
     const id = await perch_creation_in_flight;
-    const record = id === null || id === undefined
-        ? undefined
-        : the_perch_consoles.get(id);
+    if (id === undefined) {
+        return null;
+    }
+    const record = id === null ? undefined : the_perch_consoles.get(id);
     if (!record) {
         return false;
     }

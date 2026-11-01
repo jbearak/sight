@@ -2622,6 +2622,20 @@ describe.serial('Feature: Perch\'s launcher, and Perch in local windows', () => 
         expect(harness.the_terminals).toEqual([]);
     });
 
+    test('a send made while the launcher fails takes the old path', async () => {
+        const { harness, perch } = await create_perch_harness({
+            ...LOCAL_WINDOW, perch: stuck_perch,
+        });
+        const launching = run_perch_launcher(harness);
+        const first = await create_tracked_send_file('first');
+        const sending = harness.terminal_manager.send_to_stata_terminal('do', first);
+        await expect(launching).rejects.toThrow('Perch is not available here.');
+        expect(await sending).toBe(true);
+        expect(harness.the_terminals).toHaveLength(1);
+        expect(harness.the_terminals[0].creationOptions?.pty).toBeDefined();
+        expect(perch!.the_creates).toEqual([]);
+    });
+
     for (const [my_case, my_options] of [
         ['without Perch', { ...LOCAL_WINDOW, perch: () => undefined }],
         ['as a UI extension in a remote window', { extension_kind: 1 }],
