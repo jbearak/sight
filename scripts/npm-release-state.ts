@@ -69,7 +69,7 @@ async function main(): Promise<void> {
         process.exit(2);
     }
 
-    const encoded_name = package_name.replace('/', '%2f');
+    const encoded_name = package_name.replaceAll('/', '%2f');
     const version_response =
         await fetch(`${REGISTRY_URL}/${encoded_name}/${version}`);
     let dist_tags_body: string | undefined;
