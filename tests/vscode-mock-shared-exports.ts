@@ -30,6 +30,21 @@ export const VSCODE_MOCK_SHARED_EXPORTS = {
         Left: 1,
         Right: 2,
     },
+    ExtensionKind: {
+        UI: 1,
+        Workspace: 2,
+    },
+    ExtensionMode: {
+        Production: 1,
+        Development: 2,
+        Test: 3,
+    },
+    // Perch (perch-core.ts) is looked up here; no extensions by default.
+    extensions: {
+        getExtension: (_id: string): unknown => undefined,
+        onDidChange: (_listener: () => void) => ({ dispose: () => {} }),
+        all: [] as unknown[],
+    },
     TerminalProfile: class TerminalProfile {
         constructor(public options: unknown) {}
     },

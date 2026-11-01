@@ -14,10 +14,12 @@
  *         itself, and read `--more--` as a single key.
  *
  * Commands: local/global/generate (silent), display/di TEXT, sleep MS, foreach/forvalues ... {, mata,
- * request, more, slow, note, colors, len, pid, exitcode N, exit.
+ * request, more, slow, note, colors, len, pid, size, do/include FILE,
+ * exitcode N, exit.
  */
 
 import { spawnSync } from 'node:child_process';
+import { appendFileSync, readFileSync } from 'node:fs';
 
 const modes = new Set((process.env.FAKE_STATA_MODE ?? '').split(',').filter(Boolean));
 const quiet = process.argv.includes('-q');
@@ -166,6 +168,31 @@ function run(line: string): void {
             return;
         case 'pid':
             write(`pid ${process.pid}\n`);
+            finish();
+            return;
+        case 'do':
+        case 'include': {
+            // Reads the file and, with FAKE_STATA_LOG set, appends it
+            // there, so end-to-end tests can see what reached Stata.
+            const file_path = argument.replace(/^`"(.*)"'$/, '$1').replace(/^"(.*)"$/, '$1');
+            let text: string;
+            try {
+                text = readFileSync(file_path, 'utf8');
+            } catch {
+                write(`file ${file_path} not found\nr(601);\n`);
+                finish();
+                return;
+            }
+            if (process.env.FAKE_STATA_LOG) {
+                appendFileSync(process.env.FAKE_STATA_LOG, text);
+            }
+            write(`ran ${file_path}\n`);
+            finish();
+            return;
+        }
+        case 'size':
+            // The terminal's size, to check that resizes reach Stata.
+            write(`size ${process.stdout.columns}x${process.stdout.rows}\n`);
             finish();
             return;
         case 'len':

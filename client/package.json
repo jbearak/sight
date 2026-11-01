@@ -828,7 +828,7 @@
     "bundle:webview-test": "bunx esbuild src/data-browser/webview/test-harness/index.tsx --bundle --platform=browser --format=iife --outfile=dist-test/toolbar-wrap-harness/index.js --loader:.css=css",
     "copy-vview-ado": "mkdir -p stata && rm -f stata/*.ado && cp ../stata/*.ado stata/",
     "copy-server": "rm -rf server && mkdir -p server/command-database && bunx esbuild ../dist/server.js --bundle --platform=node --format=cjs --outfile=server/server.js --external:vscode \"--external:node:*\" --minify && bun -e \"require('fs').cpSync('../dist/command-database/caches', 'server/command-database/caches', {recursive:true})\" && node -e \"require('fs').writeFileSync('server/package.json', '{\\\"type\\\":\\\"commonjs\\\"}')\"",
-    "copy-console": "rm -rf console-runtime && bunx esbuild ../src/console/editor-console.ts --bundle --platform=node --format=cjs --outfile=console-runtime/console.js --external:vscode --minify && node -e \"require('fs').writeFileSync('console-runtime/package.json', '{\\\"type\\\":\\\"commonjs\\\"}')\"",
+    "copy-console": "rm -rf console-runtime && bunx esbuild ../src/console/editor-console.ts --bundle --platform=node --format=cjs --outfile=console-runtime/console.js --external:vscode --minify && bunx esbuild ../src/console/editor-console-tty-entry.ts --bundle --platform=node --format=cjs --outfile=console-runtime/tty.js --minify && node -e \"require('fs').writeFileSync('console-runtime/package.json', '{\\\"type\\\":\\\"commonjs\\\"}')\"",
     "build-pty-helper": "bun ../scripts/build-pty-helper.ts",
     "compile": "bun run copy-vview-ado && bun run bundle && bun run bundle:webview",
     "watch": "tsc -watch -p ./",

@@ -140,6 +140,16 @@ interface VscodeMockState {
     terminal: MockTerminal;
     /** When set, each createTerminal call makes a new terminal. */
     make_terminal?: (options: CreateTerminalOptions) => MockTerminal;
+    /** vscode.env.remoteName ('' for a local window). */
+    remote_name?: string;
+    /** The installed jbearak.perch, if any. */
+    perch_extension?: unknown;
+    the_get_extension_ids: string[];
+    the_extension_listeners: Array<() => void>;
+    /** The first workspace folder's path, if any. */
+    workspace_folder?: string;
+    /** What the Stata CLI detector finds. */
+    stata_cli?: string;
 }
 
 interface SharedVscodeTestState {
@@ -208,6 +218,8 @@ function create_vscode_mock_state(
         status_item: null,
         target_setting: null,
         terminal,
+        the_get_extension_ids: [],
+        the_extension_listeners: [],
     };
 }
 
@@ -260,9 +272,33 @@ function register_module_mocks(): void {
     mock.module('vscode', () => ({
         ...VSCODE_MOCK_SHARED_EXPORTS,
         env: {
-            remoteName: '',
+            get remoteName() {
+                return current_vscode_state?.remote_name ?? '';
+            },
+        },
+        extensions: {
+            getExtension: (id: string) => {
+                current_vscode_state?.the_get_extension_ids.push(id);
+                return id === 'jbearak.perch'
+                    ? current_vscode_state?.perch_extension
+                    : undefined;
+            },
+            onDidChange: (listener: () => void) => {
+                if (!current_vscode_state) {
+                    return { dispose: () => {} };
+                }
+                return add_listener(
+                    current_vscode_state.the_extension_listeners,
+                    listener
+                );
+            },
+            all: [],
         },
         workspace: {
+            get workspaceFolders() {
+                const folder = current_vscode_state?.workspace_folder;
+                return folder ? [{ uri: { fsPath: folder } }] : undefined;
+            },
             getConfiguration: (section?: string) => ({
                 get: <T>(key: string, default_value?: T): T => {
                     const console_setting =
@@ -540,7 +576,8 @@ function register_module_mocks(): void {
     }));
 
     mock.module(CLI_DETECTOR_MODULE_URL, () => ({
-        detect_stata_cli: async () => '/usr/local/bin/stata-mp',
+        detect_stata_cli: async () =>
+            current_vscode_state?.stata_cli ?? '/usr/local/bin/stata-mp',
         clear_stata_cli_cache: () => {},
     }));
 
@@ -896,9 +933,13 @@ function create_pane_terminal(
 
 async function create_console_harness(
     offer_timeout_ms = 60000,
-    pty_helper_path?: string | null
+    pty_helper_path?: string | null,
+    setup?: (vscode_state: VscodeMockState) => {
+        extension_kind?: number;
+    }
 ): Promise<ConsoleHarness> {
     const vscode_state = create_vscode_mock_state(Promise.resolve(1));
+    const extension_kind = setup?.(vscode_state).extension_kind;
     const the_terminals: MockTerminal[] = [];
     const the_consoles: FakeConsole[] = [];
     const harness_state = {
@@ -920,7 +961,12 @@ async function create_console_harness(
     const commands_module = await import(
         `${COMMANDS_MODULE_URL}?test=${Date.now()}-${Math.random()}`
     );
-    const context = { extensionPath: EXTENSION_PATH, subscriptions: [] };
+    const context = {
+        extensionPath: EXTENSION_PATH,
+        subscriptions: [],
+        extension: { extensionKind: extension_kind ?? 1 },
+        extensionMode: 1,
+    };
     terminal_manager.reset_stata_terminal_manager_for_tests({
         context,
         timings: { offer_timeout_ms },
@@ -1657,5 +1703,760 @@ describe.serial('Feature: Stata pane running sight console on macOS and Linux', 
         await harness.terminal_manager.send_to_stata_terminal('do', third);
         expect(harness.vscode_state.the_create_options).toHaveLength(2);
         expect(harness.vscode_state.the_send_calls.at(-1)).toBe(`do ${wrap(third)}`);
+    });
+});
+
+// ---- Perch ----
+
+interface FakeSession {
+    id: string;
+    name: string;
+    kind: string;
+    owner?: string;
+    annotations: Record<string, string>;
+    dir: string;
+    degraded: string[];
+    cwd: string;
+    host: string;
+    createdAt: string;
+    state: 'starting' | 'running' | 'exited' | 'lost' | 'unresponsive';
+    attached: boolean;
+    attachedHere: boolean;
+    exit?: { code?: number };
+}
+
+interface FakePerchCreate {
+    name: string;
+    kind: string;
+    command: string[];
+    cwd?: string;
+    env?: Record<string, string>;
+    annotations?: Record<string, string>;
+    show?: boolean;
+}
+
+interface FakePerch {
+    extension: {
+        isActive: boolean;
+        exports: unknown;
+        activate: () => Promise<unknown>;
+    };
+    activate_count: number;
+    is_available: boolean;
+    the_creates: FakePerchCreate[];
+    the_prepared: FakePerchCreate[];
+    the_sends: Array<{ id: string; text: string; options: unknown }>;
+    the_attaches: string[];
+    /** Makes a send fail with this error, once. */
+    send_error: unknown;
+    the_terminals: Array<{ session: FakeSession; terminal: MockTerminal }>;
+    the_listed: FakeSession[];
+    /** Holds listSessions until resolved. */
+    list_gate: Deferred<void> | null;
+    /** Fire onDidAttach before createSession resolves, as Perch can. */
+    attach_before_create: boolean;
+    fire_attach: (session: FakeSession, terminal: MockTerminal) => void;
+    fire_end: (session: FakeSession) => void;
+    make_session: (overrides?: Partial<FakeSession>) => FakeSession;
+    make_terminal: (session: FakeSession) => MockTerminal;
+}
+
+const PERCH_HELPER_PATH = '/extension/pty-helper/bin/linux-x64/sight-pty';
+const the_perch_dirs: string[] = [];
+let perch_session_count = 0;
+
+function create_fake_perch(vscode_state: VscodeMockState): FakePerch {
+    const the_attach_listeners: Array<(event: unknown) => void> = [];
+    const the_end_listeners: Array<(event: unknown) => void> = [];
+    const make_session = (overrides: Partial<FakeSession> = {}) => {
+        perch_session_count += 1;
+        const id = `s${String(perch_session_count).padStart(7, '0')}`;
+        const dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sight-perch-'));
+        the_perch_dirs.push(dir);
+        return {
+            id,
+            name: 'Stata',
+            kind: 'stata',
+            owner: 'jbearak.sight',
+            annotations: { 'sight.console': 'editor' },
+            dir,
+            degraded: [],
+            cwd: '/work',
+            host: 'remote',
+            createdAt: '2026-11-01T12:00:00Z',
+            state: 'running' as const,
+            attached: true,
+            attachedHere: true,
+            ...overrides,
+        };
+    };
+    const make_terminal = (session: FakeSession): MockTerminal => ({
+        name: session.name,
+        processId: Promise.resolve(99),
+        show: (preserve_focus = false) => {
+            vscode_state.the_show_calls.push(preserve_focus);
+        },
+        sendText: (text: string) => {
+            vscode_state.the_send_calls.push(text);
+        },
+    });
+    const perch: FakePerch = {
+        activate_count: 0,
+        is_available: true,
+        the_creates: [],
+        the_prepared: [],
+        the_sends: [],
+        the_attaches: [],
+        send_error: null,
+        the_terminals: [],
+        the_listed: [],
+        list_gate: null,
+        attach_before_create: false,
+        fire_attach: (session, terminal) => {
+            for (const my_listener of [...the_attach_listeners]) {
+                my_listener({ session, terminal });
+            }
+        },
+        fire_end: (session) => {
+            for (const my_listener of [...the_end_listeners]) {
+                my_listener(session);
+            }
+        },
+        make_session,
+        make_terminal,
+        extension: {
+            isActive: false,
+            exports: undefined,
+            activate: async () => {
+                perch.activate_count += 1;
+                return perch.extension.exports;
+            },
+        },
+    };
+    const api = {
+        version: 1,
+        available: async () => perch.is_available,
+        prepareLaunch: (options: FakePerchCreate) => {
+            perch.the_prepared.push(options);
+            return {
+                id: 'prepared',
+                options: { name: options.name, shellPath: '/perch/bin/perch' },
+            };
+        },
+        createSession: async (options: FakePerchCreate) => {
+            perch.the_creates.push(options);
+            const session = make_session({
+                annotations: { ...options.annotations },
+                cwd: options.cwd ?? '',
+            });
+            const terminal = make_terminal(session);
+            perch.the_listed.push(session);
+            if (perch.attach_before_create) {
+                perch.fire_attach(session, terminal);
+            }
+            return { session, terminal };
+        },
+        waitForSession: async () => make_session(),
+        listSessions: async () => {
+            await perch.list_gate?.promise;
+            return [...perch.the_listed];
+        },
+        terminals: () => [...perch.the_terminals],
+        attach: async (id: string) => {
+            perch.the_attaches.push(id);
+            const session = perch.the_listed.find(my_session => my_session.id === id);
+            return make_terminal(session ?? make_session());
+        },
+        sessionForTerminal: () => undefined,
+        send: async (id: string, text: string, options: unknown) => {
+            const error = perch.send_error;
+            if (error) {
+                perch.send_error = null;
+                throw error;
+            }
+            perch.the_sends.push({ id, text, options });
+            return 'queued';
+        },
+        kill: async () => {},
+        annotate: async () => {},
+        onDidChangeSessions: () => ({ dispose: () => {} }),
+        onDidAttach: (listener: (event: unknown) => void) =>
+            add_listener(the_attach_listeners, listener),
+        onDidEndSession: (listener: (event: unknown) => void) =>
+            add_listener(the_end_listeners, listener),
+    };
+    perch.extension.exports = {
+        getApi: (version: number, caller_id: string) =>
+            version === 1 && caller_id === 'jbearak.sight' ? api : undefined,
+    };
+    return perch;
+}
+
+function perch_error(code: string): Error {
+    return Object.assign(new Error(`perch: ${code}`), {
+        name: 'PerchApiError', code,
+    });
+}
+
+/** A harness for a remote window (by default) with `perch` installed. */
+async function create_perch_harness(
+    options: {
+        remote_name?: string;
+        extension_kind?: number;
+        perch?: (vscode_state: VscodeMockState) => FakePerch | undefined;
+        helper_path?: string | null;
+    } = {}
+): Promise<{ harness: ConsoleHarness; perch: FakePerch | undefined }> {
+    let perch: FakePerch | undefined;
+    const harness = await create_console_harness(
+        60000,
+        options.helper_path === undefined
+            ? PERCH_HELPER_PATH
+            : options.helper_path,
+        vscode_state => {
+            vscode_state.remote_name = options.remote_name ?? 'ssh-remote';
+            perch = options.perch
+                ? options.perch(vscode_state)
+                : create_fake_perch(vscode_state);
+            vscode_state.perch_extension = perch?.extension;
+            return { extension_kind: options.extension_kind ?? 2 };
+        }
+    );
+    return { harness, perch };
+}
+
+function write_ready_file(dir: string): void {
+    fs.writeFileSync(path.join(dir, 'sight-console-ready'), '{"pid":1}');
+}
+
+/** The Perch terminals Sight sends through. */
+function perch_terminals(harness: ConsoleHarness): MockTerminal[] {
+    const manager = harness.terminal_manager as unknown as {
+        perch_terminals_for_tests: () => MockTerminal[];
+    };
+    return manager.perch_terminals_for_tests();
+}
+
+function close_terminal(vscode_state: VscodeMockState, terminal: MockTerminal) {
+    for (const my_listener of [...vscode_state.the_close_listeners]) {
+        my_listener(terminal);
+    }
+}
+
+describe.serial('Feature: Stata console in a Perch session (remote windows)', () => {
+    beforeAll(register_module_mocks);
+
+    beforeEach(() => {
+        current_vscode_state = null;
+        // A remote host runs Linux (or macOS).
+        set_platform('linux');
+    });
+
+    afterEach(async () => {
+        close_live_panes();
+        set_platform(REAL_PLATFORM);
+        const terminal_manager = await import(TERMINAL_MANAGER_MODULE_URL);
+        terminal_manager.reset_stata_terminal_manager_for_tests();
+        current_vscode_state = null;
+        for (const my_file of the_created_files.splice(0)) {
+            await fs.promises.unlink(my_file).catch(() => {});
+        }
+        for (const my_dir of the_perch_dirs.splice(0)) {
+            fs.rmSync(my_dir, { recursive: true, force: true });
+        }
+    });
+
+    test('a local window never looks for Perch and opens the pane', async () => {
+        const { harness, perch } = await create_perch_harness({
+            remote_name: '', extension_kind: 1,
+        });
+        const first = await create_tracked_send_file('first');
+        expect(await harness.terminal_manager.send_to_stata_terminal('do', first)).toBe(true);
+        expect(harness.the_terminals).toHaveLength(1);
+        expect(harness.the_terminals[0].creationOptions?.pty).toBeDefined();
+        expect(perch?.activate_count).toBe(0);
+        expect(perch?.the_creates).toEqual([]);
+        expect(harness.vscode_state.the_get_extension_ids).toEqual([]);
+    });
+
+    test('a remote window without Perch opens the pane', async () => {
+        const { harness } = await create_perch_harness({ perch: () => undefined });
+        const first = await create_tracked_send_file('first');
+        expect(await harness.terminal_manager.send_to_stata_terminal('do', first)).toBe(true);
+        expect(harness.the_terminals).toHaveLength(1);
+        expect(harness.the_terminals[0].creationOptions?.pty).toBeDefined();
+    });
+
+    test('Sight running as a UI extension in a remote window opens the pane', async () => {
+        const { harness, perch } = await create_perch_harness({ extension_kind: 1 });
+        const first = await create_tracked_send_file('first');
+        await harness.terminal_manager.send_to_stata_terminal('do', first);
+        expect(harness.the_terminals).toHaveLength(1);
+        expect(perch?.activate_count).toBe(0);
+        expect(perch?.the_creates).toEqual([]);
+    });
+
+    test('Perch that is unavailable on the host leaves the pane', async () => {
+        const { harness, perch } = await create_perch_harness({
+            perch: vscode_state => {
+                const fake = create_fake_perch(vscode_state);
+                fake.is_available = false;
+                return fake;
+            },
+        });
+        await harness.terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('first')
+        );
+        expect(harness.the_terminals).toHaveLength(1);
+        expect(perch?.the_creates).toEqual([]);
+    });
+
+    test('a Perch whose activation rejects leaves the pane, with no unhandled rejection', async () => {
+        const the_logged: string[] = [];
+        const { harness, perch } = await create_perch_harness({
+            perch: vscode_state => {
+                const fake = create_fake_perch(vscode_state);
+                fake.extension.activate = () => Promise.reject(new Error('boom'));
+                return fake;
+            },
+        });
+        const the_rejections: unknown[] = [];
+        const on_rejection = (reason: unknown) => the_rejections.push(reason);
+        process.on('unhandledRejection', on_rejection);
+        try {
+            // Look Perch up again with a log, as at activation.
+            harness.terminal_manager.register_stata_terminal(
+                harness.context as never,
+                ((message: string) => the_logged.push(message)) as never
+            );
+            const first = await create_tracked_send_file('first');
+            expect(await harness.terminal_manager.send_to_stata_terminal('do', first)).toBe(true);
+            await new Promise(resolve => setTimeout(resolve, 20));
+        } finally {
+            process.off('unhandledRejection', on_rejection);
+        }
+        expect(the_rejections).toEqual([]);
+        expect(the_logged).toEqual([expect.stringContaining('boom')]);
+        expect(harness.the_terminals).toHaveLength(1);
+        expect(perch?.the_creates).toEqual([]);
+    });
+
+    test('with Perch, a new console runs tty.js in a session, with the first send on its command line', async () => {
+        const { harness, perch } = await create_perch_harness();
+        harness.vscode_state.workspace_folder = '/work/project';
+        const first = await create_tracked_send_file('first');
+        expect(await harness.terminal_manager.send_to_stata_terminal('do', first)).toBe(true);
+        expect(harness.the_terminals).toEqual([]);
+        expect(perch!.the_creates).toHaveLength(1);
+        const created = perch!.the_creates[0];
+        expect(created.kind).toBe('stata');
+        expect(created.name).toBe('Stata');
+        expect(created.cwd).toBe('/work/project');
+        expect(created.env).toEqual({ ELECTRON_RUN_AS_NODE: '1' });
+        expect(created.annotations).toEqual({ 'sight.console': 'editor' });
+        expect(created.show).toBe(false);
+        expect(created.command).toEqual([
+            process.execPath,
+            path.join(EXTENSION_PATH, 'console-runtime', 'tty.js'),
+            '--helper', PERCH_HELPER_PATH,
+            '--stata', '/usr/local/bin/stata-mp',
+            '--ready-file', '{dir}/sight-console-ready',
+            '--end-file', '{dir}/sight-console-end',
+            '--cwd', '/work/project',
+            '--run', `do ${wrap(first)}`,
+        ]);
+    });
+
+    test('sends wait for the ready file, then go through Perch in order, once each, never sendText', async () => {
+        const { harness, perch } = await create_perch_harness();
+        const first = await create_tracked_send_file('first');
+        const second = await create_tracked_send_file('second');
+        const third = await create_tracked_send_file('third');
+        expect(await harness.terminal_manager.send_to_stata_terminal('do', first)).toBe(true);
+        expect(await harness.terminal_manager.send_to_stata_terminal('do', second)).toBe(true);
+        expect(await harness.terminal_manager.send_to_stata_terminal('include', third)).toBe(true);
+        expect(perch!.the_sends).toEqual([]);
+        expect(harness.vscode_state.status_item?.text).toContain('3 sends');
+
+        const session = perch!.the_listed[0];
+        write_ready_file(session.dir);
+        await wait_until(() => perch!.the_sends.length === 2, 'the queued sends', 2000);
+        expect(perch!.the_sends).toEqual([
+            { id: session.id, text: `do ${wrap(second)}`, options: { submit: true } },
+            { id: session.id, text: `include ${wrap(third)}`, options: { submit: true } },
+        ]);
+        // The first ran from the command line; all three are cleaned up.
+        expect(harness.vscode_state.the_cleanups).toEqual([first, second, third]);
+
+        const fourth = await create_tracked_send_file('fourth');
+        expect(await harness.terminal_manager.send_to_stata_terminal('do', fourth)).toBe(false);
+        expect(perch!.the_sends).toHaveLength(3);
+        expect(perch!.the_sends[2].text).toBe(`do ${wrap(fourth)}`);
+        expect(perch!.the_creates).toHaveLength(1);
+        expect(harness.vscode_state.the_send_calls).toEqual([]);
+    });
+
+    test('the first send is kept when onDidAttach comes before createSession resolves', async () => {
+        const { harness, perch } = await create_perch_harness();
+        perch!.attach_before_create = true;
+        const first = await create_tracked_send_file('first');
+        const second = await create_tracked_send_file('second');
+        await harness.terminal_manager.send_to_stata_terminal('do', first);
+        await harness.terminal_manager.send_to_stata_terminal('do', second);
+        expect(harness.vscode_state.status_item?.text).toContain('2 sends');
+        // A helper failure hands both to the Stata CLI, first included.
+        fs.writeFileSync(
+            path.join(perch!.the_listed[0].dir, 'sight-console-end'),
+            JSON.stringify({ code: 1, took_stata: false, helper_failed: true })
+        );
+        await wait_until(() => perch!.the_creates.length === 2, 'the CLI session', 2000);
+        expect(perch!.the_creates[1].command).toEqual([
+            '/usr/local/bin/stata-mp', 'do', wrap(first),
+        ]);
+    });
+
+    test('with onDidAttach first, the first send is still cleaned up at readiness', async () => {
+        const { harness, perch } = await create_perch_harness();
+        perch!.attach_before_create = true;
+        const first = await create_tracked_send_file('first');
+        await harness.terminal_manager.send_to_stata_terminal('do', first);
+        write_ready_file(perch!.the_listed[0].dir);
+        await wait_until(
+            () => harness.vscode_state.the_cleanups.includes(first), 'cleanup', 2000
+        );
+    });
+
+    test('literal braces in user strings are escaped; only Sight\'s {dir} stays raw', async () => {
+        const brace_dir = fs.mkdtempSync(path.join(os.tmpdir(), 'a{dir}b}{-'));
+        the_perch_dirs.push(brace_dir);
+        const first = path.join(brace_dir, 'x{y}.do');
+        fs.writeFileSync(first, 'display 1\n');
+        the_created_files.push(first);
+        const { harness, perch } = await create_perch_harness({
+            helper_path: '/ext/{id}/sight-pty',
+        });
+        harness.vscode_state.stata_cli = '/opt/st{ata}/stata-mp';
+        harness.vscode_state.workspace_folder = '/work/{dir}';
+        await harness.terminal_manager.send_to_stata_terminal('do', first);
+        const created = perch!.the_creates[0];
+        const escape = (text: string) => text.replace(/[{}]/g, brace => brace + brace);
+        expect(created.command).toEqual([
+            escape(process.execPath),
+            escape(path.join(EXTENSION_PATH, 'console-runtime', 'tty.js')),
+            '--helper', '/ext/{{id}}/sight-pty',
+            '--stata', '/opt/st{{ata}}/stata-mp',
+            '--ready-file', '{dir}/sight-console-ready',
+            '--end-file', '{dir}/sight-console-end',
+            '--cwd', '/work/{{dir}}',
+            '--run', escape(`do ${wrap(first)}`),
+        ]);
+        // cwd is not expanded by Perch.
+        expect(created.cwd).toBe('/work/{dir}');
+        expect(created.command.at(-1)).toContain('a{{dir}}b}}{{-');
+    });
+
+    test('with the console setting off, the session runs the Stata CLI', async () => {
+        const { harness, perch } = await create_perch_harness();
+        harness.vscode_state.console_setting = 'off';
+        harness.vscode_state.stata_cli = '/opt/{x}/stata-mp';
+        const first = await create_tracked_send_file('first');
+        const second = await create_tracked_send_file('second');
+        expect(await harness.terminal_manager.send_to_stata_terminal('do', first)).toBe(true);
+        expect(await harness.terminal_manager.send_to_stata_terminal('do', second)).toBe(true);
+        const created = perch!.the_creates[0];
+        expect(created.command).toEqual(['/opt/{{x}}/stata-mp', 'do', wrap(first)]);
+        expect(created.annotations).toEqual({ 'sight.console': 'stata' });
+        expect(created.env).toBeUndefined();
+        await wait_until(() => perch!.the_sends.length === 1, 'the second send', 2000);
+        expect(perch!.the_sends[0].text).toBe(`do ${wrap(second)}`);
+        expect(harness.vscode_state.the_send_calls).toEqual([]);
+    });
+
+    test('closing the session\'s terminal is a detach: sends still go to it', async () => {
+        const { harness, perch } = await create_perch_harness();
+        await harness.terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('first')
+        );
+        const session = perch!.the_listed[0];
+        write_ready_file(session.dir);
+        const second = await create_tracked_send_file('second');
+        await wait_until(() => harness.vscode_state.the_cleanups.length === 1, 'ready', 2000);
+
+        // The terminal createSession returned is the one Sight tracks.
+        const the_tracked = perch_terminals(harness);
+        expect(the_tracked).toHaveLength(1);
+        close_terminal(harness.vscode_state, the_tracked[0]);
+        expect(perch_terminals(harness)).toEqual([]);
+
+        expect(await harness.terminal_manager.send_to_stata_terminal('do', second)).toBe(false);
+        expect(perch!.the_sends).toEqual([
+            { id: session.id, text: `do ${wrap(second)}`, options: { submit: true } },
+        ]);
+        expect(perch!.the_creates).toHaveLength(1);
+        expect(harness.the_terminals).toEqual([]);
+    });
+
+    test('onDidEndSession ends the console: waiting sends drop, the next send starts a new one', async () => {
+        const { harness, perch } = await create_perch_harness();
+        await harness.terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('first')
+        );
+        await harness.terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('second')
+        );
+        const session = perch!.the_listed[0];
+        perch!.fire_end({ ...session, state: 'exited', exit: { code: 1 } });
+        await wait_until(
+            () => harness.vscode_state.the_info_messages.length > 0,
+            'the drop notice', 2000
+        );
+        expect(harness.vscode_state.the_info_messages[0]).toContain('Dropped 2 sends');
+
+        await harness.terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('third')
+        );
+        expect(perch!.the_creates).toHaveLength(2);
+        expect(perch!.the_sends).toEqual([]);
+    });
+
+    test('after a reload, the session with a terminal here is the target again; others are not', async () => {
+        const { harness, perch } = await create_perch_harness({
+            perch: vscode_state => {
+                const fake = create_fake_perch(vscode_state);
+                const here = fake.make_session();
+                write_ready_file(here.dir);
+                const elsewhere = fake.make_session({
+                    cwd: '/other/workspace', attachedHere: false,
+                });
+                fake.the_terminals.push({ session: here, terminal: fake.make_terminal(here) });
+                fake.the_listed.push(here, elsewhere);
+                return fake;
+            },
+        });
+        const here = perch!.the_listed[0];
+        const first = await create_tracked_send_file('first');
+        await wait_until(
+            () => perch_terminals(harness).length === 1, 'adoption', 2000
+        );
+        // Queued until the ready file is seen, then sent.
+        await harness.terminal_manager.send_to_stata_terminal('do', first);
+        await wait_until(() => perch!.the_sends.length === 1, 'the send', 2000);
+        expect(perch!.the_sends[0]).toEqual({
+            id: here.id, text: `do ${wrap(first)}`, options: { submit: true },
+        });
+        expect(harness.vscode_state.the_quick_picks).toEqual([]);
+        expect(perch!.the_creates).toEqual([]);
+    });
+
+    test('sessions only from other windows are offered, never sent to on their own', async () => {
+        const { harness, perch } = await create_perch_harness({
+            perch: vscode_state => {
+                const fake = create_fake_perch(vscode_state);
+                fake.the_listed.push(fake.make_session({
+                    cwd: '/other/workspace', attachedHere: false,
+                }));
+                return fake;
+            },
+        });
+        harness.vscode_state.quick_pick_answer = '$(add) Start a new Stata console';
+        await harness.terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('first')
+        );
+        expect(harness.vscode_state.the_quick_picks).toEqual([
+            ['$(add) Start a new Stata console', '$(terminal) Stata'],
+        ]);
+        expect(perch!.the_creates).toHaveLength(1);
+        expect(perch!.the_attaches).toEqual([]);
+        expect(perch!.the_sends).toEqual([]);
+    });
+
+    test('picking a session from another window attaches it and sends there', async () => {
+        const { harness, perch } = await create_perch_harness({
+            perch: vscode_state => {
+                const fake = create_fake_perch(vscode_state);
+                const other = fake.make_session({
+                    cwd: '/other/workspace', attachedHere: false,
+                });
+                write_ready_file(other.dir);
+                fake.the_listed.push(other);
+                return fake;
+            },
+        });
+        const other = perch!.the_listed[0];
+        harness.vscode_state.quick_pick_answer = '$(terminal) Stata';
+        const first = await create_tracked_send_file('first');
+        await harness.terminal_manager.send_to_stata_terminal('do', first);
+        await wait_until(() => perch!.the_sends.length === 1, 'the send', 2000);
+        expect(perch!.the_attaches).toEqual([other.id]);
+        expect(perch!.the_sends[0]).toEqual({
+            id: other.id, text: `do ${wrap(first)}`, options: { submit: true },
+        });
+        expect(perch!.the_creates).toEqual([]);
+    });
+
+    test('an end event during the listing wins over the listing', async () => {
+        const { harness, perch } = await create_perch_harness({
+            perch: vscode_state => {
+                const fake = create_fake_perch(vscode_state);
+                const restored = fake.make_session();
+                write_ready_file(restored.dir);
+                fake.the_terminals.push({
+                    session: restored, terminal: fake.make_terminal(restored),
+                });
+                fake.the_listed.push(restored);
+                fake.list_gate = create_deferred<void>();
+                return fake;
+            },
+        });
+        const restored = perch!.the_listed[0];
+        // The session ends while the listing is in flight; the stale
+        // listing still says running.
+        await new Promise(resolve => setTimeout(resolve, 10));
+        perch!.fire_end({ ...restored, state: 'exited' });
+        perch!.list_gate!.resolve();
+        await harness.terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('first')
+        );
+        expect(perch!.the_sends).toEqual([]);
+        expect(perch!.the_creates).toHaveLength(1);
+        expect(harness.vscode_state.the_quick_picks).toEqual([]);
+    });
+
+    test('outcome_unknown says the code may not have run, and never resends', async () => {
+        const { harness, perch } = await create_perch_harness();
+        await harness.terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('first')
+        );
+        write_ready_file(perch!.the_listed[0].dir);
+        await wait_until(() => harness.vscode_state.the_cleanups.length === 1, 'ready', 2000);
+        perch!.send_error = perch_error('outcome_unknown');
+        await harness.terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('second')
+        );
+        expect(harness.vscode_state.the_warning_calls.map(my_call => my_call.message))
+            .toEqual([expect.stringContaining('may not have run')]);
+        await new Promise(resolve => setTimeout(resolve, 20));
+        expect(perch!.the_sends).toEqual([]);
+    });
+
+    test('no_session ends the console, so the next send starts a new one', async () => {
+        const { harness, perch } = await create_perch_harness();
+        await harness.terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('first')
+        );
+        write_ready_file(perch!.the_listed[0].dir);
+        await wait_until(() => harness.vscode_state.the_cleanups.length === 1, 'ready', 2000);
+        perch!.send_error = perch_error('no_session');
+        await harness.terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('second')
+        );
+        expect(harness.vscode_state.the_error_messages)
+            .toEqual([expect.stringContaining('has ended')]);
+        await harness.terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('third')
+        );
+        expect(perch!.the_creates).toHaveLength(2);
+    });
+
+    test('a console that ends before its first prompt drops its sends', async () => {
+        const { harness, perch } = await create_perch_harness();
+        await harness.terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('first')
+        );
+        fs.writeFileSync(
+            path.join(perch!.the_listed[0].dir, 'sight-console-end'),
+            JSON.stringify({ code: 127, took_stata: false, helper_failed: false })
+        );
+        await wait_until(
+            () => harness.vscode_state.the_info_messages.length > 0,
+            'the drop notice', 2000
+        );
+        expect(harness.vscode_state.the_info_messages[0])
+            .toContain('Dropped 1 send to Stata: sight console exited with code 127');
+    });
+
+    test('a helper failure before the first prompt starts the Stata CLI in a new session', async () => {
+        const { harness, perch } = await create_perch_harness();
+        const first = await create_tracked_send_file('first');
+        const second = await create_tracked_send_file('second');
+        await harness.terminal_manager.send_to_stata_terminal('do', first);
+        await harness.terminal_manager.send_to_stata_terminal('do', second);
+        fs.writeFileSync(
+            path.join(perch!.the_listed[0].dir, 'sight-console-end'),
+            JSON.stringify({ code: 1, took_stata: false, helper_failed: true })
+        );
+        await wait_until(() => perch!.the_creates.length === 2, 'the CLI session', 2000);
+        expect(perch!.the_creates[1].command).toEqual([
+            '/usr/local/bin/stata-mp', 'do', wrap(first),
+        ]);
+        await wait_until(() => perch!.the_sends.length === 1, 'the second send', 2000);
+        expect(perch!.the_sends[0].text).toBe(`do ${wrap(second)}`);
+        expect(harness.vscode_state.the_warning_calls.map(my_call => my_call.message))
+            .toEqual([expect.stringContaining('Stata CLI directly')]);
+        // The new session's queue owns the files: one cleanup each.
+        await new Promise(resolve => setTimeout(resolve, 20));
+        expect(harness.vscode_state.the_cleanups).toEqual([first, second]);
+    });
+
+    test('the active-terminal commands send to a Perch terminal through Perch', async () => {
+        const { harness, perch } = await create_perch_harness();
+        await harness.terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('first')
+        );
+        write_ready_file(perch!.the_listed[0].dir);
+        await wait_until(() => harness.vscode_state.the_cleanups.length === 1, 'ready', 2000);
+        const manager = harness.terminal_manager as unknown as {
+            send_to_perch_terminal: (
+                terminal: MockTerminal | undefined, command: string, file_path: string
+            ) => Promise<boolean | null>;
+        };
+        const second = await create_tracked_send_file('second');
+        expect(await manager.send_to_perch_terminal(perch_terminals(harness)[0], 'do', second))
+            .toBe(false);
+        expect(perch!.the_sends.map(my_send => my_send.text)).toEqual([`do ${wrap(second)}`]);
+        expect(await manager.send_to_perch_terminal(harness.vscode_state.terminal, 'do', second))
+            .toBeNull();
+        expect(await manager.send_to_perch_terminal(undefined, 'do', second)).toBeNull();
+        expect(harness.vscode_state.the_send_calls).toEqual([]);
+    });
+
+    test('the profile list\'s Stata terminal is a Perch session too', async () => {
+        const { harness, perch } = await create_perch_harness();
+        const provider = harness.vscode_state.the_profile_providers.get(
+            'sight.stataTerminal'
+        );
+        const profile = await provider!.provideTerminalProfile(NO_CANCEL) as {
+            options: { shellPath?: string };
+        };
+        expect(profile.options.shellPath).toBe('/perch/bin/perch');
+        expect(perch!.the_prepared).toHaveLength(1);
+        expect(perch!.the_prepared[0].command.slice(0, 2)).toEqual([
+            process.execPath,
+            path.join(EXTENSION_PATH, 'console-runtime', 'tty.js'),
+        ]);
+        expect(perch!.the_prepared[0].command).not.toContain('--run');
+    });
+
+    test('if Perch can\'t prepare the profile\'s session, the profile opens the pane', async () => {
+        const { harness } = await create_perch_harness({
+            perch: vscode_state => {
+                const fake = create_fake_perch(vscode_state);
+                const exports = fake.extension.exports as {
+                    getApi: (version: number, caller_id: string) => Record<string, unknown>;
+                };
+                const api = exports.getApi(1, 'jbearak.sight');
+                api.prepareLaunch = () => {
+                    throw new Error('no launch');
+                };
+                return fake;
+            },
+        });
+        const provider = harness.vscode_state.the_profile_providers.get(
+            'sight.stataTerminal'
+        );
+        const profile = await provider!.provideTerminalProfile(NO_CANCEL) as {
+            options: CreateTerminalOptions;
+        };
+        expect(profile.options.pty).toBeDefined();
     });
 });
