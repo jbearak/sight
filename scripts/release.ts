@@ -17,7 +17,7 @@
 import { $ } from 'bun';
 import { readFileSync } from 'fs';
 import { createInterface } from 'readline/promises';
-import { next_version } from './bump-version';
+import { find_unknown_flags, next_version } from './bump-version';
 import {
     compare_versions,
     release_channel,
@@ -28,6 +28,32 @@ interface ReleaseConfig {
     version: string;
     tag: string;
     channel: ReleaseChannel;
+}
+
+interface ReleaseArgs {
+    requested: string;
+    is_dry_run: boolean;
+}
+
+const RELEASE_FLAGS: ReadonlySet<string> = new Set(['--dry-run']);
+
+/**
+ * Parses `[--dry-run] <version|bump>`. Throws on an unknown flag, so a
+ * typo such as `--dryrun` cannot fall through to a real release.
+ */
+export function parse_release_args(the_args: string[]): ReleaseArgs {
+    const the_unknown_flags = find_unknown_flags(the_args, RELEASE_FLAGS);
+    if (the_unknown_flags.length > 0) {
+        throw new Error(`Unknown option: ${the_unknown_flags.join(', ')}`);
+    }
+    const the_positional = the_args.filter((arg) => !arg.startsWith('-'));
+    if (the_positional.length !== 1) {
+        throw new Error('Expected one version or bump type');
+    }
+    return {
+        requested: the_positional[0],
+        is_dry_run: the_args.includes('--dry-run'),
+    };
 }
 
 /**
@@ -185,15 +211,15 @@ Make sure you have committed all changes before running this script.
  * Main entry point.
  */
 async function main(): Promise<void> {
-    const the_args = process.argv.slice(2);
-    const is_dry_run = the_args.includes('--dry-run');
-    const the_positional = the_args.filter((arg) => !arg.startsWith('--'));
-    const requested = the_positional[0];
-
-    if (!requested || the_positional.length > 1) {
+    let release_args: ReleaseArgs;
+    try {
+        release_args = parse_release_args(process.argv.slice(2));
+    } catch (error) {
+        console.error(error instanceof Error ? error.message : error);
         print_usage();
         process.exit(1);
     }
+    const { requested, is_dry_run } = release_args;
 
     let version: string;
     try {

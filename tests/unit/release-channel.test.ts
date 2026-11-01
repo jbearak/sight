@@ -8,8 +8,14 @@ import {
     parse_release_version,
     release_channel,
 } from '../../scripts/release-channel';
-import { next_version } from '../../scripts/bump-version';
-import { resolve_release_version } from '../../scripts/release';
+import {
+    find_unknown_flags,
+    next_version,
+} from '../../scripts/bump-version';
+import {
+    parse_release_args,
+    resolve_release_version,
+} from '../../scripts/release';
 import {
     find_vsix_release_problems,
     read_vsix_manifest_release,
@@ -139,6 +145,36 @@ describe('resolve_release_version', () => {
             .toThrow(/must be above/);
         expect(() => resolve_release_version('0.17.0', '0.17.0'))
             .toThrow(/must be above/);
+    });
+});
+
+describe('release arguments', () => {
+    it('accepts --dry-run before or after the version', () => {
+        expect(parse_release_args(['--dry-run', 'preview']))
+            .toEqual({ requested: 'preview', is_dry_run: true });
+        expect(parse_release_args(['preview', '--dry-run']))
+            .toEqual({ requested: 'preview', is_dry_run: true });
+        expect(parse_release_args(['0.18.0']))
+            .toEqual({ requested: '0.18.0', is_dry_run: false });
+    });
+
+    it('rejects unknown flags so a typo cannot start a release', () => {
+        expect(() => parse_release_args(['--dryrun', 'preview']))
+            .toThrow(/Unknown option: --dryrun/);
+        expect(() => parse_release_args(['-n', 'preview']))
+            .toThrow(/Unknown option: -n/);
+        expect(() => parse_release_args(['--dry-run'])).toThrow();
+        expect(() => parse_release_args(['patch', 'minor'])).toThrow();
+    });
+
+    it('rejects unknown bump-version flags', () => {
+        const the_known = new Set(['--dry-run', '--push', '--no-git']);
+        expect(find_unknown_flags(
+            ['--dry-run', 'patch', '--push', '--no-git'],
+            the_known
+        )).toEqual([]);
+        expect(find_unknown_flags(['--dryrun', 'patch'], the_known))
+            .toEqual(['--dryrun']);
     });
 });
 

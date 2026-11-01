@@ -57,6 +57,22 @@ export function next_version(current: string, bump: string): string {
     return version;
 }
 
+const BUMP_FLAGS: ReadonlySet<string> =
+    new Set(["--dry-run", "--push", "--no-git"]);
+
+/**
+ * Arguments that look like flags but are not in `the_known`, so a typo
+ * such as `--dryrun` fails instead of running a real bump or release.
+ */
+export function find_unknown_flags(
+    the_args: string[],
+    the_known: ReadonlySet<string>
+): string[] {
+    return the_args.filter(
+        (arg) => arg.startsWith("-") && !the_known.has(arg)
+    );
+}
+
 function update_package(path: string, new_version: string): void {
     const content: Record<string, unknown> =
         JSON.parse(readFileSync(path, "utf-8"));
@@ -78,8 +94,14 @@ function main(): void {
     const should_push = the_args.includes("--push");
     const should_skip_git = the_args.includes("--no-git");
     const is_dry_run = the_args.includes("--dry-run");
-    const bump_type = the_args.find((arg) => !arg.startsWith("--"))
+    const bump_type = the_args.find((arg) => !arg.startsWith("-"))
         ?? "patch";
+
+    const the_unknown_flags = find_unknown_flags(the_args, BUMP_FLAGS);
+    if (the_unknown_flags.length > 0) {
+        console.error(`Unknown option: ${the_unknown_flags.join(", ")}`);
+        process.exit(1);
+    }
 
     const current_version = read_current_version();
     let new_version: string;
