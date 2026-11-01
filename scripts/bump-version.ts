@@ -94,12 +94,16 @@ function main(): void {
     const should_push = the_args.includes("--push");
     const should_skip_git = the_args.includes("--no-git");
     const is_dry_run = the_args.includes("--dry-run");
-    const bump_type = the_args.find((arg) => !arg.startsWith("-"))
-        ?? "patch";
+    const the_positional = the_args.filter((arg) => !arg.startsWith("-"));
+    const bump_type = the_positional[0] ?? "patch";
 
     const the_unknown_flags = find_unknown_flags(the_args, BUMP_FLAGS);
     if (the_unknown_flags.length > 0) {
         console.error(`Unknown option: ${the_unknown_flags.join(", ")}`);
+        process.exit(1);
+    }
+    if (the_positional.length > 1) {
+        console.error(`Expected one bump type, got: ${the_positional.join(" ")}`);
         process.exit(1);
     }
 
