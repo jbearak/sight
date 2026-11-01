@@ -67,6 +67,18 @@ The pane runs console Stata directly, as before sight console, when:
 
 The console has been tested with real Stata on macOS; on Linux it has been tested only with a stand-in for Stata.
 
+### Remote windows with Perch
+
+In a remote window (Remote-SSH, WSL, Dev Containers, Tunnels), if the [Perch](https://github.com/jbearak/perch) extension is installed on the remote host, the Stata pane runs in a Perch session. Stata then keeps running when you close the window or the connection drops, and the next send, or reopening the window, finds it again. There's no setting: installing Perch on the remote host turns this on, and without Perch (or in a local window) nothing changes. Installing or removing Perch affects consoles started after that.
+
+What differs from the pane described above:
+
+- Closing the Stata terminal detaches it; Stata keeps running. Sends still reach it, and the terminal reopens from Perch's Sessions view or when the window reloads. To end Stata, type `exit`, or end the session in Perch.
+- Code goes only to Stata sessions with a terminal in this window, or ones this window started. If Sight finds Stata sessions it started from other windows when it needs a new console, it asks whether to send code to one of them or start a new one.
+- A detached Stata waits at `--more--` until someone attaches and presses a key, since nothing answers it. Put `set more off` in your `profile.do`.
+- A detached Stata may keep holding its license seat while it runs.
+- If Perch can't confirm that a send reached Stata (the connection ended mid-send), Sight says the code may not have run and doesn't send it again.
+
 ### Windows: sight console
 
 On native Windows (not in a remote session), the `integrated` target and the "Stata" terminal profile open a **Stata pane** in VS Code's terminal panel that runs [sight console](console.md) inside the extension. There's no separate program to install. The console drives the Stata application through its Automation interface, so it needs Stata's Automation registered. See [console.md](console.md) for what the console does.

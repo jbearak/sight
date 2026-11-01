@@ -684,3 +684,51 @@ describe('console terminal queue: overlapping closes', () => {
         expect(queue.pending_count()).toBe(0);
     });
 });
+
+describe('console terminal queue: sends carried on the command line', () => {
+    test('count as pending, are not typed, and are cleaned up at readiness', () => {
+        const host = new FakeHost();
+        const queue = create_queue(host);
+        const terminal = { id: 't1' };
+        queue.track(terminal, [send('/first.do')]);
+        expect(queue.pending_count()).toBe(1);
+        expect(host.the_counts.at(-1)).toBe(1);
+        expect(queue.send(terminal, send('/second.do'))).toBe(true);
+        expect(queue.pending_count()).toBe(2);
+
+        queue.mark_ready(terminal);
+        expect(host.the_typed).toEqual(['t1:/second.do']);
+        expect(host.the_events).toEqual([
+            'cleanup /first.do', 'type /second.do', 'cleanup /second.do',
+        ]);
+        expect(queue.pending_count()).toBe(0);
+    });
+
+    test('are dropped, first, when the console closes before readiness', async () => {
+        const host = new FakeHost();
+        const queue = create_queue(host);
+        const terminal = { id: 't1' };
+        queue.track(terminal, [send('/first.do')]);
+        queue.send(terminal, send('/second.do'));
+        await queue.handle_closed(terminal, {
+            reason: 'process', code: 1, backend: 'pty',
+        });
+        expect(host.the_deleted).toEqual(['/first.do', '/second.do']);
+        expect(host.the_notices).toEqual([
+            'Dropped 2 sends to Stata: sight console exited with code 1 '
+            + 'before it was ready.',
+        ]);
+    });
+
+    test('are handed back first by take_pending', () => {
+        const host = new FakeHost();
+        const queue = create_queue(host);
+        const terminal = { id: 't1' };
+        queue.track(terminal, [send('/first.do')]);
+        queue.send(terminal, send('/second.do'));
+        expect(queue.take_pending(terminal)).toEqual([
+            send('/first.do'), send('/second.do'),
+        ]);
+        expect(queue.pending_count()).toBe(0);
+    });
+});

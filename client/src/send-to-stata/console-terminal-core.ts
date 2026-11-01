@@ -4,8 +4,9 @@
  * on Windows, the offer to use send-to-stata (the Stata app) when the
  * console ends without taking Stata.
  *
- * Every pending send ends exactly once: typed into its ready terminal,
- * dispatched to the app, or dropped (its temp file deleted).
+ * Every pending send ends exactly once: typed into its ready terminal
+ * (or, for one its command line carried, run there), dispatched to the
+ * app, or dropped (its temp file deleted).
  */
 
 import type { StataCommand } from './index.js';
@@ -123,6 +124,11 @@ export interface ConsoleQueueTimings {
 
 interface ConsoleTerminalEntry {
     state: ConsoleTerminalState;
+    /**
+     * Sends handed to the console on its command line, which it runs
+     * itself at its first prompt: not typed, but pending until then.
+     */
+    baked: PendingSend[];
     pending: PendingSend[];
 }
 
@@ -133,6 +139,14 @@ interface ShowingOffer {
 }
 
 const OFFER_TIMED_OUT = Symbol('offer timed out');
+
+/** An entry's untyped sends, in order, leaving it none. */
+function take_all(entry: ConsoleTerminalEntry): PendingSend[] {
+    const the_sends = [...entry.baked, ...entry.pending];
+    entry.baked = [];
+    entry.pending = [];
+    return the_sends;
+}
 
 function count_sends(count: number): string {
     return count === 1 ? '1 send' : `${count} sends`;
@@ -178,12 +192,20 @@ export class ConsoleTerminalQueue<TTerminal> {
         };
     }
 
-    /** Start tracking a console pane. */
-    track(terminal: TTerminal): void {
+    /**
+     * Start tracking a console pane, with the sends its command line
+     * carries (`baked`), if any.
+     */
+    track(terminal: TTerminal, baked: PendingSend[] = []): void {
         if (this.entries.has(terminal)) {
             return;
         }
-        this.entries.set(terminal, { state: 'starting', pending: [] });
+        this.entries.set(terminal, {
+            state: 'starting', baked: [...baked], pending: [],
+        });
+        if (baked.length > 0) {
+            this.report_pending_count();
+        }
     }
 
     /**
@@ -228,7 +250,7 @@ export class ConsoleTerminalQueue<TTerminal> {
     pending_count(): number {
         let count = this.dispatching_count;
         for (const my_entry of this.entries.values()) {
-            count += my_entry.pending.length;
+            count += my_entry.baked.length + my_entry.pending.length;
         }
         if (this.showing_offer) {
             count += this.showing_offer.pending.length;
@@ -249,8 +271,7 @@ export class ConsoleTerminalQueue<TTerminal> {
         this.entries.delete(terminal);
         entry.state = 'closed';
 
-        const the_sends = entry.pending;
-        entry.pending = [];
+        const the_sends = take_all(entry);
         const reason = exit.code === undefined || exit.backend === 'pty'
             ? undefined
             : CONSOLE_OFFER_REASONS.get(exit.code);
@@ -299,8 +320,7 @@ export class ConsoleTerminalQueue<TTerminal> {
         }
         this.entries.delete(terminal);
         entry.state = 'closed';
-        const the_sends = entry.pending;
-        entry.pending = [];
+        const the_sends = take_all(entry);
         this.report_pending_count();
         return the_sends;
     }
@@ -462,6 +482,10 @@ export class ConsoleTerminalQueue<TTerminal> {
             return;
         }
         entry.state = 'ready';
+        for (const my_send of entry.baked) {
+            this.host.schedule_cleanup(my_send.temp_file_path);
+        }
+        entry.baked = [];
         const the_sends = entry.pending;
         entry.pending = [];
         for (let i = 0; i < the_sends.length; i++) {
