@@ -44,6 +44,7 @@
     "package": "bun run build && cd client && bun run copy-server && bun run package",
     "version:patch": "bun scripts/bump-version.ts patch",
     "version:minor": "bun scripts/bump-version.ts minor",
+    "version:preview": "bun scripts/bump-version.ts preview",
     "version:major": "bun scripts/bump-version.ts major",
     "release": "bun scripts/release.ts"
   },

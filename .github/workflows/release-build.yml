@@ -22,6 +22,8 @@ permissions:
 jobs:
   verify:
     runs-on: ubuntu-latest
+    outputs:
+      channel: ${{ steps.channel.outputs.channel }}
 
     steps:
       # Pinned action SHA for supply-chain safety.
@@ -43,6 +45,19 @@ jobs:
 
       - name: Setup
         uses: ./.github/actions/setup
+
+      # Classify the tag as stable or pre-release (odd minor) before any
+      # build, and reject versions the VS Code Marketplace would refuse.
+      # scripts/release-channel.ts documents the scheme. A re-dispatch for
+      # a tag older than the classifier fails here.
+      - name: Determine release channel
+        id: channel
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: |
+          channel=$(bun scripts/release-channel.ts "$TAG")
+          echo "Release channel for $TAG: $channel"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
 
       - name: Typecheck
         run: bun run typecheck
@@ -71,8 +86,23 @@ jobs:
       - name: Setup Zig
         uses: ./.github/actions/setup-zig
 
+      # The pre-release marker lives in the VSIX manifest; the Marketplace
+      # and Open VSX both read it from there at publish time. Bun appends
+      # `--pre-release` to the nested client `vsce package` command.
       - name: Build VS Code extension
-        run: bun run package
+        env:
+          RELEASE_CHANNEL: ${{ needs.verify.outputs.channel }}
+        run: |
+          if [ "$RELEASE_CHANNEL" = "pre-release" ]; then
+            bun run package -- --pre-release
+          else
+            bun run package
+          fi
+
+      - name: Check VSIX version and channel
+        env:
+          TAG: ${{ inputs.tag || github.ref_name }}
+        run: bun scripts/check-vsix-release.ts client/*.vsix "$TAG"
 
       - name: Check sight-pty helpers in the VSIX
         run: bun scripts/check-vsix-pty-helpers.ts client/*.vsix

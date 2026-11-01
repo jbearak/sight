@@ -51,6 +51,8 @@ Sight is a static analyzer and language server for Stata, built for VS Code. It 
 
 Search for "Sight" in the extension marketplace and click Install, or download the extension from [Releases](https://github.com/jbearak/sight/releases).
 
+To try new features before a stable release, click **Switch to Pre-Release Version** on this extension's page. Starting with 0.17, pre-releases have an odd minor version (0.17, 0.19) and stable releases an even one. You get the newest version from either channel, so a newer stable release replaces an older pre-release.
+
 ## Documentation
 
 For full documentation, configuration options, and LSP directives, see the [full documentation on GitHub](https://github.com/jbearak/sight#readme).

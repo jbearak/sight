@@ -200,8 +200,9 @@ non-trivial diff:
 
 Use the repository scripts rather than editing version fields manually. See
 [DEVELOPMENT.md](DEVELOPMENT.md#versioning). For a release, use
-`bun scripts/release.ts x.y.z`; do not use `bump-version --push` as a substitute
-for the release gates.
+`bun scripts/release.ts x.y.z` (or `preview` for the next odd-minor
+pre-release); do not use `bump-version --push` as a substitute for the release
+gates.
 
 ### Command metadata caches
 

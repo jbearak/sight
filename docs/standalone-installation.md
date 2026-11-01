@@ -15,6 +15,10 @@ sight --help
 The npm package installs the `sight` command. Configure LSP clients to run
 `sight --stdio`.
 
+To try a pre-release, install `@jbearak/sight@next`. Pre-releases have an odd
+minor version (0.17, 0.19). After the next stable release, `next` can be older
+than `latest`.
+
 ## Homebrew (macOS, Apple Silicon)
 
 ```bash
@@ -24,7 +28,8 @@ sight --help
 
 Installs the prebuilt `sight` CLI from the
 [`jbearak/sight`](https://github.com/jbearak/homebrew-sight) tap. Apple Silicon
-macOS only. Configure LSP clients to run `sight --stdio`.
+macOS only. Configure LSP clients to run `sight --stdio`. Homebrew installs
+stable releases only.
 
 ## Release Binary
 

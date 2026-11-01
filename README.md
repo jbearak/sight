@@ -80,9 +80,15 @@ Execute code in Stata directly from the editor.
 - [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=jbearak.sight)
 - [OpenVSX Registry](https://open-vsx.org/extension/jbearak/sight)
 
+To try new features before a stable release, open Sight in the Extensions view and click
+**Switch to Pre-Release Version**. Starting with 0.17, pre-releases have an odd minor version
+(0.17, 0.19) and stable releases an even one. You get the newest version from either channel,
+so a newer stable release replaces an older pre-release.
+
 ### From VSIX
 
-1. Download the latest `.vsix` from the [releases page](https://github.com/jbearak/sight/releases)
+1. Download the `.vsix` from the [releases page](https://github.com/jbearak/sight/releases). The
+   release marked **Latest** is the newest stable one; pre-releases are marked **Pre-release**.
 2. In VS Code:
   - Extensions → `...` menu → "Install from VSIX..."
   - Or via CLI: `code --install-extension sight-<version>.vsix`
