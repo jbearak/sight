@@ -1416,9 +1416,10 @@ async function perch_terminal_profile():
         });
         return new vscode.TerminalProfile(options);
     } catch (my_error) {
+        // As without Perch: the pane or the Stata CLI.
         log_line(`Perch couldn't prepare a Stata session: `
             + describe_error(my_error));
-        throw my_error;
+        return undefined;
     }
 }
 

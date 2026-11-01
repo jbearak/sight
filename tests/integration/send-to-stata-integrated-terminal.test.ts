@@ -2436,4 +2436,27 @@ describe.serial('Feature: Stata console in a Perch session (remote windows)', ()
         ]);
         expect(perch!.the_prepared[0].command).not.toContain('--run');
     });
+
+    test('if Perch can\'t prepare the profile\'s session, the profile opens the pane', async () => {
+        const { harness } = await create_perch_harness({
+            perch: vscode_state => {
+                const fake = create_fake_perch(vscode_state);
+                const exports = fake.extension.exports as {
+                    getApi: (version: number, caller_id: string) => Record<string, unknown>;
+                };
+                const api = exports.getApi(1, 'jbearak.sight');
+                api.prepareLaunch = () => {
+                    throw new Error('no launch');
+                };
+                return fake;
+            },
+        });
+        const provider = harness.vscode_state.the_profile_providers.get(
+            'sight.stataTerminal'
+        );
+        const profile = await provider!.provideTerminalProfile(NO_CANCEL) as {
+            options: CreateTerminalOptions;
+        };
+        expect(profile.options.pty).toBeDefined();
+    });
 });
