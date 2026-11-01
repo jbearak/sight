@@ -106,7 +106,8 @@ async function run_with_system_code(
 /**
  * Sight's Stata console in a Perch session, end to end (local only, not
  * CI): perch-e2e/perch-e2e.mocha.js with the real Perch extension
- * loaded beside Sight. PERCH_EXTENSION_PATH is a built `editors/vscode`
+ * loaded beside Sight. SIGHT_PERCH_E2E_PHASES picks phases (comma
+ * separated; default all). PERCH_EXTENSION_PATH is a built `editors/vscode`
  * of a Perch checkout, with its binary in bin/<platform>-<arch>/.
  * Needs `bun run bundle`, `bun run copy-console` and
  * `bun run build-pty-helper` first, and Bun for the fake Stata. Uses
@@ -163,7 +164,13 @@ async function run_perch_suite(extension_development_path) {
     // the extension host's.
     Object.assign(process.env, my_env);
     console.log(`Perch end-to-end work directory: ${my_work_dir}`);
-    for (const my_phase of ['start', 'adopt']) {
+    const the_phases = process.env.SIGHT_PERCH_E2E_PHASES
+        ? process.env.SIGHT_PERCH_E2E_PHASES.split(',')
+        : ['start', 'adopt', 'launcher'];
+    for (const my_phase of the_phases) {
+        // The launcher phase runs as a local window: no remote override.
+        const my_remote = my_phase === 'launcher' ? '0' : '1';
+        process.env.SIGHT_TEST_PERCH_REMOTE = my_remote;
         await runTests({
             version: process.env.VSCODE_VERSION || 'stable',
             vscodeExecutablePath: process.env.VSCODE_EXECUTABLE,
@@ -178,7 +185,11 @@ async function run_perch_suite(extension_development_path) {
                 '--skip-welcome',
                 '--skip-release-notes',
             ],
-            extensionTestsEnv: { ...my_env, SIGHT_PERCH_E2E_PHASE: my_phase },
+            extensionTestsEnv: {
+                ...my_env,
+                SIGHT_TEST_PERCH_REMOTE: my_remote,
+                SIGHT_PERCH_E2E_PHASE: my_phase,
+            },
         });
     }
     console.log(fs.readFileSync(path.join(my_work_dir, 'report.txt'), 'utf8'));

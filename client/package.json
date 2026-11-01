@@ -19,6 +19,16 @@
   "activationEvents": [
     "onStartupFinished"
   ],
+  "perch": {
+    "launchers": [
+      {
+        "label": "Stata console",
+        "description": "Sight",
+        "icon": "terminal",
+        "command": "sight.perch.newConsole"
+      }
+    ]
+  },
   "main": "./dist/extension.js",
   "contributes": {
     "languages": [
@@ -604,6 +614,10 @@
       {
         "command": "sight.chooseSendTarget",
         "title": "Sight: Choose Where to Send Code"
+      },
+      {
+        "command": "sight.perch.newConsole",
+        "title": "Sight: New Stata Console in Perch"
       }
     ],
     "keybindings": [
@@ -690,6 +704,10 @@
         },
         {
           "command": "sight.uninstallStataCommands"
+        },
+        {
+          "command": "sight.perch.newConsole",
+          "when": "false"
         }
       ],
       "explorer/context": [
