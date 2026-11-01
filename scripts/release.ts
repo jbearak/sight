@@ -3,17 +3,75 @@
  * Release script for creating GitHub releases.
  * 
  * Usage:
- *   bun scripts/release.ts <version>
+ *   bun scripts/release.ts [--dry-run] <version|patch|minor|preview|major>
  *   
  * Examples:
- *   bun scripts/release.ts 0.1.0
+ *   bun scripts/release.ts 0.18.0
+ *   bun scripts/release.ts preview
+ *   bun scripts/release.ts --dry-run preview
+ *
+ * Even minor versions are stable releases and odd minor versions are
+ * Marketplace pre-releases (see scripts/release-channel.ts).
  */
 
 import { $ } from 'bun';
+import { readFileSync } from 'fs';
+import { createInterface } from 'readline/promises';
+import { find_unknown_flags, next_version } from './bump-version';
+import {
+    compare_versions,
+    release_channel,
+    type ReleaseChannel,
+} from './release-channel';
 
 interface ReleaseConfig {
     version: string;
     tag: string;
+    channel: ReleaseChannel;
+}
+
+interface ReleaseArgs {
+    requested: string;
+    is_dry_run: boolean;
+}
+
+const RELEASE_FLAGS: ReadonlySet<string> = new Set(['--dry-run']);
+
+/**
+ * Parses `[--dry-run] <version|bump>`. Throws on an unknown flag, so a
+ * typo such as `--dryrun` cannot fall through to a real release.
+ */
+export function parse_release_args(the_args: string[]): ReleaseArgs {
+    const the_unknown_flags = find_unknown_flags(the_args, RELEASE_FLAGS);
+    if (the_unknown_flags.length > 0) {
+        throw new Error(`Unknown option: ${the_unknown_flags.join(', ')}`);
+    }
+    const the_positional = the_args.filter((arg) => !arg.startsWith('-'));
+    if (the_positional.length !== 1) {
+        throw new Error('Expected one version or bump type');
+    }
+    return {
+        requested: the_positional[0],
+        is_dry_run: the_args.includes('--dry-run'),
+    };
+}
+
+/**
+ * Resolves a bump or explicit version against the current version.
+ * Throws unless the result is a valid release version above `current`.
+ */
+export function resolve_release_version(
+    current: string,
+    requested: string
+): string {
+    const version = next_version(current, requested);
+    if (compare_versions(version, current) <= 0) {
+        throw new Error(
+            `Release version ${version} must be above the current ` +
+            `version ${current}`
+        );
+    }
+    return version;
 }
 
 export function get_bump_version_args(version: string): string[] {
@@ -56,6 +114,49 @@ async function push_version_commit(): Promise<void> {
 }
 
 /**
+ * Refuse a tag that already exists locally or on origin, before the
+ * version bump commit is pushed without a matching release.
+ */
+async function assert_tag_is_new(tag: string): Promise<void> {
+    const local = await $`git rev-parse -q --verify refs/tags/${tag}`
+        .nothrow().quiet();
+    if (local.exitCode === 0) {
+        throw new Error(`Tag ${tag} already exists locally`);
+    }
+
+    // --exit-code: 2 means no matching ref; 0 means it exists.
+    const remote = await $`git ls-remote --exit-code --tags origin refs/tags/${tag}`
+        .nothrow().quiet();
+    if (remote.exitCode === 0) {
+        throw new Error(`Tag ${tag} already exists on origin`);
+    }
+    if (remote.exitCode !== 2) {
+        throw new Error(
+            `Could not check origin for ${tag}: ${remote.stderr.toString()}`
+        );
+    }
+}
+
+/**
+ * Ask before a release from a terminal; scripted runs proceed.
+ */
+async function confirm_release(config: ReleaseConfig): Promise<boolean> {
+    if (!process.stdin.isTTY) {
+        return true;
+    }
+    const prompt = createInterface({
+        input: process.stdin,
+        output: process.stdout,
+    });
+    const answer = await prompt.question(
+        `Release ${config.tag} as ${config.channel}? This commits, tags, ` +
+        'and pushes. [y/N] '
+    );
+    prompt.close();
+    return /^(y|yes)$/i.test(answer.trim());
+}
+
+/**
  * Update package.json version.
  */
 async function update_package_version(version: string): Promise<void> {
@@ -78,11 +179,16 @@ async function update_package_version(version: string): Promise<void> {
  */
 function print_usage(): void {
     console.log(`
-Usage: bun scripts/release.ts <version>
+Usage: bun scripts/release.ts [--dry-run] <version|patch|minor|preview|major>
 
 Examples:
-  bun scripts/release.ts 0.1.0
-  bun scripts/release.ts 0.1.1
+  bun scripts/release.ts 0.18.0
+  bun scripts/release.ts patch      # same channel: 0.18.0 → 0.18.1
+  bun scripts/release.ts minor      # next stable: 0.17.2 → 0.18.0
+  bun scripts/release.ts preview    # next pre-release: 0.18.1 → 0.19.0
+  bun scripts/release.ts --dry-run preview   # print version and channel
+
+Even minor versions are stable; odd minor versions are pre-releases.
 
 This script will:
 1. Update package.json versions (main + client)
@@ -91,10 +197,11 @@ This script will:
 4. Trigger GitHub Action to build release artifacts
 
 Distribution Channels:
-🚀 GitHub Releases        - Direct binary downloads
-📦 npm                    - Published as @jbearak/sight
+🚀 GitHub Releases        - Direct binary downloads (pre-releases marked)
+📦 npm                    - @jbearak/sight; pre-releases use the "next" tag
 🎨 VS Code Marketplace    - Published only when RELEASE_PUBLISH_VSCODE=true
 🌐 OpenVSX Registry       - Published only when RELEASE_PUBLISH_VSCODE=true
+🍺 Homebrew               - Stable releases only
 
 Make sure you have committed all changes before running this script.
 `.trim());
@@ -104,25 +211,40 @@ Make sure you have committed all changes before running this script.
  * Main entry point.
  */
 async function main(): Promise<void> {
-    const version = process.argv[2];
-    
-    if (!version) {
+    let release_args: ReleaseArgs;
+    try {
+        release_args = parse_release_args(process.argv.slice(2));
+    } catch (error) {
+        console.error(error instanceof Error ? error.message : error);
         print_usage();
         process.exit(1);
     }
-    
-    // Validate version format
-    if (!/^\d+\.\d+\.\d+(-[\w.]+)?$/.test(version)) {
-        console.error(`Invalid version format: ${version}`);
-        console.error('Expected format: X.Y.Z or X.Y.Z-suffix');
+    const { requested, is_dry_run } = release_args;
+
+    let version: string;
+    try {
+        const package_json: { version?: unknown } =
+            JSON.parse(readFileSync('package.json', 'utf8'));
+        if (typeof package_json.version !== 'string') {
+            throw new Error('package.json has no version');
+        }
+        version = resolve_release_version(package_json.version, requested);
+    } catch (error) {
+        console.error(error instanceof Error ? error.message : error);
         process.exit(1);
     }
-    
+
     const config: ReleaseConfig = {
         version,
         tag: `v${version}`,
+        channel: release_channel(version),
     };
-    
+
+    if (is_dry_run) {
+        console.log(`${config.version} ${config.channel}`);
+        return;
+    }
+
     try {
         // Check git status
         const git_status = await $`git status --porcelain`.text();
@@ -132,7 +254,15 @@ async function main(): Promise<void> {
             console.error(git_status);
             process.exit(1);
         }
-        
+
+        await assert_tag_is_new(config.tag);
+
+        if (!(await confirm_release(config))) {
+            console.error('Aborted.');
+            process.exit(1);
+        }
+        console.log(`Releasing ${config.tag} (${config.channel})...`);
+
         // Update package version
         await update_package_version(version);
 
@@ -143,12 +273,14 @@ async function main(): Promise<void> {
         await create_tag(config);
         
         console.log(`
-✅ Release ${config.tag} initiated successfully!
+✅ Release ${config.tag} (${config.channel}) initiated successfully!
 
 What happens next:
 1. 🚀 GitHub Action builds all artifacts and creates release
 2. 📦 The publish workflow publishes @jbearak/sight to npm with Trusted Publishing
+   (dist-tag "latest" for stable, "next" for pre-release)
 3. 🎨 If RELEASE_PUBLISH_VSCODE=true, it publishes extension registry artifacts
+4. 🍺 Stable releases open a Homebrew formula bump; pre-releases skip it
 
 Next steps:
 1. Check GitHub Actions: https://github.com/jbearak/sight/actions

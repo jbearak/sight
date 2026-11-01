@@ -1,79 +1,162 @@
 #!/usr/bin/env bun
 /**
  * Bumps version in both package.json files and optionally commits, tags, and pushes.
- * Usage: bun scripts/bump-version.ts [patch|minor|major|<version>] [--push]
+ * Usage: bun scripts/bump-version.ts [--dry-run] [patch|minor|preview|major|<version>] [--push]
+ *
+ * Even minor versions are stable releases and odd minor versions are
+ * Marketplace pre-releases (see scripts/release-channel.ts).
+ *   patch    same channel: 0.18.0 → 0.18.1, 0.17.0 → 0.17.1
+ *   minor    next stable (even) minor: 0.17.2 → 0.18.0
+ *   preview  next pre-release: 0.18.1 → 0.19.0, 0.19.0 → 0.19.1
+ *   major    0.18.0 → 1.0.0
+ * --dry-run prints "<version> <channel>" and changes nothing.
  */
 
 import { readFileSync, writeFileSync } from "fs";
 import { execSync } from "child_process";
+import {
+    parse_release_version,
+    release_channel,
+} from "./release-channel";
 
-const bump_type = process.argv[2] || "patch";
-const should_push = process.argv.includes("--push");
-const should_skip_git = process.argv.includes("--no-git");
+/** The version a bump produces from `current`; throws if invalid. */
+export function next_version(current: string, bump: string): string {
+    const { major, minor, patch } = parse_release_version(current);
+    let version: string;
 
-function read_package(path: string): { content: any; raw: string } {
-    const raw = readFileSync(path, "utf-8");
-    return { content: JSON.parse(raw), raw };
+    switch (bump) {
+        case "major":
+            version = `${major + 1}.0.0`;
+            break;
+        case "minor":
+            version = `${major}.${(Math.floor(minor / 2) + 1) * 2}.0`;
+            break;
+        case "preview":
+            if (release_channel(current) === "pre-release") {
+                version = `${major}.${minor}.${patch + 1}`;
+            } else {
+                const preview_minor = minor % 2 === 1 ? minor + 2 : minor + 1;
+                version = `${major}.${preview_minor}.0`;
+            }
+            break;
+        case "patch":
+            version = `${major}.${minor}.${patch + 1}`;
+            break;
+        default:
+            // An explicit version
+            version = bump.replace(/^v/, "");
+    }
+
+    const channel = release_channel(version);
+    if (bump === "preview" && channel !== "pre-release") {
+        throw new Error(
+            `preview bump produced ${version}, a ${channel} version. ` +
+            "Pass an explicit odd-minor version instead."
+        );
+    }
+    return version;
 }
 
-function bump_version(current: string, type: string): string {
-    if (!["patch", "minor", "major"].includes(type)) {
-        // Assume it's an explicit version
-        return type;
-    }
-    
-    const [major, minor, patch] = current.split(".").map(Number);
-    
-    switch (type) {
-        case "major":
-            return `${major + 1}.0.0`;
-        case "minor":
-            return `${major}.${minor + 1}.0`;
-        case "patch":
-        default:
-            return `${major}.${minor}.${patch + 1}`;
-    }
+const BUMP_FLAGS: ReadonlySet<string> =
+    new Set(["--dry-run", "--push", "--no-git"]);
+
+/**
+ * Arguments that look like flags but are not in `the_known`, so a typo
+ * such as `--dryrun` fails instead of running a real bump or release.
+ */
+export function find_unknown_flags(
+    the_args: string[],
+    the_known: ReadonlySet<string>
+): string[] {
+    return the_args.filter(
+        (arg) => arg.startsWith("-") && !the_known.has(arg)
+    );
 }
 
 function update_package(path: string, new_version: string): void {
-    const { content } = read_package(path);
+    const content: Record<string, unknown> =
+        JSON.parse(readFileSync(path, "utf-8"));
     content.version = new_version;
     writeFileSync(path, JSON.stringify(content, null, 2) + "\n");
 }
 
-// Read current version from root package.json
-const root_pkg = read_package("package.json");
-const current_version = root_pkg.content.version;
-const new_version = bump_version(current_version, bump_type);
+function read_current_version(): string {
+    const content: { version?: unknown } =
+        JSON.parse(readFileSync("package.json", "utf-8"));
+    if (typeof content.version !== "string") {
+        throw new Error("package.json has no version");
+    }
+    return content.version;
+}
 
-console.log(`Bumping version: ${current_version} → ${new_version}`);
+function main(): void {
+    const the_args = process.argv.slice(2);
+    const should_push = the_args.includes("--push");
+    const should_skip_git = the_args.includes("--no-git");
+    const is_dry_run = the_args.includes("--dry-run");
+    const the_positional = the_args.filter((arg) => !arg.startsWith("-"));
+    const bump_type = the_positional[0] ?? "patch";
 
-// Update both package.json files
-update_package("package.json", new_version);
-update_package("client/package.json", new_version);
-
-console.log("Updated package.json and client/package.json");
-
-if (!should_skip_git) {
-    try {
-        console.log("Committing...");
-        execSync("git add package.json client/package.json", { stdio: "inherit" });
-        execSync(`git commit -m "Bump version to ${new_version}"`, { stdio: "inherit" });
-        
-        console.log("Tagging...");
-        execSync(`git tag v${new_version}`, { stdio: "inherit" });
-        
-        if (should_push) {
-            console.log("Pushing commits...");
-            execSync("git push origin", { stdio: "inherit" });
-            
-            console.log("Pushing tags...");
-            execSync("git push origin --tags", { stdio: "inherit" });
-        }
-        
-        console.log(`✓ Version ${new_version} bumped and tagged`);
-    } catch (error) {
-        console.error("Git operation failed:", error);
+    const the_unknown_flags = find_unknown_flags(the_args, BUMP_FLAGS);
+    if (the_unknown_flags.length > 0) {
+        console.error(`Unknown option: ${the_unknown_flags.join(", ")}`);
         process.exit(1);
     }
+    if (the_positional.length > 1) {
+        console.error(`Expected one bump type, got: ${the_positional.join(" ")}`);
+        process.exit(1);
+    }
+
+    const current_version = read_current_version();
+    let new_version: string;
+    try {
+        new_version = next_version(current_version, bump_type);
+    } catch (error) {
+        console.error(error instanceof Error ? error.message : error);
+        process.exit(1);
+    }
+    const channel = release_channel(new_version);
+
+    if (is_dry_run) {
+        console.log(`${new_version} ${channel}`);
+        return;
+    }
+
+    console.log(
+        `Bumping version: ${current_version} → ${new_version} (${channel})`
+    );
+
+    // Update both package.json files
+    update_package("package.json", new_version);
+    update_package("client/package.json", new_version);
+
+    console.log("Updated package.json and client/package.json");
+
+    if (!should_skip_git) {
+        try {
+            console.log("Committing...");
+            execSync("git add package.json client/package.json", { stdio: "inherit" });
+            execSync(`git commit -m "Bump version to ${new_version}"`, { stdio: "inherit" });
+
+            console.log("Tagging...");
+            execSync(`git tag v${new_version}`, { stdio: "inherit" });
+
+            if (should_push) {
+                console.log("Pushing commits...");
+                execSync("git push origin", { stdio: "inherit" });
+
+                console.log("Pushing tags...");
+                execSync("git push origin --tags", { stdio: "inherit" });
+            }
+
+            console.log(`✓ Version ${new_version} bumped and tagged`);
+        } catch (error) {
+            console.error("Git operation failed:", error);
+            process.exit(1);
+        }
+    }
+}
+
+if (import.meta.main) {
+    main();
 }

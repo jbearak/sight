@@ -22,6 +22,35 @@ jobs:
     runs-on: ubuntu-latest
     environment: release
     steps:
+      # Homebrew follows stable releases only. The classifier comes from
+      # this workflow's own revision, not the tag, so recovery still works
+      # for stable tags cut before it existed (a dispatch from an older
+      # ref fails here instead). It has no imports, so no install is needed.
+      - name: Checkout release classifier
+        uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: scripts/release-channel.ts
+          sparse-checkout-cone-mode: false
+          persist-credentials: false
+          path: sight
+
+      - name: Setup Bun
+        # Same pin and version as .github/actions/setup.
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version: 1.3.13
+
+      - name: Refuse pre-release tags
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          channel=$(bun sight/scripts/release-channel.ts "$TAG")
+          if [ "$channel" != "stable" ]; then
+            echo "::error::$TAG is a $channel release; Homebrew follows stable releases only."
+            exit 1
+          fi
+
       - name: Download the macOS arm64 binary from the build run
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

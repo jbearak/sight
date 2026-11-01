@@ -1522,6 +1522,119 @@ describe('binary command name', () => {
         expect(workflow_content).not.toContain('head -1');
     });
 
+    it('keeps pre-releases out of the stable release channels', () => {
+        const read_workflow = (name: string) => readFileSync(
+            join(__dirname, '../../.github/workflows', name),
+            'utf8'
+        );
+        const build_content = read_workflow('release-build.yml');
+        const publish_content = read_workflow('release-publish.yml');
+        const homebrew_content = read_workflow('bump-homebrew.yml');
+
+        // release-build: classify first, package with the marker, check it.
+        expect(get_workflow_job_block(build_content, 'verify')).toContain(
+            'channel: ${{ steps.channel.outputs.channel }}'
+        );
+        expect_step_before(
+            build_content,
+            'verify',
+            'Determine release channel',
+            'Typecheck'
+        );
+        expect(get_workflow_step_block(
+            build_content,
+            'package',
+            'Build VS Code extension'
+        )).toContain('bun run package -- --pre-release');
+        expect_step_before(
+            build_content,
+            'package',
+            'Build VS Code extension',
+            'Check VSIX version and channel'
+        );
+        expect_step_before(
+            build_content,
+            'package',
+            'Check VSIX version and channel',
+            'Upload package artifacts'
+        );
+
+        // release-publish: check the supplied VSIX before anything ships.
+        expect_step_before(
+            publish_content,
+            'publish',
+            'Determine release channel',
+            'Check VSIX version and channel'
+        );
+        expect_step_before(
+            publish_content,
+            'publish',
+            'Verify checksums',
+            'Check VSIX version and channel'
+        );
+        expect_step_before(
+            publish_content,
+            'publish',
+            'Check VSIX version and channel',
+            'Publish to npm'
+        );
+        for (const my_content of [build_content, publish_content]) {
+            expect(my_content).toContain(
+                'bun scripts/check-vsix-release.ts client/*.vsix "$TAG"'
+            );
+        }
+
+        const npm_step = get_workflow_step_block(
+            publish_content,
+            'publish',
+            'Publish to npm'
+        );
+        expect(npm_step).toContain('the_dist_tag=next');
+        expect(npm_step).toContain(
+            'npm publish --ignore-scripts --access public ' +
+            '--tag "$the_dist_tag"'
+        );
+        expect(get_workflow_step_block(
+            publish_content,
+            'publish',
+            'Publish to VS Code Marketplace'
+        )).toContain('the_pre_release=(--pre-release)');
+        expect(get_workflow_step_block(
+            publish_content,
+            'publish',
+            'Create GitHub Release'
+        )).toContain(
+            "prerelease: ${{ steps.channel.outputs.channel == 'pre-release' }}"
+        );
+
+        const the_homebrew_conditions = publish_content
+            .split('\n')
+            .filter((line) => line.includes('ENABLE_HOMEBREW_BUMP')
+                && line.trim().startsWith('if:'));
+        expect(the_homebrew_conditions).toHaveLength(3);
+        for (const my_condition of the_homebrew_conditions) {
+            expect(my_condition).toContain(
+                "steps.channel.outputs.channel == 'stable'"
+            );
+        }
+
+        // bump-homebrew: refuse pre-releases using this revision's script.
+        expect(get_workflow_step_block(
+            homebrew_content,
+            'bump-homebrew',
+            'Checkout release classifier'
+        )).toContain('ref: ${{ github.sha }}');
+        expect(homebrew_content).toContain(
+            'bun sight/scripts/release-channel.ts "$TAG"'
+        );
+        expect_step_before(
+            homebrew_content,
+            'bump-homebrew',
+            'Refuse pre-release tags',
+            'Download the macOS arm64 binary from the build run'
+        );
+    });
+
     it('builds a single named binary target', async () => {
         const the_built_targets: string[] = [];
 

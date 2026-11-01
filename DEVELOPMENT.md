@@ -148,16 +148,47 @@ Then restart your shell or run `source ~/.bashrc` (or `~/.zshrc`).
 
 ## Versioning
 
+### Stable and pre-release channels
+
+The VS Code Marketplace and Open VSX accept only plain `X.Y.Z` versions, so
+the channel lives in the minor version: **even minor = stable, odd minor =
+pre-release** (Microsoft's recommended scheme). Users opt in with **Switch to
+Pre-Release Version** on the extension page and get the highest version
+across both channels, so number a pre-release above the current stable
+release. Every minor through 0.15 shipped as stable before this scheme, so
+0.15.x stays stable; the first pre-release is 0.17.0.
+`scripts/release-channel.ts` is the single classifier, shared by the release
+scripts and workflows, and it rejects suffixed versions like `1.0.0-beta.1`.
+
+For a pre-release tag, the release workflows:
+
+- package the `.vsix` with `vsce package --pre-release` and check its
+  manifest against the tag (`scripts/check-vsix-release.ts`);
+- publish to npm under the `next` dist-tag, so `latest` stays stable;
+- mark the GitHub Release as a prerelease, so `releases/latest` stays stable;
+- skip the Homebrew formula bump.
+
+The classifier is read from the tag, so re-dispatching `release-build.yml` or
+`release-publish.yml` for a tag cut before it existed fails at the channel
+step. `bump-homebrew.yml` reads it from its own revision instead, so
+dispatch that one from `main`.
+
+### Version bumps
+
 To bump the version in both `package.json` and `client/package.json`:
 
 ```bash
 # Bump version, commit, and tag (default)
-bun scripts/bump-version.ts patch   # 0.1.0 → 0.1.1
-bun scripts/bump-version.ts minor   # 0.1.0 → 0.2.0
-bun scripts/bump-version.ts major   # 0.1.0 → 1.0.0
+bun scripts/bump-version.ts patch     # same channel: 0.18.0 → 0.18.1
+bun scripts/bump-version.ts minor     # next stable: 0.17.2 → 0.18.0
+bun scripts/bump-version.ts preview   # next pre-release: 0.18.1 → 0.19.0
+bun scripts/bump-version.ts major     # 0.18.0 → 1.0.0
 
 # Or specify an explicit version
 bun scripts/bump-version.ts 0.1.19
+
+# Print the next version and its channel without changing anything
+bun scripts/bump-version.ts --dry-run preview
 
 # Only update version files, skip git operations
 bun scripts/bump-version.ts 0.1.19 --no-git
@@ -172,9 +203,16 @@ Do not use `bump-version --push` for releases; use
 
 ```bash
 bun scripts/release.ts x.y.z
+bun scripts/release.ts preview            # or patch, minor, major
+bun scripts/release.ts --dry-run preview  # print version and channel only
 ```
 
-This bumps versions, commits, creates a tag, and pushes. GitHub Actions then
+This bumps versions, commits, creates a tag, and pushes. Before it changes
+anything, it checks that the new version is above the current one and that
+the tag does not exist locally or on `origin`; from a terminal, it then asks
+you to confirm the version and channel. Because the version must go up, a
+stable hotfix for an older line (say 0.15.2 after 0.17.0) has to be cut from
+a branch that is still on that line. GitHub Actions then
 builds all artifacts and dispatches the publish workflow. The publish workflow
 always creates the GitHub Release, and publishes VS Code/OpenVSX artifacts only
 when `RELEASE_PUBLISH_VSCODE=true`.

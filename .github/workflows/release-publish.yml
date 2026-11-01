@@ -96,6 +96,18 @@ jobs:
         with:
           registry-url: https://registry.npmjs.org
 
+      # Same classification release-build.yml used when it packaged the
+      # VSIX. The script comes from the checked-out tag, so re-dispatching
+      # this workflow for a tag older than the classifier fails here.
+      - name: Determine release channel
+        id: channel
+        env:
+          TAG: ${{ inputs.tag }}
+        run: |
+          channel=$(bun scripts/release-channel.ts "$TAG")
+          echo "Release channel for $TAG: $channel"
+          echo "channel=$channel" >> "$GITHUB_OUTPUT"
+
       - name: Download build artifacts
         shell: bash
         run: |
@@ -130,25 +142,61 @@ jobs:
             (cd client && sha256sum -c -- *.vsix.sha256)
           fi
 
+      # build_run_id is a free input, so check the VSIX it supplied
+      # against this tag before anything is published anywhere.
+      - name: Check VSIX version and channel
+        env:
+          TAG: ${{ inputs.tag }}
+        run: bun scripts/check-vsix-release.ts client/*.vsix "$TAG"
+
       - name: Upgrade npm for trusted publishing
         run: npm install -g npm@11.5.1
 
+      # Pre-releases go to the "next" dist-tag so `npm install` keeps
+      # resolving "latest" to stable. npm-release-state.ts skips a version
+      # a previous run already published, so this workflow can be rerun.
       - name: Publish to npm
-        run: npm publish --ignore-scripts --access public
+        env:
+          TAG: ${{ inputs.tag }}
+          RELEASE_CHANNEL: ${{ steps.channel.outputs.channel }}
+        run: |
+          set -euo pipefail
+          the_version="${TAG#v}"
+          the_dist_tag=latest
+          if [ "$RELEASE_CHANNEL" = "pre-release" ]; then
+            the_dist_tag=next
+          fi
+          the_action=$(bun scripts/npm-release-state.ts \
+            @jbearak/sight "$the_version" "$the_dist_tag")
+          if [ "$the_action" = "skip" ]; then
+            echo "@jbearak/sight@$the_version is already on $the_dist_tag."
+            exit 0
+          fi
+          npm publish --ignore-scripts --access public --tag "$the_dist_tag"
 
+      # The channel comes from the VSIX manifest. `--pre-release` here only
+      # makes vsce refuse a VSIX that was not packaged as a pre-release.
       - name: Publish to VS Code Marketplace
         if: ${{ inputs.publish_vscode }}
         run: |
           # Publish pre-built .vsix (skip rebuild)
-          npx vsce publish --packagePath client/*.vsix --pat ${{ secrets.VSCE_TOKEN }}
+          the_pre_release=()
+          if [ "$RELEASE_CHANNEL" = "pre-release" ]; then
+            the_pre_release=(--pre-release)
+          fi
+          npx vsce publish --skip-duplicate "${the_pre_release[@]}" \
+            --packagePath client/*.vsix --pat "$VSCE_TOKEN"
         env:
           VSCE_TOKEN: ${{ secrets.VSCE_TOKEN }}
+          RELEASE_CHANNEL: ${{ steps.channel.outputs.channel }}
 
+      # Open VSX reads the channel from the VSIX manifest; ovsx ignores
+      # `--pre-release` for a prepackaged VSIX, so it gets no flag.
       - name: Publish to OpenVSX Registry
         if: ${{ inputs.publish_vscode }}
         run: |
           # Publish pre-built .vsix (skip rebuild)
-          npx ovsx publish client/*.vsix --pat ${{ secrets.OVSX_TOKEN }}
+          npx ovsx publish client/*.vsix --skip-duplicate --pat "$OVSX_TOKEN"
         env:
           OVSX_TOKEN: ${{ secrets.OVSX_TOKEN }}
 
@@ -160,7 +208,9 @@ jobs:
           tag_name: ${{ inputs.tag }}
           name: Release ${{ inputs.tag }}
           draft: false
-          prerelease: false
+          # Pre-releases never become GitHub's "latest" release, so
+          # releases/latest and the tap's livecheck keep getting stable.
+          prerelease: ${{ steps.channel.outputs.channel == 'pre-release' }}
           generate_release_notes: true
           files: |
             bin/sight-*
@@ -183,8 +233,9 @@ jobs:
       #   gh variable set ENABLE_HOMEBREW_BUMP -R jbearak/sight --body true
       # HOMEBREW_TAP_TOKEN: a GitHub App installation token or fine-grained PAT
       # scoped to jbearak/homebrew-sight with Contents:write + Pull requests:write.
+      # Pre-releases skip these steps: Homebrew follows stable only.
       - name: Checkout Homebrew tap
-        if: vars.ENABLE_HOMEBREW_BUMP == 'true'
+        if: vars.ENABLE_HOMEBREW_BUMP == 'true' && steps.channel.outputs.channel == 'stable'
         uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
         with:
           repository: jbearak/homebrew-sight
@@ -195,7 +246,7 @@ jobs:
           path: tap
 
       - name: Bump Homebrew formula
-        if: vars.ENABLE_HOMEBREW_BUMP == 'true'
+        if: vars.ENABLE_HOMEBREW_BUMP == 'true' && steps.channel.outputs.channel == 'stable'
         env:
           TAG: ${{ inputs.tag }}
         run: |
@@ -203,7 +254,7 @@ jobs:
           tap/bin/update-formula.sh "$VERSION" bin/sight-darwin-arm64
 
       - name: Open Homebrew bump PR + enable auto-merge
-        if: vars.ENABLE_HOMEBREW_BUMP == 'true'
+        if: vars.ENABLE_HOMEBREW_BUMP == 'true' && steps.channel.outputs.channel == 'stable'
         working-directory: tap
         env:
           GH_TOKEN: ${{ secrets.HOMEBREW_TAP_TOKEN }}
