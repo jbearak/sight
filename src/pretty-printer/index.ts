@@ -442,6 +442,9 @@ export class PrettyPrinter {
      * Print a control flow statement (if, else, foreach, forvalues, while).
      */
     private printControlFlow(node: ControlFlowNode): string {
+        const prefix_text = (node.prefix ?? [])
+            .map(p => `${this.printPrefix(p)} `)
+            .join('');
         if (node.type === 'if' && node.is_single_statement) {
             const body_node = node.body[0];
             const body = body_node ? this.printNode(body_node) : '';
@@ -451,13 +454,13 @@ export class PrettyPrinter {
                 .trimStart()
                 .slice(0, -this.getStatementTerminator().length);
             // Preserve expression fragments, comments, and Unicode names.
-            return `${this.getIndent()}if ${node.condition || ''} ${inline_body}`;
+            return `${this.getIndent()}${prefix_text}if ${node.condition || ''} ${inline_body}`;
         }
 
         const the_lines: string[] = [];
 
         // Print the control flow header
-        let header = this.getIndent();
+        let header = this.getIndent() + prefix_text;
 
         switch (node.type) {
             case 'if':

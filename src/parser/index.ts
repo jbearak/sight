@@ -711,8 +711,13 @@ export class StataParser {
         }
       }
 
-      // Stop at comments (but not continuations - handled above)
+      // A block comment with more of the value after it is whitespace;
+      // other comments end the value (continuations are handled above).
       const token_type = this.peek().type;
+      if (token_type === 'COMMENT_BLOCK' && this.statement_continues_after(this.current)) {
+        this.advance();
+        continue;
+      }
       if (token_type === 'COMMENT_LINE' || token_type === 'COMMENT_BLOCK') {
         break;
       }
@@ -808,7 +813,12 @@ export class StataParser {
         }
       }
 
-      // Stop at comments (continuations are handled above).
+      // A block comment with more arguments after it is whitespace;
+      // other comments end the arguments (continuations are handled above).
+      if (this.check('COMMENT_BLOCK') && this.statement_continues_after(this.current)) {
+        this.advance();
+        continue;
+      }
       if (this.check('COMMENT_LINE') || this.check('COMMENT_BLOCK')) {
         break;
       }
@@ -933,7 +943,7 @@ export class StataParser {
   }
 
 
-  private parseCommand(): CommandNode | MacroDefNode {
+  private parseCommand(): CommandNode | MacroDefNode | ControlFlowNode {
     const start_token = this.peek();
     const command_start_line = start_token.range.start.line;
 
@@ -955,6 +965,22 @@ export class StataParser {
       macro_node.prefix = prefixes;
       macro_node.range = this.makeRange(start_token.range.start, macro_node.range.end);
       return macro_node;
+    }
+    // Likewise `version 14: foreach x in a b { ... }` keeps its loop.
+    if (has_colon_prefix) {
+      let control_node: ControlFlowNode | undefined;
+      if (this.checkWord('foreach') || this.checkForvalues()) {
+        control_node = this.parseLoopStatement();
+      } else if (this.checkWord('while')) {
+        control_node = this.parseWhileStatement();
+      } else if (this.checkWord('if')) {
+        control_node = this.parseIfStatement();
+      }
+      if (control_node) {
+        control_node.prefix = prefixes;
+        control_node.range = this.makeRange(start_token.range.start, control_node.range.end);
+        return control_node;
+      }
     }
 
     // Check if this is a syntax command after prefixes

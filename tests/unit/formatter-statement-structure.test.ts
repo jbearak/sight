@@ -62,6 +62,24 @@ describe('formatting statements with prefixes, weights, and extra arguments', ()
         expect(format_source(formatted, mode)).toBe(formatted);
     });
 
+    for_each_formatter_mode('indents a loop after a colon prefix', mode => {
+        const source = ['version 14: foreach x in a b {', 'di 1', '}', ''].join('\n');
+        const expected = ['version 14: foreach x in a b {', '    di 1', '}', ''].join('\n');
+        const formatted = format_source(source, mode);
+        expect(formatted).toBe(expected);
+        expect(format_source(formatted, mode)).toBe(formatted);
+    });
+
+    for_each_formatter_mode('keeps a macro value with an interior comment on one line', mode => {
+        const source = 'if 1 {\nlocal x a /* note */ b\n}\n';
+        const formatted = format_source(source, mode);
+        // The AST printer drops interior comments; neither mode may split
+        // `b` into a statement of its own.
+        expect(formatted.split('\n')[1]).toMatch(/^ {4}local x a (\/\* note \*\/ )?b$/);
+        expect(formatted.split('\n')).toHaveLength(4);
+        expect(format_source(formatted, mode)).toBe(formatted);
+    });
+
     for_each_formatter_mode('keeps a continued varlist in one statement', mode => {
         const source = ['if 1 {', 'reg y x ///', '    z w, robust', '}', ''].join('\n');
         const formatted = format_source(source, mode);

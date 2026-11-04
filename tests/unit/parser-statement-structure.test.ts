@@ -73,6 +73,14 @@ describe('statement structure', () => {
             expect(node.options?.map((o) => o.name)).toEqual(['robust']);
         });
 
+        it('keeps a macro value whole across an interior block comment', () => {
+            for (const my_source of ['local x a /* note */ b', 'version 14: local x a /* note */ b']) {
+                const nodes = parse_nodes(my_source);
+                expect(nodes).toHaveLength(1);
+                expect(nodes[0]).toMatchObject({ type: 'macro_def', name: 'x', value: 'a b' });
+            }
+        });
+
         it('keeps the node range over the whole statement', () => {
             const node = command('reg y x ///\n  z w, robust');
             expect(node.range).toEqual({
@@ -145,6 +153,13 @@ describe('statement structure', () => {
                 (d) => d.code === StataDiagnosticCode.UNDEFINED_MACRO
             );
             expect(undefined_macros).toEqual([]);
+        });
+
+        it('keeps a loop after a colon prefix', () => {
+            const [node] = parse_nodes('version 14: foreach x in a b {\n    di 1\n}') as ControlFlowNode[];
+            expect(node).toMatchObject({ type: 'foreach', loopVar: 'x' });
+            expect(node.body).toHaveLength(1);
+            expect(node.prefix?.map((p) => p.fullName)).toEqual(['version']);
         });
 
         it('defines a variable under a by prefix', () => {

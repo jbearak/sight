@@ -348,6 +348,7 @@ export interface MacroRefNode {
 
 export interface ControlFlowNode {
   type: 'if' | 'else' | 'foreach' | 'forvalues' | 'while' | 'frame';
+  prefix?: PrefixNode[];  // e.g. `version 14: foreach ...`
   is_single_statement?: boolean;
   condition?: string;
   condition_ast?: ExpressionNode;  // Parsed `if`/`while` condition (structured parse)
