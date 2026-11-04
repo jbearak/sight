@@ -118,6 +118,13 @@ describe('prefixed macro definitions', () => {
         }
     });
 
+    for_each_formatter_mode('keep interior block comments', (mode) => {
+        const once = format('capture local x a /* c */ b', mode);
+        expect(once).toContain('/* c */');
+        expect(parse(once).ast.nodes[0]).toMatchObject({ type: 'macro_def', value: 'a b' });
+        expect(format(once, mode)).toBe(once);
+    });
+
     for_each_formatter_mode('keep the increment operator before the name', (mode) => {
         for (const my_source of ['local ++i', 'local --i', 'global ++g', 'qui local --j']) {
             expect(format(my_source, mode).trimEnd()).toBe(my_source);
