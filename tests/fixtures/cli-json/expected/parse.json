@@ -33,7 +33,8 @@
                   "line": 0,
                   "character": 26
                 }
-              }
+              },
+              "directive": null
             }
           ],
           "trailing": [],
@@ -470,6 +471,7 @@
         "options": []
       }
     ],
+    "comments": [],
     "errors": []
   },
   {
@@ -737,7 +739,8 @@
                   "line": 2,
                   "character": 69
                 }
-              }
+              },
+              "directive": null
             }
           ],
           "interior": [],
@@ -1926,6 +1929,7 @@
         ]
       }
     ],
+    "comments": [],
     "errors": []
   },
   {
@@ -2515,6 +2519,7 @@
         ]
       }
     ],
+    "comments": [],
     "errors": []
   },
   {
@@ -2872,6 +2877,7 @@
         ]
       }
     ],
+    "comments": [],
     "errors": []
   },
   {
@@ -2908,6 +2914,11 @@
                   "line": 0,
                   "character": 25
                 }
+              },
+              "directive": {
+                "kind": "backward",
+                "call_type": "do",
+                "raw_path": "main.do"
               }
             }
           ],
@@ -2940,6 +2951,1527 @@
         "weight": null,
         "using": null,
         "options": []
+      }
+    ],
+    "comments": [],
+    "errors": []
+  },
+  {
+    "schema_version": 1,
+    "sight_version": "<VERSION>",
+    "path": "<ROOT>/directives.do",
+    "line_count": 43,
+    "statements": [
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 6,
+            "character": 0
+          },
+          "end": {
+            "line": 6,
+            "character": 10
+          }
+        },
+        "text": "version 17",
+        "delimit": "cr",
+        "comments": {
+          "leading": [
+            {
+              "style": "slash",
+              "text": "// Every Sight directive kind, and placements Sight ignores.",
+              "range": {
+                "start": {
+                  "line": 0,
+                  "character": 0
+                },
+                "end": {
+                  "line": 0,
+                  "character": 60
+                }
+              },
+              "directive": null
+            },
+            {
+              "style": "slash",
+              "text": "// sight: done-by: \"main.do\"",
+              "range": {
+                "start": {
+                  "line": 1,
+                  "character": 0
+                },
+                "end": {
+                  "line": 1,
+                  "character": 28
+                }
+              },
+              "directive": {
+                "kind": "backward",
+                "call_type": "do",
+                "raw_path": "main.do"
+              }
+            },
+            {
+              "style": "star",
+              "text": "* @lsp-run-by main",
+              "range": {
+                "start": {
+                  "line": 2,
+                  "character": 0
+                },
+                "end": {
+                  "line": 2,
+                  "character": 18
+                }
+              },
+              "directive": {
+                "kind": "backward",
+                "call_type": "run",
+                "raw_path": "main"
+              }
+            },
+            {
+              "style": "slash",
+              "text": "// sight: included-by \"code/clean.do\"",
+              "range": {
+                "start": {
+                  "line": 3,
+                  "character": 0
+                },
+                "end": {
+                  "line": 3,
+                  "character": 37
+                }
+              },
+              "directive": {
+                "kind": "backward",
+                "call_type": "include",
+                "raw_path": "code/clean.do"
+              }
+            },
+            {
+              "style": "slash",
+              "text": "// @lsp-cd \"code\"",
+              "range": {
+                "start": {
+                  "line": 4,
+                  "character": 0
+                },
+                "end": {
+                  "line": 4,
+                  "character": 17
+                }
+              },
+              "directive": null
+            },
+            {
+              "style": "slash",
+              "text": "// sight: working-directory: .",
+              "range": {
+                "start": {
+                  "line": 5,
+                  "character": 0
+                },
+                "end": {
+                  "line": 5,
+                  "character": 30
+                }
+              },
+              "directive": {
+                "kind": "working_directory",
+                "raw_path": "."
+              }
+            }
+          ],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "version",
+        "canonical_name": "version",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "17",
+            "range": {
+              "start": {
+                "line": 6,
+                "character": 8
+              },
+              "end": {
+                "line": 6,
+                "character": 10
+              }
+            }
+          }
+        ],
+        "varlist": null,
+        "assignment": null,
+        "if": null,
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": []
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 16,
+            "character": 0
+          },
+          "end": {
+            "line": 16,
+            "character": 18
+          }
+        },
+        "text": "display `a' `b' $G",
+        "delimit": "cr",
+        "comments": {
+          "leading": [
+            {
+              "style": "slash",
+              "text": "// sight: done-by \"late.do\"",
+              "range": {
+                "start": {
+                  "line": 7,
+                  "character": 0
+                },
+                "end": {
+                  "line": 7,
+                  "character": 27
+                }
+              },
+              "directive": null
+            },
+            {
+              "style": "slash",
+              "text": "// sight: standalone",
+              "range": {
+                "start": {
+                  "line": 8,
+                  "character": 0
+                },
+                "end": {
+                  "line": 8,
+                  "character": 20
+                }
+              },
+              "directive": null
+            },
+            {
+              "style": "slash",
+              "text": "// sight: local a b",
+              "range": {
+                "start": {
+                  "line": 9,
+                  "character": 0
+                },
+                "end": {
+                  "line": 9,
+                  "character": 19
+                }
+              },
+              "directive": {
+                "kind": "declare",
+                "symbol_kind": "local",
+                "names": [
+                  "a",
+                  "b"
+                ]
+              }
+            },
+            {
+              "style": "slash",
+              "text": "// @lsp-global G",
+              "range": {
+                "start": {
+                  "line": 10,
+                  "character": 0
+                },
+                "end": {
+                  "line": 10,
+                  "character": 16
+                }
+              },
+              "directive": {
+                "kind": "declare",
+                "symbol_kind": "global",
+                "names": [
+                  "G"
+                ]
+              }
+            },
+            {
+              "style": "star",
+              "text": "* sight: scalar s",
+              "range": {
+                "start": {
+                  "line": 11,
+                  "character": 0
+                },
+                "end": {
+                  "line": 11,
+                  "character": 17
+                }
+              },
+              "directive": {
+                "kind": "declare",
+                "symbol_kind": "scalar",
+                "names": [
+                  "s"
+                ]
+              }
+            },
+            {
+              "style": "slash",
+              "text": "// sight: matrix: M",
+              "range": {
+                "start": {
+                  "line": 12,
+                  "character": 0
+                },
+                "end": {
+                  "line": 12,
+                  "character": 19
+                }
+              },
+              "directive": {
+                "kind": "declare",
+                "symbol_kind": "matrix",
+                "names": [
+                  "M"
+                ]
+              }
+            },
+            {
+              "style": "slash",
+              "text": "// @lsp-program myprog",
+              "range": {
+                "start": {
+                  "line": 13,
+                  "character": 0
+                },
+                "end": {
+                  "line": 13,
+                  "character": 22
+                }
+              },
+              "directive": {
+                "kind": "declare",
+                "symbol_kind": "program",
+                "names": [
+                  "myprog"
+                ]
+              }
+            },
+            {
+              "style": "slash",
+              "text": "// sight: variables v1 v2",
+              "range": {
+                "start": {
+                  "line": 14,
+                  "character": 0
+                },
+                "end": {
+                  "line": 14,
+                  "character": 25
+                }
+              },
+              "directive": {
+                "kind": "declare",
+                "symbol_kind": "variables",
+                "names": [
+                  "v1",
+                  "v2"
+                ]
+              }
+            },
+            {
+              "style": "slash",
+              "text": "// @lsp-var w",
+              "range": {
+                "start": {
+                  "line": 15,
+                  "character": 0
+                },
+                "end": {
+                  "line": 15,
+                  "character": 13
+                }
+              },
+              "directive": {
+                "kind": "declare",
+                "symbol_kind": "variables",
+                "names": [
+                  "w"
+                ]
+              }
+            }
+          ],
+          "trailing": [
+            {
+              "style": "slash",
+              "text": "// sight: local c",
+              "range": {
+                "start": {
+                  "line": 16,
+                  "character": 19
+                },
+                "end": {
+                  "line": 16,
+                  "character": 36
+                }
+              },
+              "directive": {
+                "kind": "declare",
+                "symbol_kind": "local",
+                "names": [
+                  "c"
+                ]
+              }
+            }
+          ],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "display",
+        "canonical_name": "display",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "`a'",
+            "range": {
+              "start": {
+                "line": 16,
+                "character": 8
+              },
+              "end": {
+                "line": 16,
+                "character": 11
+              }
+            }
+          },
+          {
+            "text": "`b'",
+            "range": {
+              "start": {
+                "line": 16,
+                "character": 12
+              },
+              "end": {
+                "line": 16,
+                "character": 15
+              }
+            }
+          },
+          {
+            "text": "$G",
+            "range": {
+              "start": {
+                "line": 16,
+                "character": 16
+              },
+              "end": {
+                "line": 16,
+                "character": 18
+              }
+            }
+          }
+        ],
+        "varlist": {
+          "kind": "varlist",
+          "items": [
+            {
+              "kind": "macro_ref",
+              "scope": "local",
+              "form": "name",
+              "text": "`a'",
+              "range": {
+                "start": {
+                  "line": 16,
+                  "character": 8
+                },
+                "end": {
+                  "line": 16,
+                  "character": 11
+                }
+              },
+              "name": "a"
+            },
+            {
+              "kind": "macro_ref",
+              "scope": "local",
+              "form": "name",
+              "text": "`b'",
+              "range": {
+                "start": {
+                  "line": 16,
+                  "character": 12
+                },
+                "end": {
+                  "line": 16,
+                  "character": 15
+                }
+              },
+              "name": "b"
+            },
+            {
+              "kind": "macro_ref",
+              "scope": "global",
+              "form": "name",
+              "text": "$G",
+              "range": {
+                "start": {
+                  "line": 16,
+                  "character": 16
+                },
+                "end": {
+                  "line": 16,
+                  "character": 18
+                }
+              },
+              "name": "G"
+            }
+          ],
+          "range": {
+            "start": {
+              "line": 16,
+              "character": 8
+            },
+            "end": {
+              "line": 16,
+              "character": 18
+            }
+          }
+        },
+        "assignment": null,
+        "if": null,
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": []
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 21,
+            "character": 0
+          },
+          "end": {
+            "line": 21,
+            "character": 16
+          }
+        },
+        "text": "display `undef1'",
+        "delimit": "cr",
+        "comments": {
+          "leading": [
+            {
+              "style": "slash",
+              "text": "// sight: do \"code/clean.do\"",
+              "range": {
+                "start": {
+                  "line": 17,
+                  "character": 0
+                },
+                "end": {
+                  "line": 17,
+                  "character": 28
+                }
+              },
+              "directive": {
+                "kind": "forward",
+                "call_type": "do",
+                "raw_path": "code/clean.do"
+              }
+            },
+            {
+              "style": "slash",
+              "text": "// @lsp-include: code/helpers.doh",
+              "range": {
+                "start": {
+                  "line": 18,
+                  "character": 0
+                },
+                "end": {
+                  "line": 18,
+                  "character": 33
+                }
+              },
+              "directive": {
+                "kind": "forward",
+                "call_type": "include",
+                "raw_path": "code/helpers.doh"
+              }
+            },
+            {
+              "style": "star",
+              "text": "* sight: run report",
+              "range": {
+                "start": {
+                  "line": 19,
+                  "character": 0
+                },
+                "end": {
+                  "line": 19,
+                  "character": 19
+                }
+              },
+              "directive": {
+                "kind": "forward",
+                "call_type": "run",
+                "raw_path": "report"
+              }
+            },
+            {
+              "style": "slash",
+              "text": "// sight: ignore",
+              "range": {
+                "start": {
+                  "line": 20,
+                  "character": 0
+                },
+                "end": {
+                  "line": 20,
+                  "character": 16
+                }
+              },
+              "directive": {
+                "kind": "ignore",
+                "target_range": {
+                  "start": {
+                    "line": 21,
+                    "character": 0
+                  },
+                  "end": {
+                    "line": 21,
+                    "character": 16
+                  }
+                }
+              }
+            }
+          ],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "display",
+        "canonical_name": "display",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "`undef1'",
+            "range": {
+              "start": {
+                "line": 21,
+                "character": 8
+              },
+              "end": {
+                "line": 21,
+                "character": 16
+              }
+            }
+          }
+        ],
+        "varlist": {
+          "kind": "varlist",
+          "items": [
+            {
+              "kind": "macro_ref",
+              "scope": "local",
+              "form": "name",
+              "text": "`undef1'",
+              "range": {
+                "start": {
+                  "line": 21,
+                  "character": 8
+                },
+                "end": {
+                  "line": 21,
+                  "character": 16
+                }
+              },
+              "name": "undef1"
+            }
+          ],
+          "range": {
+            "start": {
+              "line": 21,
+              "character": 8
+            },
+            "end": {
+              "line": 21,
+              "character": 16
+            }
+          }
+        },
+        "assignment": null,
+        "if": null,
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": []
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 23,
+            "character": 0
+          },
+          "end": {
+            "line": 24,
+            "character": 12
+          }
+        },
+        "text": "display `undef2' ///\n    `undef3'",
+        "delimit": "cr",
+        "comments": {
+          "leading": [
+            {
+              "style": "slash",
+              "text": "// sight: ignore-next",
+              "range": {
+                "start": {
+                  "line": 22,
+                  "character": 0
+                },
+                "end": {
+                  "line": 22,
+                  "character": 21
+                }
+              },
+              "directive": {
+                "kind": "ignore_next",
+                "target_range": {
+                  "start": {
+                    "line": 23,
+                    "character": 0
+                  },
+                  "end": {
+                    "line": 24,
+                    "character": 12
+                  }
+                }
+              }
+            }
+          ],
+          "trailing": [],
+          "interior": [
+            {
+              "style": "continuation",
+              "text": "///",
+              "range": {
+                "start": {
+                  "line": 23,
+                  "character": 17
+                },
+                "end": {
+                  "line": 23,
+                  "character": 20
+                }
+              },
+              "directive": null
+            }
+          ],
+          "block_end": []
+        },
+        "name": "display",
+        "canonical_name": "display",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "`undef2'",
+            "range": {
+              "start": {
+                "line": 23,
+                "character": 8
+              },
+              "end": {
+                "line": 23,
+                "character": 16
+              }
+            }
+          },
+          {
+            "text": "`undef3'",
+            "range": {
+              "start": {
+                "line": 24,
+                "character": 4
+              },
+              "end": {
+                "line": 24,
+                "character": 12
+              }
+            }
+          }
+        ],
+        "varlist": {
+          "kind": "varlist",
+          "items": [
+            {
+              "kind": "macro_ref",
+              "scope": "local",
+              "form": "name",
+              "text": "`undef2'",
+              "range": {
+                "start": {
+                  "line": 23,
+                  "character": 8
+                },
+                "end": {
+                  "line": 23,
+                  "character": 16
+                }
+              },
+              "name": "undef2"
+            },
+            {
+              "kind": "macro_ref",
+              "scope": "local",
+              "form": "name",
+              "text": "`undef3'",
+              "range": {
+                "start": {
+                  "line": 24,
+                  "character": 4
+                },
+                "end": {
+                  "line": 24,
+                  "character": 12
+                }
+              },
+              "name": "undef3"
+            }
+          ],
+          "range": {
+            "start": {
+              "line": 23,
+              "character": 8
+            },
+            "end": {
+              "line": 24,
+              "character": 12
+            }
+          }
+        },
+        "assignment": null,
+        "if": null,
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": []
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 25,
+            "character": 0
+          },
+          "end": {
+            "line": 25,
+            "character": 16
+          }
+        },
+        "text": "display `undef4'",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [
+            {
+              "style": "slash",
+              "text": "// sight: ignore",
+              "range": {
+                "start": {
+                  "line": 25,
+                  "character": 17
+                },
+                "end": {
+                  "line": 25,
+                  "character": 33
+                }
+              },
+              "directive": {
+                "kind": "ignore",
+                "target_range": {
+                  "start": {
+                    "line": 25,
+                    "character": 0
+                  },
+                  "end": {
+                    "line": 25,
+                    "character": 16
+                  }
+                }
+              }
+            }
+          ],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "display",
+        "canonical_name": "display",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "`undef4'",
+            "range": {
+              "start": {
+                "line": 25,
+                "character": 8
+              },
+              "end": {
+                "line": 25,
+                "character": 16
+              }
+            }
+          }
+        ],
+        "varlist": {
+          "kind": "varlist",
+          "items": [
+            {
+              "kind": "macro_ref",
+              "scope": "local",
+              "form": "name",
+              "text": "`undef4'",
+              "range": {
+                "start": {
+                  "line": 25,
+                  "character": 8
+                },
+                "end": {
+                  "line": 25,
+                  "character": 16
+                }
+              },
+              "name": "undef4"
+            }
+          ],
+          "range": {
+            "start": {
+              "line": 25,
+              "character": 8
+            },
+            "end": {
+              "line": 25,
+              "character": 16
+            }
+          }
+        },
+        "assignment": null,
+        "if": null,
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": []
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 26,
+            "character": 0
+          },
+          "end": {
+            "line": 26,
+            "character": 11
+          }
+        },
+        "text": "display \"x\"",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [
+            {
+              "style": "slash",
+              "text": "// sight: ignore-next",
+              "range": {
+                "start": {
+                  "line": 26,
+                  "character": 12
+                },
+                "end": {
+                  "line": 26,
+                  "character": 33
+                }
+              },
+              "directive": {
+                "kind": "ignore_next",
+                "target_range": {
+                  "start": {
+                    "line": 27,
+                    "character": 0
+                  },
+                  "end": {
+                    "line": 27,
+                    "character": 16
+                  }
+                }
+              }
+            }
+          ],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "display",
+        "canonical_name": "display",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "\"x\"",
+            "range": {
+              "start": {
+                "line": 26,
+                "character": 8
+              },
+              "end": {
+                "line": 26,
+                "character": 11
+              }
+            }
+          }
+        ],
+        "varlist": null,
+        "assignment": null,
+        "if": null,
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": []
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 27,
+            "character": 0
+          },
+          "end": {
+            "line": 27,
+            "character": 16
+          }
+        },
+        "text": "display `undef5'",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "display",
+        "canonical_name": "display",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "`undef5'",
+            "range": {
+              "start": {
+                "line": 27,
+                "character": 8
+              },
+              "end": {
+                "line": 27,
+                "character": 16
+              }
+            }
+          }
+        ],
+        "varlist": {
+          "kind": "varlist",
+          "items": [
+            {
+              "kind": "macro_ref",
+              "scope": "local",
+              "form": "name",
+              "text": "`undef5'",
+              "range": {
+                "start": {
+                  "line": 27,
+                  "character": 8
+                },
+                "end": {
+                  "line": 27,
+                  "character": 16
+                }
+              },
+              "name": "undef5"
+            }
+          ],
+          "range": {
+            "start": {
+              "line": 27,
+              "character": 8
+            },
+            "end": {
+              "line": 27,
+              "character": 16
+            }
+          }
+        },
+        "assignment": null,
+        "if": null,
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": []
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 28,
+            "character": 0
+          },
+          "end": {
+            "line": 28,
+            "character": 11
+          }
+        },
+        "text": "display \"y\"",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [
+            {
+              "style": "slash",
+              "text": "// sight: do \"extra.do\"",
+              "range": {
+                "start": {
+                  "line": 28,
+                  "character": 12
+                },
+                "end": {
+                  "line": 28,
+                  "character": 35
+                }
+              },
+              "directive": null
+            }
+          ],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "display",
+        "canonical_name": "display",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "\"y\"",
+            "range": {
+              "start": {
+                "line": 28,
+                "character": 8
+              },
+              "end": {
+                "line": 28,
+                "character": 11
+              }
+            }
+          }
+        ],
+        "varlist": null,
+        "assignment": null,
+        "if": null,
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": []
+      },
+      {
+        "kind": "foreach",
+        "range": {
+          "start": {
+            "line": 35,
+            "character": 0
+          },
+          "end": {
+            "line": 38,
+            "character": 1
+          }
+        },
+        "text": "foreach v in a b {\n    display \"`v'\"\n    // @lsp-ignore\n}",
+        "delimit": "cr",
+        "comments": {
+          "leading": [
+            {
+              "style": "block",
+              "text": "/* sight: local blocked */",
+              "range": {
+                "start": {
+                  "line": 29,
+                  "character": 0
+                },
+                "end": {
+                  "line": 29,
+                  "character": 26
+                }
+              },
+              "directive": null
+            },
+            {
+              "style": "block",
+              "text": "/*\n// sight: local blocked2\n*/",
+              "range": {
+                "start": {
+                  "line": 30,
+                  "character": 0
+                },
+                "end": {
+                  "line": 32,
+                  "character": 2
+                }
+              },
+              "directive": null
+            },
+            {
+              "style": "slash",
+              "text": "// sight: ignore",
+              "range": {
+                "start": {
+                  "line": 33,
+                  "character": 0
+                },
+                "end": {
+                  "line": 33,
+                  "character": 16
+                }
+              },
+              "directive": {
+                "kind": "ignore",
+                "target_range": {
+                  "start": {
+                    "line": 35,
+                    "character": 0
+                  },
+                  "end": {
+                    "line": 35,
+                    "character": 18
+                  }
+                }
+              }
+            },
+            {
+              "style": "slash",
+              "text": "// sight: do \"report.do\"",
+              "range": {
+                "start": {
+                  "line": 34,
+                  "character": 0
+                },
+                "end": {
+                  "line": 34,
+                  "character": 24
+                }
+              },
+              "directive": null
+            }
+          ],
+          "trailing": [],
+          "interior": [],
+          "block_end": [
+            {
+              "style": "slash",
+              "text": "// @lsp-ignore",
+              "range": {
+                "start": {
+                  "line": 37,
+                  "character": 4
+                },
+                "end": {
+                  "line": 37,
+                  "character": 18
+                }
+              },
+              "directive": {
+                "kind": "ignore",
+                "target_range": {
+                  "start": {
+                    "line": 39,
+                    "character": 0
+                  },
+                  "end": {
+                    "line": 39,
+                    "character": 16
+                  }
+                }
+              }
+            }
+          ]
+        },
+        "prefixes": [],
+        "variable": "v",
+        "spec": {
+          "keyword": "in",
+          "list_type": null,
+          "text": "in a b",
+          "items": [
+            {
+              "text": "a",
+              "range": {
+                "start": {
+                  "line": 35,
+                  "character": 13
+                },
+                "end": {
+                  "line": 35,
+                  "character": 14
+                }
+              }
+            },
+            {
+              "text": "b",
+              "range": {
+                "start": {
+                  "line": 35,
+                  "character": 15
+                },
+                "end": {
+                  "line": 35,
+                  "character": 16
+                }
+              }
+            }
+          ]
+        },
+        "body": [
+          {
+            "kind": "command",
+            "range": {
+              "start": {
+                "line": 36,
+                "character": 4
+              },
+              "end": {
+                "line": 36,
+                "character": 17
+              }
+            },
+            "text": "display \"`v'\"",
+            "delimit": "cr",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "name": "display",
+            "canonical_name": "display",
+            "prefixes": [],
+            "args": [
+              {
+                "text": "\"`v'\"",
+                "range": {
+                  "start": {
+                    "line": 36,
+                    "character": 12
+                  },
+                  "end": {
+                    "line": 36,
+                    "character": 17
+                  }
+                }
+              }
+            ],
+            "varlist": null,
+            "assignment": null,
+            "if": null,
+            "in": null,
+            "weight": null,
+            "using": null,
+            "options": []
+          }
+        ]
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 39,
+            "character": 0
+          },
+          "end": {
+            "line": 39,
+            "character": 16
+          }
+        },
+        "text": "display `undef6'",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [
+            {
+              "style": "slash",
+              "text": "// sight: local",
+              "range": {
+                "start": {
+                  "line": 40,
+                  "character": 0
+                },
+                "end": {
+                  "line": 40,
+                  "character": 15
+                }
+              },
+              "directive": null
+            },
+            {
+              "style": "slash",
+              "text": "// sight: ignore",
+              "range": {
+                "start": {
+                  "line": 41,
+                  "character": 0
+                },
+                "end": {
+                  "line": 41,
+                  "character": 16
+                }
+              },
+              "directive": {
+                "kind": "ignore",
+                "target_range": null
+              }
+            }
+          ],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "display",
+        "canonical_name": "display",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "`undef6'",
+            "range": {
+              "start": {
+                "line": 39,
+                "character": 8
+              },
+              "end": {
+                "line": 39,
+                "character": 16
+              }
+            }
+          }
+        ],
+        "varlist": {
+          "kind": "varlist",
+          "items": [
+            {
+              "kind": "macro_ref",
+              "scope": "local",
+              "form": "name",
+              "text": "`undef6'",
+              "range": {
+                "start": {
+                  "line": 39,
+                  "character": 8
+                },
+                "end": {
+                  "line": 39,
+                  "character": 16
+                }
+              },
+              "name": "undef6"
+            }
+          ],
+          "range": {
+            "start": {
+              "line": 39,
+              "character": 8
+            },
+            "end": {
+              "line": 39,
+              "character": 16
+            }
+          }
+        },
+        "assignment": null,
+        "if": null,
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": []
+      }
+    ],
+    "comments": [],
+    "errors": []
+  },
+  {
+    "schema_version": 1,
+    "sight_version": "<VERSION>",
+    "path": "<ROOT>/header-only.do",
+    "line_count": 5,
+    "statements": [],
+    "comments": [
+      {
+        "style": "star",
+        "text": "* A file with comments and no statements.",
+        "range": {
+          "start": {
+            "line": 0,
+            "character": 0
+          },
+          "end": {
+            "line": 0,
+            "character": 41
+          }
+        },
+        "directive": null
+      },
+      {
+        "style": "star",
+        "text": "* sight: standalone",
+        "range": {
+          "start": {
+            "line": 1,
+            "character": 0
+          },
+          "end": {
+            "line": 1,
+            "character": 19
+          }
+        },
+        "directive": {
+          "kind": "standalone"
+        }
+      },
+      {
+        "style": "slash",
+        "text": "// sight: standalone:",
+        "range": {
+          "start": {
+            "line": 2,
+            "character": 0
+          },
+          "end": {
+            "line": 2,
+            "character": 21
+          }
+        },
+        "directive": null
+      },
+      {
+        "style": "block",
+        "text": "/* block */",
+        "range": {
+          "start": {
+            "line": 3,
+            "character": 0
+          },
+          "end": {
+            "line": 3,
+            "character": 11
+          }
+        },
+        "directive": null
       }
     ],
     "errors": []

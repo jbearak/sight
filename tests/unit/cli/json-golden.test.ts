@@ -4,7 +4,10 @@
  * The fixture project in tests/fixtures/cli-json/project covers an
  * `include`, a `do` with arguments, a `do` with a macro in its path,
  * `cd`, a `#delimit ;` section, a `program` with `args`, `foreach` over a
- * local, a backward directive, and a cycle. The expected JSON is in
+ * local, a backward directive, and a cycle. directives.do covers every
+ * Sight directive kind (with `@lsp-` aliases and quote and colon
+ * variants) and each placement Sight ignores; header-only.do is a file
+ * of comments with no statements. The expected JSON is in
  * tests/fixtures/cli-json/expected, with the fixture's absolute path
  * replaced by <ROOT> and the Sight version by <VERSION>.
  *
@@ -31,6 +34,8 @@ const PARSE_FILES = [
     'code/helpers.doh',
     'report.do',
     'extra.do',
+    'directives.do',
+    'header-only.do',
 ];
 
 /** Replace machine-specific values so the output is stable. */

@@ -150,6 +150,21 @@ function looks_like_unquoted_path_token(token: string): boolean {
     return true;
 }
 
+/**
+ * The keyword (`done-by`, `run-by`, or `included-by`) of a comment that
+ * reads as a well-formed backward directive, or undefined. The parser
+ * folds `run-by` into `done-by`; callers that need the spelling (such
+ * as `sight parse --json`) read it here.
+ */
+export function backward_directive_keyword(
+    comment_text: string
+): 'done-by' | 'run-by' | 'included-by' | undefined {
+    const my_match = comment_text.trim().match(DIRECTIVE_PATTERN);
+    return my_match
+        ? my_match[1] as 'done-by' | 'run-by' | 'included-by'
+        : undefined;
+}
+
 export class DirectiveParser {
     /**
      * Parse directives from file content.

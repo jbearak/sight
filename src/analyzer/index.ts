@@ -44,12 +44,16 @@ import {
 import { find_macro_creating_command, matches_option } from './macro-creating-commands';
 import { parse_option_argument, is_valid_identifier } from './option-argument-parser';
 import {
-    DECLARATION_DIRECTIVE_PATTERN,
-    VARIABLES_DIRECTIVE_PATTERN,
-    has_ignore_directive,
-    has_ignore_next_directive,
-} from '../utils/directives';
-import { next_statement_line_span } from '../utils/statement-span';
+    declaration_directive_of,
+    ignore_directive_of,
+    is_standalone_comment_token,
+    parse_directive_identifier_list,
+    trivia_ignore_target_line,
+    trivia_variables_names,
+    variables_directive_of,
+    walk_directive_trivia,
+} from '../directive-parser/comment-directives';
+import { LineSpan } from '../utils/statement-span';
 import { is_swallowed_continuation_terminator } from '../utils/continuation';
 
 // Diagnostic interface for semantic errors
@@ -462,26 +466,16 @@ export class SemanticAnalyzer {
             const token = tokens[i];
 
             if (token.type === 'COMMENT_LINE') {
-                const token_content = token.value.trim();
-                const is_standalone_comment = this.is_standalone_comment_token(tokens, i);
-
-                if (has_ignore_directive(token_content)) {
-                    if (is_standalone_comment) {
-                        this.ignore_next_non_trivia_line(tokens, i);
-                    } else {
-                        this.config.ignored_lines.add(token.range.start.line);
-                    }
-                }
-                if (has_ignore_next_directive(token_content)) {
-                    this.ignore_next_non_trivia_line(tokens, i);
+                // Shared with `sight parse --json` (see
+                // directive-parser/comment-directives.ts).
+                const my_ignore = ignore_directive_of(tokens, i);
+                if (my_ignore?.lines) {
+                    this.add_ignored_line_span(my_ignore.lines);
                 }
 
                 // Check for @lsp-variables / @lsp-var directive
-                const variables_match = token_content.match(VARIABLES_DIRECTIVE_PATTERN);
-                if (variables_match) {
-                    const the_var_names = this.parse_identifier_list(
-                        variables_match[1]
-                    );
+                const the_var_names = variables_directive_of(token);
+                if (the_var_names) {
                     for (const my_var_name of the_var_names) {
                         this.register_declared_variable(
                             my_var_name,
@@ -518,23 +512,18 @@ export class SemanticAnalyzer {
      * place.
      */
     private parse_identifier_list(raw: string): string[] {
-        return raw
-            .split(/\s+/)
-            .filter(name => name.length > 0 && is_valid_identifier(name));
+        return parse_directive_identifier_list(raw);
     }
 
     /**
-     * Suppress diagnostics on every physical line the next logical
-     * statement spans — not just its first line — so `@lsp-ignore-next`
-     * covers `///`-continued statements and multi-line `#delimit ;`
-     * statements (issue #268 item 2). A `{` block header is covered up
-     * to the opener; the block body is not.
+     * Suppress diagnostics on every physical line of `my_span`. For an
+     * `@lsp-ignore-next` that is every line the next logical statement
+     * spans — not just its first line — so it covers `///`-continued
+     * statements and multi-line `#delimit ;` statements (issue #268
+     * item 2). A `{` block header is covered up to the opener; the
+     * block body is not.
      */
-    private ignore_next_non_trivia_line(tokens: Token[], directive_index: number): void {
-        const my_span = next_statement_line_span(tokens, directive_index);
-        if (!my_span) {
-            return;
-        }
+    private add_ignored_line_span(my_span: LineSpan): void {
         for (
             let my_line = my_span.start_line;
             my_line <= my_span.end_line;
@@ -573,10 +562,10 @@ export class SemanticAnalyzer {
                 continue;
             }
 
-            const my_match = token.value.match(DECLARATION_DIRECTIVE_PATTERN);
-            if (my_match) {
-                const my_type = my_match[1] as 'local' | 'global' | 'scalar' | 'matrix' | 'program';
-                const the_names = this.parse_identifier_list(my_match[2]);
+            const my_declaration = declaration_directive_of(token);
+            if (my_declaration) {
+                const my_type = my_declaration.type;
+                const the_names = my_declaration.names;
                 // Declarations are intentionally line-scoped, not
                 // character-scoped. A trailing `// sight: local x`
                 // applies to the whole physical line as well as
@@ -702,82 +691,22 @@ export class SemanticAnalyzer {
         }
     }
 
-    /**
-     * `outer_successor` is the statement that follows this whole node list in
-     * document order (undefined at the top level or when nothing follows the
-     * enclosing block). It lets a block-ending directive on the LAST child of a
-     * block target the statement after all the enclosing closers, matching the
-     * pre-#304 behavior where the comment flowed forward through pending trivia
-     * to that statement.
-     */
-    private extract_directives_from_nodes(
-        nodes: StataNode[],
-        outer_successor?: StataNode
-    ): void {
-        for (let my_index = 0; my_index < nodes.length; my_index++) {
-            const node = nodes[my_index];
-
-            // Check leading trivia for directives (target: this node).
-            if (this.has_trivia(node) && node.leadingTrivia) {
-                for (const trivia of node.leadingTrivia) {
-                    this.parse_directive(trivia, node);
-                }
-            }
-
-            // The statement that follows this node in document order: its next
-            // sibling, or (when it is the last child) the statement after the
-            // enclosing block.
-            const following_node = nodes[my_index + 1] ?? outer_successor;
-
-            // Block-ending trivia (a comment on its own line just before this
-            // block's closer) targets that following statement — the same node
-            // that held the comment as leading trivia before issue #304 moved it
-            // into blockEndingTrivia. It is never this (block) node, so the
-            // block header line is never suppressed.
-            const node_with_block_ending_trivia = node as StataNode & {
-                blockEndingTrivia?: TriviaNode[];
-            };
-            if (node_with_block_ending_trivia.blockEndingTrivia) {
-                for (const trivia of node_with_block_ending_trivia.blockEndingTrivia) {
-                    this.parse_directive(trivia, following_node);
-                }
-            }
-
-            // Recurse into nested block bodies (program, control flow including
-            // frame, and prefix brace-command blocks). The body's successor is
-            // the statement after this block (following_node), so a directive on
-            // the body's last child still reaches past all enclosing closers.
-            const the_child_body = this.directive_recursion_body(node);
-            if (the_child_body) {
-                this.extract_directives_from_nodes(the_child_body, following_node);
-            }
-        }
+    private is_standalone_comment_token(tokens: Token[], comment_index: number): boolean {
+        return is_standalone_comment_token(tokens, comment_index);
     }
 
     /**
-     * The child statement list to recurse into for directive extraction:
-     * program bodies, control-flow bodies (including `frame`, which
-     * is_control_flow excludes), and prefix brace-command blocks
-     * (`capture { ... }`). Other nodes have no nested statement list.
+     * Walk leading and block-ending trivia with the statement each comment
+     * precedes (see walk_directive_trivia, shared with `sight parse
+     * --json`). A block-ending directive on the LAST child of a block
+     * targets the statement after all the enclosing closers, matching the
+     * pre-#304 behavior where the comment flowed forward through pending
+     * trivia to that statement.
      */
-    private directive_recursion_body(node: StataNode): StataNode[] | undefined {
-        if (node.type === 'program') {
-            return node.body;
-        }
-        // Check `frame` via the discriminant before the is_control_flow type
-        // predicate: is_control_flow narrows to ControlFlowNode but excludes
-        // 'frame' at runtime, so `is_control_flow(node) || node.type === 'frame'`
-        // would leave TypeScript with no overlap for the 'frame' comparison.
-        if (node.type === 'frame') {
-            return node.body;
-        }
-        if (this.is_control_flow(node)) {
-            return node.body;
-        }
-        if (node.type === 'command' && node.body) {
-            return node.body;
-        }
-        return undefined;
+    private extract_directives_from_nodes(nodes: StataNode[]): void {
+        walk_directive_trivia(nodes, (trivia, following_node) => {
+            this.parse_directive(trivia, following_node);
+        });
     }
 
     /**
@@ -798,24 +727,14 @@ export class SemanticAnalyzer {
      * impossible because it adds at most a single, real following-statement line.
      */
     private parse_directive(trivia: TriviaNode, following_node: StataNode | undefined): void {
-        const content = trivia.content.trim();
-
-        // Standalone ignore directives target the following node.
-        if (
-            following_node &&
-            (has_ignore_directive(content) || has_ignore_next_directive(content))
-        ) {
-            // Ignore the line of the following node
-            const line_to_ignore = following_node.range.start.line;
+        const line_to_ignore = trivia_ignore_target_line(trivia, following_node);
+        if (line_to_ignore !== undefined) {
             this.config.ignored_lines.add(line_to_ignore);
         }
 
         // Check for @lsp-variables / @lsp-var directive (keyed to its own line).
-        const variables_match = content.match(VARIABLES_DIRECTIVE_PATTERN);
-        if (variables_match) {
-            const the_var_names = this.parse_identifier_list(
-                variables_match[1]
-            );
+        const the_var_names = trivia_variables_names(trivia);
+        if (the_var_names) {
             for (const my_var_name of the_var_names) {
                 this.register_declared_variable(
                     my_var_name,
@@ -823,24 +742,6 @@ export class SemanticAnalyzer {
                 );
             }
         }
-    }
-
-    private is_standalone_comment_token(tokens: Token[], comment_index: number): boolean {
-        const comment = tokens[comment_index];
-        const line = comment.range.start.line;
-
-        for (let i = comment_index - 1; i >= 0; i--) {
-            const token = tokens[i];
-            if (token.range.start.line !== line) {
-                break;
-            }
-            if (token.type === 'WHITESPACE') {
-                continue;
-            }
-            return false;
-        }
-
-        return true;
     }
 
     /**
@@ -5404,24 +5305,6 @@ export class SemanticAnalyzer {
     }
 
     // Helper methods
-
-    private has_trivia(node: StataNode): node is StataNode & { 
-        leadingTrivia?: TriviaNode[]; 
-        trailingTrivia?: TriviaNode[] 
-    } {
-        return (
-            node.type === 'command' ||
-            node.type === 'program' ||
-            node.type === 'macro_def' ||
-            node.type === 'directive' ||
-            node.type === 'syntax' ||
-            node.type === 'if' ||
-            node.type === 'else' ||
-            node.type === 'foreach' ||
-            node.type === 'forvalues' ||
-            node.type === 'while'
-        );
-    }
 
     private is_control_flow(node: StataNode): node is ControlFlowNode {
         return (

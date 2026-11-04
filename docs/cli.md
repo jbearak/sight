@@ -278,9 +278,15 @@ the left, so `2^3^2` is `(2^3)^2`, `-2^2` is `-(2^2)`, and `!x == 1` is
   "path": "/abs/path/clean.do",
   "line_count": 16,
   "statements": [],
+  "comments": [],
   "errors": [{"source": "parser", "code": "SYNTAX_ERROR", "message": "...", "range": {}}]
 }
 ```
+
+`comments` lists the comments that no statement reports, in source order:
+all of them in a file with no statements (for example a header of
+comments only). In a file with statements, header comments are the first
+statement's `leading` comments, so each comment appears exactly once.
 
 `errors` lists lexer and parser errors in source order (`source` is `lexer`
 or `parser`). An unreadable file's document has `schema_version`,
@@ -298,15 +304,53 @@ Every statement has:
   comments before and after the statement, inside it (between its tokens,
   including `///` continuations), and, for statements with a body, before
   the closing `}` or `end`. Comments inside body statements belong to those
-  statements. Each comment is `{"style", "text", "range"}`, where `style` is
-  `slash` (`//`), `star` (`*`), `block` (`/* */`), or `continuation` (`///`
-  with any text after it).
+  statements. Each comment is `{"style", "text", "range", "directive"}`,
+  where `style` is `slash` (`//`), `star` (`*`), `block` (`/* */`), or
+  `continuation` (`///` with any text after it), and `directive` is described
+  under "Directives" below.
 
 Statements with a body (`block`, `if`, `else`, loops, `program`, `frame`)
 have `body`, a list of statements. `command`, `block`, `macro`, `syntax`,
 `embedded`, and control-flow statements have `prefixes` (see `command`), so
 `capture local y 2` is a `macro` with a `capture` prefix, and
 `version 14: local x = 1` is a `macro` with a `version` prefix.
+
+#### Directives
+
+A comment's `directive` is the [Sight directive](declaration-directives.md)
+it carries, read by the same code the editor uses, or `null`. It is `null`
+for an ordinary comment and for a directive Sight does not honor where it
+stands. `sight:` and the `@lsp-` alias, the optional colon, and quoted or
+unquoted paths all give the same object.
+
+| `kind` | Other fields | Honored in |
+|---|---|---|
+| `declare` | `symbol_kind`: `local`, `global`, `variables`, `scalar`, `matrix`, or `program`; `names`: the declared names | any `//` or `*` line comment, standalone or after code |
+| `ignore`, `ignore_next` | `target_range` | any `//` or `*` line comment, standalone or after code |
+| `forward` | `call_type`: `do`, `run`, or `include`; `raw_path` | a comment line anywhere |
+| `backward` | `call_type`: `do` (`done-by`), `run` (`run-by`), or `include` (`included-by`); `raw_path` | a header comment line |
+| `standalone` | none | a header comment line |
+| `working_directory` | `raw_path` | a header comment line |
+
+- A comment line is a line holding only the comment. The header is the
+  comment and blank lines before the first line of code.
+- Never honored: a directive inside a `/* */` comment, a `forward`,
+  `backward`, `standalone`, or `working_directory` directive after code on
+  the same line, a header-only directive after the header, and a malformed
+  one (for example a declaration with no valid name).
+- Only the last `working_directory` and the first `standalone` count; the
+  others are `null`. A `forward` directive on the line after an `ignore` or
+  `ignore_next` comment is suppressed, so it is `null` too.
+- `raw_path` is the path as written, without quotes. `sight graph` resolves
+  it, and reports `run-by` as `do`.
+- `target_range` is the code Sight suppresses diagnostics on, from its first
+  token to its last, or `null` when there is none (for example an `ignore`
+  at the end of the file). A standalone `ignore` and any `ignore_next` cover
+  the next statement, all of its `///` or `#delimit ;` lines; a statement
+  that opens a block is covered through its `{` only, never its body. An
+  `ignore` after code covers its own line. A comment just before a block's
+  closing `}` or `end` covers the first line of the statement after the
+  block.
 
 #### `command`
 
