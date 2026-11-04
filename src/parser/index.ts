@@ -81,6 +81,9 @@ const COLON_PREFIX_COMMANDS: ReadonlyMap<string, string> = new Map([
   ['eststo', 'eststo'],
 ]);
 
+/** Canonical names of the colon prefixes above. */
+const COLON_PREFIX_NAMES: ReadonlySet<string> = new Set(COLON_PREFIX_COMMANDS.values());
+
 /**
  * Tracks `///` line-continuation state while a caller collects the tokens of a
  * reconstructed value (expression, if/in qualifier, parenthesized group, macro
@@ -930,13 +933,29 @@ export class StataParser {
   }
 
 
-  private parseCommand(): CommandNode {
+  private parseCommand(): CommandNode | MacroDefNode {
     const start_token = this.peek();
     const command_start_line = start_token.range.start.line;
 
     // Parse prefix commands (by, quietly, capture, svy:, etc.)
     const prefixes: PrefixNode[] = [];
     this.parse_prefix_chain(prefixes);
+
+    // `version 14: local x = 1` is still a macro definition. (Before colon
+    // prefixes were parsed, the colon split it into `version 14` and a
+    // separate definition.) Argument-free prefixes such as
+    // `capture local ...` keep parsing as commands.
+    const has_colon_prefix = prefixes.some(
+      (my_prefix) => COLON_PREFIX_NAMES.has(my_prefix.fullName)
+    );
+    if (has_colon_prefix &&
+        (this.checkWord('local') || this.checkWord('global')) &&
+        this.looksLikeMacroDefinition()) {
+      const macro_node = this.parseMacroDefinition();
+      macro_node.prefix = prefixes;
+      macro_node.range = this.makeRange(start_token.range.start, macro_node.range.end);
+      return macro_node;
+    }
 
     // Check if this is a syntax command after prefixes
     // (e.g., qui syntax anything [if] [in])
@@ -1435,15 +1454,26 @@ export class StataParser {
    */
   private statement_continues_after(index: number): boolean {
     let i = index;
-    while (i < this.tokens.length && this.tokens[i].type === 'COMMENT_BLOCK') {
-      i++;
+    for (;;) {
+      const my_token = this.tokens[i];
+      if (my_token?.type === 'COMMENT_BLOCK' || my_token?.type === 'CONTINUATION') {
+        i++;
+        continue;
+      }
+      // The newline after `///` joins the next line to the statement.
+      if (my_token !== undefined && i > 0 &&
+          is_swallowed_continuation_terminator(
+            my_token, this.tokens[i - 1].type === 'CONTINUATION')) {
+        i++;
+        continue;
+      }
+      break;
     }
     const next = this.tokens[i];
     return next !== undefined &&
       next.type !== 'STATEMENT_TERMINATOR' &&
       next.type !== 'EOF' &&
-      next.type !== 'COMMENT_LINE' &&
-      next.type !== 'CONTINUATION';
+      next.type !== 'COMMENT_LINE';
   }
 
   /**
@@ -3810,6 +3840,7 @@ export class StataParser {
     const preceded_by_continuation: boolean[] = [];
     const continuation = new ContinuationTracker();
     let paren_depth = 0;
+    let bracket_depth = 0;
     const start_pos = this.current;
 
     while (!this.isAtEnd()) {
@@ -3825,7 +3856,13 @@ export class StataParser {
         continue;
       }
 
-      // Track parenthesis depth
+      // Track parenthesis and subscript-bracket depth; a comma inside
+      // either (`f(a, b)`, `M[1,2]`) does not start the options.
+      if (token.type === 'LBRACKET' && !this.is_weight_start(this.current)) {
+        bracket_depth++;
+      } else if (token.type === 'RBRACKET') {
+        bracket_depth = Math.max(0, bracket_depth - 1);
+      }
       if (token.type === 'LPAREN') {
         paren_depth++;
       } else if (token.type === 'RPAREN') {
@@ -3839,7 +3876,7 @@ export class StataParser {
 
       // Stop at top-level comma or qualifier keywords. A statement terminator
       // is always a hard stop and is handled before depth accounting above.
-      if (paren_depth === 0) {
+      if (paren_depth === 0 && bracket_depth === 0) {
         if (token.type === 'COMMA') {
           break;
         }

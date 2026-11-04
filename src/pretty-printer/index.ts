@@ -395,7 +395,10 @@ export class PrettyPrinter {
      * Print a macro definition.
      */
     private printMacroDef(node: MacroDefNode): string {
-        const scope_keyword = node.scope;
+        const prefix_text = (node.prefix ?? [])
+            .map(p => `${this.printPrefix(p)} `)
+            .join('');
+        const scope_keyword = `${prefix_text}${node.scope}`;
         
         // Handle extended macro functions (e.g., local x : list posof "y" in z)
         if (node.extendedFunction) {

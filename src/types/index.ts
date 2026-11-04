@@ -327,6 +327,7 @@ export interface ExtendedMacroFunction {
 
 export interface MacroDefNode {
   type: 'macro_def';
+  prefix?: PrefixNode[];  // e.g. `version 14: local x = 1`, `capture local x 1`
   scope: 'local' | 'global';
   name: string;
   value: string;

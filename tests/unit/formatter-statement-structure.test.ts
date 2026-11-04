@@ -48,6 +48,9 @@ const STATEMENTS = [
     'append using a b, force',
     'gettoken a b : c, parse(" ")',
     'log using "x.log", replace text',
+    'scalar s = M[1, 2]',
+    'version 14: local x = 1',
+    'capture local y 2',
 ];
 
 describe('formatting statements with prefixes, weights, and extra arguments', () => {

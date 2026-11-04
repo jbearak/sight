@@ -5,6 +5,7 @@ import { StataParser } from '../../src/parser';
 import {
     CommandNode,
     ControlFlowNode,
+    StataDiagnosticCode,
     ExpressionNode,
     MacroDefNode,
     StataNode,
@@ -66,6 +67,12 @@ describe('statement structure', () => {
             });
         }
 
+        it('continues past a block comment followed by ///', () => {
+            const node = command('reg y /* explanation */ ///\n    x, robust');
+            expect(names(node)).toEqual(['y', 'x']);
+            expect(node.options?.map((o) => o.name)).toEqual(['robust']);
+        });
+
         it('keeps the node range over the whole statement', () => {
             const node = command('reg y x ///\n  z w, robust');
             expect(node.range).toEqual({
@@ -120,6 +127,24 @@ describe('statement structure', () => {
             expect(command('version 14').name).toBe('version');
             expect(command('mi set mlong').name).toBe('mi');
             expect(command('xi i.x').name).toBe('xi');
+        });
+
+        it('keeps a prefixed macro definition a macro definition', () => {
+            const [node] = parse_nodes('version 14: local x = 1') as MacroDefNode[];
+            expect(node).toMatchObject({ type: 'macro_def', scope: 'local', name: 'x', value: '1' });
+            expect(node.prefix?.map((p) => p.fullName)).toEqual(['version']);
+            expect(node.range.start.character).toBe(0);
+
+            const source = 'version 14: local x = 1\ndisplay `x\'';
+            const { tokens } = new StataLexer().tokenize(source);
+            const { ast } = new StataParser().parse(tokens);
+            const result = new SemanticAnalyzer().analyze(
+                ast, 'test://file.do', undefined, { undefined_macro_enabled: true }, tokens
+            );
+            const undefined_macros = result.diagnostics.filter(
+                (d) => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            );
+            expect(undefined_macros).toEqual([]);
         });
 
         it('defines a variable under a by prefix', () => {
@@ -238,6 +263,16 @@ describe('statement structure', () => {
             expect(kind_of(structured.expression_ast)).toBe('binary');
             expect(kind_of(structured.if_ast)).toBe('variable');
             expect(structured.in_range?.last?.kind).toBe('number');
+        });
+
+        it('keeps commas inside subscripts in the assignment', () => {
+            const node = command('scalar s = M[1,2] + f(a, b), opt');
+            expect(node.expression).toBe('M[1,2] + f(a, b)');
+            expect(node.expression_ast).toMatchObject({
+                kind: 'binary',
+                left: { kind: 'subscript', indices: [{ kind: 'number' }, { kind: 'number' }] },
+            });
+            expect(node.options?.map((o) => o.name)).toEqual(['opt']);
         });
 
         it('parses egen functions with varlist arguments', () => {
