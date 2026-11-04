@@ -93,6 +93,19 @@ describe('program definitions without define', () => {
         expect(result.symbols.programs.has('myprog')).toBe(true);
     });
 
+    for (const my_declaration of [
+        'program hello, plugin using("hello.plugin")',
+        'program define hello, plugin',
+    ]) {
+        for_each_formatter_mode(`keeps ${my_declaration} as a body-less declaration`, (mode) => {
+            const source = `if 1 {\n${my_declaration}\ndi 1\n}\n`;
+            const expected = `if 1 {\n    ${my_declaration}\n    di 1\n}\n`;
+            const formatted = format_source(source, mode);
+            expect(formatted).toBe(expected);
+            expect(format_source(formatted, mode)).toBe(formatted);
+        });
+    }
+
     for_each_formatter_mode('indents the body like a program define body', (mode) => {
         const source = 'program myprog, rclass\ndi 1\nend\nprogram define p2\ndi 2\nend\n';
         const expected = 'program myprog, rclass\n    di 1\nend\nprogram define p2\n    di 2\nend\n';
