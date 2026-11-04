@@ -399,6 +399,29 @@ gen x = y < = z`;
             );
         });
 
+        it('should report an invalid operator sequence in an if body command', async () => {
+            const my_content = `if condition {
+    display x | | y
+}`;
+            const my_uri = 'file:///test_cstyle_if_body.do';
+            await document_store.open(my_uri, my_content, 1);
+            const my_document = document_store.get(my_uri)!;
+
+            const the_diagnostics = await diagnostics_provider.get_diagnostics(
+                my_document,
+                default_config
+            );
+            const the_invalid = the_diagnostics.filter(
+                d => d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
+            );
+            const the_cstyle_logical = the_diagnostics.filter(
+                d => d.code === StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW
+            );
+
+            expect(the_invalid).toHaveLength(1);
+            expect(the_cstyle_logical).toHaveLength(0);
+        });
+
         it('should emit multiple operator diagnostics in same file', async () => {
             const my_content = `gen x = a < = b
 gen y = c > = d

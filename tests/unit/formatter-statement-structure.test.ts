@@ -49,6 +49,9 @@ const STATEMENTS = [
     'gettoken a b : c, parse(" ")',
     'log using "x.log", replace text',
     'scalar s = M[1, 2]',
+    'infix id 1-3 using data.raw',
+    'use x - z using f',
+    'fp <x_pow>: reg y <x_pow>',
     'version 14: local x = 1',
     'capture local y 2',
 ];

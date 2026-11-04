@@ -30,10 +30,12 @@ import { Position, Range } from 'vscode-languageserver-textdocument';
 import {
     BinaryOperator,
     CallExpressionNode,
+    CoefficientExpressionNode,
     ExpressionNode,
     InRangeNode,
     MacroRefExpressionNode,
     PathNode,
+    StoredResultExpressionNode,
     StringExpressionNode,
     TextOrMacroPart,
     Token,
@@ -76,13 +78,24 @@ const SYSTEM_VARIABLES: ReadonlySet<string> = new Set([
     '_n', '_N', '_pi', '_rc', '_cons',
 ]);
 
-const COEFFICIENT_NAMES: ReadonlySet<string> = new Set([
+type CoefficientName = CoefficientExpressionNode['which'];
+type StoredResultClass = StoredResultExpressionNode['result_class'];
+
+const COEFFICIENT_NAMES: ReadonlySet<string> = new Set<CoefficientName>([
     '_b', '_se', '_coef',
 ]);
 
-const STORED_RESULT_CLASSES: ReadonlySet<string> = new Set([
+const STORED_RESULT_CLASSES: ReadonlySet<string> = new Set<StoredResultClass>([
     'r', 'e', 's', 'c',
 ]);
+
+function is_coefficient_name(value: string): value is CoefficientName {
+    return COEFFICIENT_NAMES.has(value);
+}
+
+function is_stored_result_class(value: string): value is StoredResultClass {
+    return STORED_RESULT_CLASSES.has(value);
+}
 
 /** Weight keywords and their canonical kinds (exact case). */
 export const WEIGHT_KEYWORDS: ReadonlyMap<string, WeightKind> = new Map([
@@ -848,11 +861,11 @@ class ExpressionParser {
                 this.pos = run.end;
                 return make_unparsed(this.tokens, start, run.end, 'syntax_error');
             }
-            if (next?.type === 'LBRACKET' && COEFFICIENT_NAMES.has(token.value)) {
+            if (next?.type === 'LBRACKET' && is_coefficient_name(token.value)) {
                 return this.parse_coefficient();
             }
             if (next?.type === 'LPAREN') {
-                return STORED_RESULT_CLASSES.has(token.value)
+                return is_stored_result_class(token.value)
                     ? this.parse_stored_result()
                     : this.parse_call();
             }
@@ -955,7 +968,10 @@ class ExpressionParser {
             throw new ExpressionParseFailure('unclosed stored result');
         }
         this.pos = close + 1;
-        const result_class = class_token.value as 'r' | 'e' | 's' | 'c';
+        const result_class = class_token.value;
+        if (!is_stored_result_class(result_class)) {
+            throw new ExpressionParseFailure('not a stored result');
+        }
         const has_macro = this.tokens
             .slice(open + 1, close)
             .some((t) => t.type === 'MACRO_REF_LOCAL' || t.type === 'MACRO_REF_GLOBAL');
@@ -970,6 +986,10 @@ class ExpressionParser {
 
     private parse_coefficient(): ExpressionNode {
         const name_token = this.advance();
+        const which = name_token.value;
+        if (!is_coefficient_name(which)) {
+            throw new ExpressionParseFailure('not a coefficient');
+        }
         const open = this.pos;
         const close = close_of(this.matches, open);
         if (close === -1 || close >= this.end) {
@@ -981,7 +1001,7 @@ class ExpressionParser {
             : empty_range_at(this.tokens[open].range.end);
         return {
             kind: 'coefficient',
-            which: name_token.value as '_b' | '_se' | '_coef',
+            which,
             spec: join_tokens(this.tokens, open + 1, close),
             spec_range,
             range: span(name_token.range, this.tokens[close].range),

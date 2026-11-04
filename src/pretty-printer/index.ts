@@ -182,44 +182,43 @@ export class PrettyPrinter {
         // Print command name
         the_parts.push(node.name);
 
-        // Print variable list, preserving spacing around string delimiters
+        // Print the arguments in source order: varlist items, and argument
+        // tokens after the varlist (e.g. `> 0` in `assert x > 0`). A `using`
+        // clause after them is appended to the varlist, so sort by position
+        // (`infix id 1-3 using f`). Varlist neighbors keep their spacing
+        // rules; extra args, already grouped by adjacency, are attached only
+        // where the source had no gap (`gen x:lbl = 1`).
         // For unab commands with has_colon_before_varlist, emit colon after macro name
-        if (node.varlist && node.varlist.length > 0) {
-            the_parts.push(' ');
-            for (let i = 0; i < node.varlist.length; i++) {
-                const my_name = node.varlist[i].name;
-                the_parts.push(my_name);
-                
-                // For unab commands: emit colon after the first item (macro name)
-                if (i === 0 && node.has_colon_before_varlist) {
-                    the_parts.push(':');
-                }
-                
-                if (i < node.varlist.length - 1) {
-                    const next_name = node.varlist[i + 1].name;
-                    if (!should_omit_space(my_name, next_name)) {
-                        the_parts.push(' ');
-                    }
-                }
-            }
-        }
-
-        // Print argument tokens that follow the varlist (e.g. `> 0` in
-        // `assert x > 0`). Items are already grouped by adjacency, so they
-        // are space-separated, except that the first stays attached to the
-        // varlist when the source had no gap (`gen x:lbl = 1`).
+        const the_items = [
+            ...(node.varlist ?? []).map((item, index) => ({ item, is_extra: false, index })),
+            ...(node.extra_args ?? []).map((item, index) => ({ item, is_extra: true, index })),
+        ];
         if (node.extra_args && node.extra_args.length > 0) {
-            const the_last_item = node.varlist?.[node.varlist.length - 1];
-            let previous_end = the_last_item?.range.end;
-            for (const my_item of node.extra_args) {
-                const is_attached = previous_end !== undefined &&
-                    previous_end.line === my_item.range.start.line &&
-                    previous_end.character === my_item.range.start.character;
-                if (!is_attached) {
+            the_items.sort((a, b) =>
+                a.item.range.start.line - b.item.range.start.line ||
+                a.item.range.start.character - b.item.range.start.character);
+        }
+        for (let i = 0; i < the_items.length; i++) {
+            const my_entry = the_items[i];
+            const previous = the_items[i - 1];
+            if (previous === undefined) {
+                the_parts.push(' ');
+            } else {
+                const is_attached =
+                    previous.item.range.end.line === my_entry.item.range.start.line &&
+                    previous.item.range.end.character === my_entry.item.range.start.character;
+                const omit_space = my_entry.is_extra || previous.is_extra
+                    ? is_attached
+                    : should_omit_space(previous.item.name, my_entry.item.name);
+                if (!omit_space) {
                     the_parts.push(' ');
                 }
-                the_parts.push(my_item.name);
-                previous_end = undefined;
+            }
+            the_parts.push(my_entry.item.name);
+
+            // For unab commands: emit colon after the first item (macro name)
+            if (!my_entry.is_extra && my_entry.index === 0 && node.has_colon_before_varlist) {
+                the_parts.push(':');
             }
         }
 
@@ -329,9 +328,10 @@ export class PrettyPrinter {
             result += ' ' + prefix.varlist.join(' ');
         }
 
-        // Arguments of colon prefixes such as `version 14:` or `svy linearized:`
+        // Arguments of colon prefixes such as `version 14:` or `svy linearized:`,
+        // as written: they are not always expressions (`fp <x_pow>:`)
         if (prefix.arguments) {
-            result += ' ' + format_expression_spacing(prefix.arguments);
+            result += ' ' + prefix.arguments;
         }
 
         // Prefix options, e.g. `by g, sort:` or `bootstrap, reps(100):`
