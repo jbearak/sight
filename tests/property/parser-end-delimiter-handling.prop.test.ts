@@ -146,8 +146,8 @@ describe('Property Test: Parser End Delimiter Handling', () => {
         // tokenization in ways that make this content-preservation property flaky.
         fc.array(fc.stringMatching(/[a-zA-Z0-9 ]{1,30}/), { minLength: 1, maxLength: 3 }).filter((lines) =>
           lines.some((line) => line.trim().length > 0) &&
-          // Avoid generating a literal end-delimiter line, which can terminate the block early.
-          lines.every((line) => line.trim().toLowerCase() !== 'end')
+          // Avoid a line that can terminate the block early.
+          lines.every((line) => !could_end_embedded_block(line))
         ),
         (my_language, the_content_lines) => {
           const my_content = the_content_lines.join('\n');
@@ -190,12 +190,12 @@ describe('Property Test: Parser End Delimiter Handling', () => {
         // Avoid content that can change tokenization/parsing semantics, such as starting an
         // unterminated block comment ("/*") or introducing a literal end-delimiter line.
         fc.stringMatching(/[a-zA-Z0-9 ]{1,20}/).filter((s) => {
-          const trimmed = s.trim().toLowerCase();
-          return trimmed.length > 0 && trimmed !== 'end' && !s.includes('/*') && !s.includes('*/');
+          return s.trim().length > 0 && !could_end_embedded_block(s) &&
+            !s.includes('/*') && !s.includes('*/');
         }),
         fc.stringMatching(/[a-zA-Z0-9 ]{1,20}/).filter((s) => {
-          const trimmed = s.trim().toLowerCase();
-          return trimmed.length > 0 && trimmed !== 'end' && !s.includes('/*') && !s.includes('*/');
+          return s.trim().length > 0 && !could_end_embedded_block(s) &&
+            !s.includes('/*') && !s.includes('*/');
         }),
         (my_python_content, my_mata_content) => {
           // Create source with sequential embedded blocks.
