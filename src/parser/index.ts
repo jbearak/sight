@@ -374,7 +374,10 @@ export class StataParser {
     if (node && this.isNodeWithTrivia(node) && leading_trivia.length > 0) {
       node.leadingTrivia = leading_trivia;
     }
-    if (node !== null &&
+    // A standalone string statement keeps all of its source, comments
+    // included, in its name (parseStringStatement).
+    const is_string_statement = this.tokens[statement_start]?.type === 'STRING';
+    if (node !== null && !is_string_statement &&
         ((node.type === 'command' && node.body === undefined) ||
          node.type === 'macro_def')) {
       // A parenthesized varlist group such as `(mean /* c */)` keeps
@@ -386,7 +389,7 @@ export class StataParser {
         statement_start, this.current
       ).filter((my_comment) => {
         while (item_index < the_items.length &&
-            compare_positions(the_items[item_index].range.end, my_comment.range.start) < 0) {
+            compare_positions(the_items[item_index].range.end, my_comment.range.start) <= 0) {
           item_index++;
         }
         const item = the_items[item_index];

@@ -103,6 +103,9 @@ const INTERIOR_COMMENTS: Array<[string, string]> = [
     ['reg y /* explanation */ x', 'reg y /* explanation */ x'],
     // A parenthesized group prints its own comments, once.
     ['collapse (mean /* c */) x (sum) /* d */ y', 'collapse (mean /* c */) x (sum) /* d */ y'],
+    ['reg y/* c */ x', 'reg y /* c */ x'],
+    // A standalone string statement keeps its source, comments included.
+    ['"a" /* c */ "b"', '"a" /* c */ "b"'],
     ['gen x = a /* c */ + b', 'gen x = a + b /* c */'],
     ['keep if a /* c */ & b', 'keep if a & b /* c */'],
     ['gen x = a /* c */ * b', 'gen x = a * b /* c */'],
