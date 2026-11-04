@@ -912,6 +912,9 @@ export class StataParser {
       hasEquals: has_equals,
       range: this.makeRange(scopeToken.range.start, this.previous().range.end),
     };
+    if (prefixOp === '++' || prefixOp === '--') {
+      macro_node.increment = prefixOp;
+    }
     if (has_equals && this.structured) {
       const equals_end = value_start_pos > 0
         ? this.tokens[value_start_pos - 1].range.end
@@ -1086,6 +1089,27 @@ export class StataParser {
   }
 
 
+  /**
+   * A prefixed definition still defines the macro: `capture local y 2`,
+   * `qui: local z 3`, `version 14: local x = 1`, `frame f: local x 1`.
+   * Like an unprefixed one, a definition whose name is not a plain word
+   * (`` global `g' = 1 ``) stays a command, so this returns null.
+   */
+  private parse_prefixed_macro_definition(
+    prefixes: PrefixNode[],
+    start_token: Token
+  ): MacroDefNode | null {
+    if (prefixes.length === 0 ||
+        !(this.checkWord('local') || this.checkWord('global')) ||
+        !this.looksLikeMacroDefinition()) {
+      return null;
+    }
+    const macro_node = this.parseMacroDefinition();
+    macro_node.prefix = prefixes;
+    macro_node.range = this.makeRange(start_token.range.start, macro_node.range.end);
+    return macro_node;
+  }
+
   private parseCommand(): CommandNode | MacroDefNode | ControlFlowNode {
     const start_token = this.peek();
     const command_start_line = start_token.range.start.line;
@@ -1094,22 +1118,15 @@ export class StataParser {
     const prefixes: PrefixNode[] = [];
     this.parse_prefix_chain(prefixes);
 
-    // `version 14: local x = 1` is still a macro definition. (Before colon
-    // prefixes were parsed, the colon split it into `version 14` and a
-    // separate definition.) Argument-free prefixes such as
-    // `capture local ...` keep parsing as commands.
+    const macro_node = this.parse_prefixed_macro_definition(prefixes, start_token);
+    if (macro_node) {
+      return macro_node;
+    }
+    // `version 14: foreach x in a b { ... }` keeps its loop. Argument-free
+    // prefixes such as `capture foreach ...` keep parsing as commands.
     const has_colon_prefix = prefixes.some(
       (my_prefix) => COLON_PREFIX_NAMES.has(my_prefix.fullName)
     );
-    if (has_colon_prefix &&
-        (this.checkWord('local') || this.checkWord('global')) &&
-        this.looksLikeMacroDefinition()) {
-      const macro_node = this.parseMacroDefinition();
-      macro_node.prefix = prefixes;
-      macro_node.range = this.makeRange(start_token.range.start, macro_node.range.end);
-      return macro_node;
-    }
-    // Likewise `version 14: foreach x in a b { ... }` keeps its loop.
     if (has_colon_prefix) {
       let control_node: ControlFlowNode | undefined;
       if (this.checkWord('foreach') || this.checkForvalues()) {
@@ -1293,13 +1310,13 @@ export class StataParser {
    * @param frame_prefix - The frame prefix node (has_colon=true)
    * @param prefixes - Array of prefix nodes to append to
    * @param start_token - The original start token for range calculation
-   * @returns CommandNode representing the frame-prefixed command
+   * @returns the frame-prefixed command, or macro definition
    */
   private parseFramePrefixedCommand(
     frame_prefix: PrefixNode,
     prefixes: PrefixNode[],
     start_token: Token
-  ): CommandNode {
+  ): CommandNode | MacroDefNode {
     prefixes.push(frame_prefix);
 
     // Skip whitespace after the colon
@@ -1310,6 +1327,11 @@ export class StataParser {
 
     // Skip any remaining whitespace before the main command
     this.skipTrivia();
+
+    const macro_node = this.parse_prefixed_macro_definition(prefixes, start_token);
+    if (macro_node) {
+      return macro_node;
+    }
 
     // Now parse the main command
     if (!this.check('WORD') && !this.check('MACRO_REF_LOCAL') &&
@@ -3191,7 +3213,7 @@ export class StataParser {
    * Unlike conditional blocks (if, while), frame blocks don't have a
    * condition - they just have a frame name followed by brace or colon.
    */
-  private parseFrameBlock(): ControlFlowNode | CommandNode | null {
+  private parseFrameBlock(): ControlFlowNode | CommandNode | MacroDefNode | null {
     // Index of the `frame` token itself. Both non-block fallbacks below
     // restore to exactly this index so parseCommand re-parses `frame` and its
     // arguments from the start.
