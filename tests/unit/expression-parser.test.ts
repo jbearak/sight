@@ -249,6 +249,38 @@ describe('expression parser', () => {
             expect(parse_expression([])).toMatchObject({ kind: 'unparsed', reason: 'empty', text: '' });
         });
 
+        describe('when every token is a comment', () => {
+            // `gen x = ` is 8 characters, so the comment starts at 0:8.
+            const AT_COMMENT = {
+                start: { line: 0, character: 8 },
+                end: { line: 0, character: 8 },
+            };
+            const the_inputs = ['/*', '/* note */', '/* a */ /* b */'];
+
+            it('anchors parse_expression at the first comment', () => {
+                for (const my_text of the_inputs) {
+                    expect(parse(my_text)).toEqual({
+                        kind: 'unparsed',
+                        text: '',
+                        reason: 'empty',
+                        range: AT_COMMENT,
+                    });
+                }
+            });
+
+            it('anchors the other entry points at the first comment', () => {
+                for (const my_text of the_inputs) {
+                    const tokens = expression_tokens(my_text);
+                    expect(parse_varlist(tokens).range).toEqual(AT_COMMENT);
+                    expect(parse_egen_function(tokens).range).toEqual(AT_COMMENT);
+                    expect(parse_path(tokens).range).toEqual(AT_COMMENT);
+                    expect(parse_in_range(tokens).range).toEqual(AT_COMMENT);
+                    expect(parse_in_range(tokens, { line: 0, character: 7 }).range)
+                        .toEqual(AT_COMMENT);
+                }
+            });
+        });
+
         it('survives deep nesting', () => {
             const deep = '('.repeat(5000) + 'x' + ')'.repeat(5000);
             const node = parse(deep);

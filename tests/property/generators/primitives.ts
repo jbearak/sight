@@ -96,7 +96,9 @@ export function arbitrary_number(): fc.Arbitrary<string> {
  * Generate valid Stata command names.
  * Built-in commands and user-defined commands.
  * Excludes 'local' and 'global' since they require arguments and are
- * handled separately in document generators.
+ * handled separately in document generators. Generated user-defined
+ * names skip NON_COMMAND_NAMES, which the parser does not read as a
+ * plain command (a bare `n` is the `noisily` prefix).
  */
 export function arbitrary_command_name(): fc.Arbitrary<string> {
   const my_builtin_commands = [
@@ -113,7 +115,7 @@ export function arbitrary_command_name(): fc.Arbitrary<string> {
 
   return fc.oneof(
     fc.constantFrom(...my_builtin_commands),
-    arbitrary_identifier()
+    arbitrary_identifier().filter((my_name) => !NON_COMMAND_NAMES.has(my_name))
   );
 }
 
@@ -252,10 +254,57 @@ export const PREFIX_COMMANDS = [
 ];
 
 /**
+ * Words that open or close a block when a line starts with them (see
+ * the line checks in src/context-tracker/index.ts).
+ */
+export const BLOCK_BOUNDARY_WORDS = ['end', 'mata', 'python', 'program', 'input'];
+
+/**
+ * Words that open a block or need their own syntax, so writing one bare
+ * or followed by a varlist is a parse error (`end`, `while`, `mata`).
+ * A bare `syntax` parses, but AST formatting does not round-trip it.
+ */
+const STRUCTURAL_COMMANDS = [...BLOCK_BOUNDARY_WORDS, 'while', 'unab', 'syntax'];
+
+/**
+ * Words that arbitrary_command_name() must not generate: prefixes,
+ * qualifier keywords, and structural commands.
+ */
+const NON_COMMAND_NAMES: ReadonlySet<string> = new Set([
+  ...PREFIX_COMMANDS,
+  ...RESERVED_QUALIFIER_KEYWORDS,
+  ...STRUCTURAL_COMMANDS,
+]);
+
+/**
  * File commands that use path coalescing. These cannot be used as regular
  * command names in varlist tests because they coalesce tokens into file paths.
  */
 export const FILE_COMMANDS = ['do', 'run', 'include', 'use', 'save', 'append', 'merge', 'import', 'export', 'cd', 'adopath'];
+
+const BLOCK_BOUNDARY_START = new RegExp(`^\\s*(?:${BLOCK_BOUNDARY_WORDS.join('|')})`);
+
+/**
+ * True when `line`, as mata or python block content, could close the
+ * block or open a nested one. The context tracker reads a line that
+ * starts with a block boundary word as a boundary, and the lexer ends
+ * the block at an `end` that finishes a line even mid-line (`x end`,
+ * `#end`), so any line containing `end` is rejected. Over-rejecting
+ * lines such as `endx` or `x_end` is harmless.
+ */
+export function could_end_embedded_block(line: string): boolean {
+  return BLOCK_BOUNDARY_START.test(line) || line.includes('end');
+}
+
+/**
+ * Generate one line of mata or python block content that cannot close
+ * the block early or open a nested block or comment.
+ */
+export function arbitrary_embedded_block_line(max_length: number): fc.Arbitrary<string> {
+  return fc
+    .string({ minLength: 1, maxLength: max_length })
+    .filter((my_line) => !could_end_embedded_block(my_line) && !my_line.includes('/*'));
+}
 
 /**
  * Generate valid Stata identifiers that exclude reserved qualifier keywords.
