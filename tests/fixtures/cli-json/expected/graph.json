@@ -1,0 +1,206 @@
+{
+  "schema_version": 1,
+  "sight_version": "<VERSION>",
+  "root": "<ROOT>",
+  "files": [
+    {
+      "path": "code/clean.do",
+      "standalone": false,
+      "error": null
+    },
+    {
+      "path": "code/helpers.doh",
+      "standalone": false,
+      "error": null
+    },
+    {
+      "path": "extra.do",
+      "standalone": false,
+      "error": null
+    },
+    {
+      "path": "loop/a.do",
+      "standalone": false,
+      "error": null
+    },
+    {
+      "path": "loop/b.do",
+      "standalone": false,
+      "error": null
+    },
+    {
+      "path": "main.do",
+      "standalone": false,
+      "error": null
+    },
+    {
+      "path": "report.do",
+      "standalone": false,
+      "error": null
+    }
+  ],
+  "entry_points": [
+    "main.do"
+  ],
+  "edges": [
+    {
+      "caller": "loop/a.do",
+      "call_type": "do",
+      "range": {
+        "start": {
+          "line": 0,
+          "character": 0
+        },
+        "end": {
+          "line": 0,
+          "character": 7
+        }
+      },
+      "raw_path": "b.do",
+      "arguments": [],
+      "static": true,
+      "source": "command",
+      "working_directory": null,
+      "target": "loop/b.do",
+      "resolution": "exact"
+    },
+    {
+      "caller": "loop/b.do",
+      "call_type": "do",
+      "range": {
+        "start": {
+          "line": 0,
+          "character": 0
+        },
+        "end": {
+          "line": 0,
+          "character": 7
+        }
+      },
+      "raw_path": "a.do",
+      "arguments": [],
+      "static": true,
+      "source": "command",
+      "working_directory": null,
+      "target": "loop/a.do",
+      "resolution": "exact"
+    },
+    {
+      "caller": "main.do",
+      "call_type": "do",
+      "range": {
+        "start": {
+          "line": 4,
+          "character": 0
+        },
+        "end": {
+          "line": 4,
+          "character": 24
+        }
+      },
+      "raw_path": "clean.do",
+      "arguments": [
+        "2019",
+        "\"rural\""
+      ],
+      "static": true,
+      "source": "command",
+      "working_directory": "<ROOT>/code",
+      "target": "code/clean.do",
+      "resolution": "exact"
+    },
+    {
+      "caller": "main.do",
+      "call_type": "include",
+      "range": {
+        "start": {
+          "line": 5,
+          "character": 0
+        },
+        "end": {
+          "line": 5,
+          "character": 19
+        }
+      },
+      "raw_path": "helpers.doh",
+      "arguments": [],
+      "static": true,
+      "source": "command",
+      "working_directory": "<ROOT>/code",
+      "target": "code/helpers.doh",
+      "resolution": "exact"
+    },
+    {
+      "caller": "main.do",
+      "call_type": "do",
+      "range": {
+        "start": {
+          "line": 7,
+          "character": 0
+        },
+        "end": {
+          "line": 7,
+          "character": 18
+        }
+      },
+      "raw_path": "step`wave'.do",
+      "arguments": [],
+      "static": false,
+      "source": "command",
+      "working_directory": "<ROOT>/code",
+      "target": null,
+      "resolution": "dynamic"
+    },
+    {
+      "caller": "main.do",
+      "call_type": "run",
+      "range": {
+        "start": {
+          "line": 8,
+          "character": 0
+        },
+        "end": {
+          "line": 8,
+          "character": 16
+        }
+      },
+      "raw_path": "../report.do",
+      "arguments": [],
+      "static": true,
+      "source": "command",
+      "working_directory": "<ROOT>/code",
+      "target": "report.do",
+      "resolution": "exact"
+    },
+    {
+      "caller": "main.do",
+      "call_type": "do",
+      "range": {
+        "start": {
+          "line": 0,
+          "character": 0
+        },
+        "end": {
+          "line": 0,
+          "character": 25
+        }
+      },
+      "raw_path": "main.do",
+      "arguments": [],
+      "static": true,
+      "source": "backward_directive",
+      "working_directory": null,
+      "target": "extra.do",
+      "resolution": "exact"
+    }
+  ],
+  "unresolved": [
+    4
+  ],
+  "cycles": [
+    [
+      "loop/a.do",
+      "loop/b.do"
+    ]
+  ]
+}

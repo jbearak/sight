@@ -1,7 +1,8 @@
 # CLI
 
 Sight ships a `sight` binary for editor language-server use, command-line
-checks, and an enhanced Stata console.
+checks, JSON output of parsed Stata for other tools, and an enhanced Stata
+console.
 
 ## `sight check`
 
@@ -184,6 +185,294 @@ sight check
 `.mata` files are included as report targets because Sight indexes them for
 symbols, but v1 diagnostics for Mata are limited to what the current parser and
 diagnostic pipeline can produce.
+
+## `sight parse` and `sight graph`
+
+Two commands print Sight's view of Stata code as versioned JSON, for tools
+that translate or analyze Stata:
+
+```text
+sight parse --json FILE...        # statements and expressions of each file
+sight graph --json [ROOT]         # do/run/include graph of a project
+```
+
+`sight parse` prints one JSON document for one FILE. With several FILEs it
+prints [JSON Lines](https://jsonlines.org): one document per line, in argument
+order. It exits 0 when every file was read, even if the files have syntax
+errors (those are data, in `errors`). An unreadable file prints a document
+with an `error` field in its place and the command exits 2. Bad arguments
+also exit 2.
+
+`sight graph` indexes ROOT (default: the current directory) the way
+`sight check` does: it reads `sight.toml` (or `--config PATH`, or none with
+`--no-config`) and honors `.gitignore` and `workspace.exclude`. It exits 0 on
+success and 2 for bad arguments, a ROOT that isn't a directory, or a config
+error.
+
+Both outputs are compact JSON followed by a newline.
+
+### Schema versioning
+
+Each document has `schema_version` (currently `1`) and `sight_version`.
+
+- Adding a field, or a new value for a `kind`-like field, does not change
+  `schema_version`. Consumers should ignore fields they don't know.
+- Removing or renaming a field, or changing what a field means, increases
+  `schema_version`. Consumers should reject versions they don't know.
+
+### Conventions
+
+- Positions follow the Language Server Protocol: 0-based `line`, 0-based
+  `character` in UTF-16 code units, `end` exclusive. A range is
+  `{"start": {"line", "character"}, "end": {"line", "character"}}`.
+- Every object that comes from source has a `range`.
+- Stata names are reported exactly as written. Canonical names are matched
+  by exact case, as Stata does (`REG` is not `regress`).
+- Absent optional values are `null`; absent lists are `[]`.
+
+### Expressions
+
+Expressions (`if` conditions, `= exp`, weights, option arguments, loop
+bounds) are trees of objects tagged by `kind`:
+
+| `kind` | Fields |
+| --- | --- |
+| `number` | `text` (as written), `value` |
+| `missing` | `text` (`.`, `.a` ... `.z`), `extended` (`"a"` ... `"z"`, or null) |
+| `string` | `quote` (`simple` or `compound`), `text` (with quotes), `parts` |
+| `variable` | `name`; `parts` when the name is built from macros, as in `` `v'_lag `` |
+| `system_variable` | `name`: `_n`, `_N`, `_pi`, `_rc`, or `_cons` |
+| `macro_ref` | `scope` (`local`/`global`), `form` (`name`, `eval` for `` `=exp' ``, `extended` for `` `:fcn ...' ``, `increment` for `` `++i' ``), `text`, `name`, and when they apply `name_parts`, `macval`, `expression`, `extended`, `increment`, `increment_position` |
+| `unary` | `op` (`-`, `+`, `!`), `op_text` (as written; `~` is `!`), `operand` |
+| `binary` | `op` (`+ - * / ^ == != < > <= >= & \|`), `op_text` (`~=` is `!=`), `left`, `right` |
+| `call` | `name`, `name_range`, `args` |
+| `subscript` | `target`, `indices` (`x[_n-1]`, `M[1,2]`) |
+| `coefficient` | `which` (`_b`, `_se`, `_coef`), `spec` (text inside the brackets), `spec_range` |
+| `stored_result` | `result_class` (`r`, `e`, `s`, `c`), `name`, and `name_parts` when the name has macros |
+| `paren` | `expression`; explicit parentheses are kept |
+| `varlist` | `items`: `variable`, `wildcard`, `variable_range`, `macro_ref`, or `unparsed` |
+| `wildcard` | `pattern` (`inc*`, `x?`) |
+| `variable_range` | `from`, `to` |
+| `observation` | `which` (`first`/`last`), `text` (`f`, `F`, `l`, `L`); only in `in` ranges |
+| `unparsed` | `text`, `reason` (`factor_or_time_series_operator`, `syntax_error`, `empty`) |
+
+`parts` lists hold `{"kind": "text", "value", "range"}` objects and
+`macro_ref` objects.
+
+Parsing never fails. Syntax that the parser does not model becomes an
+`unparsed` node with its text and range. That includes factor-variable and
+time-series operators (`i.region`, `L.x`) and matrix operators. An unparsed
+node replaces the smallest part it can: in `L.x + 1` only `L.x` is unparsed.
+
+Precedence follows Stata 18, highest first: `^`; unary `-` and `!`; `*` and
+`/`; `+` and `-`; comparisons; `&`; `|`. All binary operators associate to
+the left, so `2^3^2` is `(2^3)^2`, `-2^2` is `-(2^2)`, and `!x == 1` is
+`(!x) == 1`.
+
+### `sight parse` documents
+
+```json
+{
+  "schema_version": 1,
+  "sight_version": "0.17.0",
+  "path": "/abs/path/clean.do",
+  "line_count": 16,
+  "statements": [],
+  "errors": [{"source": "parser", "code": "SYNTAX_ERROR", "message": "...", "range": {}}]
+}
+```
+
+`errors` lists lexer and parser errors in source order (`source` is `lexer`
+or `parser`). An unreadable file's document has `schema_version`,
+`sight_version`, `path`, and `error: {"message"}` instead.
+
+Every statement has:
+
+- `kind`: `command`, `block`, `if`, `else`, `foreach`, `forvalues`, `while`,
+  `program`, `macro`, `syntax`, `embedded`, `delimit`, or `frame`.
+- `range` and `text`: the exact source of the statement, including `///`
+  continuations and comments inside it. In `#delimit ;` mode the closing `;`
+  is not included.
+- `delimit`: `cr` or `semicolon`, the `#delimit` mode the statement is in.
+- `comments`: `{"leading": [], "trailing": [], "interior": [], "block_end": []}`:
+  comments before and after the statement, inside it (between its tokens,
+  including `///` continuations), and, for statements with a body, before
+  the closing `}` or `end`. Comments inside body statements belong to those
+  statements. Each comment is `{"style", "text", "range"}`, where `style` is
+  `slash` (`//`), `star` (`*`), `block` (`/* */`), or `continuation` (`///`
+  with any text after it).
+
+Statements with a body (`block`, `if`, `else`, loops, `program`, `frame`)
+have `body`, a list of statements. `command`, `block`, `macro`, `syntax`,
+`embedded`, and control-flow statements have `prefixes` (see `command`), so
+`version 14: local x = 1` is a `macro` with a `version` prefix.
+
+#### `command`
+
+```json
+{
+  "kind": "command",
+  "text": "bysort hhid (pid): gen double n = _n if inc > 0",
+  "name": "gen",
+  "canonical_name": "generate",
+  "prefixes": [{
+    "name": "bysort", "canonical_name": "bysort",
+    "by_varlist": {"kind": "varlist", "items": [{"kind": "variable", "name": "hhid"}]},
+    "sort_varlist": {"kind": "varlist", "items": [{"kind": "variable", "name": "pid"}]},
+    "arguments": null, "options": [], "frame": null
+  }],
+  "args": [{"text": "double"}, {"text": "n"}],
+  "varlist": {"kind": "varlist", "items": []},
+  "assignment": {"text": "_n", "expression": {"kind": "system_variable", "name": "_n"}},
+  "if": {"text": "inc > 0", "expression": {"kind": "binary", "op": ">"}},
+  "in": null, "weight": null, "using": null, "options": []
+}
+```
+
+(Ranges and some nested fields are omitted above.)
+
+- `name` is the command as written. `canonical_name` is the full name of a
+  built-in command that `name` abbreviates (`reg` is `regress`), or null for
+  anything else, such as user programs and community commands.
+- `prefixes`, outermost first, each with `name`, `canonical_name`, `range`,
+  `by_varlist`, `sort_varlist`, `arguments`, `options`, and `frame`:
+  - `capture`, `quietly`, `noisily`, and their abbreviations;
+  - `by` and `bysort` with `by_varlist`, `sort_varlist` (the parenthesized
+    sort variables), and `options` (`, sort`);
+  - `frame name:` with `frame`;
+  - prefixes that take arguments before a colon: `svy`, `version`, `xi`,
+    `bootstrap` (`bs`), `jackknife`, `simulate`, `statsby`, `rolling`,
+    `permute`, `mi`, `nestreg`, `stepwise` (`sw`), `fp`, `mfp`, `collect`,
+    and `eststo`, with the raw text before any comma in `arguments` and the
+    options after it in `options`.
+- `args`: the arguments between the command name and the first qualifier or
+  comma, in source order, as `{"text", "range"}`. Tokens that touch are one
+  arg, so `"$root/x`i'.dta"` and `i.region` are each one. The `using`
+  clause is not included. For commands such as `display`, `assert`, and
+  `label define`, `args` holds all of their arguments.
+- `varlist`: `args` parsed as a varlist when every arg is a name, wildcard,
+  range, macro, or factor-variable term; otherwise null.
+- `assignment`: `{"text", "expression"}` for `= exp`, or null. For `egen`,
+  `expression` is a `call`; row and grouping functions (`rowtotal`,
+  `rowmean`, `group`, `tag`, `concat`, ...) have `varlist` arguments.
+- `if`: `{"text", "expression"}`, or null.
+- `in`: `{"text", "first", "last", "range"}`, or null. `last` is null for
+  `in 5`. A range that is not `#` or `#/#` (with `f`, `l`, negative
+  counts, or macros) has an `unparsed` `first`.
+- `weight`: `{"keyword", "kind", "text", "expression", "range"}`, or null.
+  `kind` is `fweight`, `aweight`, `pweight`, `iweight`, or `weight`, or null
+  for the `` [`weight'`exp'] `` idiom of programs that use `syntax`.
+- `using`: `{"range", "paths": [{"text", "quote", "parts", "range"}]}`, or
+  null. `quote` is `simple`, `compound`, or null for an unquoted name.
+- `options`: `[{"name", "canonical_name", "argument", "argument_range",
+  "expression", "range"}]`. `argument` is the raw text inside the
+  parentheses, or null. `expression` is that text parsed as an expression
+  when it parses with no `unparsed` part, otherwise null. So `level(95)`
+  has a number and `absorb(firm year)` has null. `canonical_name` is the
+  full name of the command's built-in option that `name` abbreviates, or
+  null.
+
+The qualifiers may appear in any order in the source, as Stata allows.
+
+#### Other statements
+
+- `block`: a prefix with a brace body, such as `capture { ... }`:
+  `prefixes`, `body`.
+- `if`: `condition: {"text", "expression"}`, `single_statement` (true for
+  `if x display 1`), `body`.
+- `else`: `else_if` and `body`. An `else if` is an `else` whose body is a
+  single `if` statement, with `else_if: true`. An `else` follows its `if`
+  as the next statement in the same list.
+- `foreach`: `variable`, `spec: {"keyword", "list_type", "text", "items"}`,
+  `body`. `keyword` is `in` or `of`, `list_type` is `varlist`, `newlist`,
+  `numlist`, `local`, `global`, or null, and `items` are the list's
+  `{"text", "range"}` items as written.
+- `forvalues`: `variable`, `spec: {"text", "form", "first", "second",
+  "step", "last"}`, `body`. `form` is `slash` (`1/10`), `paren` (`1(2)10`),
+  `to` (`1 3 to 9` or `1 3 : 9`, where `second` is the second value), or
+  null when the range has another shape and `first` holds all of it.
+- `while`: `condition: {"text", "expression"}`, `body`.
+- `program`: `name`, `define_options` (raw text after the comma, such as
+  `rclass`, or null), `args` (`{"name", "range"}` from the program's `args`
+  statements), `syntax`, `body`. `syntax` is the parsed `syntax` signature
+  or null: `{"arguments": [{"type", "name", "optional", "range"}],
+  "options": [{"name", "min_abbreviation", "required", "optional",
+  "argument_type", "default", "range"}], "allows_arbitrary_options"}`.
+- `syntax`: `prefixes`, `signature` (as above).
+- `macro`: `scope` (`local` or `global`), `name`, `form`, `value`,
+  `value_parts`, `expression`, `extended`, `increment`. `form` is `value`
+  (`local a x y`), `expression` (`local n = exp`, with `expression`),
+  `extended` (`local w : word 1 of ...`, with `extended: {"function",
+  "args"}`), or `increment` (`local ++i`, with `increment`). `value` is the
+  raw value text. For the `value` form, `value_parts` splits it into text
+  and `macro_ref` parts.
+- `embedded`: a Mata or Python block, kept opaque: `language` (`mata` or
+  `python`), `inline` (true for `mata: ...` on one line), `prefixes`,
+  `content: {"text", "range"}`.
+- `delimit`: `mode` (`cr` or `semicolon`), the mode from the next statement
+  on.
+- `frame`: `frame name { ... }`: `frame`, `body`.
+
+### `sight graph` documents
+
+```json
+{
+  "schema_version": 1,
+  "sight_version": "0.17.0",
+  "root": "/abs/project",
+  "files": [{"path": "main.do", "standalone": false, "error": null}],
+  "entry_points": ["main.do"],
+  "edges": [{
+    "caller": "main.do", "call_type": "do", "range": {},
+    "raw_path": "clean.do", "arguments": ["2019", "\"rural\""],
+    "static": true, "source": "command",
+    "working_directory": "/abs/project/code",
+    "target": "code/clean.do", "resolution": "exact"
+  }],
+  "unresolved": [],
+  "cycles": [["loop/a.do", "loop/b.do"]]
+}
+```
+
+- `files`: the `.do`, `.ado`, and `.doh` files under ROOT, sorted, as paths
+  relative to ROOT with `/` separators. `standalone` is true for files with
+  the `sight: standalone` directive. `error` is null, or a message when the
+  file could not be read (for example, it is not valid UTF-8). A file with an
+  error is listed, and calls to it resolve, but its own calls are not in
+  `edges`; Sight also warns about it on stderr.
+- `edges`: one per call site, including repeated calls to the same file.
+  They are sorted by `caller`. A caller's own call sites come first in
+  source order, then the backward-directive edges that name it, by
+  `target`.
+  - `caller`: the calling file.
+  - `call_type`: `do`, `run`, or `include`. A `run-by` directive is
+    reported as `do`.
+  - `range`: the call site; for a backward directive, the directive in the
+    child file.
+  - `raw_path`: the path as written.
+  - `arguments`: the raw tokens after the path (`do clean.do 2019`), or
+    `[]`.
+  - `static`: false when the path contains a macro reference.
+  - `source`: `command` for `do`/`run`/`include` statements, `directive`
+    for forward directives (`sight: do file.do`), or `backward_directive`
+    for `sight: done-by`/`run-by`/`included-by` in a child file, which
+    names that file's caller.
+  - `working_directory`: the absolute directory the path is resolved
+    against at the call site, after top-level literal `cd` commands and
+    `sight: cd` directives; null when it is the caller's own directory.
+  - `target`: the called file, relative to ROOT (absolute when outside
+    ROOT), or null when unresolved.
+  - `resolution`: `exact`, `case_only` (found, but the case differs from
+    the file on disk), `ambiguous` (several files differ only by case),
+    `missing` (no such file), or `dynamic` (the path has a macro).
+- `unresolved`: indexes into `edges` whose `resolution` is not `exact` or
+  `case_only`.
+- `entry_points`: files with no incoming resolved edge from another file,
+  sorted. A backward directive counts as an incoming edge when its parent
+  file exists.
+- `cycles`: strongly connected components of the resolved edges that have
+  more than one file, or one file that calls itself. Each is sorted, and the
+  list is sorted by first member.
 
 ## `sight console`
 

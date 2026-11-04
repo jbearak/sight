@@ -9,6 +9,7 @@ import {
     type DirectiveParseResult,
     type ForwardCall,
     type ForwardCallDirective,
+    type StataAST,
     type Token,
 } from '../types';
 import {
@@ -19,6 +20,7 @@ import {
 
 export interface SourceAnalysis {
     tokens: Token[];
+    ast: StataAST;
     analysis: AnalysisResult;
     directives: DirectiveParseResult;
 }
@@ -56,6 +58,7 @@ export function analyze_source(content: string, uri: string): SourceAnalysis {
 
     return {
         tokens: lex_result.tokens,
+        ast: parse_result.ast,
         analysis,
         directives: directive_result,
     };
