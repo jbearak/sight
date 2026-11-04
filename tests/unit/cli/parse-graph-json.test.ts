@@ -162,6 +162,20 @@ describe('sight parse --json', () => {
         expect(loop.body[0].comments.interior).toEqual([]);
     });
 
+    it('reads a block comment inside an expression as whitespace', () => {
+        const [gen, keep, reg] = statements(
+            'gen x = a /* c */ + b\nkeep if a /* c */ & b\nreg y x [aw = w /* c */ * 2]\n');
+        expect(gen.assignment).toMatchObject({ text: 'a + b', expression: { kind: 'binary', op: '+' } });
+        expect(gen.args.map((a: Json) => a.text)).toEqual(['x']);
+        expect(keep.if).toMatchObject({ text: 'a & b', expression: { kind: 'binary', op: '&' } });
+        expect(keep.args).toEqual([]);
+        expect(reg.weight).toMatchObject({ text: 'w * 2', expression: { kind: 'binary', op: '*' } });
+        for (const my_node of [gen, keep, reg]) {
+            expect(my_node.comments.interior).toMatchObject([{ style: 'block', text: '/* c */' }]);
+            expect(my_node.comments.trailing).toEqual([]);
+        }
+    });
+
     it('gives community commands no canonical name', () => {
         const [node] = statements('reghdfe y x, absorb(id)\n');
         expect(node.canonical_name).toBeNull();

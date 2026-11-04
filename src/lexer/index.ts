@@ -31,6 +31,9 @@ export class StataLexer {
   private line_offsets: number[] = [];
 
   private previous_token: Token | null = null;
+  // The previous token other than whitespace or a block comment, so
+  // `a /* c */ * b` reads `*` after `a`.
+  private previous_code_token: Token | null = null;
 
   tokenize(source: string, initialState?: LexerState): LexerResult {
     this.source = source;
@@ -39,6 +42,7 @@ export class StataLexer {
     this.column = 0;
     this.line_offsets = [0]; // First line starts at offset 0
     this.previous_token = null;
+    this.previous_code_token = null;
     this.state = initialState || {
       delimiterMode: 'cr',
       line: 0,
@@ -60,9 +64,7 @@ export class StataLexer {
           if (Array.isArray(result)) {
             for (const my_token of result) {
               tokens.push(my_token);
-              if (my_token.type !== 'WHITESPACE') {
-                this.previous_token = my_token;
-              }
+              this.note_previous_token(my_token);
               // Reset continuation state when we see actual code (not continuation, whitespace, or newline)
               if (my_token.type !== 'CONTINUATION' && 
                   my_token.type !== 'WHITESPACE' && 
@@ -72,9 +74,7 @@ export class StataLexer {
             }
           } else {
             tokens.push(result);
-            if (result.type !== 'WHITESPACE') {
-              this.previous_token = result;
-            }
+            this.note_previous_token(result);
             // Reset continuation state when we see actual code (not continuation, whitespace, or newline)
             if (result.type !== 'CONTINUATION' && 
                 result.type !== 'WHITESPACE' && 
@@ -280,6 +280,17 @@ export class StataLexer {
     return this.state.context_stack[this.state.context_stack.length - 1];
   }
 
+  /** Remember the token just scanned for context-sensitive lexing. */
+  private note_previous_token(token: Token): void {
+    if (token.type === 'WHITESPACE') {
+      return;
+    }
+    this.previous_token = token;
+    if (token.type !== 'COMMENT_BLOCK') {
+      this.previous_code_token = token;
+    }
+  }
+
   /**
    * Determines if a * character should be treated as a comment or multiplication.
    * 
@@ -308,13 +319,14 @@ export class StataLexer {
     }
     
     // Rule 2: Check previous token context
-    if (!this.previous_token) {
+    // A block comment is whitespace here: look at the code before it.
+    if (!this.previous_code_token) {
       // No previous token means we're at start of file - treat as comment
       return true;
     }
     
-    const prev_token_type = this.previous_token.type;
-    const prev_token_value = this.previous_token.value;
+    const prev_token_type = this.previous_code_token.type;
+    const prev_token_value = this.previous_code_token.value;
     
     // After statement terminators, * is likely a comment
     if (prev_token_type === 'STATEMENT_TERMINATOR') {

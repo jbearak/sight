@@ -31,6 +31,7 @@ import { ContextTracker } from '../context-tracker';
 import { unwrap_macval } from '../utils/local-macro';
 import { isFileCommand } from '../utils/file-path-utils';
 import { is_swallowed_continuation_terminator } from '../utils/continuation';
+import { compare_positions } from '../utils/scope-position';
 import {
   WEIGHT_KEYWORDS,
   parse_egen_function,
@@ -283,6 +284,7 @@ export class StataParser {
     }
 
     let node: StataNode | null = null;
+    const statement_start = this.current;
 
     // Check for different statement types
     if (this.check('DELIMIT_DIRECTIVE')) {
@@ -371,6 +373,32 @@ export class StataParser {
     // Attach leading/trailing trivia.
     if (node && this.isNodeWithTrivia(node) && leading_trivia.length > 0) {
       node.leadingTrivia = leading_trivia;
+    }
+    // A standalone string statement keeps all of its source, comments
+    // included, in its name (parseStringStatement).
+    const is_string_statement = this.tokens[statement_start]?.type === 'STRING';
+    if (node !== null && !is_string_statement &&
+        ((node.type === 'command' && node.body === undefined) ||
+         node.type === 'macro_def')) {
+      // A parenthesized varlist group such as `(mean /* c */)` keeps
+      // its comments in its text. Items and comments are both in source
+      // order, so one sweep finds the item around each comment.
+      const the_items = node.type === 'command' ? node.varlist ?? [] : [];
+      let item_index = 0;
+      const interior_trivia = this.block_comments_between(
+        statement_start, this.current
+      ).filter((my_comment) => {
+        while (item_index < the_items.length &&
+            compare_positions(the_items[item_index].range.end, my_comment.range.start) <= 0) {
+          item_index++;
+        }
+        const item = the_items[item_index];
+        return item === undefined ||
+          compare_positions(item.range.start, my_comment.range.start) > 0;
+      });
+      if (interior_trivia.length > 0) {
+        node.interiorTrivia = interior_trivia;
+      }
     }
 
     const trailing_trivia = this.collectTrivia();
@@ -3707,6 +3735,23 @@ export class StataParser {
     return trivia;
   }
 
+  /** Block comments among the tokens from `start` up to `end`. */
+  private block_comments_between(start: number, end: number): TriviaNode[] {
+    const the_comments: TriviaNode[] = [];
+    for (let i = start; i < end; i++) {
+      const my_token = this.tokens[i];
+      if (my_token?.type === 'COMMENT_BLOCK') {
+        the_comments.push({
+          type: 'comment',
+          style: 'block',
+          content: my_token.value,
+          range: my_token.range,
+        });
+      }
+    }
+    return the_comments;
+  }
+
   private skipTrivia(): void {
     while (this.check('COMMENT_LINE') || this.check('COMMENT_BLOCK') || this.check('CONTINUATION') || this.check('WHITESPACE')) {
       this.advance();
@@ -3997,6 +4042,14 @@ export class StataParser {
         continue;
       }
 
+      // A block comment with more of the statement after it is
+      // whitespace; one at the end of the line is trailing trivia.
+      if (token.type === 'COMMENT_BLOCK' &&
+          this.statement_continues_after(this.current)) {
+        this.advance();
+        continue;
+      }
+
       // Track parenthesis and subscript-bracket depth; a comma inside
       // either (`f(a, b)`, `M[1,2]`) does not start the options.
       if (token.type === 'LBRACKET' && !this.is_weight_start(this.current)) {
@@ -4266,7 +4319,14 @@ export class StataParser {
         }
       }
 
-      // Stop at comments (but not continuations - handled above)
+      // A block comment with more of the statement after it is
+      // whitespace; other comments end the qualifier (continuations are
+      // handled above).
+      if (token.type === 'COMMENT_BLOCK' &&
+          this.statement_continues_after(this.current)) {
+        this.advance();
+        continue;
+      }
       if (token.type === 'COMMENT_LINE' || token.type === 'COMMENT_BLOCK') {
         break;
       }

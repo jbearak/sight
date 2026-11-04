@@ -323,4 +323,97 @@ describe('statement structure', () => {
             expect(node.ifExpression).toBe('y');
         });
     });
+
+    describe('interior block comments', () => {
+        // Stata reads a block comment with more of the statement after it
+        // as whitespace, so the clause around it continues.
+        for (const my_structured of [false, true]) {
+            const label = my_structured ? 'structured' : 'raw';
+
+            it(`continues an = expression past the comment (${label})`, () => {
+                const node = command('gen x = a /* c */ + b', my_structured);
+                expect(node.expression).toBe('a + b');
+                expect(node.extra_args).toBeUndefined();
+                expect(names(node)).toEqual(['x']);
+                expect(kind_of(node.expression_ast)).toBe(my_structured ? 'binary' : undefined);
+            });
+
+            it(`continues an if qualifier past the comment (${label})`, () => {
+                const node = command('keep if a /* c */ & b', my_structured);
+                expect(node.ifExpression).toBe('a & b');
+                expect(node.extra_args).toBeUndefined();
+                expect(kind_of(node.if_ast)).toBe(my_structured ? 'binary' : undefined);
+            });
+
+            it(`continues an in qualifier past the comment (${label})`, () => {
+                const node = command('list in 1 /* c */ /5', my_structured);
+                expect(node.inExpression).toBe('1 /5');
+                expect(node.extra_args).toBeUndefined();
+                if (my_structured) {
+                    expect(node.in_range?.first).toMatchObject({ kind: 'number', value: 1 });
+                    expect(node.in_range?.last).toMatchObject({ kind: 'number', value: 5 });
+                }
+            });
+
+            it(`reads * after the comment as multiplication (${label})`, () => {
+                const weighted = command('reg y x [aw = w /* c */ * 2]', my_structured);
+                expect(weighted.weight?.expression).toBe('w * 2');
+                expect(kind_of(weighted.weight?.expression_ast)).toBe(
+                    my_structured ? 'binary' : undefined);
+                expect(weighted.trailingTrivia).toBeUndefined();
+
+                const generated = command('gen x = a /* c */ * b', my_structured);
+                expect(generated.expression).toBe('a * b');
+                expect(generated.trailingTrivia).toBeUndefined();
+            });
+        }
+
+        it('continues past a comment followed by ///', () => {
+            const node = command('gen x = a /* c */ ///\n    + b');
+            expect(node.expression).toBe('a + b');
+        });
+
+        it('continues past a comment in #delimit ; mode', () => {
+            const nodes = parse_nodes('#delimit ;\ngen x = a /* c */\n    + b if y /* d */ & z;\n');
+            expect(nodes).toHaveLength(2);
+            expect(nodes[1]).toMatchObject({
+                type: 'command', expression: 'a + b', ifExpression: 'y & z',
+            });
+        });
+
+        it('keeps a comment at the end of the line as trailing trivia', () => {
+            const node = command('gen x = a /* c */');
+            expect(node.expression).toBe('a');
+            expect(node.trailingTrivia?.map((t) => t.content)).toEqual(['/* c */']);
+            expect(node.interiorTrivia).toBeUndefined();
+
+            const commented = command('keep if a /* c */ // note');
+            expect(commented.ifExpression).toBe('a');
+            expect(commented.trailingTrivia?.map((t) => t.content)).toEqual(['/* c */', '// note']);
+        });
+
+        it('still ends the statement at a // comment', () => {
+            const nodes = parse_nodes('gen x = a // c\ngen y = b');
+            expect(nodes).toHaveLength(2);
+            expect(nodes[0]).toMatchObject({ expression: 'a' });
+            expect((nodes[0] as CommandNode).trailingTrivia?.map((t) => t.content)).toEqual(['// c']);
+        });
+
+        it('keeps the comments in interiorTrivia, in source order', () => {
+            const node = command('reg y /* a */ x [aw = w /* b */ * 2], robust /* c */ cluster(id) /* d */');
+            expect(node.interiorTrivia?.map((t) => t.content)).toEqual(['/* a */', '/* b */', '/* c */']);
+            expect(node.trailingTrivia?.map((t) => t.content)).toEqual(['/* d */']);
+            expect(names(node)).toEqual(['y', 'x']);
+
+            // A parenthesized group keeps its comment in its text.
+            const grouped = command('collapse (mean /* c */) x /* d */ y');
+            expect(names(grouped)).toEqual(['(mean /* c */)', 'x', 'y']);
+            expect(grouped.interiorTrivia?.map((t) => t.content)).toEqual(['/* d */']);
+
+            const nodes = parse_nodes('local z = a /* c */ + b');
+            const macro = nodes[0] as MacroDefNode;
+            expect(macro).toMatchObject({ type: 'macro_def', value: 'a + b' });
+            expect(macro.interiorTrivia?.map((t) => t.content)).toEqual(['/* c */']);
+        });
+    });
 });

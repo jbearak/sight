@@ -76,9 +76,11 @@ describe('formatting statements with prefixes, weights, and extra arguments', ()
     for_each_formatter_mode('keeps a macro value with an interior comment on one line', mode => {
         const source = 'if 1 {\nlocal x a /* note */ b\n}\n';
         const formatted = format_source(source, mode);
-        // The AST printer drops interior comments; neither mode may split
-        // `b` into a statement of its own.
-        expect(formatted.split('\n')[1]).toMatch(/^ {4}local x a (\/\* note \*\/ )?b$/);
+        // Neither mode may split `b` into a statement of its own. The AST
+        // printer moves the comment after the value.
+        expect(formatted.split('\n')[1]).toBe(mode === 'ast'
+            ? '    local x a b /* note */'
+            : '    local x a /* note */ b');
         expect(formatted.split('\n')).toHaveLength(4);
         expect(format_source(formatted, mode)).toBe(formatted);
     });
@@ -88,6 +90,59 @@ describe('formatting statements with prefixes, weights, and extra arguments', ()
         const formatted = format_source(source, mode);
         expect(formatted.split('\n')[1]).toMatch(/^ {4}reg y x/);
         expect(formatted).toContain('z w, robust');
+        expect(format_source(formatted, mode)).toBe(formatted);
+    });
+});
+
+// Statements with a block comment between their tokens. The
+// source-preserving formatter keeps each line as written. The AST printer
+// keeps every comment: one among the arguments stays in place, and one
+// inside an expression, qualifier, weight, or option list moves to the end
+// of the statement, where Stata still reads the same code.
+const INTERIOR_COMMENTS: Array<[string, string]> = [
+    ['reg y /* explanation */ x', 'reg y /* explanation */ x'],
+    // A parenthesized group prints its own comments, once.
+    ['collapse (mean /* c */) x (sum) /* d */ y', 'collapse (mean /* c */) x (sum) /* d */ y'],
+    ['reg y/* c */ x', 'reg y /* c */ x'],
+    // A standalone string statement keeps its source, comments included.
+    ['"a" /* c */ "b"', '"a" /* c */ "b"'],
+    ['gen x = a /* c */ + b', 'gen x = a + b /* c */'],
+    ['keep if a /* c */ & b', 'keep if a & b /* c */'],
+    ['gen x = a /* c */ * b', 'gen x = a * b /* c */'],
+    ['sum x if y /* c */ > 0, detail', 'sum x if y > 0, detail /* c */'],
+    ['reg y x [aw=w /* c */ * 2]', 'reg y x [aw=w * 2] /* c */'],
+    ['reg y x, robust /* c */ cluster(id)', 'reg y x, robust cluster(id) /* c */'],
+    ['local z = a /* c */ + b', 'local z = a + b /* c */'],
+    ['reg y /* a */ x if b /* c */ & d // note', 'reg y /* a */ x if b & d /* c */ // note'],
+];
+
+describe('formatting statements with interior block comments', () => {
+    for_each_formatter_mode('keeps each comment and each statement whole', mode => {
+        const source = ['if 1 {', ...INTERIOR_COMMENTS.map(([s]) => s), '}', ''].join('\n');
+        const expected = [
+            'if 1 {',
+            ...INTERIOR_COMMENTS.map(([my_source, my_ast]) =>
+                `    ${mode === 'ast' ? my_ast : my_source}`),
+            '}',
+            '',
+        ].join('\n');
+        const formatted = format_source(source, mode);
+        expect(formatted).toBe(expected);
+        expect(format_source(formatted, mode)).toBe(formatted);
+    });
+
+    for_each_formatter_mode('keeps a comment at the end of the line after the statement', mode => {
+        const source = 'gen x = a /* c */\nkeep if b /* d */ // note\n';
+        const formatted = format_source(source, mode);
+        expect(formatted).toBe(source);
+        expect(format_source(formatted, mode)).toBe(formatted);
+    });
+
+    for_each_formatter_mode('keeps interior comments in #delimit ; mode', mode => {
+        const source = '#delimit ;\nreg y /* c */ x;\ngen z = a /* d */ * b;\n#delimit cr\n';
+        const formatted = format_source(source, mode);
+        expect(formatted).toContain('reg y /* c */ x;');
+        expect(formatted).toContain(mode === 'ast' ? 'gen z = a * b /* d */;' : 'gen z = a /* d */ * b;');
         expect(format_source(formatted, mode)).toBe(formatted);
     });
 });
