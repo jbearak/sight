@@ -374,9 +374,11 @@ gen x = y < = z`;
         });
 
         it('should emit C-style logical diagnostics in control flow context', async () => {
-            // Code with both parser error (unclosed brace) and C-style logical in control flow
-            const my_content = `if condition {
-    display x | | y`;
+            // Code with both parser error (unclosed brace) and C-style
+            // logical in the control-flow condition. (An operator in the
+            // body belongs to the body command, not the condition.)
+            const my_content = `if x | | y {
+    display x`;
             const my_uri = 'file:///test_parser_error.do';
             await document_store.open(my_uri, my_content, 1);
             const my_document = document_store.get(my_uri)!;

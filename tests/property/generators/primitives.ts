@@ -232,14 +232,24 @@ export function arbitrary_numlist(): fc.Arbitrary<string> {
  * after a command. The parser treats these as qualifiers (e.g., `gen in 1/10`
  * parses 'in' as an in-qualifier, not a variable name).
  */
-export const RESERVED_QUALIFIER_KEYWORDS = ['if', 'in'];
+export const RESERVED_QUALIFIER_KEYWORDS = ['if', 'in', 'using'];
 
 /**
- * Prefix commands that modify how subsequent commands execute.
- * These cannot be used as regular command names in tests because the parser
- * treats them specially (e.g., `by varlist: command`).
+ * Prefix commands that modify how subsequent commands execute, with every
+ * abbreviation the parser accepts (see PREFIX_COMMANDS and
+ * COLON_PREFIX_COMMANDS in src/parser/index.ts). These cannot be used as
+ * regular command names in tests because the parser treats them specially
+ * (e.g., `by varlist: command`, `svy: command`).
  */
-export const PREFIX_COMMANDS = ['by', 'bysort', 'quietly', 'qui', 'capture', 'cap', 'noisily', 'noi'];
+export const PREFIX_COMMANDS = [
+  'by', 'bys', 'byso', 'bysor', 'bysort',
+  'qui', 'quie', 'quiet', 'quietl', 'quietly',
+  'cap', 'capt', 'captu', 'captur', 'capture',
+  'n', 'no', 'noi', 'nois', 'noisi', 'noisil', 'noisily',
+  'version', 'vers', 'versi', 'versio', 'svy', 'xi', 'bootstrap', 'bs',
+  'jackknife', 'jknife', 'simulate', 'statsby', 'rolling', 'permute', 'mi',
+  'nestreg', 'stepwise', 'sw', 'fp', 'mfp', 'collect', 'eststo',
+];
 
 /**
  * File commands that use path coalescing. These cannot be used as regular

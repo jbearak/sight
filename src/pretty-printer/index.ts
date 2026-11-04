@@ -204,6 +204,25 @@ export class PrettyPrinter {
             }
         }
 
+        // Print argument tokens that follow the varlist (e.g. `> 0` in
+        // `assert x > 0`). Items are already grouped by adjacency, so they
+        // are space-separated, except that the first stays attached to the
+        // varlist when the source had no gap (`gen x:lbl = 1`).
+        if (node.extra_args && node.extra_args.length > 0) {
+            const the_last_item = node.varlist?.[node.varlist.length - 1];
+            let previous_end = the_last_item?.range.end;
+            for (const my_item of node.extra_args) {
+                const is_attached = previous_end !== undefined &&
+                    previous_end.line === my_item.range.start.line &&
+                    previous_end.character === my_item.range.start.character;
+                if (!is_attached) {
+                    the_parts.push(' ');
+                }
+                the_parts.push(my_item.name);
+                previous_end = undefined;
+            }
+        }
+
         // Print expression (assignment) with proper spacing
         if (node.expression) {
             the_parts.push(' = ');
@@ -220,6 +239,14 @@ export class PrettyPrinter {
         if (node.inExpression) {
             the_parts.push(' in ');
             the_parts.push(format_expression_spacing(node.inExpression));
+        }
+
+        // Print weight clause
+        if (node.weight) {
+            const the_weight = node.weight;
+            const separator = the_weight.kind === null ? '' : '=';
+            const expression = format_expression_spacing(the_weight.expression);
+            the_parts.push(` [${the_weight.keyword}${separator}${expression}]`);
         }
 
         // Print options (after comma)
@@ -300,6 +327,16 @@ export class PrettyPrinter {
         // Handle 'by' prefix with variable list
         else if (prefix.varlist && prefix.varlist.length > 0) {
             result += ' ' + prefix.varlist.join(' ');
+        }
+
+        // Arguments of colon prefixes such as `version 14:` or `svy linearized:`
+        if (prefix.arguments) {
+            result += ' ' + format_expression_spacing(prefix.arguments);
+        }
+
+        // Prefix options, e.g. `by g, sort:` or `bootstrap, reps(100):`
+        if (prefix.options && prefix.options.length > 0) {
+            result += ', ' + prefix.options.map(o => this.printOption(o)).join(' ');
         }
 
         // Add colon if the prefix had one
