@@ -15,6 +15,7 @@ import { CommandDatabase } from '../command-database';
 import { parse_expression, parse_varlist } from '../expression-parser';
 import { StataLexer } from '../lexer';
 import { StataParser } from '../parser';
+import { CommentDirectives, comment_key } from './parse-directives';
 import {
     CommandNode,
     ControlFlowNode,
@@ -180,6 +181,9 @@ class ParseDocumentBuilder {
     private tokens: Token[] = [];
     private line_offsets: number[] = [0];
     private delimit: 'cr' | 'semicolon' = 'cr';
+    private directives: CommentDirectives | undefined;
+    /** Keys of the comments some statement reports. */
+    private readonly reported_comments = new Set<string>();
 
     constructor(private readonly input: ParseDocumentInput) {
         this.content = input.content;
@@ -195,7 +199,10 @@ class ParseDocumentBuilder {
         const parse_result = new StataParser({ structured: true })
             .parse(lex_result.tokens, context_tracker);
 
+        this.directives = new CommentDirectives(
+            this.input.path, this.content, this.tokens, parse_result.ast.nodes);
         const statements = this.serialize_nodes(parse_result.ast.nodes);
+        const comments = this.unreported_comments();
         const errors = [
             ...lex_result.errors.map((my_error) => ({
                 source: 'lexer',
@@ -217,8 +224,39 @@ class ParseDocumentBuilder {
             path: this.input.path,
             line_count: this.line_offsets.length,
             statements,
+            comments,
             errors,
         };
+    }
+
+    /**
+     * Comments no statement reports: all of them in a file with no
+     * statements, for example a header-only file.
+     */
+    private unreported_comments(): Json[] {
+        const the_comments: Json[] = [];
+        for (const my_token of this.tokens) {
+            const style = comment_style(my_token);
+            if (style !== null && !this.reported_comments.has(comment_key(my_token.range))) {
+                the_comments.push(this.serialize_comment(style, my_token.value, my_token.range));
+            }
+        }
+        return the_comments;
+    }
+
+    /** A comment object, with the directive Sight honors in it. */
+    private serialize_comment(style: string, text: string, range: Range): Json {
+        this.reported_comments.add(comment_key(range));
+        return {
+            style,
+            text,
+            range,
+            directive: this.directives?.directive_at(range) ?? null,
+        };
+    }
+
+    private serialize_trivia(trivia: TriviaNode): Json {
+        return this.serialize_comment(trivia.style, trivia.content, trivia.range);
     }
 
     // -----------------------------------------------------------------
@@ -301,14 +339,14 @@ class ParseDocumentBuilder {
 
         const known = new Set<string>();
         for (const my_trivia of [...leading, ...trailing, ...block_end]) {
-            known.add(range_key(my_trivia.range));
+            known.add(comment_key(my_trivia.range));
         }
         for (const my_child of body) {
             for (const my_trivia of [
                 ...trivia_of(my_child, 'leadingTrivia'),
                 ...trivia_of(my_child, 'trailingTrivia'),
             ]) {
-                known.add(range_key(my_trivia.range));
+                known.add(comment_key(my_trivia.range));
             }
         }
 
@@ -325,17 +363,17 @@ class ParseDocumentBuilder {
             const inside_child = child !== undefined &&
                 compare_positions(child.range.start, my_token.range.start) <= 0;
             const style = comment_style(my_token);
-            if (style === null || inside_child || known.has(range_key(my_token.range))) {
+            if (style === null || inside_child || known.has(comment_key(my_token.range))) {
                 continue;
             }
-            the_interior.push({ style, text: my_token.value, range: my_token.range });
+            the_interior.push(this.serialize_comment(style, my_token.value, my_token.range));
         }
 
         return {
-            leading: leading.map(serialize_trivia),
-            trailing: trailing.map(serialize_trivia),
+            leading: leading.map((trivia) => this.serialize_trivia(trivia)),
+            trailing: trailing.map((trivia) => this.serialize_trivia(trivia)),
             interior: the_interior,
-            block_end: block_end.map(serialize_trivia),
+            block_end: block_end.map((trivia) => this.serialize_trivia(trivia)),
         };
     }
 
@@ -802,10 +840,6 @@ function trivia_of(node: StataNode, field: TriviaField): TriviaNode[] {
     }
 }
 
-function range_key(range: Range): string {
-    return `${range.start.line}:${range.start.character}-${range.end.line}:${range.end.character}`;
-}
-
 function comment_style(token: Token): string | null {
     switch (token.type) {
         case 'COMMENT_LINE':
@@ -817,10 +851,6 @@ function comment_style(token: Token): string | null {
         default:
             return null;
     }
-}
-
-function serialize_trivia(trivia: TriviaNode): Json {
-    return { style: trivia.style, text: trivia.content, range: trivia.range };
 }
 
 function is_adjacent(previous: Token, next: Token): boolean {

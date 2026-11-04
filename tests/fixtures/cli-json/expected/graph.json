@@ -14,8 +14,18 @@
       "error": null
     },
     {
+      "path": "directives.do",
+      "standalone": false,
+      "error": null
+    },
+    {
       "path": "extra.do",
       "standalone": false,
+      "error": null
+    },
+    {
+      "path": "header-only.do",
+      "standalone": true,
       "error": null
     },
     {
@@ -40,9 +50,94 @@
     }
   ],
   "entry_points": [
+    "header-only.do",
     "main.do"
   ],
   "edges": [
+    {
+      "caller": "code/clean.do",
+      "call_type": "include",
+      "range": {
+        "start": {
+          "line": 3,
+          "character": 0
+        },
+        "end": {
+          "line": 3,
+          "character": 37
+        }
+      },
+      "raw_path": "code/clean.do",
+      "arguments": [],
+      "static": true,
+      "source": "backward_directive",
+      "working_directory": null,
+      "target": "directives.do",
+      "resolution": "exact"
+    },
+    {
+      "caller": "directives.do",
+      "call_type": "do",
+      "range": {
+        "start": {
+          "line": 17,
+          "character": 0
+        },
+        "end": {
+          "line": 17,
+          "character": 28
+        }
+      },
+      "raw_path": "code/clean.do",
+      "arguments": [],
+      "static": true,
+      "source": "directive",
+      "working_directory": "<ROOT>",
+      "target": "code/clean.do",
+      "resolution": "exact"
+    },
+    {
+      "caller": "directives.do",
+      "call_type": "include",
+      "range": {
+        "start": {
+          "line": 18,
+          "character": 0
+        },
+        "end": {
+          "line": 18,
+          "character": 33
+        }
+      },
+      "raw_path": "code/helpers.doh",
+      "arguments": [],
+      "static": true,
+      "source": "directive",
+      "working_directory": "<ROOT>",
+      "target": "code/helpers.doh",
+      "resolution": "exact"
+    },
+    {
+      "caller": "directives.do",
+      "call_type": "run",
+      "range": {
+        "start": {
+          "line": 19,
+          "character": 0
+        },
+        "end": {
+          "line": 19,
+          "character": 19
+        }
+      },
+      "raw_path": "report",
+      "arguments": [],
+      "static": true,
+      "source": "directive",
+      "working_directory": "<ROOT>",
+      "target": "report.do",
+      "resolution": "exact"
+    },
     {
       "caller": "loop/a.do",
       "call_type": "do",
@@ -177,6 +272,48 @@
       "call_type": "do",
       "range": {
         "start": {
+          "line": 1,
+          "character": 0
+        },
+        "end": {
+          "line": 1,
+          "character": 28
+        }
+      },
+      "raw_path": "main.do",
+      "arguments": [],
+      "static": true,
+      "source": "backward_directive",
+      "working_directory": null,
+      "target": "directives.do",
+      "resolution": "exact"
+    },
+    {
+      "caller": "main.do",
+      "call_type": "do",
+      "range": {
+        "start": {
+          "line": 2,
+          "character": 0
+        },
+        "end": {
+          "line": 2,
+          "character": 18
+        }
+      },
+      "raw_path": "main",
+      "arguments": [],
+      "static": true,
+      "source": "backward_directive",
+      "working_directory": null,
+      "target": "directives.do",
+      "resolution": "exact"
+    },
+    {
+      "caller": "main.do",
+      "call_type": "do",
+      "range": {
+        "start": {
           "line": 0,
           "character": 0
         },
@@ -195,9 +332,13 @@
     }
   ],
   "unresolved": [
-    4
+    8
   ],
   "cycles": [
+    [
+      "code/clean.do",
+      "directives.do"
+    ],
     [
       "loop/a.do",
       "loop/b.do"
