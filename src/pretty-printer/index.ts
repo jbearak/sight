@@ -442,7 +442,9 @@ export class PrettyPrinter {
             // Use '=' if the original definition had it
             statement = `${this.getIndent()}${scope_keyword} ${name_text} = ${format_expression_spacing(value)}`.trimEnd();
         } else {
-            statement = `${this.getIndent()}${scope_keyword} ${name_text} ${format_expression_spacing(value)}`.trimEnd();
+            // Without '=', the value is literal text: `local t a+b` stores
+            // "a+b", so spacing it would change the macro.
+            statement = `${this.getIndent()}${scope_keyword} ${name_text} ${value}`.trimEnd();
         }
 
         // Interior block comments go at the end, outside the value.

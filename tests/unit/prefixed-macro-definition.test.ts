@@ -46,6 +46,9 @@ const THE_DEFINITIONS: Array<{ source: string; use: string; prefixes: string[] }
     { source: 'capture local ++i', use: "display `i'", prefixes: ['capture'] },
     { source: "capture local n : word count `x'", use: "display `n'", prefixes: ['capture'] },
     { source: 'by g: local b 1', use: "display `b'", prefixes: ['by'] },
+    { source: 'frame f: local fl 1', use: "display `fl'", prefixes: ['frame'] },
+    { source: 'capture frame f: qui local fq 1', use: "display `fq'", prefixes: ['capture', 'frame', 'quietly'] },
+    { source: 'capture local text a+b', use: "display `text'", prefixes: ['capture'] },
 ];
 
 describe('prefixed macro definitions', () => {
