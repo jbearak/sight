@@ -1,4 +1,4 @@
-import { Range } from 'vscode-languageserver-textdocument';
+import { Position, Range } from 'vscode-languageserver-textdocument';
 import {
   Token,
   TokenType,
@@ -21,13 +21,68 @@ import {
   ProgramSignature,
   ArgumentSpec,
   OptionSpec,
+  ExpressionNode,
+  InRangeNode,
+  UsingClause,
+  PathNode,
+  WeightClause,
 } from '../types';
 import { ContextTracker } from '../context-tracker';
 import { unwrap_macval } from '../utils/local-macro';
 import { isFileCommand } from '../utils/file-path-utils';
 import { is_swallowed_continuation_terminator } from '../utils/continuation';
+import {
+  WEIGHT_KEYWORDS,
+  parse_egen_function,
+  parse_expression,
+  parse_in_range,
+  parse_path,
+  parse_varlist,
+} from '../expression-parser';
 
-const PREFIX_COMMANDS = new Set(['by', 'bysort', 'quietly', 'qui', 'capture', 'cap', 'noisily', 'noi']);
+/**
+ * Prefix commands that take no arguments of their own (other than the
+ * `by` varlist), mapped to canonical names. Keys are every abbreviation
+ * Stata accepts, exact case.
+ */
+const PREFIX_COMMANDS: ReadonlyMap<string, string> = new Map([
+  ['by', 'by'],
+  ['bys', 'bysort'], ['byso', 'bysort'], ['bysor', 'bysort'], ['bysort', 'bysort'],
+  ['qui', 'quietly'], ['quie', 'quietly'], ['quiet', 'quietly'],
+  ['quietl', 'quietly'], ['quietly', 'quietly'],
+  ['cap', 'capture'], ['capt', 'capture'], ['captu', 'capture'],
+  ['captur', 'capture'], ['capture', 'capture'],
+  ['n', 'noisily'], ['no', 'noisily'], ['noi', 'noisily'], ['nois', 'noisily'],
+  ['noisi', 'noisily'], ['noisil', 'noisily'], ['noisily', 'noisily'],
+]);
+
+/**
+ * Commands that act as a prefix only when a top-level colon follows,
+ * e.g. `svy: regress ...` or `version 14: ...`, mapped to canonical
+ * names. Without the colon they are ordinary commands (`version 14`).
+ */
+const COLON_PREFIX_COMMANDS: ReadonlyMap<string, string> = new Map([
+  ['version', 'version'], ['vers', 'version'], ['versi', 'version'],
+  ['versio', 'version'],
+  ['svy', 'svy'],
+  ['xi', 'xi'],
+  ['bootstrap', 'bootstrap'], ['bs', 'bootstrap'],
+  ['jackknife', 'jackknife'], ['jknife', 'jackknife'],
+  ['simulate', 'simulate'],
+  ['statsby', 'statsby'],
+  ['rolling', 'rolling'],
+  ['permute', 'permute'],
+  ['mi', 'mi'],
+  ['nestreg', 'nestreg'],
+  ['stepwise', 'stepwise'], ['sw', 'stepwise'],
+  ['fp', 'fp'],
+  ['mfp', 'mfp'],
+  ['collect', 'collect'],
+  ['eststo', 'eststo'],
+]);
+
+/** Canonical names of the colon prefixes above. */
+const COLON_PREFIX_NAMES: ReadonlySet<string> = new Set(COLON_PREFIX_COMMANDS.values());
 
 /**
  * Tracks `///` line-continuation state while a caller collects the tokens of a
@@ -102,7 +157,38 @@ class ContinuationTracker {
   }
 }
 
+/** Placeholder for a qualifier or `=` with nothing after it. */
+function empty_expression(position: Position): ExpressionNode {
+  return {
+    kind: 'unparsed',
+    text: '',
+    reason: 'empty',
+    range: { start: position, end: position },
+  };
+}
+
+/** Parse an `if`/`while` condition, or an empty placeholder. */
+function parse_condition(tokens: Token[], fallback: Position): ExpressionNode {
+  const node = parse_expression(tokens);
+  return node.kind === 'unparsed' && node.reason === 'empty'
+    ? empty_expression(fallback)
+    : node;
+}
+
+/** Options for {@link StataParser}. */
+export interface ParserOptions {
+  /**
+   * Build the structured expression fields: `expression_ast`, `if_ast`,
+   * `in_range`, `using`, `condition_ast`, a weight's `expression_ast`, and
+   * a `by` prefix's `by_varlist`/`sort_varlist`. Off by default because
+   * the language server does not read them and they add parse time on
+   * long files; tools that translate Stata turn it on.
+   */
+  structured?: boolean;
+}
+
 export class StataParser {
+  private readonly structured: boolean;
   private tokens: Token[] = [];
   private current: number = 0;
   private errors: ParseError[] = [];
@@ -115,6 +201,10 @@ export class StataParser {
   // Regex patterns for nested compound string delimiters
   private static readonly OPENING_DELIMITER_PATTERN = /^(`")+$/;
   private static readonly CLOSING_DELIMITER_PATTERN = /^("')+$/;
+
+  constructor(options: ParserOptions = {}) {
+    this.structured = options.structured === true;
+  }
 
   /** Build a document AST and collect syntax errors from lexer tokens. */
   parse(tokens: Token[], context_tracker?: ContextTracker): ParseResult {
@@ -621,8 +711,13 @@ export class StataParser {
         }
       }
 
-      // Stop at comments (but not continuations - handled above)
+      // A block comment with more of the value after it is whitespace;
+      // other comments end the value (continuations are handled above).
       const token_type = this.peek().type;
+      if (token_type === 'COMMENT_BLOCK' && this.statement_continues_after(this.current)) {
+        this.advance();
+        continue;
+      }
       if (token_type === 'COMMENT_LINE' || token_type === 'COMMENT_BLOCK') {
         break;
       }
@@ -666,7 +761,7 @@ export class StataParser {
       this.addError('Missing expression after equals sign', equals_pos, ParseErrorCode.MISSING_EXPRESSION_AFTER_EQUALS);
     }
 
-    return {
+    const macro_node: MacroDefNode = {
       type: 'macro_def',
       scope,
       name: macroName,
@@ -674,6 +769,15 @@ export class StataParser {
       hasEquals: has_equals,
       range: this.makeRange(scopeToken.range.start, this.previous().range.end),
     };
+    if (has_equals && this.structured) {
+      const equals_end = value_start_pos > 0
+        ? this.tokens[value_start_pos - 1].range.end
+        : scopeToken.range.end;
+      macro_node.expression_ast = value_tokens.length > 0
+        ? parse_expression(value_tokens)
+        : empty_expression(equals_end);
+    }
+    return macro_node;
   }
 
   private parse_extended_macro_def(scopeToken: Token, scope: 'local' | 'global', macroName: string): MacroDefNode {
@@ -709,7 +813,12 @@ export class StataParser {
         }
       }
 
-      // Stop at comments (continuations are handled above).
+      // A block comment with more arguments after it is whitespace;
+      // other comments end the arguments (continuations are handled above).
+      if (this.check('COMMENT_BLOCK') && this.statement_continues_after(this.current)) {
+        this.advance();
+        continue;
+      }
       if (this.check('COMMENT_LINE') || this.check('COMMENT_BLOCK')) {
         break;
       }
@@ -834,38 +943,44 @@ export class StataParser {
   }
 
 
-  private parseCommand(): CommandNode {
+  private parseCommand(): CommandNode | MacroDefNode | ControlFlowNode {
     const start_token = this.peek();
     const command_start_line = start_token.range.start.line;
 
-    // Parse prefix commands (by, quietly, capture, etc.)
+    // Parse prefix commands (by, quietly, capture, svy:, etc.)
     const prefixes: PrefixNode[] = [];
-    while (this.isPrefixCommand(this.peek().value)) {
-      const prefix_token = this.advance();
-      const prefix: PrefixNode = {
-        type: 'prefix',
-        name: prefix_token.value,
-        fullName: prefix_token.value, // TODO: expand abbreviations
-        range: prefix_token.range,
-      };
+    this.parse_prefix_chain(prefixes);
 
-      // Handle 'by' prefix with variable list
-      if (prefix_token.value === 'by') {
-        if (this.check('COLON')) {
-          // by varlist: command
-          // TODO: parse variable list before colon
-        } else {
-          // by: command (no variables)
-        }
+    // `version 14: local x = 1` is still a macro definition. (Before colon
+    // prefixes were parsed, the colon split it into `version 14` and a
+    // separate definition.) Argument-free prefixes such as
+    // `capture local ...` keep parsing as commands.
+    const has_colon_prefix = prefixes.some(
+      (my_prefix) => COLON_PREFIX_NAMES.has(my_prefix.fullName)
+    );
+    if (has_colon_prefix &&
+        (this.checkWord('local') || this.checkWord('global')) &&
+        this.looksLikeMacroDefinition()) {
+      const macro_node = this.parseMacroDefinition();
+      macro_node.prefix = prefixes;
+      macro_node.range = this.makeRange(start_token.range.start, macro_node.range.end);
+      return macro_node;
+    }
+    // Likewise `version 14: foreach x in a b { ... }` keeps its loop.
+    if (has_colon_prefix) {
+      let control_node: ControlFlowNode | undefined;
+      if (this.checkWord('foreach') || this.checkForvalues()) {
+        control_node = this.parseLoopStatement();
+      } else if (this.checkWord('while')) {
+        control_node = this.parseWhileStatement();
+      } else if (this.checkWord('if')) {
+        control_node = this.parseIfStatement();
       }
-
-      // Consume colon after any prefix command (quietly:, capture:, noisily:, etc.)
-      if (this.check('COLON')) {
-        this.advance();
-        prefix.has_colon = true;
+      if (control_node) {
+        control_node.prefix = prefixes;
+        control_node.range = this.makeRange(start_token.range.start, control_node.range.end);
+        return control_node;
       }
-
-      prefixes.push(prefix);
     }
 
     // Check if this is a syntax command after prefixes
@@ -1048,22 +1163,7 @@ export class StataParser {
     this.skipTrivia();
 
     // Parse any additional prefix commands (e.g., frame name: quietly: command)
-    while (this.isPrefixCommand(this.peek().value)) {
-      const prefix_token = this.advance();
-      const prefix: PrefixNode = {
-        type: 'prefix',
-        name: prefix_token.value,
-        fullName: prefix_token.value,
-        range: prefix_token.range,
-      };
-      // Consume colon after any prefix command
-      if (this.check('COLON')) {
-        this.advance();
-        prefix.has_colon = true;
-      }
-      prefixes.push(prefix);
-      this.skipTrivia();
-    }
+    this.parse_prefix_chain(prefixes);
 
     // Skip any remaining whitespace before the main command
     this.skipTrivia();
@@ -1109,6 +1209,11 @@ export class StataParser {
   /**
    * Parse the body of a command (varlist, expression, qualifiers, options).
    * Used when the command name has already been consumed.
+   *
+   * The node covers the whole statement: tokens that fit no other slot
+   * are kept in `extra_args` rather than starting new command nodes.
+   * Qualifiers (`= exp`, `if`, `in`, weights, `using`) may come in any
+   * order, as Stata allows.
    */
   private parseCommandBody(
     command_token: Token,
@@ -1118,130 +1223,168 @@ export class StataParser {
     const command_name = command_token.value;
 
     // Parse variable list (stop at comma, statement terminator, comment,
-    // or 'if' keyword). Use file path coalescing for file commands.
+    // qualifier keyword, or weight). Use file path coalescing for file
+    // commands.
     const varlist: IdentifierNode[] = [];
+    // Argument tokens from the first one that cannot belong to a varlist
+    // (an operator, colon, or bracket) up to the qualifiers.
+    const extra_tokens: Token[] = [];
 
     // For file commands, try to parse the first argument as a file path
     const is_file_cmd = isFileCommand(command_name);
     const has_file_arg = this.check('WORD') || this.check('NUMBER') ||
         this.check('OPERATOR') || this.check('STRING') ||
         this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL');
-    if (is_file_cmd && has_file_arg) {
+    if (is_file_cmd && has_file_arg && !this.checkWord('using')) {
       const file_path = this.parseFilePathArgument();
       if (file_path) {
         varlist.push(file_path);
       }
     }
 
-    // Parse remaining arguments normally (including parenthesized groups)
-    while (!this.check('COMMA') && !this.isTrivia() &&
-           !this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
-      // Stop at 'if' keyword for if-qualifier
-      if (this.checkWord('if')) {
+    // Parse remaining arguments (including parenthesized groups)
+    let extra_depth = 0;
+    while (!this.isAtEnd()) {
+      if (this.skipContinuation()) {
+        continue;
+      }
+      if (this.check('COMMENT_BLOCK') && this.statement_continues_after(this.current)) {
+        this.advance(); // a block comment inside the statement is whitespace
+        continue;
+      }
+      if (this.isTrivia() || this.check('STATEMENT_TERMINATOR') ||
+          this.check('LBRACE') || this.check('RBRACE')) {
         break;
       }
-      // Stop at 'in' keyword for in-qualifier
-      if (this.checkWord('in')) {
+      if (extra_depth === 0 && this.at_argument_boundary()) {
         break;
       }
 
-      // Check for wildcard operators (* and ?) which are valid in varlists
-      // This mirrors the logic in parseCommand for consistency
-      const is_wildcard = this.check('OPERATOR') &&
-          (this.peek().value === '*' || this.peek().value === '?');
+      if (extra_tokens.length === 0) {
+        // Check for wildcard operators (* and ?) which are valid in varlists
+        const is_wildcard = this.check('OPERATOR') &&
+            (this.peek().value === '*' || this.peek().value === '?');
 
-      const is_varlist_token = this.check('WORD') || this.check('STRING') ||
-          this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL') ||
-          this.check('NUMBER') || is_wildcard;
-      if (is_varlist_token) {
-        const var_token = this.advance();
-        let name = var_token.value;
-        let end_range = var_token.range.end;
+        const is_varlist_token = this.check('WORD') || this.check('STRING') ||
+            this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL') ||
+            this.check('NUMBER') || is_wildcard;
+        if (is_varlist_token) {
+          const var_token = this.advance();
+          let name = var_token.value;
+          let end_range = var_token.range.end;
 
-        // Coalesce adjacent wildcard tokens (e.g., var* -> single item "var*")
-        // Only coalesce if the wildcard immediately follows (no whitespace)
-        while (!this.isAtEnd() && this.isWildcardToken(this.peek()) &&
-               this.isAdjacentToken(this.previous(), this.peek())) {
-          const wildcard_token = this.advance();
-          name += wildcard_token.value;
-          end_range = wildcard_token.range.end;
-        }
-
-        varlist.push({
-          name: name,
-          range: { start: var_token.range.start, end: end_range },
-        });
-      } else if (this.check('LPAREN')) {
-        const paren_node = this.parseParenthesizedGroup();
-        if (paren_node) {
-          varlist.push(paren_node);
-        }
-      } else if (this.check('OPERATOR') && this.peek().value === '=') {
-        // Stop at assignment operator
-        break;
-      } else {
-        // Stop at other tokens
-        break;
-      }
-    }
-
-    // Check for assignment expression after varlist
-    let expression: string | undefined;
-    if (this.check('OPERATOR') && this.peek().value === '=') {
-      this.advance(); // consume '='
-      expression = this.parseExpression();
-    }
-
-    // Parse if-qualifier
-    let ifExpression: string | undefined;
-    if (this.checkWord('if')) {
-      this.advance(); // consume 'if'
-      ifExpression = this.parseIfQualifierExpression();
-    }
-
-    // Parse in-qualifier
-    let inExpression: string | undefined;
-    if (this.checkWord('in')) {
-      this.advance(); // consume 'in'
-      inExpression = this.parseInQualifierExpression();
-    }
-
-    // Parse options (after comma)
-    const options: OptionNode[] = [];
-    if (this.check('COMMA')) {
-      this.advance(); // consume comma
-
-      // Continuations join option lines; ordinary comments still end them.
-      while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
-        if (this.skipContinuation()) continue;
-        if (this.isTrivia()) break;
-        if (this.check('WORD')) {
-          const optionToken = this.advance();
-          const option: OptionNode = {
-            type: 'option',
-            name: optionToken.value,
-            fullName: optionToken.value,
-            range: optionToken.range,
-          };
-
-          // Check for option argument
-          if (this.check('LPAREN')) {
-            const parsed = this.parse_option_argument_inside_parens();
-            option.argument = parsed.argument;
-            option.argument_range = parsed.argument_range;
-            if (parsed.argument_unclosed) {
-              option.argument_unclosed = true;
-            }
+          // Coalesce adjacent wildcard tokens (e.g., var* -> single item "var*")
+          // Only coalesce if the wildcard immediately follows (no whitespace)
+          while (!this.isAtEnd() && this.isWildcardToken(this.peek()) &&
+                 this.isAdjacentToken(this.previous(), this.peek())) {
+            const wildcard_token = this.advance();
+            name += wildcard_token.value;
+            end_range = wildcard_token.range.end;
           }
 
-          options.push(option);
-        } else {
-          this.advance(); // skip unknown tokens in options
+          varlist.push({
+            name: name,
+            range: { start: var_token.range.start, end: end_range },
+          });
+          continue;
+        }
+        if (this.check('LPAREN')) {
+          const paren_node = this.parseParenthesizedGroup();
+          if (paren_node) {
+            varlist.push(paren_node);
+          }
+          continue;
         }
       }
+
+      const extra_token = this.advance();
+      if (extra_token.type === 'LPAREN' || extra_token.type === 'LBRACKET') {
+        extra_depth++;
+      } else if (extra_token.type === 'RPAREN' || extra_token.type === 'RBRACKET') {
+        extra_depth = Math.max(0, extra_depth - 1);
+      }
+      extra_tokens.push(extra_token);
     }
 
-    return {
+    // Qualifiers, in any order, then options.
+    let expression: string | undefined;
+    let expression_ast: ExpressionNode | undefined;
+    let ifExpression: string | undefined;
+    let if_ast: ExpressionNode | undefined;
+    let inExpression: string | undefined;
+    let in_range: InRangeNode | undefined;
+    let weight: WeightClause | undefined;
+    let using_clause: UsingClause | undefined;
+    let saw_using = false;
+    const options: OptionNode[] = [];
+
+    for (;;) {
+      if (this.skipContinuation()) {
+        continue;
+      }
+      if (this.check('COMMENT_BLOCK') && this.statement_continues_after(this.current)) {
+        this.advance();
+        continue;
+      }
+      if (expression === undefined && this.check('OPERATOR') &&
+          this.peek().value === '=') {
+        const equals_token = this.advance(); // consume '='
+        const collected = this.collect_expression();
+        expression = collected.text;
+        if (this.structured) {
+          expression_ast = collected.tokens.length > 0
+            ? (command_name === 'egen'
+                ? parse_egen_function(collected.tokens)
+                : parse_expression(collected.tokens))
+            : empty_expression(equals_token.range.end);
+        }
+        continue;
+      }
+      if (ifExpression === undefined && this.checkWord('if')) {
+        const if_token = this.advance(); // consume 'if'
+        const collected = this.collect_qualifier_expression('if', true, true);
+        ifExpression = collected.text;
+        if (this.structured) {
+          if_ast = collected.tokens.length > 0
+            ? parse_expression(collected.tokens)
+            : empty_expression(if_token.range.end);
+        }
+        continue;
+      }
+      if (inExpression === undefined && this.checkWord('in')) {
+        const in_token = this.advance(); // consume 'in'
+        const collected = this.collect_qualifier_expression('in', false, false);
+        inExpression = collected.text;
+        if (this.structured) {
+          in_range = parse_in_range(collected.tokens, in_token.range.end);
+        }
+        continue;
+      }
+      if (weight === undefined && this.is_weight_start(this.current)) {
+        weight = this.parse_weight_clause();
+        continue;
+      }
+      if (!saw_using && this.checkWord('using')) {
+        saw_using = true;
+        using_clause = this.parse_using_clause(varlist);
+        continue;
+      }
+      if (this.check('COMMA')) {
+        this.advance(); // consume comma
+        this.parse_command_options(options);
+        break;
+      }
+      if (this.isAtEnd() || this.check('STATEMENT_TERMINATOR') ||
+          this.check('LBRACE') || this.check('RBRACE') || this.isTrivia()) {
+        break;
+      }
+      // A token no slot accepts (e.g. a second `if`): keep it with the
+      // statement instead of letting it start a new command.
+      extra_tokens.push(this.advance());
+    }
+
+    const extra_args = this.group_adjacent_tokens(extra_tokens);
+    const node: CommandNode = {
       type: 'command',
       prefix: prefixes.length > 0 ? prefixes : undefined,
       name: command_name,
@@ -1253,6 +1396,260 @@ export class StataParser {
       inExpression,
       range: this.makeRange(start_token.range.start, this.previous().range.end),
     };
+    if (extra_args.length > 0) {
+      node.extra_args = extra_args;
+    }
+    if (expression_ast) {
+      node.expression_ast = expression_ast;
+    }
+    if (if_ast) {
+      node.if_ast = if_ast;
+    }
+    if (in_range) {
+      node.in_range = in_range;
+    }
+    if (weight) {
+      node.weight = weight;
+    }
+    if (using_clause && this.structured) {
+      node.using = using_clause;
+    }
+    return node;
+  }
+
+  /**
+   * Parse command options after the comma. Continuations join option
+   * lines and block comments inside the statement are whitespace;
+   * other comments end the options.
+   */
+  private parse_command_options(options: OptionNode[]): void {
+    while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
+      if (this.skipContinuation()) continue;
+      if (this.check('COMMENT_BLOCK') && this.statement_continues_after(this.current)) {
+        this.advance();
+        continue;
+      }
+      if (this.isTrivia()) break;
+      if (this.check('WORD')) {
+        const optionToken = this.advance();
+        const option: OptionNode = {
+          type: 'option',
+          name: optionToken.value,
+          fullName: optionToken.value,
+          range: optionToken.range,
+        };
+
+        // Check for option argument
+        if (this.check('LPAREN')) {
+          const parsed = this.parse_option_argument_inside_parens();
+          option.argument = parsed.argument;
+          option.argument_range = parsed.argument_range;
+          if (parsed.argument_unclosed) {
+            option.argument_unclosed = true;
+          }
+        }
+
+        options.push(option);
+      } else {
+        this.advance(); // skip unknown tokens in options
+      }
+    }
+  }
+
+  /**
+   * True at a token that ends a command's argument list: a comma, a
+   * qualifier keyword, `using`, a weight, or `=`.
+   */
+  private at_argument_boundary(): boolean {
+    if (this.check('COMMA')) {
+      return true;
+    }
+    if (this.checkWord('if') || this.checkWord('in') || this.checkWord('using')) {
+      return true;
+    }
+    if (this.check('OPERATOR') && this.peek().value === '=') {
+      return true;
+    }
+    return this.is_weight_start(this.current);
+  }
+
+  /**
+   * Does the statement have more code after the comment(s) at `index`?
+   * A block comment followed by code is whitespace inside the
+   * statement; one at the end of the line is trailing trivia.
+   */
+  private statement_continues_after(index: number): boolean {
+    let i = index;
+    for (;;) {
+      const my_token = this.tokens[i];
+      if (my_token?.type === 'COMMENT_BLOCK' || my_token?.type === 'CONTINUATION') {
+        i++;
+        continue;
+      }
+      // The newline after `///` joins the next line to the statement.
+      if (my_token !== undefined && i > 0 &&
+          is_swallowed_continuation_terminator(
+            my_token, this.tokens[i - 1].type === 'CONTINUATION')) {
+        i++;
+        continue;
+      }
+      break;
+    }
+    const next = this.tokens[i];
+    return next !== undefined &&
+      next.type !== 'STATEMENT_TERMINATOR' &&
+      next.type !== 'EOF' &&
+      next.type !== 'COMMENT_LINE';
+  }
+
+  /**
+   * Does a weight clause start at token index `index`? Either
+   * `[keyword = ...]` with a Stata weight keyword, or the
+   * `` [`weight'`exp'] `` idiom of programs that use `syntax`.
+   */
+  private is_weight_start(index: number): boolean {
+    const open = this.tokens[index];
+    const keyword = this.tokens[index + 1];
+    if (open?.type !== 'LBRACKET' || keyword === undefined) {
+      return false;
+    }
+    if (keyword.type === 'MACRO_REF_LOCAL') {
+      return keyword.value === "`weight'";
+    }
+    const equals = this.tokens[index + 2];
+    return keyword.type === 'WORD' && WEIGHT_KEYWORDS.has(keyword.value) &&
+      equals?.type === 'OPERATOR' && equals.value === '=';
+  }
+
+  /** Parse `[keyword = exp]` (or `` [`weight'`exp'] ``). */
+  private parse_weight_clause(): WeightClause {
+    const open_token = this.advance(); // consume '['
+    const keyword_token = this.advance();
+    const kind = WEIGHT_KEYWORDS.get(keyword_token.value) ?? null;
+    if (kind !== null) {
+      this.advance(); // consume '='
+    }
+    const the_tokens: Token[] = [];
+    const preceded_by_continuation: boolean[] = [];
+    const continuation = new ContinuationTracker();
+    let depth = 0;
+    while (!this.isAtEnd() && !this.check('STATEMENT_TERMINATOR')) {
+      if (this.check('CONTINUATION')) {
+        const cont_token = this.peek();
+        if (this.skipContinuation()) {
+          continuation.note_continuation(cont_token);
+          continue;
+        }
+      }
+      if (this.check('COMMENT_BLOCK') || this.check('COMMENT_LINE')) {
+        this.advance();
+        continue;
+      }
+      if (depth === 0 && this.check('RBRACKET')) {
+        break;
+      }
+      const my_token = this.advance();
+      if (my_token.type === 'LBRACKET' || my_token.type === 'LPAREN') {
+        depth++;
+      } else if (my_token.type === 'RBRACKET' || my_token.type === 'RPAREN') {
+        depth = Math.max(0, depth - 1);
+      }
+      the_tokens.push(my_token);
+      preceded_by_continuation.push(continuation.collect(my_token));
+    }
+    if (this.check('RBRACKET')) {
+      this.advance(); // consume ']'
+    }
+    return {
+      keyword: keyword_token.value,
+      kind,
+      expression: this.reconstruct_value_tokens(
+        the_tokens,
+        preceded_by_continuation
+      ).trim(),
+      ...(this.structured ? {
+        expression_ast: the_tokens.length > 0
+          ? parse_expression(the_tokens)
+          : empty_expression(this.previous().range.start),
+      } : {}),
+      range: this.makeRange(open_token.range.start, this.previous().range.end),
+    };
+  }
+
+  /**
+   * Parse `using filename [filename ...]`. Each run of adjacent tokens is
+   * one file name, so a quoted name with macros inside stays whole.
+   *
+   * `using` and the file names are also appended to `varlist`, where
+   * they have always appeared, so existing consumers see no change.
+   */
+  private parse_using_clause(varlist: IdentifierNode[]): UsingClause {
+    const using_token = this.advance(); // consume 'using'
+    varlist.push({ name: using_token.value, range: using_token.range });
+    const the_paths: PathNode[] = [];
+    let current_path: Token[] = [];
+    const flush = (): void => {
+      if (current_path.length > 0) {
+        const first = current_path[0];
+        const last = current_path[current_path.length - 1];
+        const range = this.makeRange(first.range.start, last.range.end);
+        varlist.push({ name: current_path.map((t) => t.value).join(''), range });
+        if (this.structured) {
+          the_paths.push(parse_path(current_path));
+        }
+        current_path = [];
+      }
+    };
+    while (!this.isAtEnd()) {
+      if (this.skipContinuation()) {
+        flush();
+        continue;
+      }
+      if (this.check('COMMENT_BLOCK') && this.statement_continues_after(this.current)) {
+        flush();
+        this.advance();
+        continue;
+      }
+      if (this.check('STATEMENT_TERMINATOR') || this.check('COMMA') ||
+          this.check('LBRACE') || this.check('RBRACE') || this.isTrivia()) {
+        break;
+      }
+      const my_token = this.peek();
+      const last_token = current_path[current_path.length - 1];
+      const continues_path = last_token !== undefined &&
+        this.isAdjacentToken(last_token, my_token);
+      if (!continues_path &&
+          (this.checkWord('if') || this.checkWord('in') ||
+           this.is_weight_start(this.current))) {
+        break;
+      }
+      if (!continues_path) {
+        flush();
+      }
+      current_path.push(this.advance());
+    }
+    flush();
+    return {
+      paths: the_paths,
+      range: this.makeRange(using_token.range.start, this.previous().range.end),
+    };
+  }
+
+  /** Group tokens into items, joining tokens with no gap between them. */
+  private group_adjacent_tokens(tokens: Token[]): IdentifierNode[] {
+    const the_items: IdentifierNode[] = [];
+    for (const my_token of tokens) {
+      const last_item = the_items[the_items.length - 1];
+      if (last_item &&
+          last_item.range.end.line === my_token.range.start.line &&
+          last_item.range.end.character === my_token.range.start.character) {
+        last_item.name += my_token.value;
+        last_item.range = { start: last_item.range.start, end: my_token.range.end };
+      } else {
+        the_items.push({ name: my_token.value, range: my_token.range });
+      }
+    }
+    return the_items;
   }
 
   /**
@@ -2329,6 +2726,9 @@ export class StataParser {
       type: 'if',
       ...(is_single_statement ? { is_single_statement: true } : {}),
       condition: condition.trim(),
+      ...(this.structured
+        ? { condition_ast: parse_condition(condition_tokens, ifToken.range.end) }
+        : {}),
       body,
       range: this.makeRange(
         ifToken.range.start,
@@ -2595,6 +2995,9 @@ export class StataParser {
     return {
       type: 'while',
       condition: condition.trim(),
+      ...(this.structured
+        ? { condition_ast: parse_condition(condition_tokens, whileToken.range.end) }
+        : {}),
       body,
       range: this.makeRange(whileToken.range.start, this.previous().range.end),
       blockEndingTrivia,
@@ -2860,6 +3263,295 @@ export class StataParser {
       node.type === 'while' ||
       node.type === 'frame'
     );
+  }
+
+  /**
+   * Consume a chain of prefixes (`capture noisily by g (t), sort:`,
+   * `svy, subpop(x):`, `version 14:`) and append them to `prefixes`.
+   */
+  private parse_prefix_chain(prefixes: PrefixNode[]): void {
+    for (;;) {
+      // A `///` continuation may separate prefixes; comments end the chain
+      // so they stay attached to the statement as trivia.
+      while (this.skipContinuation()) {
+        // skip
+      }
+      const token = this.peek();
+      if (token.type !== 'WORD') {
+        return;
+      }
+      const prefix_name = PREFIX_COMMANDS.get(token.value);
+      if (prefix_name !== undefined) {
+        prefixes.push(this.parse_simple_prefix(prefix_name));
+        continue;
+      }
+      const colon_prefix_name = COLON_PREFIX_COMMANDS.get(token.value);
+      if (colon_prefix_name === undefined) {
+        return;
+      }
+      const colon_index = this.find_statement_colon(this.current + 1);
+      if (colon_index === -1) {
+        return;
+      }
+      prefixes.push(this.parse_colon_prefix(colon_prefix_name, colon_index));
+    }
+  }
+
+  /**
+   * Parse `by`/`bysort` (with their varlist, sort group, and options)
+   * or an argument-free prefix such as `quietly`.
+   */
+  private parse_simple_prefix(prefix_name: string): PrefixNode {
+    const prefix_token = this.advance();
+    const prefix: PrefixNode = {
+      type: 'prefix',
+      name: prefix_token.value,
+      fullName: prefix_name,
+      range: prefix_token.range,
+    };
+
+    const is_by = prefix_name === 'by' || prefix_name === 'bysort';
+    if (is_by && !this.check('COLON')) {
+      const colon_index = this.find_statement_colon(this.current);
+      if (colon_index !== -1) {
+        this.parse_by_spec(prefix, colon_index);
+      }
+    }
+
+    // Consume colon after any prefix command (quietly:, capture:, by g:, etc.)
+    if (this.check('COLON')) {
+      this.advance();
+      prefix.has_colon = true;
+    }
+    prefix.range = this.makeRange(prefix_token.range.start, this.previous().range.end);
+    return prefix;
+  }
+
+  /**
+   * Parse `varlist [(sortvars)] [, options]` of a by prefix, stopping at
+   * the colon at `colon_index`.
+   */
+  private parse_by_spec(prefix: PrefixNode, colon_index: number): void {
+    const by_tokens: Token[] = [];
+    let sort_tokens: Token[] | undefined;
+    const raw_items: Token[][] = [];
+
+    // Group tokens into raw items by adjacency, for printing.
+    const add_raw = (my_token: Token): void => {
+      const last_item = raw_items[raw_items.length - 1];
+      const last_token = last_item?.[last_item.length - 1];
+      if (last_item && last_token && this.isAdjacentToken(last_token, my_token)) {
+        last_item.push(my_token);
+      } else {
+        raw_items.push([my_token]);
+      }
+    };
+
+    while (this.current < colon_index && !this.check('COMMA')) {
+      if (this.skip_statement_trivia()) {
+        continue;
+      }
+      if (this.check('LPAREN')) {
+        // `(sortvars)` group of bysort/by
+        sort_tokens = sort_tokens ?? [];
+        add_raw(this.advance());
+        let depth = 1;
+        while (this.current < colon_index && depth > 0) {
+          if (this.skip_statement_trivia()) {
+            continue;
+          }
+          const my_token = this.advance();
+          if (my_token.type === 'LPAREN') {
+            depth++;
+          } else if (my_token.type === 'RPAREN') {
+            depth--;
+          }
+          add_raw(my_token);
+          if (depth > 0) {
+            sort_tokens.push(my_token);
+          }
+        }
+        continue;
+      }
+      const my_token = this.advance();
+      by_tokens.push(my_token);
+      add_raw(my_token);
+    }
+
+    prefix.varlist = raw_items.map((my_item) => my_item.map((t) => t.value).join(''));
+    if (this.structured) {
+      prefix.by_varlist = parse_varlist(by_tokens);
+      if (sort_tokens !== undefined) {
+        prefix.sort_varlist = parse_varlist(sort_tokens);
+      }
+    }
+    if (this.check('COMMA')) {
+      this.advance();
+      const options = this.parse_options_until(colon_index);
+      if (options.length > 0) {
+        prefix.options = options;
+      }
+    }
+    // Anything left before the colon is malformed; skip it.
+    while (this.current < colon_index) {
+      this.advance();
+    }
+  }
+
+  /**
+   * Parse a colon prefix with arguments, e.g. `svy linearized, subpop(x):`
+   * or `version 14:`, whose colon is at `colon_index`.
+   */
+  private parse_colon_prefix(prefix_name: string, colon_index: number): PrefixNode {
+    const prefix_token = this.advance();
+    const prefix: PrefixNode = {
+      type: 'prefix',
+      name: prefix_token.value,
+      fullName: prefix_name,
+      range: prefix_token.range,
+    };
+
+    const argument_tokens: Token[] = [];
+    const preceded_by_continuation: boolean[] = [];
+    const continuation = new ContinuationTracker();
+    let depth = 0;
+    while (this.current < colon_index) {
+      if (this.check('CONTINUATION')) {
+        const cont_token = this.peek();
+        if (this.skipContinuation()) {
+          continuation.note_continuation(cont_token);
+          continue;
+        }
+      }
+      if (this.skip_statement_trivia()) {
+        continue;
+      }
+      if (depth === 0 && this.check('COMMA')) {
+        break;
+      }
+      const my_token = this.advance();
+      if (my_token.type === 'LPAREN' || my_token.type === 'LBRACKET') {
+        depth++;
+      } else if (my_token.type === 'RPAREN' || my_token.type === 'RBRACKET') {
+        depth = Math.max(0, depth - 1);
+      }
+      argument_tokens.push(my_token);
+      preceded_by_continuation.push(continuation.collect(my_token));
+    }
+
+    if (argument_tokens.length > 0) {
+      prefix.arguments = this.reconstruct_value_tokens(
+        argument_tokens,
+        preceded_by_continuation
+      ).trim();
+      prefix.arguments_range = this.makeRange(
+        argument_tokens[0].range.start,
+        argument_tokens[argument_tokens.length - 1].range.end
+      );
+    }
+    if (this.check('COMMA')) {
+      this.advance();
+      const options = this.parse_options_until(colon_index);
+      if (options.length > 0) {
+        prefix.options = options;
+      }
+    }
+    while (this.current < colon_index) {
+      this.advance();
+    }
+    this.advance(); // consume colon
+    prefix.has_colon = true;
+    prefix.range = this.makeRange(prefix_token.range.start, this.previous().range.end);
+    return prefix;
+  }
+
+  /**
+   * Index of the first colon at bracket depth 0 in the current
+   * statement, scanning from `start`, or -1. Crosses `///` continuations;
+   * stops at the statement terminator and at braces.
+   */
+  private find_statement_colon(start: number): number {
+    let depth = 0;
+    for (let i = start; i < this.tokens.length; i++) {
+      const my_token = this.tokens[i];
+      switch (my_token.type) {
+        case 'STATEMENT_TERMINATOR':
+          if (is_swallowed_continuation_terminator(
+            my_token,
+            i > 0 && this.tokens[i - 1].type === 'CONTINUATION'
+          )) {
+            continue;
+          }
+          return -1;
+        case 'EOF':
+        case 'LBRACE':
+        case 'RBRACE':
+          return -1;
+        case 'LPAREN':
+        case 'LBRACKET':
+          depth++;
+          break;
+        case 'RPAREN':
+        case 'RBRACKET':
+          depth = Math.max(0, depth - 1);
+          break;
+        case 'COLON':
+          if (depth === 0) {
+            return i;
+          }
+          break;
+      }
+    }
+    return -1;
+  }
+
+  /**
+   * Skip one piece of trivia inside a statement: a `///` continuation
+   * (with its swallowed newline) or a comment. Returns true if skipped.
+   */
+  private skip_statement_trivia(): boolean {
+    if (this.skipContinuation()) {
+      return true;
+    }
+    if (this.check('COMMENT_BLOCK') || this.check('COMMENT_LINE')) {
+      this.advance();
+      return true;
+    }
+    return false;
+  }
+
+  /**
+   * Options `name[(argument)] ...` from the current token up to, not
+   * including, token index `stop`.
+   */
+  private parse_options_until(stop: number): OptionNode[] {
+    const options: OptionNode[] = [];
+    while (this.current < stop && !this.isAtEnd()) {
+      if (this.skip_statement_trivia()) {
+        continue;
+      }
+      if (!this.check('WORD')) {
+        this.advance();
+        continue;
+      }
+      const option_token = this.advance();
+      const option: OptionNode = {
+        type: 'option',
+        name: option_token.value,
+        fullName: option_token.value,
+        range: option_token.range,
+      };
+      if (this.current < stop && this.check('LPAREN')) {
+        const parsed = this.parse_option_argument_inside_parens();
+        option.argument = parsed.argument;
+        option.argument_range = parsed.argument_range;
+        if (parsed.argument_unclosed) {
+          option.argument_unclosed = true;
+        }
+      }
+      options.push(option);
+    }
+    return options;
   }
 
   private isPrefixCommand(word: string): boolean {
@@ -3158,6 +3850,15 @@ export class StataParser {
    * Returns the expression as a trimmed string.
    */
   parseExpression(): string {
+    return this.collect_expression().text;
+  }
+
+  /**
+   * Collect an expression's tokens (see parseExpression) and return them
+   * with the reconstructed text. Also stops at a top-level weight clause
+   * or `using`.
+   */
+  private collect_expression(): { text: string; tokens: Token[] } {
     // Collect the surviving tokens and reconstruct spacing from their ranges,
     // so delimiter modes produce the identical, source-faithful single-space
     // form (issue #306).
@@ -3165,6 +3866,7 @@ export class StataParser {
     const preceded_by_continuation: boolean[] = [];
     const continuation = new ContinuationTracker();
     let paren_depth = 0;
+    let bracket_depth = 0;
     const start_pos = this.current;
 
     while (!this.isAtEnd()) {
@@ -3180,7 +3882,13 @@ export class StataParser {
         continue;
       }
 
-      // Track parenthesis depth
+      // Track parenthesis and subscript-bracket depth; a comma inside
+      // either (`f(a, b)`, `M[1,2]`) does not start the options.
+      if (token.type === 'LBRACKET' && !this.is_weight_start(this.current)) {
+        bracket_depth++;
+      } else if (token.type === 'RBRACKET') {
+        bracket_depth = Math.max(0, bracket_depth - 1);
+      }
       if (token.type === 'LPAREN') {
         paren_depth++;
       } else if (token.type === 'RPAREN') {
@@ -3194,12 +3902,16 @@ export class StataParser {
 
       // Stop at top-level comma or qualifier keywords. A statement terminator
       // is always a hard stop and is handled before depth accounting above.
-      if (paren_depth === 0) {
+      if (paren_depth === 0 && bracket_depth === 0) {
         if (token.type === 'COMMA') {
           break;
         }
         // Stop at qualifier keywords
-        if (token.type === 'WORD' && (token.value === 'if' || token.value === 'in')) {
+        if (token.type === 'WORD' &&
+            (token.value === 'if' || token.value === 'in' || token.value === 'using')) {
+          break;
+        }
+        if (this.is_weight_start(this.current)) {
           break;
         }
       }
@@ -3235,7 +3947,7 @@ export class StataParser {
       this.addError('Missing expression after equals sign', equals_pos, ParseErrorCode.MISSING_EXPRESSION_AFTER_EQUALS);
     }
 
-    return trimmed_expression;
+    return { text: trimmed_expression, tokens: the_tokens };
   }
 
   /**
@@ -3301,6 +4013,22 @@ export class StataParser {
     stop_at_in: boolean,
     check_empty: boolean
   ): string {
+    return this.collect_qualifier_expression(
+      qualifier_type, stop_at_in, check_empty
+    ).text;
+  }
+
+  /**
+   * Collect a qualifier's tokens (see
+   * parseQualifierExpressionWithStrayDetection) and return them with the
+   * reconstructed text. Stops at a top-level weight clause or `using`,
+   * and an `in` qualifier also stops at `if`.
+   */
+  private collect_qualifier_expression(
+    qualifier_type: 'if' | 'in',
+    stop_at_in: boolean,
+    check_empty: boolean
+  ): { text: string; tokens: Token[] } {
     // Collect the surviving tokens and reconstruct spacing from their ranges,
     // so `#delimit ;` and `#delimit cr` yield the identical single-space form
     // (issue #306). The stray-token state machine below is unchanged; only the
@@ -3331,6 +4059,13 @@ export class StataParser {
       const token = this.peek();
 
       if (token.type === 'STATEMENT_TERMINATOR') {
+        break;
+      }
+
+      // A weight clause ends the qualifier. Checked before depth tracking
+      // because its `[` would otherwise count as a subscript bracket.
+      if (paren_depth === 0 && bracket_depth === 0 &&
+          this.is_weight_start(this.current)) {
         break;
       }
 
@@ -3402,6 +4137,14 @@ export class StataParser {
             !is_operand_fragment) {
           break;
         }
+        // `using` is reserved, and an `in` range can be followed by `if`
+        // (`sum x in 1/5 if y`).
+        if (token.type === 'WORD' && !is_operand_fragment &&
+            (token.value === 'using' ||
+             (qualifier_type === 'in' && token.value === 'if'))) {
+          break;
+        }
+
         // Stop at opening brace (brace-style blocks)
         if (token.type === 'LBRACE') {
           break;
@@ -3512,7 +4255,7 @@ export class StataParser {
       this.addError(`Empty ${qualifier_type} qualifier expression`, start_token.range, ParseErrorCode.MISSING_EXPRESSION_AFTER_EQUALS);
     }
 
-    return trimmed_expression;
+    return { text: trimmed_expression, tokens: the_tokens };
   }
 
   /**

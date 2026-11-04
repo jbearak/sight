@@ -35,6 +35,10 @@ source -> lexer -> parser -> analyzer -> providers -> LSP response
 Important locations:
 
 - `src/lexer/`, `src/parser/`, `src/analyzer/`: language processing.
+- `src/expression-parser/`: structured expression AST (`ExpressionNode`)
+  for `= exp`, `if`/`in`, weights, `using`, and conditions. The parser
+  builds it only with `new StataParser({ structured: true })`; the
+  language server leaves it off.
 - `src/providers/`: completion, definition, references, diagnostics, hover,
   symbols, and formatting.
 - `src/context-tracker/`: Stata/Mata/Python context.

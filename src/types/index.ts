@@ -231,9 +231,23 @@ export interface EmbeddedLanguageBlockNode {
 
 export interface PrefixNode {
   type: 'prefix';
-  name: string;
-  fullName: string;
+  name: string;           // As written, e.g. 'bys', 'qui', 'svy'
+  fullName: string;       // Canonical name, e.g. 'bysort', 'quietly'
+  // Raw items before the colon of `by`/`bysort`, including a `(sortvars)`
+  // group as one item. Kept for printing; see by_varlist/sort_varlist.
   varlist?: string[];
+  // `by`/`bysort` group variables and the parenthesized sort variables
+  // (with ParserOptions.structured).
+  by_varlist?: VarlistExpressionNode;
+  sort_varlist?: VarlistExpressionNode;
+  // Raw argument text of a colon prefix such as `svy linearized:`,
+  // `version 14:` or `statsby mean=r(mean), by(g):` (text before any
+  // comma). Absent when the prefix has no arguments.
+  arguments?: string;
+  arguments_range?: Range;
+  // Options after a comma in a prefix, e.g. `by g, sort:` or
+  // `bootstrap, reps(100):`.
+  options?: OptionNode[];
   frameName?: string;  // For frame prefixes with frame names
   has_colon?: boolean;
   range: Range;
@@ -263,9 +277,23 @@ export interface CommandNode {
   varlist?: IdentifierNode[];
   has_colon_before_varlist?: boolean;  // For unab commands: separates macro name from varlist
   options?: OptionNode[];
+  // Argument items after the first token that cannot belong to a varlist
+  // (an operator, colon, or bracket), grouped by adjacency, e.g. `> 0` in
+  // `assert x > 0`. Keeps the statement's text without splitting it into
+  // extra command nodes.
+  extra_args?: IdentifierNode[];
   expression?: string;
   ifExpression?: string;
   inExpression?: string;
+  // Structured forms of the raw strings above, built when the parser runs
+  // with ParserOptions.structured. Each is then present whenever the
+  // matching raw field is; parsing never fails, so unsupported syntax is
+  // an `unparsed` node.
+  expression_ast?: ExpressionNode;   // `= exp` of generate/replace/egen/...
+  if_ast?: ExpressionNode;
+  in_range?: InRangeNode;
+  weight?: WeightClause;
+  using?: UsingClause;
   body?: StataNode[];  // For prefix command brace blocks (e.g., capture { })
   range: Range;
   leadingTrivia?: TriviaNode[];
@@ -299,10 +327,12 @@ export interface ExtendedMacroFunction {
 
 export interface MacroDefNode {
   type: 'macro_def';
+  prefix?: PrefixNode[];  // e.g. `version 14: local x = 1`, `capture local x 1`
   scope: 'local' | 'global';
   name: string;
   value: string;
   hasEquals?: boolean;  // Whether the definition used '=' (e.g., local x = 1 vs local x 1)
+  expression_ast?: ExpressionNode;  // Parsed value when hasEquals (structured parse)
   extendedFunction?: ExtendedMacroFunction;
   range: Range;
   leadingTrivia?: TriviaNode[];
@@ -318,8 +348,10 @@ export interface MacroRefNode {
 
 export interface ControlFlowNode {
   type: 'if' | 'else' | 'foreach' | 'forvalues' | 'while' | 'frame';
+  prefix?: PrefixNode[];  // e.g. `version 14: foreach ...`
   is_single_statement?: boolean;
   condition?: string;
+  condition_ast?: ExpressionNode;  // Parsed `if`/`while` condition (structured parse)
   loopVar?: string;
   loopSpec?: string;
   frameName?: string;
@@ -342,6 +374,252 @@ export interface TriviaNode {
   style: 'star' | 'slash' | 'block' | 'continuation';
   content: string;
   range: Range;
+}
+
+// Expression AST
+//
+// Structured view of Stata expressions and qualifiers, built by
+// src/expression-parser. Every node carries the source `range` it covers.
+// Nodes use `kind` rather than `type` so they cannot be mistaken for
+// statement nodes. Parsing never throws: syntax the parser does not model
+// (factor-variable and time-series operators, matrix operators, broken
+// input) becomes an `unparsed` node that keeps its text and range.
+
+export type ExpressionNode =
+  | NumberExpressionNode
+  | MissingExpressionNode
+  | StringExpressionNode
+  | VariableExpressionNode
+  | SystemVariableExpressionNode
+  | MacroRefExpressionNode
+  | UnaryExpressionNode
+  | BinaryExpressionNode
+  | CallExpressionNode
+  | SubscriptExpressionNode
+  | CoefficientExpressionNode
+  | StoredResultExpressionNode
+  | ParenExpressionNode
+  | VarlistExpressionNode
+  | WildcardExpressionNode
+  | VariableRangeExpressionNode
+  | ObservationExpressionNode
+  | UnparsedExpressionNode;
+
+export interface NumberExpressionNode {
+  kind: 'number';
+  text: string;   // As written, e.g. '1e5', '.5'
+  value: number;
+  range: Range;
+}
+
+/** System missing `.` or extended missing `.a` through `.z`. */
+export interface MissingExpressionNode {
+  kind: 'missing';
+  text: string;
+  extended: string | null;  // 'a'..'z', or null for `.`
+  range: Range;
+}
+
+/** Literal text inside a string, path, or composite name. */
+export interface TextPartNode {
+  kind: 'text';
+  value: string;
+  range: Range;
+}
+
+export type TextOrMacroPart = TextPartNode | MacroRefExpressionNode;
+
+export interface StringExpressionNode {
+  kind: 'string';
+  quote: 'simple' | 'compound';
+  text: string;             // Source text including the quotes
+  parts: TextOrMacroPart[]; // Contents without the outer quotes
+  range: Range;
+}
+
+/**
+ * A variable (or scalar) name. `parts` is present when the name is built
+ * from macro references, e.g. `` `v'_lag ``.
+ */
+export interface VariableExpressionNode {
+  kind: 'variable';
+  name: string;
+  parts?: TextOrMacroPart[];
+  range: Range;
+}
+
+/** `_n`, `_N`, `_pi`, `_rc`, `_cons` (exact case). */
+export interface SystemVariableExpressionNode {
+  kind: 'system_variable';
+  name: string;
+  range: Range;
+}
+
+/**
+ * A macro reference. `form` distinguishes `` `name' ``/`$name`,
+ * `` `=exp' ``, `` `:extended fcn' ``, and `` `++i' ``/`` `i--' ``.
+ */
+export interface MacroRefExpressionNode {
+  kind: 'macro_ref';
+  scope: 'local' | 'global';
+  form: 'name' | 'eval' | 'extended' | 'increment';
+  text: string;                     // As written, e.g. "`x'", '${g}'
+  name?: string;                    // Inner name; may contain nested refs
+  name_parts?: TextOrMacroPart[];   // Present when name has nested refs
+  macval?: true;                    // `` `macval(name)' ``
+  expression?: ExpressionNode;      // form 'eval'
+  extended?: string;                // form 'extended': text after ':'
+  increment?: '++' | '--';          // form 'increment'
+  increment_position?: 'prefix' | 'suffix';
+  range: Range;
+}
+
+export type UnaryOperator = '-' | '+' | '!';
+
+export interface UnaryExpressionNode {
+  kind: 'unary';
+  op: UnaryOperator;   // Canonical: `~` is reported as '!'
+  op_text: string;     // As written
+  operand: ExpressionNode;
+  range: Range;
+}
+
+export type BinaryOperator =
+  | '+' | '-' | '*' | '/' | '^'
+  | '==' | '!=' | '<' | '>' | '<=' | '>='
+  | '&' | '|';
+
+export interface BinaryExpressionNode {
+  kind: 'binary';
+  op: BinaryOperator;  // Canonical: `~=` is reported as '!='
+  op_text: string;     // As written
+  left: ExpressionNode;
+  right: ExpressionNode;
+  range: Range;
+}
+
+export interface CallExpressionNode {
+  kind: 'call';
+  name: string;
+  name_range: Range;
+  args: ExpressionNode[];
+  range: Range;
+}
+
+/** Explicit subscript, e.g. `x[_n-1]` or `M[1,2]`. */
+export interface SubscriptExpressionNode {
+  kind: 'subscript';
+  target: ExpressionNode;
+  indices: ExpressionNode[];
+  range: Range;
+}
+
+/** `_b[spec]`, `_se[spec]`, `_coef[spec]`; spec is kept as text. */
+export interface CoefficientExpressionNode {
+  kind: 'coefficient';
+  which: '_b' | '_se' | '_coef';
+  spec: string;
+  spec_range: Range;
+  range: Range;
+}
+
+/** Stored result such as `r(mean)`, `e(N)`, `s(x)`, `c(pwd)`. */
+export interface StoredResultExpressionNode {
+  kind: 'stored_result';
+  result_class: 'r' | 'e' | 's' | 'c';
+  name: string;
+  name_parts?: TextOrMacroPart[];
+  range: Range;
+}
+
+export interface ParenExpressionNode {
+  kind: 'paren';
+  expression: ExpressionNode;
+  range: Range;
+}
+
+/**
+ * A varlist, as in a `by` prefix or an egen row function. Items are
+ * `variable`, `wildcard`, `variable_range`, `macro_ref`, or `unparsed`.
+ */
+export interface VarlistExpressionNode {
+  kind: 'varlist';
+  items: ExpressionNode[];
+  range: Range;
+}
+
+/** Varlist wildcard such as `inc*`, `x?`, or `a~b`. */
+export interface WildcardExpressionNode {
+  kind: 'wildcard';
+  pattern: string;
+  range: Range;
+}
+
+/** Varlist range `first-last`. */
+export interface VariableRangeExpressionNode {
+  kind: 'variable_range';
+  from: ExpressionNode;
+  to: ExpressionNode;
+  range: Range;
+}
+
+/** `f`/`F` or `l`/`L` in an `in` range. */
+export interface ObservationExpressionNode {
+  kind: 'observation';
+  which: 'first' | 'last';
+  text: string;
+  range: Range;
+}
+
+export type UnparsedReason =
+  | 'factor_or_time_series_operator'
+  | 'syntax_error'
+  | 'empty';
+
+export interface UnparsedExpressionNode {
+  kind: 'unparsed';
+  text: string;   // Source tokens, single-spaced where the source had gaps
+  reason: UnparsedReason;
+  range: Range;
+}
+
+/**
+ * `in` range: `#`, `#/#`, with `f`/`l` and negative counts. When the
+ * text does not fit that shape, `first` is an `unparsed` node and `last`
+ * is absent.
+ */
+export interface InRangeNode {
+  kind: 'in_range';
+  first: ExpressionNode;
+  last?: ExpressionNode;
+  range: Range;
+}
+
+export type WeightKind = 'weight' | 'fweight' | 'aweight' | 'pweight' | 'iweight';
+
+/** `[aw=exp]` and friends. */
+export interface WeightClause {
+  keyword: string;       // As written, e.g. 'aw' or "`weight'"
+  // Canonical kind; null for the `` [`weight'`exp'] `` idiom, whose
+  // macros supply the keyword and the `=`.
+  kind: WeightKind | null;
+  expression: string;    // Raw text of exp
+  expression_ast?: ExpressionNode;  // With ParserOptions.structured
+  range: Range;          // Including the brackets
+}
+
+/** One file name after `using`. */
+export interface PathNode {
+  text: string;                     // As written, including any quotes
+  quote: 'simple' | 'compound' | null;
+  parts: TextOrMacroPart[];         // Contents without the quotes
+  range: Range;
+}
+
+/** `using filename [filename ...]`. */
+export interface UsingClause {
+  paths: PathNode[];
+  range: Range;          // From `using` to the end of the last path
 }
 
 export interface StataAST {

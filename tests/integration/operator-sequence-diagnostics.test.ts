@@ -374,9 +374,11 @@ gen x = y < = z`;
         });
 
         it('should emit C-style logical diagnostics in control flow context', async () => {
-            // Code with both parser error (unclosed brace) and C-style logical in control flow
-            const my_content = `if condition {
-    display x | | y`;
+            // Code with both parser error (unclosed brace) and C-style
+            // logical in the control-flow condition. (An operator in the
+            // body belongs to the body command, not the condition.)
+            const my_content = `if x | | y {
+    display x`;
             const my_uri = 'file:///test_parser_error.do';
             await document_store.open(my_uri, my_content, 1);
             const my_document = document_store.get(my_uri)!;
@@ -395,6 +397,29 @@ gen x = y < = z`;
             expect(the_cstyle_logical[0].message).toBe(
                 "C-style '||' operator in if condition. Consider using '|' for consistency with Stata style"
             );
+        });
+
+        it('should report an invalid operator sequence in an if body command', async () => {
+            const my_content = `if condition {
+    display x | | y
+}`;
+            const my_uri = 'file:///test_cstyle_if_body.do';
+            await document_store.open(my_uri, my_content, 1);
+            const my_document = document_store.get(my_uri)!;
+
+            const the_diagnostics = await diagnostics_provider.get_diagnostics(
+                my_document,
+                default_config
+            );
+            const the_invalid = the_diagnostics.filter(
+                d => d.code === StataDiagnosticCode.INVALID_OPERATOR_SEQUENCE
+            );
+            const the_cstyle_logical = the_diagnostics.filter(
+                d => d.code === StataDiagnosticCode.CSTYLE_LOGICAL_IN_CONTROL_FLOW
+            );
+
+            expect(the_invalid).toHaveLength(1);
+            expect(the_cstyle_logical).toHaveLength(0);
         });
 
         it('should emit multiple operator diagnostics in same file', async () => {

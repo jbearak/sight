@@ -42,7 +42,7 @@ function content_nodes(nodes: StataNode[]): StataNode[] {
 }
 
 // Canonicalize nodes for comparison: sort keys and drop every position-bearing
-// field (`range`, `argument_range`, `syntaxRanges`) — those legitimately differ
+// field (`range`, the `*_range` positions, `syntaxRanges`) — those legitimately differ
 // because the semicolon-mode wrapper shifts the command onto a later line. What
 // must match across modes is the structural + string content, which is what
 // #306 governs.
@@ -56,6 +56,9 @@ function canonical(value: unknown): unknown {
       if (
         my_key === 'range' ||
         my_key === 'argument_range' ||
+        my_key === 'arguments_range' ||
+        my_key === 'name_range' ||
+        my_key === 'spec_range' ||
         my_key === 'syntaxRanges'
       ) {
         continue;

@@ -11,7 +11,10 @@ import {
 
 const EXPRESSION_CONTEXT_KEYWORDS = new Set(['if', 'else', 'foreach', 'forvalues', 'while', 'gen', 'generate', 'replace', 'egen', 'set', 'scalar', 'matrix', 'return']);
 const COMMENT_CONTEXT_KEYWORDS = new Set(['program', 'capture', 'quietly', 'noisily', 'by', 'bysort']);
-const MULTIPLICATION_CONTEXT_TYPES = new Set(['NUMBER', 'WORD', 'RPAREN', 'RBRACKET', 'RBRACE', 'MACRO_REF_LOCAL', 'MACRO_REF_GLOBAL', 'LPAREN']);
+// A `*` after one of these is multiplication. A string never ends a
+// statement on its own line, so `"ab" * 3` is string repetition, not a
+// star comment.
+const MULTIPLICATION_CONTEXT_TYPES = new Set(['NUMBER', 'WORD', 'STRING', 'RPAREN', 'RBRACKET', 'RBRACE', 'MACRO_REF_LOCAL', 'MACRO_REF_GLOBAL', 'LPAREN']);
 const ASSIGNMENT_OPERATORS = new Set(['=', '==', '!=', '<', '>', '<=', '>=']);
 
 export class StataLexer {

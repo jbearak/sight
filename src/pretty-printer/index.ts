@@ -182,25 +182,43 @@ export class PrettyPrinter {
         // Print command name
         the_parts.push(node.name);
 
-        // Print variable list, preserving spacing around string delimiters
+        // Print the arguments in source order: varlist items, and argument
+        // tokens after the varlist (e.g. `> 0` in `assert x > 0`). A `using`
+        // clause after them is appended to the varlist, so sort by position
+        // (`infix id 1-3 using f`). Varlist neighbors keep their spacing
+        // rules; extra args, already grouped by adjacency, are attached only
+        // where the source had no gap (`gen x:lbl = 1`).
         // For unab commands with has_colon_before_varlist, emit colon after macro name
-        if (node.varlist && node.varlist.length > 0) {
-            the_parts.push(' ');
-            for (let i = 0; i < node.varlist.length; i++) {
-                const my_name = node.varlist[i].name;
-                the_parts.push(my_name);
-                
-                // For unab commands: emit colon after the first item (macro name)
-                if (i === 0 && node.has_colon_before_varlist) {
-                    the_parts.push(':');
+        const the_items = [
+            ...(node.varlist ?? []).map((item, index) => ({ item, is_extra: false, index })),
+            ...(node.extra_args ?? []).map((item, index) => ({ item, is_extra: true, index })),
+        ];
+        if (node.extra_args && node.extra_args.length > 0) {
+            the_items.sort((a, b) =>
+                a.item.range.start.line - b.item.range.start.line ||
+                a.item.range.start.character - b.item.range.start.character);
+        }
+        for (let i = 0; i < the_items.length; i++) {
+            const my_entry = the_items[i];
+            const previous = the_items[i - 1];
+            if (previous === undefined) {
+                the_parts.push(' ');
+            } else {
+                const is_attached =
+                    previous.item.range.end.line === my_entry.item.range.start.line &&
+                    previous.item.range.end.character === my_entry.item.range.start.character;
+                const omit_space = my_entry.is_extra || previous.is_extra
+                    ? is_attached
+                    : should_omit_space(previous.item.name, my_entry.item.name);
+                if (!omit_space) {
+                    the_parts.push(' ');
                 }
-                
-                if (i < node.varlist.length - 1) {
-                    const next_name = node.varlist[i + 1].name;
-                    if (!should_omit_space(my_name, next_name)) {
-                        the_parts.push(' ');
-                    }
-                }
+            }
+            the_parts.push(my_entry.item.name);
+
+            // For unab commands: emit colon after the first item (macro name)
+            if (!my_entry.is_extra && my_entry.index === 0 && node.has_colon_before_varlist) {
+                the_parts.push(':');
             }
         }
 
@@ -220,6 +238,14 @@ export class PrettyPrinter {
         if (node.inExpression) {
             the_parts.push(' in ');
             the_parts.push(format_expression_spacing(node.inExpression));
+        }
+
+        // Print weight clause
+        if (node.weight) {
+            const the_weight = node.weight;
+            const separator = the_weight.kind === null ? '' : '=';
+            const expression = format_expression_spacing(the_weight.expression);
+            the_parts.push(` [${the_weight.keyword}${separator}${expression}]`);
         }
 
         // Print options (after comma)
@@ -302,6 +328,17 @@ export class PrettyPrinter {
             result += ' ' + prefix.varlist.join(' ');
         }
 
+        // Arguments of colon prefixes such as `version 14:` or `svy linearized:`,
+        // as written: they are not always expressions (`fp <x_pow>:`)
+        if (prefix.arguments) {
+            result += ' ' + prefix.arguments;
+        }
+
+        // Prefix options, e.g. `by g, sort:` or `bootstrap, reps(100):`
+        if (prefix.options && prefix.options.length > 0) {
+            result += ', ' + prefix.options.map(o => this.printOption(o)).join(' ');
+        }
+
         // Add colon if the prefix had one
         if (prefix.has_colon) {
             result += ':';
@@ -358,7 +395,10 @@ export class PrettyPrinter {
      * Print a macro definition.
      */
     private printMacroDef(node: MacroDefNode): string {
-        const scope_keyword = node.scope;
+        const prefix_text = (node.prefix ?? [])
+            .map(p => `${this.printPrefix(p)} `)
+            .join('');
+        const scope_keyword = `${prefix_text}${node.scope}`;
         
         // Handle extended macro functions (e.g., local x : list posof "y" in z)
         if (node.extendedFunction) {
@@ -402,6 +442,9 @@ export class PrettyPrinter {
      * Print a control flow statement (if, else, foreach, forvalues, while).
      */
     private printControlFlow(node: ControlFlowNode): string {
+        const prefix_text = (node.prefix ?? [])
+            .map(p => `${this.printPrefix(p)} `)
+            .join('');
         if (node.type === 'if' && node.is_single_statement) {
             const body_node = node.body[0];
             const body = body_node ? this.printNode(body_node) : '';
@@ -411,13 +454,13 @@ export class PrettyPrinter {
                 .trimStart()
                 .slice(0, -this.getStatementTerminator().length);
             // Preserve expression fragments, comments, and Unicode names.
-            return `${this.getIndent()}if ${node.condition || ''} ${inline_body}`;
+            return `${this.getIndent()}${prefix_text}if ${node.condition || ''} ${inline_body}`;
         }
 
         const the_lines: string[] = [];
 
         // Print the control flow header
-        let header = this.getIndent();
+        let header = this.getIndent() + prefix_text;
 
         switch (node.type) {
             case 'if':
