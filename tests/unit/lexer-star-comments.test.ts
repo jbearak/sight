@@ -144,6 +144,31 @@ gen result = age * income ;
     });
   });
 
+  describe('Star after a block comment', () => {
+    // Stata 18: `gen x = a /* c */ * b` multiplies, also when the
+    // comment spans lines; `/* c */ * note` alone on a line is a comment.
+    const types_of = (source: string): string[] =>
+      lexer.tokenize(source).tokens
+        .filter(t => t.type !== 'EOF')
+        .map(t => `${t.type} ${t.value}`);
+
+    test('reads * after code and a block comment as multiplication', () => {
+      expect(types_of('gen x = a /* c */ * b')).toEqual([
+        'WORD gen', 'WORD x', 'OPERATOR =', 'WORD a',
+        'COMMENT_BLOCK /* c */', 'OPERATOR *', 'WORD b',
+      ]);
+      expect(types_of('reg y [aw = w /* c */ /* d */ * 2]')).toContain('OPERATOR *');
+      expect(types_of('gen x = a /* c\n */ * b')).toContain('OPERATOR *');
+    });
+
+    test('reads * after only a block comment on the line as a comment', () => {
+      expect(types_of('/* c */ * note')).toEqual([
+        'COMMENT_BLOCK /* c */', 'COMMENT_LINE * note',
+      ]);
+      expect(types_of('gen x = 1\n/* c */ * note')).toContain('COMMENT_LINE * note');
+    });
+  });
+
   describe('Edge cases', () => {
     test('should handle * at start of file as comment', () => {
       const source = '* File header comment';

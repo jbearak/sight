@@ -13,6 +13,7 @@ import {
     OptionNode,
     EmbeddedLanguageBlockNode
 } from '../types';
+import { compare_positions } from '../utils/scope-position';
 import { format_expression_spacing } from './expression-spacing';
 
 /**
@@ -189,6 +190,12 @@ export class PrettyPrinter {
         // rules; extra args, already grouped by adjacency, are attached only
         // where the source had no gap (`gen x:lbl = 1`).
         // For unab commands with has_colon_before_varlist, emit colon after macro name
+        // An interior block comment goes back before the argument that
+        // followed it in the source. One after the last argument goes at
+        // the end of the statement, outside the expression, qualifiers,
+        // and options, which are printed from strings.
+        const the_comments = node.interiorTrivia ?? [];
+        let comment_index = 0;
         const the_items = [
             ...(node.varlist ?? []).map((item, index) => ({ item, is_extra: false, index })),
             ...(node.extra_args ?? []).map((item, index) => ({ item, is_extra: true, index })),
@@ -201,7 +208,16 @@ export class PrettyPrinter {
         for (let i = 0; i < the_items.length; i++) {
             const my_entry = the_items[i];
             const previous = the_items[i - 1];
-            if (previous === undefined) {
+            let after_comment = false;
+            while (comment_index < the_comments.length &&
+                compare_positions(
+                    the_comments[comment_index].range.end,
+                    my_entry.item.range.start) <= 0) {
+                the_parts.push(' ', this.printTrivia(the_comments[comment_index]));
+                comment_index++;
+                after_comment = true;
+            }
+            if (previous === undefined || after_comment) {
                 the_parts.push(' ');
             } else {
                 const is_attached =
@@ -253,6 +269,10 @@ export class PrettyPrinter {
             the_parts.push(', ');
             const the_option_strs = node.options.map(o => this.printOption(o));
             the_parts.push(the_option_strs.join(' '));
+        }
+
+        for (const my_comment of the_comments.slice(comment_index)) {
+            the_parts.push(' ', this.printTrivia(my_comment));
         }
 
         // Handle prefix command brace blocks (e.g., capture { }, quietly { })
@@ -405,19 +425,23 @@ export class PrettyPrinter {
             .join('');
         const scope_keyword = `${prefix_text}${node.scope}`;
         
+        let statement: string;
         // Handle extended macro functions (e.g., local x : list posof "y" in z)
         if (node.extendedFunction) {
             const func = node.extendedFunction;
             const args_part = func.args ? ` ${func.args}` : '';
-            return `${this.getIndent()}${scope_keyword} ${node.name} : ${func.name}${args_part}`.trimEnd();
+            statement = `${this.getIndent()}${scope_keyword} ${node.name} : ${func.name}${args_part}`.trimEnd();
+        } else if (node.hasEquals) {
+            // Use '=' if the original definition had it
+            statement = `${this.getIndent()}${scope_keyword} ${node.name} = ${format_expression_spacing(node.value)}`.trimEnd();
+        } else {
+            statement = `${this.getIndent()}${scope_keyword} ${node.name} ${format_expression_spacing(node.value)}`.trimEnd();
         }
-        
-        // Use '=' if the original definition had it
-        if (node.hasEquals) {
-            return `${this.getIndent()}${scope_keyword} ${node.name} = ${format_expression_spacing(node.value)}`.trimEnd();
-        }
-        
-        return `${this.getIndent()}${scope_keyword} ${node.name} ${format_expression_spacing(node.value)}`.trimEnd();
+
+        // Interior block comments go at the end, outside the value.
+        const the_comments = (node.interiorTrivia ?? [])
+            .map(my_comment => ` ${this.printTrivia(my_comment)}`);
+        return statement + the_comments.join('');
     }
 
     /**
