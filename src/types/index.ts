@@ -304,6 +304,8 @@ export interface CommandNode {
 export interface ProgramNode {
   type: 'program';
   name: string;
+  define_keyword?: string;  // `define` as written (or abbreviated); absent for `program name`
+  define_options?: string;  // Raw text after the comma, e.g. 'rclass'
   body: StataNode[];
   signature?: ProgramSignature; // Extracted from syntax command
   range: Range;

@@ -150,11 +150,15 @@ ${banner}
 USAGE:
     sight [OPTIONS]
     sight check [OPTIONS] [PATHS...]
+    sight parse --json FILE...
+    sight graph --json [ROOT]
     sight console [OPTIONS] [-- STATA_ARGS...]
 
 COMMANDS:
     check             Run full Stata diagnostics over a workspace (for CI).
                       See "sight check --help" for its options.
+    parse             Print the structured view of Stata files as JSON.
+    graph             Print the do/run/include graph of a project as JSON.
     console           Run Stata's console with highlighting, completion
                       and colored output (experimental).
                       See "sight console --help" for its options.
@@ -204,6 +208,16 @@ export async function main(
     if (argv[0] === 'check') {
         const { run_check } = await import('./cli/check');
         return run_check(argv.slice(1));
+    }
+
+    if (argv[0] === 'parse') {
+        const { run_parse } = await import('./cli/parse');
+        return run_parse(argv.slice(1));
+    }
+
+    if (argv[0] === 'graph') {
+        const { run_graph } = await import('./cli/graph');
+        return run_graph(argv.slice(1));
     }
 
     if (argv[0] === 'console') {

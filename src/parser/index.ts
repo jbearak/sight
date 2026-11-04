@@ -56,6 +56,16 @@ const PREFIX_COMMANDS: ReadonlyMap<string, string> = new Map([
   ['noisi', 'noisily'], ['noisil', 'noisily'], ['noisily', 'noisily'],
 ]);
 
+/** `program` subcommands other than define, with abbreviations. */
+const PROGRAM_SUBCOMMANDS: ReadonlySet<string> = new Set([
+  'di', 'dir', 'drop', 'l', 'li', 'lis', 'list',
+]);
+
+/** `define` and its abbreviations after `program`. */
+const PROGRAM_DEFINE_KEYWORDS: ReadonlySet<string> = new Set([
+  'de', 'def', 'defi', 'defin', 'define',
+]);
+
 /**
  * Commands that act as a prefix only when a top-level colon follows,
  * e.g. `svy: regress ...` or `version 14: ...`, mapped to canonical
@@ -284,8 +294,7 @@ export class StataParser {
     } else if (this.check('WORD') && this.isPrefixCommand(this.peek().value)) {
       // Prefix command - delegate to parseCommand which handles prefix parsing
       node = this.parseCommand();
-    } else if (this.checkWord('program') &&
-        this.tokens[this.current + 1]?.value === 'define') {
+    } else if (this.checkWord('program') && this.starts_program_definition()) {
       node = this.parseProgramDefinition();
     } else if (this.checkWord('syntax')) {
       node = this.parseSyntaxCommand();
@@ -520,16 +529,54 @@ export class StataParser {
     };
   }
 
+  /**
+   * Does `program` at the current token start a definition? Stata accepts
+   * `program [define] name`; `program dir`, `program drop`, and
+   * `program list` (and their abbreviations) are other subcommands.
+   */
+  private starts_program_definition(): boolean {
+    // In `#delimit cr` mode a line break is a terminator token, so the
+    // next significant WORD is on the same logical statement.
+    const next = this.tokens[this.next_header_token(this.current + 1)];
+    return next?.type === 'WORD' && !PROGRAM_SUBCOMMANDS.has(next.value);
+  }
+
+  /**
+   * Index of the first token at or after `index` that is not a block
+   * comment, a `///` continuation, or the newline a continuation
+   * swallows.
+   */
+  private next_header_token(index: number): number {
+    let i = index;
+    for (;;) {
+      const my_token = this.tokens[i];
+      if (my_token?.type === 'COMMENT_BLOCK' || my_token?.type === 'CONTINUATION') {
+        i++;
+        continue;
+      }
+      if (my_token !== undefined && i > 0 &&
+          is_swallowed_continuation_terminator(
+            my_token, this.tokens[i - 1].type === 'CONTINUATION')) {
+        i++;
+        continue;
+      }
+      return i;
+    }
+  }
+
   private parseProgramDefinition(): ProgramNode {
     const start_token = this.advance(); // consume 'program'
 
-    if (!this.checkWord('define')) {
-      this.addError('Expected "define" after "program"', this.peek().range);
-    } else {
-      this.advance(); // consume 'define'
+    // `define` is optional; a define abbreviation followed by another
+    // word is the keyword, otherwise the word is the program name.
+    let define_keyword: string | undefined;
+    this.current = this.next_header_token(this.current);
+    if (this.check('WORD') && PROGRAM_DEFINE_KEYWORDS.has(this.peek().value) &&
+        this.tokens[this.next_header_token(this.current + 1)]?.type === 'WORD') {
+      define_keyword = this.advance().value;
     }
 
-    this.skipTrivia();
+    this.current = this.next_header_token(this.current);
 
 
     // Get program name
@@ -541,8 +588,35 @@ export class StataParser {
     const name_token = this.advance();
     const program_name = name_token.value;
 
-    // Skip any additional parameters/options for now
-    this.skipToStatementEnd();
+    // Keep the raw text of `, options` (rclass, eclass, byable(), ...)
+    const option_tokens: Token[] = [];
+    const preceded_by_continuation: boolean[] = [];
+    const continuation = new ContinuationTracker();
+    let saw_comma = false;
+    while (!this.isAtEnd() && !this.check('STATEMENT_TERMINATOR')) {
+      if (this.check('CONTINUATION')) {
+        const cont_token = this.peek();
+        if (this.skipContinuation()) {
+          continuation.note_continuation(cont_token);
+          continue;
+        }
+      }
+      const my_token = this.advance();
+      if (my_token.type === 'COMMENT_LINE' || my_token.type === 'COMMENT_BLOCK') {
+        continue;
+      }
+      if (!saw_comma && my_token.type === 'COMMA') {
+        saw_comma = true;
+        continue;
+      }
+      if (saw_comma) {
+        option_tokens.push(my_token);
+        preceded_by_continuation.push(continuation.collect(my_token));
+      }
+    }
+    const define_options = saw_comma
+      ? this.reconstruct_value_tokens(option_tokens, preceded_by_continuation).trim()
+      : undefined;
 
     // Parse program body
     const body: StataNode[] = [];
@@ -584,6 +658,8 @@ export class StataParser {
     return {
       type: 'program',
       name: program_name,
+      ...(define_keyword !== undefined ? { define_keyword } : {}),
+      ...(define_options !== undefined ? { define_options } : {}),
       body,
       signature: merged_signature,
       range: this.makeRange(

@@ -369,7 +369,12 @@ export class PrettyPrinter {
         const the_lines: string[] = [];
 
         // Print program header
-        the_lines.push(`${this.getIndent()}program define ${node.name}`);
+        // `define` is optional in Stata; print it only when the source had it
+        const define_part = node.define_keyword !== undefined
+            ? `${node.define_keyword} `
+            : '';
+        const options_part = node.define_options ? `, ${node.define_options}` : '';
+        the_lines.push(`${this.getIndent()}program ${define_part}${node.name}${options_part}`);
         the_lines.push(this.getStatementTerminator());
 
         // Increase indent for body
