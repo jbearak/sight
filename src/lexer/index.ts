@@ -16,6 +16,15 @@ const COMMENT_CONTEXT_KEYWORDS = new Set(['program', 'capture', 'quietly', 'nois
 // star comment.
 const MULTIPLICATION_CONTEXT_TYPES = new Set(['NUMBER', 'WORD', 'STRING', 'RPAREN', 'RBRACKET', 'RBRACE', 'MACRO_REF_LOCAL', 'MACRO_REF_GLOBAL', 'LPAREN']);
 const ASSIGNMENT_OPERATORS = new Set(['=', '==', '!=', '<', '>', '<=', '>=']);
+const COMMENT_TOKEN_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
+  'COMMENT_LINE', 'COMMENT_BLOCK', 'CONTINUATION',
+]);
+// Under `#delimit ;`, a statement starts after one of these (or at the
+// start of the file).
+const STATEMENT_START_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
+  'STATEMENT_TERMINATOR', 'DELIMIT_DIRECTIVE', 'LBRACE', 'RBRACE',
+  'END_MATA', 'END_PYTHON',
+]);
 
 export class StataLexer {
   private source: string = '';
@@ -31,7 +40,7 @@ export class StataLexer {
   private line_offsets: number[] = [];
 
   private previous_token: Token | null = null;
-  // The previous token other than whitespace or a block comment, so
+  // The previous token other than whitespace or a comment, so
   // `a /* c */ * b` reads `*` after `a`.
   private previous_code_token: Token | null = null;
 
@@ -286,7 +295,7 @@ export class StataLexer {
       return;
     }
     this.previous_token = token;
-    if (token.type !== 'COMMENT_BLOCK') {
+    if (!COMMENT_TOKEN_TYPES.has(token.type)) {
       this.previous_code_token = token;
     }
   }
@@ -301,25 +310,21 @@ export class StataLexer {
    * 4. * in embedded language contexts follows different rules
    */
   private is_star_comment(start_line: number, start_column: number): boolean {
-    // Rule 1: * at beginning of line (after optional whitespace) is always comment
-    if (start_column === 0) {
-      return true;
-    }
-    
-    // Check if * is at the beginning of the line after whitespace
-    const line_start_offset = this.line_offsets[start_line] || 0;
-    const current_offset = this.position_to_offset(start_line, start_column);
-    
-    if (current_offset > line_start_offset) {
-      const line_prefix = this.source.substring(line_start_offset, current_offset);
-      // If everything before * on this line is whitespace, it's a comment
-      if (/^\s*$/.test(line_prefix)) {
+    // Rule 1: * at beginning of line (after optional whitespace) is a
+    // comment. Under `#delimit ;` a newline doesn't end the statement, so
+    // there it is a comment only at the start of a statement:
+    // `gen y = a` then `* b;` on the next line multiplies (Stata 18).
+    if (this.is_at_line_start(start_line, start_column)) {
+      const is_delimit_stata = this.state.delimiterMode === 'semicolon' &&
+        this.get_current_context() === LanguageContext.STATA;
+      if (!is_delimit_stata || this.previous_code_token === null ||
+          STATEMENT_START_TYPES.has(this.previous_code_token.type)) {
         return true;
       }
     }
     
     // Rule 2: Check previous token context
-    // A block comment is whitespace here: look at the code before it.
+    // A comment is whitespace here: look at the code before it.
     if (!this.previous_code_token) {
       // No previous token means we're at start of file - treat as comment
       return true;
@@ -371,6 +376,16 @@ export class StataLexer {
     // Default: when in doubt, treat as comment for safety
     // This prevents accidentally commenting out multiplication
     return true;
+  }
+
+  /** Is only whitespace before this position on its line? */
+  private is_at_line_start(start_line: number, start_column: number): boolean {
+    if (start_column === 0) {
+      return true;
+    }
+    const line_start_offset = this.line_offsets[start_line] || 0;
+    const current_offset = this.position_to_offset(start_line, start_column);
+    return /^\s*$/.test(this.source.substring(line_start_offset, current_offset));
   }
 
   private push_context(context: LanguageContext): void {

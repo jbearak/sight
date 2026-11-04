@@ -114,6 +114,14 @@ const INTERIOR_COMMENTS: Array<[string, string]> = [
     ['reg y x, robust /* c */ cluster(id)', 'reg y x, robust cluster(id) /* c */'],
     ['local z = a /* c */ + b', 'local z = a + b /* c */'],
     ['reg y /* a */ x if b /* c */ & d // note', 'reg y /* a */ x if b & d /* c */ // note'],
+    // A comment around the colon of unab or a prefix; one inside the
+    // prefixes goes before the command's arguments.
+    ['unab x /* c */ : a b', 'unab x: /* c */ a b'],
+    ['unab x : a /* c */ b', 'unab x: a /* c */ b'],
+    ['unab x : a b, /* c */ min(1)', 'unab x: a b, min(1) /* c */'],
+    ['quietly /* c */ : gen x = 1', 'quietly: gen /* c */ x = 1'],
+    ['capture /* c */ noisily gen x = 1', 'capture noisily gen /* c */ x = 1'],
+    ['version 14: /* c */ gen x = 1', 'version 14: gen /* c */ x = 1'],
 ];
 
 describe('formatting statements with interior block comments', () => {
@@ -135,6 +143,18 @@ describe('formatting statements with interior block comments', () => {
         const source = 'gen x = a /* c */\nkeep if b /* d */ // note\n';
         const formatted = format_source(source, mode);
         expect(formatted).toBe(source);
+        expect(format_source(formatted, mode)).toBe(formatted);
+    });
+
+    for_each_formatter_mode('keeps a * line that continues a #delimit ; statement', mode => {
+        const source = '#delimit ;\ngen y = a\n* b;\ngen z = 1;\n#delimit cr\n';
+        const formatted = format_source(source, mode);
+        // Stata 18 reads `* b` here as multiplication, not a comment.
+        if (mode === 'ast') {
+            expect(formatted).toContain('gen y = a * b;\ngen z = 1;');
+        } else {
+            expect(formatted).toBe(source);
+        }
         expect(format_source(formatted, mode)).toBe(formatted);
     });
 

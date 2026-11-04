@@ -93,6 +93,10 @@ const COLON_PREFIX_COMMANDS: ReadonlyMap<string, string> = new Map([
 ]);
 
 /** Canonical names of the colon prefixes above. */
+// Tokens that can name a command (`gen`, `` `cmd' ``, `$cmd`).
+const COMMAND_NAME_TYPES: ReadonlySet<TokenType | undefined> = new Set<TokenType>([
+  'WORD', 'MACRO_REF_LOCAL', 'MACRO_REF_GLOBAL',
+]);
 const COLON_PREFIX_NAMES: ReadonlySet<string> = new Set(COLON_PREFIX_COMMANDS.values());
 
 /**
@@ -2039,6 +2043,7 @@ export class StataParser {
     const start_pos = command_token.range.start;
 
     // Parse macro name
+    this.skip_interior_block_comments();
     if (!this.check('WORD')) {
       this.addError('Expected macro name after unab', this.peek().range);
       throw new Error('Missing macro name in unab command');
@@ -2056,7 +2061,8 @@ export class StataParser {
     // This keeps varlists pure (only variable names) while preserving syntax
     let has_colon_before_varlist = false;
 
-    // Expect colon
+    // Expect colon; a block comment before it is whitespace.
+    this.skip_interior_block_comments();
     if (!this.check('COLON')) {
       this.addError(
         'Expected ":" after macro name in unab command',
@@ -2067,11 +2073,13 @@ export class StataParser {
       has_colon_before_varlist = true;
     }
 
-    // Parse variable list after colon
-    while ((this.check('WORD') || this.check('MACRO_REF_LOCAL') ||
-            this.check('MACRO_REF_GLOBAL') ||
-            (this.check('OPERATOR') && (this.peek().value === '*' || this.peek().value === '?'))) &&
-           !this.check('COMMA') && !this.isTrivia()) {
+    // Parse variable list after colon; a block comment between names is
+    // whitespace.
+    for (;;) {
+      this.skip_interior_block_comments();
+      if (!this.is_unab_varlist_token()) {
+        break;
+      }
       const var_token = this.advance();
       let name = var_token.value;
       let end_range = var_token.range.end;
@@ -2103,6 +2111,7 @@ export class StataParser {
 
       while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
         if (this.skipContinuation()) continue;
+        if (this.skip_interior_block_comments()) continue;
         if (this.isTrivia()) break;
         if (this.check('WORD')) {
           const option_token = this.advance();
@@ -2603,6 +2612,14 @@ export class StataParser {
       }
       return name[0];
     }
+  }
+
+  /** Can the current token be a name in unab's varlist? */
+  private is_unab_varlist_token(): boolean {
+    return this.check('WORD') || this.check('MACRO_REF_LOCAL') ||
+      this.check('MACRO_REF_GLOBAL') ||
+      (this.check('OPERATOR') &&
+        (this.peek().value === '*' || this.peek().value === '?'));
   }
 
   private isTrivia(): boolean {
@@ -3313,6 +3330,7 @@ export class StataParser {
     const start_pos = command_token.range.start;
 
     // Parse macro name
+    this.skip_interior_block_comments();
     if (!this.check('WORD')) {
       this.addError('Expected macro name after unab', this.peek().range);
       return {
@@ -3335,7 +3353,8 @@ export class StataParser {
     // This keeps varlists pure (only variable names) while preserving syntax
     let has_colon_before_varlist = false;
 
-    // Expect colon
+    // Expect colon; a block comment before it is whitespace.
+    this.skip_interior_block_comments();
     if (!this.check('COLON')) {
       this.addError(
         'Expected ":" after macro name in unab command',
@@ -3346,11 +3365,13 @@ export class StataParser {
       has_colon_before_varlist = true;
     }
 
-    // Parse variable list after colon
-    while ((this.check('WORD') || this.check('MACRO_REF_LOCAL') ||
-            this.check('MACRO_REF_GLOBAL') ||
-            (this.check('OPERATOR') && (this.peek().value === '*' || this.peek().value === '?'))) &&
-           !this.check('COMMA') && !this.isTrivia()) {
+    // Parse variable list after colon; a block comment between names is
+    // whitespace.
+    for (;;) {
+      this.skip_interior_block_comments();
+      if (!this.is_unab_varlist_token()) {
+        break;
+      }
       const var_token = this.advance();
       let name = var_token.value;
       let end_range = var_token.range.end;
@@ -3381,6 +3402,7 @@ export class StataParser {
       this.advance();
       while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
         if (this.skipContinuation()) continue;
+        if (this.skip_interior_block_comments()) continue;
         if (this.isTrivia()) break;
         if (this.check('WORD')) {
           const option_token = this.advance();
@@ -3441,10 +3463,18 @@ export class StataParser {
    */
   private parse_prefix_chain(prefixes: PrefixNode[]): void {
     for (;;) {
-      // A `///` continuation may separate prefixes; comments end the chain
-      // so they stay attached to the statement as trivia.
+      // A `///` continuation, or block comments before the next word
+      // (`capture /* c */ noisily`, `quietly: /* c */ gen`), may separate
+      // prefixes; other comments end the chain so they stay attached to
+      // the statement as trivia.
       while (this.skipContinuation()) {
         // skip
+      }
+      const word_index = this.index_after_block_comments(this.current);
+      if (COMMAND_NAME_TYPES.has(this.tokens[word_index]?.type)) {
+        while (this.current < word_index) {
+          this.advance();
+        }
       }
       const token = this.peek();
       if (token.type !== 'WORD') {
@@ -3488,7 +3518,14 @@ export class StataParser {
       }
     }
 
-    // Consume colon after any prefix command (quietly:, capture:, by g:, etc.)
+    // Consume colon after any prefix command (quietly:, capture:, by g:,
+    // etc.). A block comment before it is whitespace: `quietly /* c */ :`.
+    const colon_index = this.index_after_block_comments(this.current);
+    if (this.tokens[colon_index]?.type === 'COLON') {
+      while (this.current < colon_index) {
+        this.advance();
+      }
+    }
     if (this.check('COLON')) {
       this.advance();
       prefix.has_colon = true;
@@ -3688,6 +3725,28 @@ export class StataParser {
       return true;
     }
     return false;
+  }
+
+  /** Index of the first token from `index` on that isn't a block comment. */
+  private index_after_block_comments(index: number): number {
+    let i = index;
+    while (this.tokens[i]?.type === 'COMMENT_BLOCK') {
+      i++;
+    }
+    return i;
+  }
+
+  /**
+   * Skip block comments that have more of the statement after them; a
+   * comment there is whitespace. Returns true if any were skipped.
+   */
+  private skip_interior_block_comments(): boolean {
+    let skipped = false;
+    while (this.check('COMMENT_BLOCK') && this.statement_continues_after(this.current)) {
+      this.advance();
+      skipped = true;
+    }
+    return skipped;
   }
 
   /**
