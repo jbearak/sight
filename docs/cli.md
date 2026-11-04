@@ -305,6 +305,7 @@ Every statement has:
 Statements with a body (`block`, `if`, `else`, loops, `program`, `frame`)
 have `body`, a list of statements. `command`, `block`, `macro`, `syntax`,
 `embedded`, and control-flow statements have `prefixes` (see `command`), so
+`capture local y 2` is a `macro` with a `capture` prefix, and
 `version 14: local x = 1` is a `macro` with a `version` prefix.
 
 #### `command`

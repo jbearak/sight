@@ -56,22 +56,32 @@ describe('Prefix Colon and Program Context Property Tests', () => {
   });
 
   /**
-   * Property 3: Prefix commands followed by statement keywords parse as regular commands
+   * Property 3: Prefix commands followed by statement keywords parse
+   * without errors. `program` stays a command; `local` and `global`
+   * become macro definitions that keep the prefix, because
+   * `capture local x 1` defines `x`.
    * Feature: prefix-colon-and-program-context, Property 3
    * Validates: Requirements 3.3, 3.5
    */
-  it('should parse prefix commands followed by statement keywords as regular commands', () => {
+  it('should parse prefix commands followed by statement keywords without errors', () => {
     const prefixGen = fc.constantFrom('quietly', 'capture', 'noisily', 'qui', 'cap', 'noi');
     const keywordGen = fc.constantFrom('program', 'local', 'global');
-    
-    fc.assert(fc.property(prefixGen, keywordGen, (prefix, keyword) => {
-      // Test without colon - prefix followed directly by statement keyword
-      const source = `${prefix} ${keyword} arg1`;
+    const colonGen = fc.constantFrom('', ':');
+
+    fc.assert(fc.property(prefixGen, keywordGen, colonGen, (prefix, keyword, colon) => {
+      const source = `${prefix}${colon} ${keyword} arg1`;
       const result = parseCode(source);
-      
-      return result.errors.length === 0 && 
-             result.ast.nodes.length > 0 &&
-             result.ast.nodes[0].type === 'command';
+      if (result.errors.length !== 0 || result.ast.nodes.length !== 1) {
+        return false;
+      }
+      const node = result.ast.nodes[0];
+      if (keyword === 'program') {
+        return node.type === 'command' && node.name === 'program';
+      }
+      return node.type === 'macro_def' &&
+             node.scope === keyword &&
+             node.name === 'arg1' &&
+             node.prefix?.[0]?.name === prefix;
     }), { numRuns: 100 });
   });
 });

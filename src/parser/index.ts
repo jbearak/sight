@@ -912,6 +912,9 @@ export class StataParser {
       hasEquals: has_equals,
       range: this.makeRange(scopeToken.range.start, this.previous().range.end),
     };
+    if (prefixOp === '++' || prefixOp === '--') {
+      macro_node.increment = prefixOp;
+    }
     if (has_equals && this.structured) {
       const equals_end = value_start_pos > 0
         ? this.tokens[value_start_pos - 1].range.end
@@ -1094,14 +1097,11 @@ export class StataParser {
     const prefixes: PrefixNode[] = [];
     this.parse_prefix_chain(prefixes);
 
-    // `version 14: local x = 1` is still a macro definition. (Before colon
-    // prefixes were parsed, the colon split it into `version 14` and a
-    // separate definition.) Argument-free prefixes such as
-    // `capture local ...` keep parsing as commands.
-    const has_colon_prefix = prefixes.some(
-      (my_prefix) => COLON_PREFIX_NAMES.has(my_prefix.fullName)
-    );
-    if (has_colon_prefix &&
+    // A prefixed definition still defines the macro: `capture local y 2`,
+    // `qui: local z 3`, `version 14: local x = 1`. Like an unprefixed
+    // one, a definition whose name is not a plain word (`` global `g' = 1 ``)
+    // stays a command.
+    if (prefixes.length > 0 &&
         (this.checkWord('local') || this.checkWord('global')) &&
         this.looksLikeMacroDefinition()) {
       const macro_node = this.parseMacroDefinition();
@@ -1109,7 +1109,11 @@ export class StataParser {
       macro_node.range = this.makeRange(start_token.range.start, macro_node.range.end);
       return macro_node;
     }
-    // Likewise `version 14: foreach x in a b { ... }` keeps its loop.
+    // `version 14: foreach x in a b { ... }` keeps its loop. Argument-free
+    // prefixes such as `capture foreach ...` keep parsing as commands.
+    const has_colon_prefix = prefixes.some(
+      (my_prefix) => COLON_PREFIX_NAMES.has(my_prefix.fullName)
+    );
     if (has_colon_prefix) {
       let control_node: ControlFlowNode | undefined;
       if (this.checkWord('foreach') || this.checkForvalues()) {

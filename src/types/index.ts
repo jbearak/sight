@@ -340,6 +340,7 @@ export interface MacroDefNode {
   name: string;
   value: string;
   hasEquals?: boolean;  // Whether the definition used '=' (e.g., local x = 1 vs local x 1)
+  increment?: '++' | '--';  // `local ++i`; `value` then starts with the operator
   expression_ast?: ExpressionNode;  // Parsed value when hasEquals (structured parse)
   extendedFunction?: ExtendedMacroFunction;
   range: Range;

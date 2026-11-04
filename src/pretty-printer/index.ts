@@ -425,6 +425,13 @@ export class PrettyPrinter {
             .join('');
         const scope_keyword = `${prefix_text}${node.scope}`;
         
+        // `local ++i` keeps its operator before the name. The parser puts
+        // the operator at the start of `value`, where expression spacing
+        // would turn `++` into `+ +`.
+        const increment = node.increment ?? '';
+        const name_text = `${increment}${node.name}`;
+        const value = node.value.slice(increment.length).trim();
+
         let statement: string;
         // Handle extended macro functions (e.g., local x : list posof "y" in z)
         if (node.extendedFunction) {
@@ -433,9 +440,9 @@ export class PrettyPrinter {
             statement = `${this.getIndent()}${scope_keyword} ${node.name} : ${func.name}${args_part}`.trimEnd();
         } else if (node.hasEquals) {
             // Use '=' if the original definition had it
-            statement = `${this.getIndent()}${scope_keyword} ${node.name} = ${format_expression_spacing(node.value)}`.trimEnd();
+            statement = `${this.getIndent()}${scope_keyword} ${name_text} = ${format_expression_spacing(value)}`.trimEnd();
         } else {
-            statement = `${this.getIndent()}${scope_keyword} ${node.name} ${format_expression_spacing(node.value)}`.trimEnd();
+            statement = `${this.getIndent()}${scope_keyword} ${name_text} ${format_expression_spacing(value)}`.trimEnd();
         }
 
         // Interior block comments go at the end, outside the value.
