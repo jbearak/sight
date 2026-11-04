@@ -63,6 +63,23 @@ describe('program definitions without define', () => {
         }
     });
 
+    it('parses a plugin declaration as a command with no body', () => {
+        for (const my_source of [
+            'program hello, plugin using("hello.plugin")\ndi 1\n',
+            'program define hello, plugin\ndi 1\n',
+        ]) {
+            const { ast, errors } = parse(my_source);
+            expect(errors).toEqual([]);
+            expect(ast.nodes.map((n) => n.type)).toEqual(['command', 'command']);
+        }
+    });
+
+    it('does not take a trailing define as the program name', () => {
+        const { ast, errors } = parse('program define\ndi 1\n');
+        expect(errors.map((e) => e.message)).toContain('Expected program name');
+        expect(ast.nodes.some((n) => n.type === 'program')).toBe(false);
+    });
+
     it('leaves program dir, drop, and list as commands', () => {
         for (const my_source of ['program drop myprog', 'program dir', 'program list myprog', 'program l']) {
             const { ast } = parse(`${my_source}\n`);

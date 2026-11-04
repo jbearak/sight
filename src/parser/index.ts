@@ -538,7 +538,42 @@ export class StataParser {
     // In `#delimit cr` mode a line break is a terminator token, so the
     // next significant WORD is on the same logical statement.
     const next = this.tokens[this.next_header_token(this.current + 1)];
-    return next?.type === 'WORD' && !PROGRAM_SUBCOMMANDS.has(next.value);
+    return next?.type === 'WORD' && !PROGRAM_SUBCOMMANDS.has(next.value) &&
+      !this.declares_plugin();
+  }
+
+  /**
+   * Does the current `program` statement have the `plugin` option? A
+   * plugin declaration (`program hello, plugin using(...)`) has no body
+   * and no `end`, so it is parsed as an ordinary command.
+   */
+  private declares_plugin(): boolean {
+    let saw_comma = false;
+    let depth = 0;
+    for (let i = this.current + 1; i < this.tokens.length; i++) {
+      const my_token = this.tokens[i];
+      if (my_token.type === 'STATEMENT_TERMINATOR') {
+        if (is_swallowed_continuation_terminator(
+          my_token, this.tokens[i - 1].type === 'CONTINUATION')) {
+          continue;
+        }
+        return false;
+      }
+      if (my_token.type === 'EOF') {
+        return false;
+      }
+      if (my_token.type === 'LPAREN') {
+        depth++;
+      } else if (my_token.type === 'RPAREN') {
+        depth = Math.max(0, depth - 1);
+      } else if (my_token.type === 'COMMA' && depth === 0) {
+        saw_comma = true;
+      } else if (saw_comma && depth === 0 && my_token.type === 'WORD' &&
+          my_token.value === 'plugin') {
+        return true;
+      }
+    }
+    return false;
   }
 
   /**
@@ -571,8 +606,12 @@ export class StataParser {
     // word is the keyword, otherwise the word is the program name.
     let define_keyword: string | undefined;
     this.current = this.next_header_token(this.current);
+    // `define` itself is always the keyword (a program named define is
+    // `program define define`); an abbreviation is the keyword only when a
+    // name follows.
     if (this.check('WORD') && PROGRAM_DEFINE_KEYWORDS.has(this.peek().value) &&
-        this.tokens[this.next_header_token(this.current + 1)]?.type === 'WORD') {
+        (this.peek().value === 'define' ||
+         this.tokens[this.next_header_token(this.current + 1)]?.type === 'WORD')) {
       define_keyword = this.advance().value;
     }
 

@@ -271,6 +271,8 @@ export async function build_graph_document(options: {
     config: StataLSPConfig;
     file_paths: string[];
     sight_version: string;
+    /** Receives a message for each file that cannot be read. */
+    warn?: (message: string) => void;
 }): Promise<GraphDocument> {
     const { root, config } = options;
     const display_path = (fs_path: string): string => {
@@ -298,6 +300,8 @@ export async function build_graph_document(options: {
     for (const my_path of the_paths) {
         const read = read_source_file(my_path);
         if (read.kind !== 'ok') {
+            const detail = read.kind === 'read-error' ? read.message : read.diagnostic.message;
+            options.warn?.(`${display_path(my_path)}: ${detail}; left out of the graph`);
             continue;
         }
         const uri = URI.file(my_path).toString();
@@ -505,6 +509,7 @@ export async function run_graph_with_cwd(
                 .map((my_target) => my_target.path)
                 .filter((my_path) => GRAPH_EXTENSIONS.has(path.extname(my_path).toLowerCase())),
             sight_version: package_json.version,
+            warn: (message) => output.stderr(`sight graph: ${message}\n`),
         });
         output.stdout(`${JSON.stringify(document)}\n`);
         return EXIT_OK;
