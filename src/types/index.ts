@@ -634,6 +634,12 @@ export interface UsingClause {
 
 export interface StataAST {
   nodes: StataNode[];
+  /**
+   * Comment-only lines at the end of the file when no statement can
+   * hold them, as in a file of only comments. Otherwise they are the
+   * last statement's `trailingTrivia`.
+   */
+  trailingTrivia?: TriviaNode[];
 }
 
 export interface ParseResult {

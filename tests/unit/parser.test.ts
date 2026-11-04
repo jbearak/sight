@@ -2442,6 +2442,17 @@ generate age = 25`;
         expect(node.trailingTrivia?.length).toBeGreaterThan(0);
         expect(node.trailingTrivia?.[0].content).toContain('Final comment');
       }
+      expect(parseResult.ast.trailingTrivia).toBeUndefined();
+    });
+
+    test('should keep comments in a file with no statements', () => {
+      const source = `* first\n\n// second\n`;
+      const parseResult = parser.parse(lexer.tokenize(source).tokens);
+
+      expect(parseResult.errors).toHaveLength(0);
+      expect(parseResult.ast.nodes).toHaveLength(0);
+      expect(parseResult.ast.trailingTrivia?.map(t => t.content))
+        .toEqual(['* first', '// second']);
     });
 
     test('should attach trivia to macro definitions', () => {

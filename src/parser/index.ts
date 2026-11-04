@@ -242,21 +242,26 @@ export class StataParser {
       }
     }
 
-    // If the file ends with trivia (comment-only tail), attach it to the last node.
-    if (this.pending_trivia.length > 0 && nodes.length > 0) {
+    // If the file ends with trivia (comment-only tail), attach it to the
+    // last node. With no node to hold it, keep it on the AST rather than
+    // dropping it, so a file of only comments prints back unchanged.
+    let eof_trivia: TriviaNode[] | undefined;
+    if (this.pending_trivia.length > 0) {
       const last_node = nodes[nodes.length - 1];
-      if (this.isNodeWithTrivia(last_node)) {
+      if (last_node !== undefined && this.isNodeWithTrivia(last_node)) {
         if (last_node.trailingTrivia) {
           last_node.trailingTrivia.push(...this.pending_trivia);
         } else {
           last_node.trailingTrivia = this.pending_trivia;
         }
+      } else {
+        eof_trivia = this.pending_trivia;
       }
       this.pending_trivia = [];
     }
 
     return {
-      ast: { nodes },
+      ast: eof_trivia ? { nodes, trailingTrivia: eof_trivia } : { nodes },
       errors: this.errors,
     };
   }

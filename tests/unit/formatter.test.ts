@@ -223,7 +223,7 @@ display 1
 rename (old1 old2;
 display 1;
 #delimit cr`,
-          ast_expected: `#delimit ;;
+          ast_expected: `#delimit ;
 rename (old1 old2;
 display 1;
 #delimit cr
@@ -234,7 +234,7 @@ display 1;
 rename (;
 display 1;
 #delimit cr`,
-          ast_expected: `#delimit ;;
+          ast_expected: `#delimit ;
 rename (;
 display 1;
 #delimit cr
@@ -358,7 +358,7 @@ display 1;
 
       const my_expected = mode === 'source-preserving'
         ? my_source
-        : `#delimit ;;
+        : `#delimit ;
 reg y x, vce(seed(123) /* note */;
 display 1;
 #delimit cr

@@ -91,6 +91,8 @@ export class PrettyPrinter {
             the_lines.push(my_printed);
         }
 
+        the_lines.push(this.printTriviaLines(ast.trailingTrivia ?? []));
+
         return the_lines.join('');
     }
 
@@ -102,7 +104,25 @@ export class PrettyPrinter {
             this.options = { ...this.options, ...options };
         }
 
+        const parts = this.printNodeParts(node);
+
+        // `#delimit` itself always ends at the end of its line; the new
+        // mode applies to the statements after it.
+        const terminator = node.type === 'directive'
+            ? '\n'
+            : this.getStatementTerminator();
+
+        return parts.code + terminator + parts.own_line;
+    }
+
+    /**
+     * Print a node in the two parts that go around its statement
+     * terminator: the code, with comments on its last line, and the
+     * comments from later lines, each on a line of its own.
+     */
+    private printNodeParts(node: StataNode): { code: string; own_line: string } {
         let result = '';
+        let body_own_line = '';
 
         // Print leading trivia (comments before the node)
         result += this.printLeadingTrivia(node);
@@ -129,9 +149,12 @@ export class PrettyPrinter {
             case 'foreach':
             case 'forvalues':
             case 'while':
-            case 'frame':
-                result += this.printControlFlow(node);
+            case 'frame': {
+                const control_flow = this.printControlFlow(node);
+                result += control_flow.code;
+                body_own_line = control_flow.own_line;
                 break;
+            }
             case 'string':
                 result += this.printStringLiteral(node);
                 break;
@@ -143,13 +166,13 @@ export class PrettyPrinter {
                 break;
         }
 
-        // Print trailing trivia (comments after the node)
-        result += this.printTrailingTrivia(node);
+        // Print trailing trivia (comments after the node). Comments on the
+        // node's last line go before the terminator; comments from later
+        // lines go after it, on lines of their own.
+        const trailing = this.printTrailingTrivia(node);
+        result += trailing.same_line;
 
-        // Add statement terminator
-        result += this.getStatementTerminator();
-
-        return result;
+        return { code: result, own_line: body_own_line + trailing.own_line };
     }
 
     /**
@@ -479,20 +502,24 @@ export class PrettyPrinter {
     /**
      * Print a control flow statement (if, else, foreach, forvalues, while).
      */
-    private printControlFlow(node: ControlFlowNode): string {
+    private printControlFlow(node: ControlFlowNode): { code: string; own_line: string } {
         const prefix_text = (node.prefix ?? [])
             .map(p => `${this.printPrefix(p)} `)
             .join('');
         if (node.type === 'if' && node.is_single_statement) {
             const body_node = node.body[0];
-            const body = body_node ? this.printNode(body_node) : '';
+            const body = body_node
+                ? this.printNodeParts(body_node)
+                : { code: '', own_line: '' };
             // The enclosing node supplies indentation and the one statement
             // terminator shared by the condition and its inline command.
-            const inline_body = body
-                .trimStart()
-                .slice(0, -this.getStatementTerminator().length);
+            // Comments from the body's later lines follow that terminator.
+            const inline_body = body.code.trimStart();
             // Preserve expression fragments, comments, and Unicode names.
-            return `${this.getIndent()}${prefix_text}if ${node.condition || ''} ${inline_body}`;
+            return {
+                code: `${this.getIndent()}${prefix_text}if ${node.condition || ''} ${inline_body}`,
+                own_line: body.own_line,
+            };
         }
 
         const the_lines: string[] = [];
@@ -540,7 +567,7 @@ export class PrettyPrinter {
         // Print closing brace
         the_lines.push(`${this.getIndent()}}`);
 
-        return the_lines.join('');
+        return { code: the_lines.join(''), own_line: '' };
     }
 
     /**
@@ -594,13 +621,12 @@ export class PrettyPrinter {
             return '';
         }
 
-        const trivia_node = node as CommandNode | ProgramNode | MacroDefNode | ControlFlowNode | DirectiveNode | EmbeddedLanguageBlockNode;
-        if (!trivia_node.leadingTrivia || trivia_node.leadingTrivia.length === 0) {
+        if (!node.leadingTrivia || node.leadingTrivia.length === 0) {
             return '';
         }
 
         const the_parts: string[] = [];
-        for (const my_trivia of trivia_node.leadingTrivia) {
+        for (const my_trivia of node.leadingTrivia) {
             the_parts.push(this.getIndent());
             the_parts.push(this.printTrivia(my_trivia));
             the_parts.push(this.getStatementTerminator());
@@ -610,23 +636,62 @@ export class PrettyPrinter {
     }
 
     /**
-     * Print trailing trivia (comments after a node).
+     * Print trailing trivia (comments after a node), split by where each
+     * comment was in the source. Comments on the node's last line stay
+     * on it. The parser also attaches comments from later lines: a
+     * comment-only tail at end of file, and comments after `#delimit ;`,
+     * which has no terminator token. Those keep their own lines: after
+     * code, a `*` comment would read as multiplication.
      */
-    private printTrailingTrivia(node: StataNode): string {
-        if (!this.hasTrivia(node)) {
-            return '';
+    private printTrailingTrivia(node: StataNode): { same_line: string; own_line: string } {
+        if (!this.hasTrivia(node) || !node.trailingTrivia) {
+            return { same_line: '', own_line: '' };
         }
 
-        const trivia_node = node as CommandNode | ProgramNode | MacroDefNode | ControlFlowNode | DirectiveNode | EmbeddedLanguageBlockNode;
-        if (!trivia_node.trailingTrivia || trivia_node.trailingTrivia.length === 0) {
-            return '';
-        }
-
+        const the_trivia = node.trailingTrivia;
+        let own_line_index = 0;
+        let previous_end_line = node.range.end.line;
         const the_parts: string[] = [];
-        for (const my_trivia of trivia_node.trailingTrivia) {
-            // Trailing trivia on same line - add space before
+        for (const my_trivia of the_trivia) {
+            if (my_trivia.range.start.line > previous_end_line) {
+                break;
+            }
             the_parts.push(' ');
             the_parts.push(this.printTrivia(my_trivia));
+            previous_end_line = my_trivia.range.end.line;
+            own_line_index++;
+        }
+
+        return {
+            same_line: the_parts.join(''),
+            own_line: this.printTriviaLines(the_trivia.slice(own_line_index)),
+        };
+    }
+
+    /**
+     * Print comments that start on a line of their own, as in the source:
+     * each such comment starts a new line, and a comment that followed
+     * another on the same line stays beside it. Like block-ending
+     * comments, they are not statements and take no `;`.
+     */
+    private printTriviaLines(the_trivia: TriviaNode[]): string {
+        const the_parts: string[] = [];
+        let previous: TriviaNode | undefined;
+        for (const my_trivia of the_trivia) {
+            if (previous !== undefined &&
+                my_trivia.range.start.line <= previous.range.end.line) {
+                the_parts.push(' ');
+            } else {
+                if (previous !== undefined) {
+                    the_parts.push('\n');
+                }
+                the_parts.push(this.getIndent());
+            }
+            the_parts.push(this.printTrivia(my_trivia));
+            previous = my_trivia;
+        }
+        if (previous !== undefined) {
+            the_parts.push('\n');
         }
 
         return the_parts.join('');
@@ -663,7 +728,9 @@ export class PrettyPrinter {
     /**
      * Check if a node can have trivia attached.
      */
-    private hasTrivia(node: StataNode): boolean {
+    private hasTrivia(node: StataNode): node is
+        CommandNode | ProgramNode | MacroDefNode | ControlFlowNode |
+        DirectiveNode | EmbeddedLanguageBlockNode {
         return (
             node.type === 'command' ||
             node.type === 'program' ||
