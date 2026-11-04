@@ -5,31 +5,38 @@
   "files": [
     {
       "path": "code/clean.do",
-      "standalone": false
+      "standalone": false,
+      "error": null
     },
     {
       "path": "code/helpers.doh",
-      "standalone": false
+      "standalone": false,
+      "error": null
     },
     {
       "path": "extra.do",
-      "standalone": false
+      "standalone": false,
+      "error": null
     },
     {
       "path": "loop/a.do",
-      "standalone": false
+      "standalone": false,
+      "error": null
     },
     {
       "path": "loop/b.do",
-      "standalone": false
+      "standalone": false,
+      "error": null
     },
     {
       "path": "main.do",
-      "standalone": false
+      "standalone": false,
+      "error": null
     },
     {
       "path": "report.do",
-      "standalone": false
+      "standalone": false,
+      "error": null
     }
   ],
   "entry_points": [

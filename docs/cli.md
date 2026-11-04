@@ -420,7 +420,7 @@ The qualifiers may appear in any order in the source, as Stata allows.
   "schema_version": 1,
   "sight_version": "0.17.0",
   "root": "/abs/project",
-  "files": [{"path": "main.do", "standalone": false}],
+  "files": [{"path": "main.do", "standalone": false, "error": null}],
   "entry_points": ["main.do"],
   "edges": [{
     "caller": "main.do", "call_type": "do", "range": {},
@@ -436,7 +436,10 @@ The qualifiers may appear in any order in the source, as Stata allows.
 
 - `files`: the `.do`, `.ado`, and `.doh` files under ROOT, sorted, as paths
   relative to ROOT with `/` separators. `standalone` is true for files with
-  the `sight: standalone` directive.
+  the `sight: standalone` directive. `error` is null, or a message when the
+  file could not be read (for example, it is not valid UTF-8). A file with an
+  error is listed, and calls to it resolve, but its own calls are not in
+  `edges`; Sight also warns about it on stderr.
 - `edges`: one per call site, including repeated calls to the same file.
   They are sorted by `caller`. A caller's own call sites come first in
   source order, then the backward-directive edges that name it, by

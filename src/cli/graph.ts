@@ -142,7 +142,7 @@ export interface GraphDocument {
     schema_version: number;
     sight_version: string;
     root: string;
-    files: Array<{ path: string; standalone: boolean }>;
+    files: Array<{ path: string; standalone: boolean; error: string | null }>;
     entry_points: string[];
     edges: GraphEdge[];
     unresolved: number[];
@@ -298,18 +298,21 @@ export async function build_graph_document(options: {
         display_path(a) < display_path(b) ? -1 : display_path(a) > display_path(b) ? 1 : 0);
 
     for (const my_path of the_paths) {
+        const caller = display_path(my_path);
         const read = read_source_file(my_path);
         if (read.kind !== 'ok') {
+            // Keep the file, so edges that resolve to it still point at a
+            // listed file, but it contributes no edges of its own.
             const detail = read.kind === 'read-error' ? read.message : read.diagnostic.message;
-            options.warn?.(`${display_path(my_path)}: ${detail}; left out of the graph`);
+            options.warn?.(`${caller}: ${detail}; its calls are not in the graph`);
+            the_files.push({ path: caller, standalone: false, error: detail });
             continue;
         }
         const uri = URI.file(my_path).toString();
-        const caller = display_path(my_path);
         const source = analyze_source(read.text, uri);
         const directives = source.directives;
         const is_standalone = directives.standalone !== undefined;
-        the_files.push({ path: caller, standalone: is_standalone });
+        the_files.push({ path: caller, standalone: is_standalone, error: null });
 
         const own_working_directory = directives.working_directory
             ? resolve_working_directory_directive(directives.working_directory, root)

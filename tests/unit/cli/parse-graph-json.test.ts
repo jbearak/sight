@@ -229,15 +229,23 @@ describe('sight graph --json', () => {
         expect(document.entry_points).toEqual(['main.do']);
     });
 
-    it('warns about a file it cannot read and leaves it out', async () => {
+    it('lists a file it cannot read, with an error, and warns about it', async () => {
         const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sight-graph-'));
-        fs.writeFileSync(path.join(directory, 'main.do'), 'display 1\n');
-        fs.writeFileSync(path.join(directory, 'bad.do'), Buffer.from([0x64, 0x69, 0xff, 0x0a]));
+        fs.writeFileSync(path.join(directory, 'main.do'), 'do bad.do\n');
+        // Not valid UTF-8, like a Latin-1 do-file from before Stata 14.
+        fs.writeFileSync(path.join(directory, 'bad.do'), Buffer.from([0x64, 0x69, 0xe9, 0x0a]));
         const { stdout, stderr, output } = capture();
         const code = await run_graph_with_cwd(['--json', '--no-config', directory], directory, output);
         expect(code).toBe(0);
         expect(stderr.join('')).toContain('bad.do');
-        expect(JSON.parse(stdout.join('')).files.map((f: Json) => f.path)).toEqual(['main.do']);
+        const document = JSON.parse(stdout.join(''));
+        expect(document.files).toMatchObject([
+            { path: 'bad.do', error: expect.stringContaining('UTF-8') },
+            { path: 'main.do', error: null },
+        ]);
+        // The call still resolves to a listed file.
+        expect(document.edges).toMatchObject([{ caller: 'main.do', target: 'bad.do', resolution: 'exact' }]);
+        expect(document.entry_points).toEqual(['main.do']);
     });
 
     it('finds cycles as strongly connected components', () => {
