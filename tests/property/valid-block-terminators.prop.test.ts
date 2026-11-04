@@ -5,7 +5,11 @@ import { ContextTracker } from '../../src/context-tracker';
 import { LanguageContext, ContextErrorCode } from '../../src/context-tracker/types';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
-import { arbitrary_identifier, arbitrary_command_name } from './generators/primitives';
+import {
+    arbitrary_command_name,
+    arbitrary_embedded_block_line,
+    arbitrary_identifier,
+} from './generators/primitives';
 
 /**
  * Property tests for valid block terminator acceptance and nested block handling.
@@ -46,9 +50,7 @@ describe('Valid Block Terminators Property Tests', () => {
         fc.assert(
             fc.property(
                 fc.oneof(fc.constant('mata'), fc.constant('python')),
-                // Filter out content that would create unclosed block comments
-                fc.array(fc.string({ minLength: 1, maxLength: 30 }), { minLength: 0, maxLength: 5 })
-                    .filter(lines => !lines.some(line => line.includes('/*'))),
+                fc.array(arbitrary_embedded_block_line(30), { minLength: 0, maxLength: 5 }),
                 (my_block_type, my_content_lines) => {
                     // Build valid embedded block
                     let my_document = `${my_block_type}\n`;
@@ -98,10 +100,8 @@ describe('Valid Block Terminators Property Tests', () => {
                 fc.array(
                     fc.record({
                         type: fc.oneof(fc.constant('mata'), fc.constant('python')),
-                        // Filter out content that would create unclosed block comments
                         content: fc.array(
-                            fc.string({ minLength: 1, maxLength: 20 })
-                                .filter(s => !s.includes('/*')),
+                            arbitrary_embedded_block_line(20),
                             { minLength: 0, maxLength: 3 }
                         )
                     }),
@@ -158,11 +158,7 @@ describe('Valid Block Terminators Property Tests', () => {
         fc.assert(
             fc.property(
                 fc.oneof(fc.constant('mata'), fc.constant('python')),
-                fc.array(
-                    fc.string({ minLength: 1, maxLength: 20 })
-                        .filter(s => !s.includes('/*')),
-                    { minLength: 0, maxLength: 3 }
-                ),
+                fc.array(arbitrary_embedded_block_line(20), { minLength: 0, maxLength: 3 }),
                 fc.array(arbitrary_command_name(), { minLength: 1, maxLength: 3 }),
                 fc.array(arbitrary_command_name(), { minLength: 1, maxLength: 3 }),
                 (my_block_type, my_content_lines, my_before_commands, my_after_commands) => {
@@ -218,11 +214,7 @@ ${my_after}`;
             fc.property(
                 arbitrary_identifier(),
                 fc.oneof(fc.constant('mata'), fc.constant('python')),
-                fc.array(
-                    fc.string({ minLength: 1, maxLength: 20 })
-                        .filter(s => !/\bend\b/i.test(s) && !/\bmata\b/i.test(s) && !/\bpython\b/i.test(s) && !s.includes('/*')),
-                    { minLength: 0, maxLength: 2 }
-                ),
+                fc.array(arbitrary_embedded_block_line(20), { minLength: 0, maxLength: 2 }),
                 (my_program_name, my_embedded_type, my_embedded_content) => {
                     // Build program block containing embedded language block
                     const my_content = my_embedded_content.join('\n');
@@ -275,8 +267,7 @@ end`;
                         program_name: arbitrary_identifier(),
                         embedded_type: fc.oneof(fc.constant('mata'), fc.constant('python')),
                         content: fc.array(
-                            fc.string({ minLength: 1, maxLength: 15 })
-                                .filter(s => !s.includes('/*')),
+                            arbitrary_embedded_block_line(15),
                             { minLength: 0, maxLength: 2 }
                         )
                     }),
@@ -338,11 +329,8 @@ end`;
             fc.property(
                 arbitrary_identifier(),
                 arbitrary_identifier(),
-                // Filter out content that would create unclosed block comments
-                fc.string({ minLength: 1, maxLength: 20 })
-                    .filter(s => !s.includes('/*')),
-                fc.string({ minLength: 1, maxLength: 20 })
-                    .filter(s => !s.includes('/*')),
+                arbitrary_embedded_block_line(20),
+                arbitrary_embedded_block_line(20),
                 (my_prog1_name, my_prog2_name, my_mata_content, my_python_content) => {
                     // Build program blocks with different embedded types
                     const my_document = `program define ${my_prog1_name}
@@ -400,9 +388,7 @@ end`;
             fc.property(
                 arbitrary_identifier(),
                 fc.oneof(fc.constant('mata'), fc.constant('python')),
-                // Filter out content that would create unclosed block comments
-                fc.array(fc.string({ minLength: 1, maxLength: 15 }), { minLength: 1, maxLength: 3 })
-                    .filter(lines => !lines.some(line => line.includes('/*'))),
+                fc.array(arbitrary_embedded_block_line(15), { minLength: 1, maxLength: 3 }),
                 (my_program_name, my_embedded_type, my_content_lines) => {
                     // Build program block with embedded language block
                     const my_content = my_content_lines.join('\n');

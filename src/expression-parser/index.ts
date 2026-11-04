@@ -193,6 +193,14 @@ function empty_range_at(position: Position): Range {
 }
 
 /**
+ * Where an empty result sits when every input token is trivia: the
+ * start of the first token, so the range stays inside the input.
+ */
+function input_start(tokens: readonly Token[]): Position | undefined {
+    return tokens[0]?.range.start;
+}
+
+/**
  * Drop comments, continuations, and swallowed line breaks. Returns the
  * input itself when there is nothing to drop (the common case).
  */
@@ -1166,12 +1174,19 @@ function parse_varlist_range(
  */
 export function parse_expression(tokens: readonly Token[]): ExpressionNode {
     const the_tokens = significant_tokens(tokens);
+    if (the_tokens.length === 0) {
+        return make_unparsed(the_tokens, 0, 0, 'empty', input_start(tokens));
+    }
     return parse_range(the_tokens, match_brackets(the_tokens), 0, the_tokens.length);
 }
 
 /** Parse a varlist from lexer tokens. Never throws. */
 export function parse_varlist(tokens: readonly Token[]): VarlistExpressionNode {
     const the_tokens = significant_tokens(tokens);
+    if (the_tokens.length === 0) {
+        const range = empty_range_at(input_start(tokens) ?? { line: 0, character: 0 });
+        return { kind: 'varlist', items: [], range };
+    }
     return parse_varlist_range(
         the_tokens, match_brackets(the_tokens), 0, the_tokens.length
     );
@@ -1185,6 +1200,9 @@ export function parse_varlist(tokens: readonly Token[]): VarlistExpressionNode {
  */
 export function parse_egen_function(tokens: readonly Token[]): ExpressionNode {
     const the_tokens = significant_tokens(tokens);
+    if (the_tokens.length === 0) {
+        return make_unparsed(the_tokens, 0, 0, 'empty', input_start(tokens));
+    }
     const matches = match_brackets(the_tokens);
     const name_token = the_tokens[0];
     const is_call_shape = the_tokens.length >= 3 &&
@@ -1281,7 +1299,9 @@ export function parse_in_range(
     const matches = match_brackets(the_tokens);
     const count = the_tokens.length;
     if (count === 0) {
-        const first = make_unparsed(the_tokens, 0, 0, 'empty', fallback_position);
+        const first = make_unparsed(
+            the_tokens, 0, 0, 'empty', input_start(tokens) ?? fallback_position
+        );
         return { kind: 'in_range', first, range: first.range };
     }
     const range = span(the_tokens[0].range, the_tokens[count - 1].range);
@@ -1325,7 +1345,7 @@ export function parse_path(tokens: readonly Token[]): PathNode {
             text: '',
             quote: null,
             parts: [],
-            range: empty_range_at({ line: 0, character: 0 }),
+            range: empty_range_at(input_start(tokens) ?? { line: 0, character: 0 }),
         };
     }
     const range = span(the_tokens[0].range, the_tokens[count - 1].range);

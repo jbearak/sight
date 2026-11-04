@@ -2,6 +2,18 @@ import { describe, test, expect } from 'bun:test';
 import fc from 'fast-check';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
+import { could_end_embedded_block } from './generators/primitives';
+
+/**
+ * One line of block content that cannot end the block early. Unlike
+ * arbitrary_embedded_block_line(), it may contain `/*`, which these
+ * tests tolerate.
+ */
+function block_content_line(max_length: number): fc.Arbitrary<string> {
+  return fc
+    .string({ minLength: 1, maxLength: max_length })
+    .filter((my_line) => !could_end_embedded_block(my_line));
+}
 
 /**
  * Property Test: Parser End Delimiter Handling
@@ -19,7 +31,7 @@ describe('Property Test: Parser End Delimiter Handling', () => {
   test('END_PYTHON tokens with value "end" produce correct embedded block nodes', () => {
     fc.assert(
       fc.property(
-        fc.array(fc.string({ minLength: 1, maxLength: 20 }), { minLength: 1, maxLength: 5 }),
+        fc.array(block_content_line(20), { minLength: 1, maxLength: 5 }),
         (the_content_lines) => {
           // Generate Python block with content
           const my_content = the_content_lines.join('\n');
@@ -56,7 +68,7 @@ describe('Property Test: Parser End Delimiter Handling', () => {
   test('END_MATA tokens with value "end" produce correct embedded block nodes', () => {
     fc.assert(
       fc.property(
-        fc.array(fc.string({ minLength: 1, maxLength: 20 }), { minLength: 1, maxLength: 5 }),
+        fc.array(block_content_line(20), { minLength: 1, maxLength: 5 }),
         (the_content_lines) => {
           // Generate Mata block with content
           const my_content = the_content_lines.join('\n');
@@ -94,7 +106,7 @@ describe('Property Test: Parser End Delimiter Handling', () => {
     fc.assert(
       fc.property(
         fc.oneof(fc.constant('python'), fc.constant('mata')),
-        fc.string({ minLength: 1, maxLength: 50 }),
+        block_content_line(50),
         (my_language, my_content) => {
           const my_source = `${my_language}\n${my_content}\nend`;
           
