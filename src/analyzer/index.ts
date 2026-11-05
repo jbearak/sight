@@ -283,6 +283,21 @@ function is_stata_storage_type(name: string): boolean {
     return false;
 }
 
+/**
+ * The local a `syntax` option defines. Stata lowercases the name, and
+ * for an option without an argument drops a lowercase `no` prefix:
+ * `noCONStant`, `nolog` and `noTE` define `constant`, `log` and `te`,
+ * while `NODetail` defines `nodetail` and `notable(string)` defines
+ * `notable` (checked in StataMP 18).
+ */
+export function syntax_option_local_name(opt: OptionSpec): string {
+    if (opt.hasArgument !== true && opt.name.length > 2 &&
+        opt.name.startsWith('no')) {
+        return opt.name.slice(2).toLowerCase();
+    }
+    return opt.name.toLowerCase();
+}
+
 export class SemanticAnalyzer {
     private uri: string = '';
     private config: AnalyzerConfig = create_default_config();
@@ -1399,7 +1414,7 @@ export class SemanticAnalyzer {
         // abbreviation (e.g. `Cache(string)`), but the implicit local Stata
         // creates at runtime is always lowercased.
         for (const opt of signature.options) {
-            register_implicit(opt.name.toLowerCase(), opt.range);
+            register_implicit(syntax_option_local_name(opt), opt.range);
         }
     }
 

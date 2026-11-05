@@ -98,6 +98,8 @@ the loop is left alone and no names are expanded.
 
 **First definition wins**: When a macro is defined multiple times, references before the first definition produce warnings, but references after the first definition do not (even if they appear before later redefinitions).
 
+**Locals from `syntax`**: Each argument and option a program's `syntax` declares defines a local, named in lowercase as Stata names it. An option without an argument that starts with a lowercase `no` defines the rest of its name: `syntax [, noCONStant nolog]` defines `` `constant' `` and `` `log' ``, not `` `noconstant' `` or `` `nolog' ``. An uppercase `NO` is part of the name (`NODetail` defines `` `nodetail' ``), and an option with an argument keeps its whole name (`notable(string)` defines `` `notable' ``).
+
 **Macro-creating options**: The analyzer recognizes `local()` and `global()` options on built-in commands (`levelsof`, `glevelsof`) and user-defined programs (via `` c_local `option' `` and `` global `option' `` patterns matching syntax declarations).
 
 **Temporary names**: `tempvar`, `tempname` and `tempfile` define a local for each name they list. `marksample touse` defines `` `touse' ``, which holds the name of the temporary marker variable it creates; its options (`novarlist`, `strok`, `zeroweight`) do not change the name. A name joined to a macro, as in `` marksample tt`i' ``, defines nothing that Sight can know. `mark`, `markout` and `svymarkout` define no local: `mark mk` creates the variable `mk`, and the other two only change an existing marker variable.
