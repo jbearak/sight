@@ -183,6 +183,25 @@ display \`result'
             )).toBeUndefined();
         });
 
+        it('should keep the later capitals of a syntax option local', () => {
+            // StataMP 18: `syntax, saveAs(string)` defines `saveAs`,
+            // not `saveas`.
+            const source = `program define myprog
+    syntax, saveAs(string)
+    display "\`saveAs'"
+    display "\`saveas'"
+end
+`;
+
+            const result = analyze(source);
+
+            const the_undefined = result.diagnostics.filter(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO
+            ).map(d => d.message);
+            expect(the_undefined.some(m => m.includes('saveas'))).toBe(true);
+            expect(the_undefined.some(m => m.includes('saveAs'))).toBe(false);
+        });
+
         it('should not register an unclosed levelsof global() option in cr mode', () => {
             const source = 'levelsof rep78, global(G\ndisplay $G';
             const { tokens } = lexer.tokenize(source);

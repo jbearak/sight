@@ -172,6 +172,20 @@ describe('command_macro_writes', () => {
             expect(summary(program_with('CACHE', 'cache'))).toEqual(['local:r:option']);
         });
 
+        it('keeps capitals after the first lowercase letter', () => {
+            // StataMP 18: `MyLocal(string)` is typed `m` … `myLocal`,
+            // never `mylocal`, and defines the local `myLocal`.
+            const code = [
+                'program define p',
+                '    syntax, MyLocal(string)',
+                '    c_local `myLocal\' "v"',
+                'end',
+            ].join('\n');
+            expect(summary(`${code}\np, m(r)`)).toEqual(['local:r:option']);
+            expect(summary(`${code}\np, myLocal(r)`)).toEqual(['local:r:option']);
+            expect(summary(`${code}\np, mylocal(r)`)).toEqual([]);
+        });
+
         it('reads the abbreviation of a workspace program', () => {
             const library = program_with('LOCal', 'local').split('\n')
                 .slice(0, 4).join('\n');

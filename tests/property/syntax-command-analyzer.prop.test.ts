@@ -92,20 +92,23 @@ describe('Syntax Command Analyzer Property Tests', () => {
           // Analyze
           const my_result = analyze_program(my_source);
 
-          // Verify each option is registered as a local macro. Stata uses
-          // uppercase letters in option names only to declare a minimum
-          // abbreviation; the implicit local it creates at runtime is the
-          // lowercase form of the name. Multiple options that differ only
-          // in case (e.g. `Foo` and `foo`) collapse onto one runtime local,
-          // so we deduplicate by the lowercase form before asserting.
-          // An option like these, without an argument, that starts with
-          // a lowercase `no` defines the rest of its name (`noLOg`
-          // defines `log`, checked in StataMP 18).
+          // Verify each option is registered as a local macro. Stata
+          // lowercases the leading capitals of an option's name, which
+          // declare its minimum abbreviation, and keeps the rest as
+          // written (`MyOpt` defines `myOpt`). Options whose locals
+          // coincide (`Foo` and `foo`) collapse onto one local. An
+          // option like these, without an argument, that starts with
+          // `no` defines the rest of its name (`noLOg` defines `log`).
+          // All checked in StataMP 18.
           const the_runtime_names = new Set(
-            my_option_names.map((my_name) =>
-              my_name.length > 2 && my_name.startsWith('no')
-                ? my_name.slice(2).toLowerCase()
-                : my_name.toLowerCase())
+            my_option_names.map((my_name) => {
+              const my_rest = my_name.length > 2 && my_name.startsWith('no')
+                ? my_name.slice(2)
+                : my_name;
+              const my_capitals = /^[A-Z]*/.exec(my_rest)?.[0] ?? '';
+              return my_capitals.toLowerCase()
+                + my_rest.slice(my_capitals.length);
+            })
           );
           for (const my_runtime_name of the_runtime_names) {
             expect(my_result.symbols.localMacros.has(my_runtime_name)).toBe(true);
@@ -113,7 +116,7 @@ describe('Syntax Command Analyzer Property Tests', () => {
             expect(my_macro?.scope).toBe('local');
           }
           // Also confirm we did not silently drop options: every distinct
-          // lowercase name should map to exactly one entry in localMacros.
+          // local name should map to exactly one entry in localMacros.
           let the_matching_local_count = 0;
           for (const my_runtime_name of the_runtime_names) {
             if (my_result.symbols.localMacros.has(my_runtime_name)) {

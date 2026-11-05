@@ -52,6 +52,16 @@ describe('Program Macro Creation Correctness Property Tests', () => {
         .filter(s => /^[a-zA-Z_][a-zA-Z0-9_]*$/.test(s))
         .filter(s => !['if', 'in', 'using', 'by', 'end', 'program'].includes(s.toLowerCase()));
 
+    /**
+     * The local `syntax` defines for option `name(...)`: its leading
+     * capitals lowercased, the rest as written (`MyOpt` → `myOpt`;
+     * checked in StataMP 18). A body must `c_local` this name.
+     */
+    function option_local(name: string): string {
+        const capitals = /^[A-Z]*/.exec(name)?.[0] ?? '';
+        return capitals.toLowerCase() + name.slice(capitals.length);
+    }
+
     // Generator for macro names with special characters that should be rejected
     const invalid_macro_name = fc.oneof(
         fc.string({ minLength: 1, maxLength: 10 }).filter(s => /[^a-zA-Z0-9_]/.test(s)),
@@ -72,11 +82,11 @@ describe('Program Macro Creation Correctness Property Tests', () => {
                 valid_identifier,
                 (prog_name, option_name) => {
                     // Test valid pattern: syntax declares option, body uses c_local `option'
-                    const valid_code = `program define ${prog_name}\n    syntax, ${option_name}(name)\n    c_local \`${option_name}' "value"\nend`;
+                    const valid_code = `program define ${prog_name}\n    syntax, ${option_name}(name)\n    c_local \`${option_local(option_name)}' "value"\nend`;
                     const { program: valid_program } = parse_and_analyze(valid_code);
                     
                     expect(valid_program).toBeDefined();
-                    expect(valid_program!.macro_creating_local_options).toContain(option_name.toLowerCase());
+                    expect(valid_program!.macro_creating_local_options).toContain(option_local(option_name));
                     
                     // Test invalid patterns (no syntax declaration, so no macro-creating options detected)
                     const invalid_patterns = [
@@ -91,7 +101,7 @@ describe('Program Macro Creation Correctness Property Tests', () => {
                         const { program: invalid_program } = parse_and_analyze(invalid_code);
                         
                         expect(invalid_program).toBeDefined();
-                        expect(invalid_program!.macro_creating_local_options?.includes(option_name.toLowerCase()) || false).toBe(false);
+                        expect(invalid_program!.macro_creating_local_options?.includes(option_local(option_name)) || false).toBe(false);
                     }
                 }
             ),
@@ -114,7 +124,7 @@ describe('Program Macro Creation Correctness Property Tests', () => {
                     
                     expect(program).toBeDefined();
                     // Invalid identifiers should not be detected as macro-creating options
-                    expect(program!.macro_creating_local_options?.includes(invalid_name.toLowerCase()) || false).toBe(false);
+                    expect(program!.macro_creating_local_options?.includes(invalid_name) || false).toBe(false);
                 }
             ),
             { numRuns: 25 }
@@ -145,8 +155,8 @@ describe('Program Macro Creation Correctness Property Tests', () => {
                     
                     expect(program).toBeDefined();
                     // Non-c_local/global commands should not create macro-creating options
-                    expect(program!.macro_creating_local_options?.includes(option_name.toLowerCase()) || false).toBe(false);
-                    expect(program!.macro_creating_global_options?.includes(option_name.toLowerCase()) || false).toBe(false);
+                    expect(program!.macro_creating_local_options?.includes(option_name) || false).toBe(false);
+                    expect(program!.macro_creating_global_options?.includes(option_name) || false).toBe(false);
                 }
             ),
             { numRuns: 25 }
@@ -207,7 +217,7 @@ describe('Program Macro Creation Correctness Property Tests', () => {
                 fc.integer({ min: 1, max: 3 }),
                 (prog_name, option_name, nesting_depth) => {
                     // Create nested if statements (without '=' to avoid parser issues)
-                    let nested_code = `c_local \`${option_name}' "nested"`;
+                    let nested_code = `c_local \`${option_local(option_name)}' "nested"`;
                     for (let i = 0; i < nesting_depth; i++) {
                         nested_code = `if 1 {\n        ${nested_code.replace(/\n/g, '\n    ')}\n    }`;
                     }
@@ -218,7 +228,7 @@ describe('Program Macro Creation Correctness Property Tests', () => {
                     
                     expect(program).toBeDefined();
                     expect(program!.macro_creating_local_options).toBeDefined();
-                    expect(program!.macro_creating_local_options).toContain(option_name.toLowerCase());
+                    expect(program!.macro_creating_local_options).toContain(option_local(option_name));
                 }
             ),
             { numRuns: 20 }
@@ -238,7 +248,7 @@ describe('Program Macro Creation Correctness Property Tests', () => {
                 fc.integer({ min: 2, max: 5 }),
                 (prog_name, option_name, duplicate_count) => {
                     const duplicate_commands = Array(duplicate_count).fill(
-                        `c_local \`${option_name}' "duplicate"`
+                        `c_local \`${option_local(option_name)}' "duplicate"`
                     );
                     
                     // Include syntax declaration for the option
@@ -250,7 +260,7 @@ describe('Program Macro Creation Correctness Property Tests', () => {
                     
                     // Should only appear once (deduplication)
                     const option_count = program!.macro_creating_local_options!.filter(
-                        opt => opt === option_name.toLowerCase()
+                        opt => opt === option_local(option_name)
                     ).length;
                     expect(option_count).toBe(1);
                 }
@@ -291,20 +301,17 @@ describe('Program Macro Creation Correctness Property Tests', () => {
                     ];
                     
                     // Include both options in syntax_option_names
-                    const syntax_option_names = new Set([
-                        local_opt.toLowerCase(),
-                        global_opt.toLowerCase()
-                    ]);
+                    const syntax_option_names = new Set([local_opt, global_opt]);
                     const result = (analyzer as any).extract_macro_creating_option_patterns(mock_nodes, syntax_option_names);
                     
-                    expect(result.local_options).toContain(local_opt.toLowerCase());
-                    expect(result.global_options).toContain(global_opt.toLowerCase());
+                    expect(result.local_options).toContain(local_opt);
+                    expect(result.global_options).toContain(global_opt);
                     
                     // Local option should not appear in global options and vice versa
                     // (unless they happen to be the same identifier, which is valid)
-                    if (local_opt.toLowerCase() !== global_opt.toLowerCase()) {
-                        expect(result.global_options.includes(local_opt.toLowerCase())).toBe(false);
-                        expect(result.local_options.includes(global_opt.toLowerCase())).toBe(false);
+                    if (local_opt !== global_opt) {
+                        expect(result.global_options.includes(local_opt)).toBe(false);
+                        expect(result.local_options.includes(global_opt)).toBe(false);
                     }
                 }
             ),
@@ -330,11 +337,11 @@ describe('Program Macro Creation Correctness Property Tests', () => {
                 ),
                 (prog_name, option_name, command_ws) => {
                     // Include syntax declaration for the option
-                    const code = `program define ${prog_name}\n    syntax, ${option_name}(name)\n    ${command_ws}\`${option_name}' "value"\nend`;
+                    const code = `program define ${prog_name}\n    syntax, ${option_name}(name)\n    ${command_ws}\`${option_local(option_name)}' "value"\nend`;
                     const { program } = parse_and_analyze(code);
                     
                     expect(program).toBeDefined();
-                    expect(program!.macro_creating_local_options).toContain(option_name.toLowerCase());
+                    expect(program!.macro_creating_local_options).toContain(option_local(option_name));
                 }
             ),
             { numRuns: 20 }
@@ -353,16 +360,16 @@ describe('Program Macro Creation Correctness Property Tests', () => {
                 valid_identifier,
                 (prog_name, option_name) => {
                     // Lowercase c_local should work (with syntax declaration)
-                    const lower_code = `program define ${prog_name}\n    syntax, ${option_name}(name)\n    c_local \`${option_name}' "value"\nend`;
+                    const lower_code = `program define ${prog_name}\n    syntax, ${option_name}(name)\n    c_local \`${option_local(option_name)}' "value"\nend`;
                     const { program: lower_program } = parse_and_analyze(lower_code);
                     expect(lower_program).toBeDefined();
-                    expect(lower_program!.macro_creating_local_options).toContain(option_name.toLowerCase());
+                    expect(lower_program!.macro_creating_local_options).toContain(option_local(option_name));
                     
                     // Uppercase C_LOCAL should NOT work (Stata is case-sensitive)
-                    const upper_code = `program define ${prog_name}_upper\n    syntax, ${option_name}(name)\n    C_LOCAL \`${option_name}' "value"\nend`;
+                    const upper_code = `program define ${prog_name}_upper\n    syntax, ${option_name}(name)\n    C_LOCAL \`${option_local(option_name)}' "value"\nend`;
                     const { program: upper_program } = parse_and_analyze(upper_code);
                     expect(upper_program).toBeDefined();
-                    expect(upper_program!.macro_creating_local_options?.includes(option_name.toLowerCase()) || false).toBe(false);
+                    expect(upper_program!.macro_creating_local_options?.includes(option_local(option_name)) || false).toBe(false);
                 }
             ),
             { numRuns: 20 }
@@ -397,9 +404,19 @@ end`;
                     expect(program).toBeDefined();
                     expect(program!.macro_creating_local_options).toBeDefined();
                     
-                    // All three syntax spellings share Stata's lowercased runtime option name.
-                    expect(program!.macro_creating_local_options).toContain(lower_case);
-                    expect(program!.macro_creating_local_options!.length).toBe(1);
+                    // A c_local creates an option's macro only when it names
+                    // that option's local exactly: `lower_case` always, and
+                    // `mixed_case_name` when its later capitals survive.
+                    const the_locals = new Set([
+                        option_local(mixed_case_name), lower_case,
+                        option_local(upper_case),
+                    ]);
+                    const the_expected = [mixed_case_name, lower_case, upper_case]
+                        .filter((my_name, my_index, the_names) =>
+                            the_locals.has(my_name)
+                            && the_names.indexOf(my_name) === my_index);
+                    expect([...program!.macro_creating_local_options!].sort())
+                        .toEqual(the_expected.sort());
                 }
             ),
             { numRuns: 15 }
@@ -429,7 +446,7 @@ end`;
                         const { program } = parse_and_analyze(code);
                         
                         expect(program).toBeDefined();
-                        expect(program!.macro_creating_local_options?.includes(option_name.toLowerCase()) || false).toBe(false);
+                        expect(program!.macro_creating_local_options?.includes(option_name) || false).toBe(false);
                     }
                 }
             ),
@@ -454,9 +471,9 @@ end`;
                     // Include syntax declaration for the valid options
                     const code = `program define ${prog_name}
     syntax, ${valid_option}(name) ${second_option}(name)
-    c_local \`${valid_option}' "valid"
+    c_local \`${option_local(valid_option)}' "valid"
     c_local malformed "no backticks"
-    c_local \`${second_option}' "also_valid"
+    c_local \`${option_local(second_option)}' "also_valid"
 end`;
                     const { program } = parse_and_analyze(code);
                     
@@ -464,8 +481,8 @@ end`;
                     expect(program!.macro_creating_local_options).toBeDefined();
                     
                     // Valid patterns should still be detected
-                    expect(program!.macro_creating_local_options).toContain(valid_option.toLowerCase());
-                    expect(program!.macro_creating_local_options).toContain(second_option.toLowerCase());
+                    expect(program!.macro_creating_local_options).toContain(option_local(valid_option));
+                    expect(program!.macro_creating_local_options).toContain(option_local(second_option));
                     
                     // Malformed pattern should not be detected
                     expect(program!.macro_creating_local_options?.includes('malformed') || false).toBe(false);
