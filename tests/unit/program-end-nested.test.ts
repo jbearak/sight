@@ -18,6 +18,7 @@ import { describe, expect, it } from 'bun:test';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { ContextTracker } from '../../src/context-tracker';
+import { context_diagnostics } from '../test-context-helper';
 import { ContextErrorCode, ParseErrorCode, StataNode } from '../../src/types';
 import { CodeFormatter } from '../../src/providers/formatter';
 import { create_document_state } from '../property/helpers/document-utils';
@@ -87,13 +88,7 @@ function outline(the_nodes: StataNode[]): unknown[] {
 
 /** The (line, code) of each context diagnostic, in line order. */
 function context_codes(my_source: string): Array<[number, ContextErrorCode]> {
-    const my_tracker = new ContextTracker();
-    my_tracker.initialize_from_tokens(
-        new StataLexer().tokenize(my_source).tokens,
-        my_source
-    );
-    return my_tracker
-        .validate_context_structure()
+    return context_diagnostics(my_source)
         .map((my_diag): [number, ContextErrorCode] => [my_diag.range.start.line, my_diag.code])
         .sort((a, b) => a[0] - b[0]);
 }

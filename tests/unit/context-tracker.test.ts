@@ -1,5 +1,5 @@
 import { ContextTracker } from '../../src/context-tracker';
-import { init_tracker_from_source } from '../test-context-helper';
+import { context_diagnostics, init_tracker_from_source } from '../test-context-helper';
 import { LanguageContext, ContextErrorCode } from '../../src/types';
 
 describe('ContextTracker', () => {
@@ -153,7 +153,7 @@ end`;
 matrix A = (1, 2)`;
 
       init_tracker_from_source(tracker, my_source);
-      const my_diagnostics = tracker.validate_context_structure();
+      const my_diagnostics = context_diagnostics(my_source);
 
       expect(my_diagnostics).toHaveLength(1);
       expect(my_diagnostics[0].code).toBe(
@@ -167,7 +167,7 @@ matrix A = (1, 2)`;
 import numpy as np`;
 
       init_tracker_from_source(tracker, my_source);
-      const my_diagnostics = tracker.validate_context_structure();
+      const my_diagnostics = context_diagnostics(my_source);
 
       expect(my_diagnostics).toHaveLength(1);
       expect(my_diagnostics[0].code).toBe(
@@ -180,7 +180,7 @@ import numpy as np`;
       const my_source = `mata: matrix A = (1, 2)`;
 
       init_tracker_from_source(tracker, my_source);
-      const my_diagnostics = tracker.validate_context_structure();
+      const my_diagnostics = context_diagnostics(my_source);
 
       expect(my_diagnostics).toHaveLength(0);
     });
@@ -261,7 +261,7 @@ end`;
 matrix A = (1, 2)`;
       init_tracker_from_source(tracker, my_source);
 
-      let my_diagnostics = tracker.validate_context_structure();
+      let my_diagnostics = context_diagnostics(my_source);
       expect(my_diagnostics).toHaveLength(1);
 
       my_source = `mata
@@ -269,7 +269,7 @@ matrix A = (1, 2)
 end`;
       init_tracker_from_source(tracker, my_source);
 
-      my_diagnostics = tracker.validate_context_structure();
+      my_diagnostics = context_diagnostics(my_source);
       expect(my_diagnostics).toHaveLength(0);
     });
   });
@@ -397,7 +397,7 @@ end
 display "live"`;
 
       init_tracker_from_source(tracker, my_source);
-      const my_diagnostics = tracker.validate_context_structure();
+      const my_diagnostics = context_diagnostics(my_source);
 
       expect(my_diagnostics.some(
         my_d => my_d.code === ContextErrorCode.UNEXPECTED_END
@@ -412,7 +412,7 @@ end
 display "live"`;
 
       init_tracker_from_source(tracker, my_source);
-      const my_diagnostics = tracker.validate_context_structure();
+      const my_diagnostics = context_diagnostics(my_source);
 
       expect(my_diagnostics.some(
         my_d => my_d.code === ContextErrorCode.UNEXPECTED_END
@@ -426,7 +426,7 @@ end
 end`;
 
       init_tracker_from_source(tracker, my_source);
-      const my_diagnostics = tracker.validate_context_structure();
+      const my_diagnostics = context_diagnostics(my_source);
 
       const my_orphan = my_diagnostics.find(
         my_d => my_d.code === ContextErrorCode.UNEXPECTED_END
@@ -446,7 +446,7 @@ program define foo */
 end`;
 
       init_tracker_from_source(tracker, my_source);
-      const my_diagnostics = tracker.validate_context_structure();
+      const my_diagnostics = context_diagnostics(my_source);
 
       const my_orphan = my_diagnostics.find(
         my_d => my_d.code === ContextErrorCode.UNEXPECTED_END
@@ -462,7 +462,7 @@ end python
 */`;
 
       init_tracker_from_source(tracker, my_source);
-      const my_diagnostics = tracker.validate_context_structure();
+      const my_diagnostics = context_diagnostics(my_source);
 
       expect(my_diagnostics).toHaveLength(0);
     });
@@ -475,7 +475,7 @@ matrix A = (1, 2)
 end mata`;
 
       init_tracker_from_source(tracker, my_source);
-      const my_diagnostics = tracker.validate_context_structure();
+      const my_diagnostics = context_diagnostics(my_source);
 
       // Should have error for malformed end command
       const my_malformed_error = my_diagnostics.find(
@@ -489,7 +489,7 @@ end mata`;
 end python`;
 
       init_tracker_from_source(tracker, my_source);
-      const my_diagnostics = tracker.validate_context_structure();
+      const my_diagnostics = context_diagnostics(my_source);
 
       expect(my_diagnostics).toHaveLength(1);
       expect(my_diagnostics[0].code).toBe(
@@ -503,7 +503,7 @@ end python`;
 matrix A = (1, 2)`;
 
       init_tracker_from_source(tracker, my_source);
-      const my_diagnostics = tracker.validate_context_structure();
+      const my_diagnostics = context_diagnostics(my_source);
 
       expect(my_diagnostics).toHaveLength(1);
       expect(my_diagnostics[0].code).toBe(
@@ -516,7 +516,7 @@ matrix A = (1, 2)`;
 x = 5`;
 
       init_tracker_from_source(tracker, my_source);
-      const my_diagnostics = tracker.validate_context_structure();
+      const my_diagnostics = context_diagnostics(my_source);
 
       expect(my_diagnostics).toHaveLength(1);
       expect(my_diagnostics[0].code).toBe(
@@ -531,7 +531,7 @@ x = 5`;
 matrix A = (1, 2)`;
 
       init_tracker_from_source(tracker, my_source);
-      const my_diagnostics = tracker.validate_context_structure();
+      const my_diagnostics = context_diagnostics(my_source);
       const my_suggestions = tracker.get_error_recovery_suggestions(
         my_diagnostics[0]
       );
@@ -545,7 +545,7 @@ matrix A = (1, 2)`;
 end mata`;
 
       init_tracker_from_source(tracker, my_source);
-      const my_diagnostics = tracker.validate_context_structure();
+      const my_diagnostics = context_diagnostics(my_source);
       
       // Should have diagnostic for invalid syntax
       expect(my_diagnostics.length).toBeGreaterThan(0);
@@ -563,7 +563,7 @@ end mata`;
 end python`;
 
       init_tracker_from_source(tracker, my_source);
-      const my_diagnostics = tracker.validate_context_structure();
+      const my_diagnostics = context_diagnostics(my_source);
       const my_suggestions = tracker.get_error_recovery_suggestions(
         my_diagnostics[0]
       );
@@ -587,7 +587,7 @@ matrix A = (1, 2)`;
 matrix A = (1, 2)`;
 
       init_tracker_from_source(tracker, my_source);
-      let my_diagnostics = tracker.validate_context_structure();
+      let my_diagnostics = context_diagnostics(my_source);
       expect(my_diagnostics).toHaveLength(1);
 
       // Fix the error
@@ -595,7 +595,7 @@ matrix A = (1, 2)`;
 matrix A = (1, 2)
 end`;
       init_tracker_from_source(tracker, my_source);
-      my_diagnostics = tracker.validate_context_structure();
+      my_diagnostics = context_diagnostics(my_source);
 
       expect(my_diagnostics).toHaveLength(0);
     });
@@ -738,7 +738,7 @@ end`;
 end`;
 
       init_tracker_from_source(tracker, my_source);
-      const my_diagnostics = tracker.validate_context_structure();
+      const my_diagnostics = context_diagnostics(my_source);
 
       // Should NOT have any "Unexpected end" errors for program blocks
       const my_unexpected_end = my_diagnostics.find(
@@ -753,7 +753,7 @@ end`;
 end`;
 
       init_tracker_from_source(tracker, my_source);
-      const my_diagnostics = tracker.validate_context_structure();
+      const my_diagnostics = context_diagnostics(my_source);
 
       // Should NOT have any "Unexpected end" errors
       const my_unexpected_end = my_diagnostics.find(
@@ -772,7 +772,7 @@ program define prog2
 end`;
 
       init_tracker_from_source(tracker, my_source);
-      const my_diagnostics = tracker.validate_context_structure();
+      const my_diagnostics = context_diagnostics(my_source);
 
       // Should NOT have any "Unexpected end" errors
       const my_unexpected_end_errors = my_diagnostics.filter(
@@ -786,7 +786,7 @@ end`;
 end`;
 
       init_tracker_from_source(tracker, my_source);
-      const my_diagnostics = tracker.validate_context_structure();
+      const my_diagnostics = context_diagnostics(my_source);
 
       // Should have an "Unexpected end" error for orphan end commands
       const my_unexpected_end = my_diagnostics.find(
@@ -805,7 +805,7 @@ end
 display "after"`;
 
       init_tracker_from_source(tracker, my_source);
-      const my_diagnostics = tracker.validate_context_structure();
+      const my_diagnostics = context_diagnostics(my_source);
 
       // Should NOT have any "Unexpected end" errors
       const my_unexpected_end = my_diagnostics.find(

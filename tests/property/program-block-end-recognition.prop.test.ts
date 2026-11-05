@@ -1,4 +1,4 @@
-import { init_tracker_from_source } from '../test-context-helper';
+import { context_diagnostics, init_tracker_from_source } from '../test-context-helper';
 import { describe, it, expect, beforeEach } from 'bun:test';
 import * as fc from 'fast-check';
 import { ContextTracker } from '../../src/context-tracker';
@@ -57,7 +57,7 @@ end`;
                     init_tracker_from_source(context_tracker, my_document);
 
                     // Get diagnostics
-                    const my_diagnostics = context_tracker.validate_context_structure();
+                    const my_diagnostics = context_diagnostics(my_document);
 
                     // Filter for UNEXPECTED_END errors
                     const my_unexpected_end_errors = my_diagnostics.filter(
@@ -98,7 +98,7 @@ end`;
                     init_tracker_from_source(context_tracker, my_document);
 
                     // Get diagnostics
-                    const my_diagnostics = context_tracker.validate_context_structure();
+                    const my_diagnostics = context_diagnostics(my_document);
 
                     // Filter for UNEXPECTED_END errors
                     const my_unexpected_end_errors = my_diagnostics.filter(
@@ -144,7 +144,7 @@ ${my_after}`;
                     init_tracker_from_source(context_tracker, my_document);
 
                     // Get diagnostics
-                    const my_diagnostics = context_tracker.validate_context_structure();
+                    const my_diagnostics = context_diagnostics(my_document);
 
                     // Filter for UNEXPECTED_END errors
                     const my_unexpected_end_errors = my_diagnostics.filter(
@@ -185,7 +185,7 @@ ${my_after}`;
                     init_tracker_from_source(context_tracker, my_document);
 
                     // Get diagnostics
-                    const my_diagnostics = context_tracker.validate_context_structure();
+                    const my_diagnostics = context_diagnostics(my_document);
 
                     // Filter for UNEXPECTED_END errors
                     const my_unexpected_end_errors = my_diagnostics.filter(
@@ -227,7 +227,7 @@ ${my_after}`;
                     init_tracker_from_source(context_tracker, my_document);
 
                     // Get diagnostics
-                    const my_diagnostics = context_tracker.validate_context_structure();
+                    const my_diagnostics = context_diagnostics(my_document);
 
                     // Filter for MISMATCHED_END_PYTHON errors
                     const my_mismatched_end_python_errors = my_diagnostics.filter(
@@ -269,7 +269,7 @@ end`;
                     init_tracker_from_source(context_tracker, my_document);
 
                     // Get diagnostics
-                    const my_diagnostics = context_tracker.validate_context_structure();
+                    const my_diagnostics = context_diagnostics(my_document);
 
                     // Should NOT have any errors for valid mata block
                     expect(my_diagnostics.length).toBe(0);

@@ -9,16 +9,6 @@ import { ContextErrorCode, Token, TokenType } from '../types';
 import { get_line_text, get_line_count, compute_line_offsets } from '../utils/line-utils';
 import { block_comment_lines } from '../utils/block-comment-utils';
 import { inline_embedded_statement_end } from '../utils/statement-span';
-import {
-  is_program_definition_header,
-  logical_line_text,
-} from '../utils/program-definition';
-
-// A line whose first word is `end` (not `endx` or `end.x`).
-const PROGRAM_END_LINE = /^end(?![A-Za-z0-9_.])/;
-
-// A line whose first word is `program`
-const PROGRAM_WORD_AT_START = /^[ \t]*program(?=[ \t]|$)/;
 
 // A `//` comment start: at the start of the line or after a space or tab.
 const LINE_COMMENT_START_PATTERN = /(?<=^|[ \t])\/\//;
@@ -370,18 +360,13 @@ export class ContextTracker implements IContextTracker {
   }
 
   /**
-   * Validate that end delimiters match their corresponding start delimiters.
-   * Implements error recovery for malformed blocks.
-   * 
-   * Note: We track program blocks to avoid false positives for 'end' commands
-   * that are valid program block terminators.
+   * Report `end mata` and `end python` lines that close no block of
+   * that language. An `end` that closes nothing is reported from the
+   * parsed statements (see providers/end-diagnostics.ts).
    */
   private validate_end_delimiters(): void {
     const my_doc = { content: this.document_content, line_offsets: compute_line_offsets(this.document_content) };
     const my_line_count = get_line_count(my_doc);
-    
-    // Track program blocks to know which 'end' commands are valid
-    const my_valid_end_lines = this.find_valid_end_lines(my_doc);
 
     for (let my_line_number = 0; my_line_number < my_line_count; my_line_number++) {
       // Lines inside a multi-line block comment are not live code, and a
@@ -393,58 +378,6 @@ export class ContextTracker implements IContextTracker {
       const my_line = get_line_text(my_doc, my_line_number);
       const my_code_part = this.extract_code_before_comment(my_line);
       const my_code_trimmed = my_code_part.trim();
-
-      // Check for 'end' command
-      if (my_code_trimmed === 'end') {
-        // Find if this 'end' is part of a valid mata block
-        const my_context_at_line = this.get_context_at_position({
-          line: my_line_number,
-          character: 0,
-        });
-
-        // Check if this 'end' is a valid end delimiter for a mata or python block
-        // It's valid if:
-        // 1. It's in a mata or python context, OR
-        // 2. It's the end delimiter of a mata or python block, OR
-        // 3. It's the end of a program block
-        let my_is_valid_end = false;
-        if (my_context_at_line === LanguageContext.MATA || my_context_at_line === LanguageContext.PYTHON) {
-          my_is_valid_end = true;
-        } else {
-          // Check if this line is the end delimiter of a mata or python block
-          for (const my_range of this.context_ranges) {
-            if (
-              (my_range.context === LanguageContext.MATA || my_range.context === LanguageContext.PYTHON) &&
-              my_range.end_delimiter &&
-              my_range.end_delimiter.range.start.line === my_line_number
-            ) {
-              my_is_valid_end = true;
-              break;
-            }
-          }
-        }
-        
-        // Check if this 'end' is part of a program block
-        if (!my_is_valid_end && my_valid_end_lines.has(my_line_number)) {
-          my_is_valid_end = true;
-        }
-
-        if (!my_is_valid_end) {
-          // Emit diagnostic for orphan end commands
-          this.diagnostics.push({
-            message: 'Unexpected "end" command - not closing any program, mata, python, or input block',
-            range: {
-              start: { line: my_line_number, character: 0 },
-              end: {
-                line: my_line_number,
-                character: my_code_trimmed.length,
-              },
-            },
-            severity: 'error',
-            code: ContextErrorCode.UNEXPECTED_END,
-          });
-        }
-      }
 
       // Check for 'end python' command
       if (my_code_trimmed === 'end python') {
@@ -510,184 +443,11 @@ export class ContextTracker implements IContextTracker {
     }
   }
   
-  /**
-   * Check if a line starts a program block.
-   * Handles various forms: 'program define name', 'program name',
-   * 'program def name', and a header that `///` continues onto the
-   * next lines (`program ///` then `define foo`).
-   */
-  private is_program_block_start(
-    doc: { content: string; line_offsets: number[] },
-    line_number: number
-  ): boolean {
-    const my_text = logical_line_text(doc.content, doc.line_offsets[line_number] ?? 0);
-    const my_match = PROGRAM_WORD_AT_START.exec(my_text);
-    return my_match !== null &&
-      is_program_definition_header(my_text.slice(my_match[0].length));
-  }
 
-  /**
-   * Find line numbers where 'end' commands are valid block terminators
-   * (program or input blocks). Uses stack-based tracking to handle nested
-   * blocks correctly. Mata/python block ends are validated separately via
-   * context ranges, and the lines those ranges cover (opener through
-   * closer) are skipped here, so this scan agrees with the lexer on
-   * where each embedded block ends.
-   */
-  private find_valid_end_lines(doc: { content: string; line_offsets: number[] }): Set<number> {
-    const my_valid_end_lines = new Set<number>();
-    const my_program_stack: number[] = []; // Stack of program start line numbers
-    let my_in_input_block = false;
-    const my_line_count = get_line_count(doc);
-    const my_embedded_lines = this.embedded_block_lines(my_line_count);
-    const my_embedded_end_lines = this.embedded_block_end_lines();
-    
-    for (let my_line_number = 0; my_line_number < my_line_count; my_line_number++) {
-      // Lines inside a multi-line block comment are not live code, so
-      // they neither open nor close program/embedded blocks; nor does a
-      // line that a `///` joins to the one above.
-      if (this.block_comment_continuation_lines.has(my_line_number) ||
-          this.joined_lines.has(my_line_number)) {
-        continue;
-      }
-      // Stata ends a program definition at the first line whose first
-      // word is `end`, so a mata/python block's `end` inside a program
-      // ends the program as well.
-      const my_end_context = my_embedded_end_lines.get(my_line_number);
-      if (my_end_context !== undefined && my_program_stack.length > 0) {
-        my_program_stack.pop();
-        my_valid_end_lines.add(my_line_number);
-        this.report_embedded_block_ends_program(
-          get_line_text(doc, my_line_number),
-          my_line_number,
-          my_end_context
-        );
-        continue;
-      }
-      // Lines of a Mata/Python block are not Stata commands.
-      if (my_embedded_lines[my_line_number] === 1) {
-        continue;
-      }
-      const my_line = get_line_text(doc, my_line_number);
-      const my_code_part = this.extract_code_before_comment(my_line);
-      const my_code_trimmed = my_code_part.trim();
-      const my_first_word = this.extract_first_word(my_code_trimmed);
-      
-      // Check for program block start
-      if (this.is_program_block_start(doc, my_line_number)) {
-        my_program_stack.push(my_line_number);
-      }
-      
-      // Check for input block start
-      if (my_first_word === 'input' && !my_in_input_block) {
-        my_in_input_block = true;
-      }
 
-      // Check for 'end' command
-      if (my_code_trimmed === 'end' && my_in_input_block) {
-        // If we're in an input block, this 'end' closes that block
-        my_in_input_block = false;
-        my_valid_end_lines.add(my_line_number);
-      } else if (PROGRAM_END_LINE.test(my_code_trimmed) &&
-          my_program_stack.length > 0) {
-        // Stata ends a program definition at the first line whose first
-        // word is `end`, whatever follows (`end foo`, `end;`)
-        my_program_stack.pop();
-        my_valid_end_lines.add(my_line_number);
-      }
-    }
-    
-    return my_valid_end_lines;
-  }
 
-  /**
-   * The line (0-based) of each multi-line Mata/Python block's closing
-   * `end`, with the block's language. A brace-style block closes with
-   * `}`, which does not end a program.
-   */
-  private embedded_block_end_lines(): Map<number, LanguageContext> {
-    const my_lines = new Map<number, LanguageContext>();
-    for (const my_range of this.context_ranges) {
-      if (
-        my_range.is_single_line ||
-        my_range.end_delimiter === undefined ||
-        my_range.end_delimiter.command === '}' ||
-        (my_range.context !== LanguageContext.MATA &&
-          my_range.context !== LanguageContext.PYTHON)
-      ) {
-        continue;
-      }
-      my_lines.set(my_range.end_delimiter.range.start.line, my_range.context);
-    }
-    return my_lines;
-  }
 
-  /**
-   * Report a mata/python block whose `end` also ends the enclosing
-   * program definition, as it does in Stata.
-   */
-  private report_embedded_block_ends_program(
-    line_text: string,
-    line_number: number,
-    context: LanguageContext
-  ): void {
-    const my_language = context === LanguageContext.PYTHON ? 'python' : 'mata';
-    const my_start = line_text.length - line_text.trimStart().length;
-    this.diagnostics.push({
-      message:
-        `Stata ends the program definition at this "end", so a ${my_language} ` +
-        `block cannot be inside a program. Move the block outside the ` +
-        `program, or use one-line "${my_language}:" statements.`,
-      range: {
-        start: { line: line_number, character: my_start },
-        end: { line: line_number, character: line_text.trimEnd().length },
-      },
-      severity: 'error',
-      code: ContextErrorCode.EMBEDDED_BLOCK_ENDS_PROGRAM,
-    });
-  }
 
-  /**
-   * Mark the lines (0-based) of each multi-line Mata/Python block,
-   * from its opener through its closing delimiter (or to the end of
-   * the document if it is unclosed), as found by the lexer.
-   */
-  private embedded_block_lines(line_count: number): Uint8Array {
-    const my_lines = new Uint8Array(line_count);
-    for (const my_range of this.context_ranges) {
-      if (
-        my_range.is_single_line ||
-        (my_range.context !== LanguageContext.MATA &&
-          my_range.context !== LanguageContext.PYTHON)
-      ) {
-        continue;
-      }
-      const my_first_line = my_range.start_delimiter.range.start.line;
-      const my_last_line = my_range.end_delimiter
-        ? my_range.end_delimiter.range.start.line
-        : line_count - 1;
-      for (
-        let my_line = my_first_line;
-        my_line <= my_last_line && my_line < line_count;
-        my_line++
-      ) {
-        my_lines[my_line] = 1;
-      }
-    }
-    return my_lines;
-  }
-
-  /**
-   * Extract the first word from a line.
-   */
-  private extract_first_word(line: string): string {
-    const my_match = line.match(/^(\S+?)[:]/);
-    if (my_match) {
-      return my_match[1]; // Return word without colon
-    }
-    const my_word_match = line.match(/^\S+/);
-    return my_word_match ? my_word_match[0] : '';
-  }
 
   /**
    * Extract the code part of a line before any inline comment.

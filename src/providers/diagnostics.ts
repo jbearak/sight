@@ -29,6 +29,7 @@ import { createHash } from 'crypto';
 import { DocumentDebounceManager } from '../utils/debounce-manager';
 import { get_line_text, get_line_count } from '../utils/line-utils';
 import { collect_c_local_arg_calls } from '../analyzer/c-local-arg-positions';
+import { find_end_diagnostics } from './end-diagnostics';
 import {
     format_out_of_scope_message,
     OutOfScopeReason as OutOfScopeMessageReason,
@@ -421,6 +422,12 @@ export class DiagnosticsProvider {
         const the_context_diagnostics = document.context_tracker.validate_context_structure();
         for (const my_context_diag of the_context_diagnostics) {
             the_diagnostics.push(this.convert_context_diagnostic(my_context_diag));
+        }
+        // An `end` that closes nothing, or a mata/python block's `end`
+        // that cuts a program short, from the parsed statements
+        for (const my_end_diag of find_end_diagnostics(
+            document.ast?.nodes ?? [], document.content)) {
+            the_diagnostics.push(this.convert_context_diagnostic(my_end_diag));
         }
 
         // Add semantic diagnostics from cached analyzer results
