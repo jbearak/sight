@@ -97,6 +97,10 @@ const COLON_PREFIX_COMMANDS: ReadonlyMap<string, string> = new Map([
 const COMMAND_NAME_TYPES: ReadonlySet<TokenType | undefined> = new Set<TokenType>([
   'WORD', 'MACRO_REF_LOCAL', 'MACRO_REF_GLOBAL',
 ]);
+// Commands after a prefix that parse to nodes without interior comments.
+const BODY_COMMANDS: ReadonlySet<string> = new Set([
+  'foreach', 'while', 'syntax',
+]);
 const COLON_PREFIX_NAMES: ReadonlySet<string> = new Set(COLON_PREFIX_COMMANDS.values());
 
 /**
@@ -3463,15 +3467,17 @@ export class StataParser {
    */
   private parse_prefix_chain(prefixes: PrefixNode[]): void {
     for (;;) {
-      // A `///` continuation, or block comments before the next word
-      // (`capture /* c */ noisily`, `quietly: /* c */ gen`), may separate
-      // prefixes; other comments end the chain so they stay attached to
-      // the statement as trivia.
+      // A `///` continuation, or block comments before the next word of
+      // a plain command (`capture /* c */ noisily`, `quietly: /* c */
+      // gen`), may separate prefixes; other comments end the chain so
+      // they stay attached to the statement as trivia.
       while (this.skipContinuation()) {
         // skip
       }
       const word_index = this.index_after_block_comments(this.current);
-      if (COMMAND_NAME_TYPES.has(this.tokens[word_index]?.type)) {
+      if (word_index > this.current &&
+          COMMAND_NAME_TYPES.has(this.tokens[word_index]?.type) &&
+          this.is_plain_command_from(word_index)) {
         while (this.current < word_index) {
           this.advance();
         }
@@ -3519,9 +3525,12 @@ export class StataParser {
     }
 
     // Consume colon after any prefix command (quietly:, capture:, by g:,
-    // etc.). A block comment before it is whitespace: `quietly /* c */ :`.
+    // etc.). A block comment before it is whitespace before a plain
+    // command: `quietly /* c */ : gen x = 1`.
     const colon_index = this.index_after_block_comments(this.current);
-    if (this.tokens[colon_index]?.type === 'COLON') {
+    if (colon_index > this.current &&
+        this.tokens[colon_index]?.type === 'COLON' &&
+        this.is_plain_command_from(colon_index + 1)) {
       while (this.current < colon_index) {
         this.advance();
       }
@@ -3725,6 +3734,52 @@ export class StataParser {
       return true;
     }
     return false;
+  }
+
+  /**
+   * Is the rest of the statement from token `index` a plain command or
+   * macro definition, with no loop, `if` command, `syntax`, brace block,
+   * or Mata/Python? Those nodes don't keep interior comments, so a
+   * comment between prefixes is read as whitespace only before a plain
+   * command; otherwise it stays where it was.
+   */
+  private is_plain_command_from(index: number): boolean {
+    let previous: Token | undefined = this.tokens[index - 1];
+    for (let i = index; i < this.tokens.length; i++) {
+      const my_token = this.tokens[i];
+      switch (my_token.type) {
+        case 'STATEMENT_TERMINATOR':
+          if (is_swallowed_continuation_terminator(
+            my_token, previous?.type === 'CONTINUATION')) {
+            break;
+          }
+          return true;
+        case 'EOF':
+        case 'RBRACE':
+          return true;
+        case 'LBRACE':
+        case 'MATA_START':
+        case 'MATA_INLINE':
+        case 'PYTHON_START':
+        case 'PYTHON_INLINE':
+          return false;
+        case 'WORD':
+          if (BODY_COMMANDS.has(my_token.value) ||
+              (my_token.value.length >= 4 && 'forvalues'.startsWith(my_token.value))) {
+            return false;
+          }
+          // `if` right after a colon prefix is the if command, not a
+          // qualifier.
+          if (my_token.value === 'if' && (i === index || previous?.type === 'COLON')) {
+            return false;
+          }
+          break;
+      }
+      if (my_token.type !== 'COMMENT_BLOCK') {
+        previous = my_token;
+      }
+    }
+    return true;
   }
 
   /** Index of the first token from `index` on that isn't a block comment. */

@@ -10,10 +10,12 @@ import {
 } from '../property/helpers/formatter-test-utils';
 
 /** Format a fixture in the selected mode and return the resulting source. */
-function format_source(source: string, mode: FormatterMode): string {
+function format_source(source: string, mode: FormatterMode, allow_errors = false): string {
     const lex_result = new StataLexer().tokenize(source);
     const parse_result = new StataParser().parse(lex_result.tokens);
-    expect(parse_result.errors).toEqual([]);
+    if (!allow_errors) {
+        expect(parse_result.errors).toEqual([]);
+    }
     const edits = new CodeFormatter().format({
         uri: 'file:///statement-structure.do',
         content: source,
@@ -144,6 +146,22 @@ describe('formatting statements with interior block comments', () => {
         const formatted = format_source(source, mode);
         expect(formatted).toBe(source);
         expect(format_source(formatted, mode)).toBe(formatted);
+    });
+
+    for_each_formatter_mode('keeps a comment between a prefix and a block, and the block', mode => {
+        // Loops, if blocks, and braces don't keep interior comments, so
+        // a comment before one stays out of the prefix chain.
+        const the_sources = [
+            'version 14: /* c */ foreach x in a b {\n    di 1\n}\n',
+            'capture /* c */ while 1 {\n    di 1\n}\n',
+            'quietly /* c */ : foreach x in a {\n    di 1\n}\n',
+            'quietly /* c */ if 1 {\n    di 1\n}\n',
+        ];
+        for (const my_source of the_sources) {
+            const formatted = format_source(my_source, mode, true);
+            expect(formatted).toContain('/* c */');
+            expect(formatted).toContain('di 1');
+        }
     });
 
     for_each_formatter_mode('keeps a * line that continues a #delimit ; statement', mode => {
