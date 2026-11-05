@@ -43,7 +43,31 @@ describe('user program option hover', () => {
     });
 
     it('shows nothing inside the option argument', async () => {
+        expect(await hover_text('p, l(90)', 4)).toBeNull();
         expect(await hover_text('p, level(90)', 9)).toBeNull();
         expect(await hover_text('p, level(90)', 10)).toBeNull();
+    });
+
+    it('prefers the option to a function of the same name', async () => {
+        const store = new DocumentStore();
+        const source = [
+            'program define q',
+            '    syntax [, SUM(real 0)]',
+            'end',
+            'q, sum(1)',
+            'display sum(1)',
+        ].join('\n');
+        await store.open('file:///sum.do', source, 1);
+        const document = store.get('file:///sum.do');
+        if (!document) throw new Error('document did not open');
+        const provider = new HoverProvider(new CommandDatabase());
+        const on_option = await provider.get_hover(
+            document, { line: 3, character: 4 });
+        expect(JSON.stringify(on_option?.contents))
+            .toContain('**Option:** `SUM`');
+        const on_function = await provider.get_hover(
+            document, { line: 4, character: 9 });
+        expect(JSON.stringify(on_function?.contents))
+            .not.toContain('**Option:**');
     });
 });

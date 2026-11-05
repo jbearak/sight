@@ -381,6 +381,16 @@ export class HoverProvider {
             return null;
         }
 
+        // An option name at a call to a user program names that
+        // program's `syntax` option, even where it is also spelled
+        // like a function (`sum(1)`) or a symbol. Its argument keeps
+        // the generic hovers below.
+        const option_hover = this.get_user_program_option_hover(
+            document, position, workspace_symbols);
+        if (option_hover) {
+            return { contents: option_hover, range };
+        }
+
         // Collect all symbol matches using the new collection approach
         const the_symbol_matches = this.collect_all_symbol_matches(
             document,
@@ -421,9 +431,7 @@ export class HoverProvider {
         // spellings with Stata commands (e.g. `replace`) and functions
         // (e.g. `sum`). Don't fall through to command/function hover there.
         if (this.is_after_top_level_comma(document, position)) {
-            const option_hover = this.get_user_program_option_hover(
-                document, position, workspace_symbols);
-            return option_hover ? { contents: option_hover, range } : null;
+            return null;
         }
 
         // Fallback: Check for subcommand context (not a symbol type)
@@ -2401,7 +2409,7 @@ export class HoverProvider {
         const option = command?.options?.find((my_option) =>
             my_option.range.start.line === position.line
             && my_option.range.start.character <= position.character
-            && position.character <=
+            && position.character <
                 my_option.range.start.character + my_option.name.length);
         if (!command || !option) {
             return null;
