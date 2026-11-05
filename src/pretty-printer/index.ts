@@ -11,7 +11,8 @@ import {
     TriviaNode,
     PrefixNode,
     OptionNode,
-    EmbeddedLanguageBlockNode
+    EmbeddedLanguageBlockNode,
+    SyntaxNode
 } from '../types';
 import { compare_positions } from '../utils/scope-position';
 import { format_expression_spacing } from './expression-spacing';
@@ -160,6 +161,9 @@ export class PrettyPrinter {
                 break;
             case 'embedded_block':
                 result += this.printEmbeddedBlock(node);
+                break;
+            case 'syntax':
+                result += this.printSyntax(node);
                 break;
             default:
                 // Unknown node type - should not happen
@@ -614,6 +618,23 @@ export class PrettyPrinter {
     }
 
     /**
+     * Print a `syntax` statement. The spec is printed as written: its
+     * case sets option abbreviations, and spacing it as an expression
+     * would change it.
+     */
+    private printSyntax(node: SyntaxNode): string {
+        const prefix_text = (node.prefix ?? [])
+            .map(p => `${this.printPrefix(p)} `)
+            .join('');
+        const arguments_text = node.arguments ? ` ${node.arguments}` : '';
+        // Interior block comments go at the end, outside the spec.
+        const the_comments = (node.interiorTrivia ?? [])
+            .map(my_comment => ` ${this.printTrivia(my_comment)}`);
+        return `${this.getIndent()}${prefix_text}syntax${arguments_text}` +
+            the_comments.join('');
+    }
+
+    /**
      * Print leading trivia (comments before a node).
      */
     private printLeadingTrivia(node: StataNode): string {
@@ -730,13 +751,14 @@ export class PrettyPrinter {
      */
     private hasTrivia(node: StataNode): node is
         CommandNode | ProgramNode | MacroDefNode | ControlFlowNode |
-        DirectiveNode | EmbeddedLanguageBlockNode {
+        DirectiveNode | EmbeddedLanguageBlockNode | SyntaxNode {
         return (
             node.type === 'command' ||
             node.type === 'program' ||
             node.type === 'macro_def' ||
             node.type === 'directive' ||
             node.type === 'embedded_block' ||
+            node.type === 'syntax' ||
             node.type === 'if' ||
             node.type === 'else' ||
             node.type === 'foreach' ||

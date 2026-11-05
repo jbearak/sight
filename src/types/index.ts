@@ -188,9 +188,14 @@ export interface ProgramSignature {
 export interface SyntaxNode {
   type: 'syntax';
   signature: ProgramSignature;
+  // The spec after `syntax` as written, with `///` continuations
+  // joined, e.g. `varlist [if] [, Detail]`. Kept for printing; absent
+  // for a bare `syntax`.
+  arguments?: string;
   prefix?: PrefixNode[];
   range: Range;
   leadingTrivia?: TriviaNode[];
+  interiorTrivia?: TriviaNode[];  // As on CommandNode
   trailingTrivia?: TriviaNode[];
 }
 

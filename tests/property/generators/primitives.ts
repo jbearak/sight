@@ -262,9 +262,8 @@ export const BLOCK_BOUNDARY_WORDS = ['end', 'mata', 'python', 'program', 'input'
 /**
  * Words that open a block or need their own syntax, so writing one bare
  * or followed by a varlist is a parse error (`end`, `while`, `mata`).
- * A bare `syntax` parses, but AST formatting does not round-trip it.
  */
-const STRUCTURAL_COMMANDS = [...BLOCK_BOUNDARY_WORDS, 'while', 'unab', 'syntax'];
+const STRUCTURAL_COMMANDS = [...BLOCK_BOUNDARY_WORDS, 'while', 'unab'];
 
 /**
  * Words that arbitrary_command_name() must not generate: prefixes,

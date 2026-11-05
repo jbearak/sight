@@ -21,7 +21,7 @@ describe('arbitrary_command_name', () => {
     const the_rejected = new Set([
       ...PREFIX_COMMANDS,
       ...RESERVED_QUALIFIER_KEYWORDS,
-      'end', 'while', 'program', 'mata', 'python', 'unab', 'syntax',
+      'end', 'while', 'program', 'mata', 'python', 'unab',
     ]);
     const the_names = fc.sample(arbitrary_command_name(), {
       numRuns: SAMPLE_SIZE,

@@ -98,7 +98,7 @@ const COMMAND_NAME_TYPES: ReadonlySet<TokenType | undefined> = new Set<TokenType
 ]);
 // Commands after a prefix that parse to nodes without interior comments.
 const BODY_COMMANDS: ReadonlySet<string> = new Set([
-  'foreach', 'while', 'if', 'syntax',
+  'foreach', 'while', 'if',
 ]);
 /** Canonical names of the colon prefixes above. */
 const COLON_PREFIX_NAMES: ReadonlySet<string> = new Set(COLON_PREFIX_COMMANDS.values());
@@ -392,7 +392,7 @@ export class StataParser {
     const is_string_statement = this.tokens[statement_start]?.type === 'STRING';
     if (node !== null && !is_string_statement &&
         ((node.type === 'command' && node.body === undefined) ||
-         node.type === 'macro_def')) {
+         node.type === 'macro_def' || node.type === 'syntax')) {
       // A parenthesized varlist group such as `(mean /* c */)` keeps
       // its comments in its text. Items and comments are both in source
       // order, so one sweep finds the item around each comment.
@@ -2229,6 +2229,12 @@ export class StataParser {
           continue;
         }
       }
+      // A block comment with more of the spec after it is whitespace
+      // (`syntax varlist /* c */ [if]`); other comments end the spec.
+      if (this.check('COMMENT_BLOCK') && this.statement_continues_after(this.current)) {
+        this.advance();
+        continue;
+      }
       if (this.check('COMMENT_LINE') || this.check('COMMENT_BLOCK')) {
         break;
       }
@@ -2321,7 +2327,7 @@ export class StataParser {
       syntaxRanges: [start_token.range],
     };
 
-    return {
+    const syntax_node: SyntaxNode = {
       type: 'syntax',
       signature,
       range: this.makeRange(
@@ -2331,6 +2337,13 @@ export class StataParser {
           : start_token.range.end
       ),
     };
+    if (syntax_tokens.length > 0) {
+      syntax_node.arguments = this.reconstruct_value_tokens(
+        syntax_tokens,
+        preceded_by_continuation
+      );
+    }
+    return syntax_node;
   }
 
   private parse_argument_spec(
@@ -3737,8 +3750,8 @@ export class StataParser {
   }
 
   /**
-   * Is the statement from token `index` on a plain command or macro
-   * definition, not a loop, `if` command, `syntax`, brace block, or
+   * Is the statement from token `index` on a plain command, macro
+   * definition, or `syntax`, not a loop, `if` command, brace block, or
    * Mata/Python? Those nodes don't keep interior comments, so a comment
    * between prefixes is read as whitespace only before a plain command;
    * otherwise it stays where it was.
