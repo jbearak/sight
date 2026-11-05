@@ -755,6 +755,11 @@ export interface ProgramSymbol {
   parameters?: string[];
   signature?: ProgramSignature; // Extracted from syntax command
   c_locals?: string[]; // Macro names created via c_local
+  // Argument positions (1-based) whose plain-name value the program
+  // uses as a c_local name: `args where` then c_local `where'; c_local
+  // `1'; or a leading `gettoken where 0 : 0`. A call creates a local
+  // named after the plain word at each position.
+  c_local_arg_positions?: number[];
   macro_creating_local_options?: string[]; // Local macro names created via options (e.g., c_local `local')
   macro_creating_global_options?: string[]; // Global macro names created via options (e.g., global `global')
   additional_definitions?: Array<{ index: number, line: number, location: { uri: string; range: Range } }>;

@@ -28,6 +28,7 @@ import {
 import { createHash } from 'crypto';
 import { DocumentDebounceManager } from '../utils/debounce-manager';
 import { get_line_text, get_line_count } from '../utils/line-utils';
+import { collect_c_local_arg_calls } from '../analyzer/c-local-arg-positions';
 import {
     format_out_of_scope_message,
     OutOfScopeReason as OutOfScopeMessageReason,
@@ -463,6 +464,21 @@ export class DiagnosticsProvider {
             resolved_scope, 0, document.uri
         );
 
+        // Calls that create caller locals through a resolved-scope
+        // program's positional c_local names. Built on first use: most
+        // runs never reach the c_local fallback below.
+        let the_c_local_arg_calls: ReturnType<typeof collect_c_local_arg_calls> | undefined;
+        const get_c_local_arg_calls = (
+            programs: SymbolTable['programs']
+        ): ReturnType<typeof collect_c_local_arg_calls> => {
+            the_c_local_arg_calls ??= collect_c_local_arg_calls(
+                document.ast?.nodes ?? [],
+                document.tokens,
+                programs
+            );
+            return the_c_local_arg_calls;
+        };
+
         for (const my_diagnostic of this.extract_semantic_diagnostics(document)) {
             // Suppress Stata-specific semantic diagnostics in embedded contexts
             if (this.is_in_embedded_context(my_diagnostic.range.start, the_context_ranges)) {
@@ -508,6 +524,15 @@ export class DiagnosticsProvider {
                         symbol_name,
                         resolved_scope.symbols,
                         document,
+                        my_diagnostic.range.start.line
+                    )) {
+                    continue;
+                }
+                if (my_diagnostic.code === StataDiagnosticCode.UNDEFINED_MACRO
+                    && reference_kind !== 'global'
+                    && this.is_c_local_arg_from_resolved_program(
+                        symbol_name,
+                        get_c_local_arg_calls(resolved_scope.symbols.programs),
                         my_diagnostic.range.start.line
                     )) {
                     continue;
@@ -1732,6 +1757,29 @@ export class DiagnosticsProvider {
         }
         
         return false;
+    }
+
+    /**
+     * True if a call before `diagnostic_line`, in the same program frame
+     * (or both outside any program), passes `macro_name` to a
+     * resolved-scope program that `c_local`s that argument position.
+     * The positional counterpart of `is_c_local_from_resolved_program`.
+     */
+    private is_c_local_arg_from_resolved_program(
+        macro_name: string,
+        arg_calls: ReturnType<typeof collect_c_local_arg_calls>,
+        diagnostic_line: number
+    ): boolean {
+        const the_calls = arg_calls.calls.get(macro_name);
+        if (!the_calls) return false;
+        const enclosing = arg_calls.program_lines.find(
+            (my_span) => my_span.start <= diagnostic_line
+                && diagnostic_line <= my_span.end
+        );
+        return the_calls.some(
+            (my_call) => my_call.line < diagnostic_line
+                && my_call.program_start_line === enclosing?.start
+        );
     }
 
     /**

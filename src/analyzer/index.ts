@@ -44,6 +44,11 @@ import {
 import { find_macro_creating_command, matches_option } from './macro-creating-commands';
 import { parse_option_argument, is_valid_identifier } from './option-argument-parser';
 import {
+    type CLocalArgName,
+    extract_c_local_arg_positions,
+    resolve_c_local_arg_names,
+} from './c-local-arg-positions';
+import {
     declaration_directive_of,
     ignore_directive_of,
     is_standalone_comment_token,
@@ -988,6 +993,16 @@ export class SemanticAnalyzer {
             if (c_locals.length > 0) {
                 program_symbol.c_locals = c_locals;
             }
+            // c_local names taken from positional arguments. Needs the
+            // body's analyzed program scope to rule out a name the body
+            // defines more than once.
+            const the_arg_positions = extract_c_local_arg_positions(
+                node.body,
+                program_scope.localMacros
+            );
+            if (the_arg_positions.length > 0) {
+                program_symbol.c_local_arg_positions = the_arg_positions;
+            }
 
             // Extract and attach signature metadata from the body
             // FIRST (implicit locals are registered per body by
@@ -1729,6 +1744,43 @@ export class SemanticAnalyzer {
                 );
             }
         }
+
+        // c_local names the caller passes as arguments (`_getrhs rhs`).
+        // Each is defined at its argument word, so go-to-definition and
+        // find references land on the name the caller wrote. Unlike the
+        // literal names above, a later call adds a definition rather
+        // than replacing the first.
+        for (const my_created of this.get_program_c_local_arg_names(node, program)) {
+            this.register_local_macro(
+                current_scope,
+                symbols,
+                my_created.name,
+                node_index,
+                my_created.range,
+                () => ({
+                    name: my_created.name,
+                    scope: 'local',
+                    location: { uri: this.uri, range: my_created.range },
+                    sourceUri: this.uri,
+                    definition_index: node_index,
+                    definition_line: node.range.start.line,
+                })
+            );
+        }
+    }
+
+    /**
+     * Caller locals that a call to `program` creates through `c_local`
+     * names taken from its positional arguments. Empty without a token
+     * stream, which the argument split needs.
+     */
+    private get_program_c_local_arg_names(
+        node: CommandNode,
+        program: ProgramSymbol | undefined
+    ): CLocalArgName[] {
+        const the_positions = program?.c_local_arg_positions;
+        if (!the_positions || !this.tokens) return [];
+        return resolve_c_local_arg_names(node, this.tokens, the_positions);
     }
 
     /**
@@ -2534,7 +2586,11 @@ export class SemanticAnalyzer {
         if (!program && this.workspace_symbols) {
             program = this.workspace_symbols.programs.get(node.fullName);
         }
-        return program?.c_locals ? [...program.c_locals] : [];
+        const the_names = program?.c_locals ? [...program.c_locals] : [];
+        for (const my_created of this.get_program_c_local_arg_names(node, program)) {
+            the_names.push(my_created.name);
+        }
+        return the_names;
     }
 
     private get_command_redefined_macro_names(node: CommandNode): string[] {

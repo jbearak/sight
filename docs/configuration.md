@@ -100,6 +100,15 @@ the loop is left alone and no names are expanded.
 
 **Macro-creating options**: The analyzer recognizes `local()` and `global()` options on built-in commands (`levelsof`, `glevelsof`) and user-defined programs (via `` c_local `option' `` and `` global `option' `` patterns matching syntax declarations).
 
+<a id="locals-named-by-program-arguments"></a>
+**Locals named by program arguments**: A program can set a local in its caller whose name the caller passes as an argument. After `_getrhs rhs`, `` `rhs' `` is defined when `_getrhs` does one of these:
+
+- `args where` (at any position), then `` c_local `where' … ``;
+- `` c_local `1' … `` (or `` `2' `` and so on), when nothing in the program may change the numbered locals (`tokenize`, `macro shift`, `local 1`, or `` local `name' ``);
+- a leading `gettoken where 0 : 0`, with no options or only a `parse()` that includes a space, then `` c_local `where' … ``.
+
+This works for programs in the same file, in other workspace files, and on the ado-path, and for calls behind prefixes such as `quietly` or `capture`. The argument must be a plain name separated by spaces. Sight resolves nothing when the argument is a macro, a quoted string, missing, or joined to other text (`rhs,`), or when a macro comes before it, since the macro could expand to any number of words. It also skips a name the program defines a second time. Go-to-definition and Find References treat the argument word at the call as the local's definition.
+
 **Mata `st_local` / `st_global`**: The analyzer recognizes the two-argument setter forms `st_local("name", value)` and `st_global("NAME", value)` inside Mata blocks — both the inline `mata:` form and `mata` … `end` / `mata { … }` blocks — and declares the named macro. The name must be a literal double-quoted identifier; dynamic names (variables, expressions, compound quotes, or embedded macro references) are not resolved. The one-argument read form `st_local("name")` does not declare anything. The declaration is forward-only: a reference before the setter is still flagged. For an inline `mata:` setter the macro only becomes visible after the inline statement ends, so a `` `name' `` reference within the same `mata:` unit — including the setter's own value argument (`mata: st_local("x", "`x'")`) — is reported undefined, matching Stata's macro expansion order; references after the statement resolve normally.
 
 ## Tuning autocomplete behavior
