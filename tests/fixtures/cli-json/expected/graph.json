@@ -52,12 +52,18 @@
       "path": "report.do",
       "standalone": false,
       "error": null
+    },
+    {
+      "path": "tight-slashes.do",
+      "standalone": false,
+      "error": null
     }
   ],
   "entry_points": [
     "comment-placement.do",
     "header-only.do",
-    "main.do"
+    "main.do",
+    "tight-slashes.do"
   ],
   "edges": [
     {

@@ -92,7 +92,7 @@ describe('single-statement if', () => {
     for (const my_indent of ['', '    ']) {
         it(`separates a continued body with ${my_indent.length} spaces`, () => {
             const { ast } = parse(
-                `if (1)///\n${my_indent}local selected yes\ndisplay 1`
+                `if (1) ///\n${my_indent}local selected yes\ndisplay 1`
             );
             expect(ast.nodes[0]).toMatchObject({
                 type: 'if', condition: '(1)',

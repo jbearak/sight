@@ -213,7 +213,7 @@ describe('Operator Sequence Diagnostics Integration', () => {
         it('keeps line-comment-separated bars adjacent in ; mode', async () => {
             const my_content = [
                 '#delimit ;',
-                'display a & b |// comment',
+                'display a & b | // comment',
                 '| c ;',
             ].join('\n');
             const my_uri = 'file:///test_line_comment_double_bar_semicolon.do';
@@ -244,7 +244,7 @@ describe('Operator Sequence Diagnostics Integration', () => {
 
         it('stops line-comment adjacency at a CR terminator', async () => {
             const my_content = [
-                'display a & b |// comment',
+                'display a & b | // comment',
                 '| c',
             ].join('\n');
             const my_uri = 'file:///test_line_comment_double_bar_cr.do';

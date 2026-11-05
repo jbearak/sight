@@ -35,11 +35,11 @@
             ]
         },
         "path-after-io-command": {
-            "begin": "(?:^|;)\\s*(?:(?:quietly|qui|noisily|noi|capture|cap)\\s+)*(import|export)\\b\\s+(?!using(?=\\s|[,;]|/[/*]|$))\\w+\\s+(?!using(?=\\s|[,;]|/[/*]|$))",
+            "begin": "(?:^|;)\\s*(?:(?:quietly|qui|noisily|noi|capture|cap)\\s+)*(import|export)\\b\\s+(?!using(?=\\s|[,;]|/\\*|$))\\w+\\s+(?!using(?=\\s|[,;]|/\\*|$))",
             "beginCaptures": {
                 "1": { "name": "keyword.functions.data.stata" }
             },
-            "end": "(?=\\s|[,;]|/[/*]|$)",
+            "end": "(?=\\s|[,;]|/\\*|$)",
             "patterns": [
                 { "include": "#strings" },
                 { "include": "#macros" }
@@ -50,18 +50,18 @@
             "beginCaptures": {
                 "1": { "name": "keyword.control.flow.stata" }
             },
-            "end": "(?=\\s|[,;]|/[/*]|$)",
+            "end": "(?=\\s|[,;]|/\\*|$)",
             "patterns": [
                 { "include": "#strings" },
                 { "include": "#macros" }
             ]
         },
         "path-after-data-command": {
-            "begin": "(?:^|;)\\s*(?:(?:quietly|qui|noisily|noi|capture|cap)\\s+)*(u(s(e)?)?|sa(v(e)?)?|saveold|insheet|infile|outsheet)\\b\\s+(?!using(?=\\s|[,;]|/[/*]|$))",
+            "begin": "(?:^|;)\\s*(?:(?:quietly|qui|noisily|noi|capture|cap)\\s+)*(u(s(e)?)?|sa(v(e)?)?|saveold|insheet|infile|outsheet)\\b\\s+(?!using(?=\\s|[,;]|/\\*|$))",
             "beginCaptures": {
                 "1": { "name": "keyword.functions.data.stata" }
             },
-            "end": "(?=\\s|[,;]|/[/*]|$)",
+            "end": "(?=\\s|[,;]|/\\*|$)",
             "patterns": [
                 { "include": "#strings" },
                 { "include": "#macros" }
@@ -72,7 +72,7 @@
             "beginCaptures": {
                 "1": { "name": "keyword.other.stata" }
             },
-            "end": "(?=\\s|[,;]|/[/*]|$)",
+            "end": "(?=\\s|[,;]|/\\*|$)",
             "patterns": [
                 { "include": "#strings" },
                 { "include": "#macros" }
@@ -83,7 +83,7 @@
             "beginCaptures": {
                 "1": { "name": "keyword.other.command.stata" }
             },
-            "end": "(?=\\s|[,;]|/[/*]|$)",
+            "end": "(?=\\s|[,;]|/\\*|$)",
             "patterns": [
                 { "include": "#strings" },
                 { "include": "#macros" }
@@ -97,11 +97,11 @@
                     "name": "comment.line.star.stata"
                 },
                 {
-                    "match": "///.*$",
+                    "match": "(?:^|(?<=[\\s;]))///.*$",
                     "name": "comment.line.triple-slash.stata"
                 },
                 {
-                    "match": "//.*$",
+                    "match": "(?:^|(?<=[\\s;]))//.*$",
                     "name": "comment.line.double-slash.stata"
                 }
             ]

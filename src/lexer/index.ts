@@ -710,22 +710,28 @@ export class StataLexer {
       // Otherwise, fall through to operator handling
     }
 
+    // A `//` or `///` with code right before it is code, not a comment
+    // or a continuation: Stata 18 stores `local a b///` as `b///` and
+    // runs the next line as its own command, and reads `di 4//2` as
+    // division. Each of its slashes is then an operator.
+    if (char === '/' && this.peek() === '/' &&
+        !this.is_comment_slash_position(startColumn)) {
+      this.note_tight_continuation(startLine, startColumn);
+      return this.makeToken('OPERATOR', char, startLine, startColumn);
+    }
+
     if (char === '/' && this.peek() === '/') {
       this.advance(); // consume second /
 
       // Check for continuation comment ///
       if (this.peek() === '/') {
         this.advance(); // consume third /
-        
-        // Check if this is a visual separator (only slashes until end of line)
-        // e.g., "//////////////////////////////////////" is a comment, not continuation
-        if (this.isOnlySlashesUntilEndOfLine()) {
-          return this.scanLineComment(startLine, startColumn, 'slash');
-        }
-        
-        // /// is a continuation if:
-        // 1. There's code before it on the same line (startColumn > 0), OR
-        // 2. We're continuing a valid continuation sequence (previous line ended with ///)
+
+        // A `///` (or a longer run of slashes) after whitespace is a
+        // continuation; Stata 18 joins `b ////////` to the next line.
+        // At column 0 it continues a chain (`a ///`, `////////`, `b`
+        // is `a b`); otherwise only the next line follows it, so it
+        // reads as a comment.
         if (startColumn === 0 && !this.state.in_continuation) {
           return this.scanLineComment(startLine, startColumn, 'slash');
         }
@@ -1134,13 +1140,6 @@ export class StataLexer {
   }
 
   private scanContinuationComment(startLine: number, startColumn: number): Token {
-    // Check if there's preceding whitespace
-    const hasWhitespace = startColumn > 0;
-    if (!hasWhitespace) {
-      // Warning: continuation without preceding whitespace
-      // For now, just continue parsing
-    }
-
     // Consume until end of line
     while (this.peek() !== '\n' && !this.isAtEnd()) {
       this.advance();
@@ -2010,23 +2009,52 @@ export class StataLexer {
   }
 
   /**
-   * Check if this looks like a visual separator line.
-   * Visual separators typically have many consecutive slashes (e.g., "////////////////////")
-   * Real continuations are just "///" possibly followed by comment text.
-   * We check if there are more than 3 additional slashes after the initial "///".
+   * Can a `//` or `///` starting at this column start a comment or a
+   * continuation? Only at the start of a line, after a space or tab,
+   * or after the `;` that ends a statement under `#delimit ;` (Stata 18
+   * reads `local a b;// c` there as `local a b`). Anything else before
+   * the slashes, even a quote, a parenthesis, a brace, or the end of a
+   * block comment, makes them code.
    */
-  private isOnlySlashesUntilEndOfLine(): boolean {
-    let my_pos = this.position;
-    let my_slash_count = 0;
-    
-    // Count consecutive slashes
-    while (my_pos < this.source.length && this.source[my_pos] === '/') {
-      my_slash_count++;
-      my_pos++;
+  private is_comment_slash_position(start_column: number): boolean {
+    if (start_column === 0) {
+      return true;
     }
-    
-    // If we have 4+ more slashes (total 7+ with the initial ///), it's a visual separator
-    return my_slash_count >= 4;
+    const before = this.source[this.position - 2];
+    return before === ' ' || before === '\t' ||
+      (before === ';' && this.state.delimiterMode === 'semicolon');
+  }
+
+  /**
+   * Warn at the first slash of a `///` (or longer run) that is code
+   * because nothing separates it from the code before it. Under
+   * `#delimit cr` the next line then runs as its own command; under
+   * `#delimit ;` the slashes and any note after them stay in the
+   * command.
+   */
+  private note_tight_continuation(start_line: number, start_column: number): void {
+    const slash_offset = this.position - 1;
+    if (this.source[slash_offset - 1] === '/' ||
+        this.source[slash_offset + 2] !== '/') {
+      return;
+    }
+    let my_end = slash_offset;
+    while (this.source[my_end] === '/') {
+      my_end++;
+    }
+    const consequence = this.state.delimiterMode === 'semicolon'
+      ? 'the slashes and anything after them stay in the command'
+      : 'the next line runs as a separate command';
+    this.errors.push({
+      message: '`///` is not a line continuation unless a space or tab'
+        + ` comes before it; here ${consequence}. Add a space before`
+        + ' `///`.',
+      range: this.makeRange(
+        start_line, start_column,
+        start_line, start_column + (my_end - slash_offset)
+      ),
+      code: LexerErrorCode.CONTINUATION_NO_SPACE,
+    });
   }
 
   private advance(): string {

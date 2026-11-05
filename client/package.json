@@ -133,7 +133,7 @@
             "off"
           ],
           "default": "information",
-          "description": "Severity level for style warnings",
+          "description": "Severity level for style warnings. No diagnostic uses it at present.",
           "enumDescriptions": [
             "Show as error",
             "Show as warning",

@@ -708,11 +708,7 @@ export class PrettyPrinter {
     /**
      * Print a statement, or a block's header, as written, because a
      * `///` in it has a note after it. Each line moves with the
-     * statement's indentation and keeps its own relative to it. After
-     * a `///` with no space before it, whether a line is indented at
-     * all decides whether it joins the token before the `///` (`b///`
-     * then `c` is `bc`), so such a line at column 0 stays there and an
-     * indented one keeps at least one space.
+     * statement's indentation and keeps its own relative to it.
      */
     private printNotedLines(the_lines: SourceLine[]): string {
         const indent = this.getIndent();
@@ -724,13 +720,9 @@ export class PrettyPrinter {
             if (my_line.text === '') {
                 return '';
             }
-            const is_tight = my_line.after_tight_continuation === true;
-            if (is_tight && my_line.column === 0) {
-                return my_line.text;
-            }
-            const leading = indent +
-                ' '.repeat(Math.max(0, my_line.column - first_column));
-            return (is_tight && leading === '' ? ' ' : leading) + my_line.text;
+            return indent +
+                ' '.repeat(Math.max(0, my_line.column - first_column)) +
+                my_line.text;
         }).join('\n');
     }
 

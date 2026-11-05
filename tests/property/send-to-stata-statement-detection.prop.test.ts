@@ -162,8 +162,24 @@ describe('Feature: send-to-stata - Statement Detection Properties', () => {
         ];
 
         for (const my_variant of whitespace_variants) {
-            const line = 'display "test"' + my_variant;
+            const line = 'display "test" ' + my_variant;
             expect(ends_with_continuation(line)).toBe(true);
+        }
+    });
+
+    test('Property 1: /// needs a space or tab before it', () => {
+        // Stata 18 runs the line after `local a b///` as its own command.
+        for (const my_line of [
+            'display "test"///', 'local a b///', 'local a (x)///',
+            "local a `x'///", 'local a b////', 'gen y = 2///  ',
+        ]) {
+            expect(ends_with_continuation(my_line)).toBe(false);
+        }
+        for (const my_line of [
+            'local a b ///', 'local a b\t///', 'local a b ////////', '///',
+            '    ///',
+        ]) {
+            expect(ends_with_continuation(my_line)).toBe(true);
         }
     });
 

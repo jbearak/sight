@@ -351,18 +351,20 @@ describe('StataParser', () => {
       }
     });
 
-    test('joins a /// continuation with no space when the next line is unindented', () => {
-      // `///` removes itself and the newline; an unindented continued token
-      // joins directly (Stata: `local x = ab///\ncd` -> "abcd").
+    test('keeps a /// with no space before it as text, not a continuation', () => {
+      // Stata 18 stores `local x = ab///` as `ab///` and runs the next
+      // line as its own command: `///` continues a line only after a
+      // space or tab.
       const source = `local x = ab///
 cd`;
       const lexResult = lexer.tokenize(source);
       const parseResult = parser.parse(lexResult.tokens);
-      const node = parseResult.ast.nodes[0];
+      const [node, next] = parseResult.ast.nodes;
       expect(node.type).toBe('macro_def');
       if (node.type === 'macro_def') {
-        expect(node.value).toBe('abcd');
+        expect(node.value).toBe('ab///');
       }
+      expect(next).toMatchObject({ type: 'command', name: 'cd' });
     });
 
     test('should parse macro assignment continued after the scope keyword', () => {
@@ -1558,32 +1560,33 @@ end`;
     });
 
     test('/// continuation joins only the immediately-following line', () => {
-      // `///` continues one line: a column-0 token on the next line joins with
-      // no space, an indented token keeps one space, and consecutive `///`
-      // lines still join. A blank line after `///` is an ordinary newline and
-      // must separate — it must NOT fuse the tokens into one identifier
-      // (issue #306; matches the documented macro-value convention).
+      // `///` after a space continues one line, and the line break is a
+      // single space whatever the next line's indentation. A blank line
+      // after `///` is an ordinary newline and must separate too
+      // (issue #306).
       const expr = (body: string): string | undefined =>
         command(semi(body))?.expression;
-      expect(expr('gen z = a///\nb')).toBe('ab');
-      expect(expr('gen z = a///\n    b')).toBe('a b');
-      expect(expr('gen z = a///\n///\nb')).toBe('ab');
-      expect(expr('gen z = a///\n\nb')).toBe('a b');
-      // A same-line space before `///` is real whitespace and must separate,
-      // even when the continued token starts at column 0.
       expect(expr('gen z = a ///\nb')).toBe('a b');
-      // A raw newline before a later `///` breaks the chain: the tokens must
-      // not fuse just because the second `///` sits next to the final token.
-      expect(expr('gen z = a///\n\n///\nb')).toBe('a b');
-      // Diagnostic-free in every case.
+      expect(expr('gen z = a ///\n    b')).toBe('a b');
+      expect(expr('gen z = a ///\n    ///\nb')).toBe('a b');
+      expect(expr('gen z = a ///\n\nb')).toBe('a b');
       for (const my_body of [
-        'gen z = a///\nb',
-        'gen z = a///\n\nb',
-        'gen z = a///\n    b',
-        'gen z = a///\n\n///\nb',
+        'gen z = a ///\nb',
+        'gen z = a ///\n\nb',
+        'gen z = a ///\n    b',
+        'gen z = a ///\n    ///\nb',
       ]) {
         expect(parse(semi(my_body)).errors).toHaveLength(0);
       }
+    });
+
+    test('a /// with no space before it stays in the expression', () => {
+      // Under `#delimit ;`, Stata 18 keeps `a///` as written and reads
+      // the newline after it as a space: `a/// b`.
+      const expr = (body: string): string | undefined =>
+        command(semi(body))?.expression;
+      expect(expr('gen z = a///\nb')).toBe('a/// b');
+      expect(expr('gen z = a///\n    b')).toBe('a/// b');
     });
   });
 
@@ -1668,9 +1671,11 @@ end`;
     });
 
     test('/// continuation in a foreach list joins only the next line', () => {
-      // Column-0 join, then a blank line that must separate rather than fuse.
-      expect(loop_spec(semi_loop('foreach i in a///\nb'))).toBe('in ab');
-      expect(loop_spec(semi_loop('foreach i in a///\n\nb'))).toBe('in a b');
+      // A continued line and a blank line both separate rather than fuse.
+      expect(loop_spec(semi_loop('foreach i in a ///\nb'))).toBe('in a b');
+      expect(loop_spec(semi_loop('foreach i in a ///\n\nb'))).toBe('in a b');
+      // A `///` with no space before it is part of the item.
+      expect(loop_spec(semi_loop('foreach i in a///\nb'))).toBe('in a/// b');
     });
   });
 
@@ -1698,11 +1703,13 @@ end`;
     });
 
     test('/// continuation in a condition joins only the next line', () => {
-      // Column-0 join matches Stata (`if a///` then `b` executes `if ab`); a
-      // space before `///` separates the condition from an inline command.
-      expect(condition('if a///\nb {\n  display 1\n}')).toBe('ab');
+      // A space before `///` continues the condition onto the next line,
+      // or separates it from an inline command there.
+      expect(condition('if a ///\nb {\n  display 1\n}')).toBe('a b');
       expect(condition('if a ///\ndisplay 1')).toBe('a');
-      expect(condition('while a///\nb {\n  display 1\n}')).toBe('ab');
+      expect(condition('while a ///\nb {\n  display 1\n}')).toBe('a b');
+      // Without the space, Stata 18 ends the condition at the newline.
+      expect(condition('if a///\nb {\n  display 1\n}')).toBe('a///');
     });
   });
 
@@ -2014,8 +2021,11 @@ end`;
     });
 
     test('/// continuation in extended-macro args joins only the next line', () => {
-      expect(ext_args('local x : display a///\nb')).toBe('ab');
-      expect(ext_args(semi('local x : display a///\n\nb'))).toBe('a b');
+      expect(ext_args('local x : display a ///\nb')).toBe('a b');
+      expect(ext_args(semi('local x : display a ///\n\nb'))).toBe('a b');
+      // A `///` with no space before it is text, and the statement ends
+      // at the newline.
+      expect(ext_args('local x : display a///\nb')).toBe('a///');
     });
   });
 
@@ -2062,11 +2072,11 @@ end`;
       ).toBe('f(x)');
     });
 
-    test('default column-0 continuation joins without a separator in both modes', () => {
-      expect_default_in_both_modes(
-        'syntax , opt(string default(a///\nb))',
-        'ab'
-      );
+    test('default keeps a /// with no space before it as text', () => {
+      // Under `#delimit ;` the newline after `a///` is a space; under
+      // `#delimit cr` the statement ends there.
+      expect(default_value(semi_program('syntax , opt(string default(a///\nb))')))
+        .toBe('a/// b');
     });
 
     test('default continuation with space before slashes keeps a separator in both modes', () => {
@@ -2078,7 +2088,7 @@ end`;
 
     test('default indented continuation-only line keeps a separator in both modes', () => {
       expect_default_in_both_modes(
-        'syntax , opt(string default(a///\n    ///\nb))',
+        'syntax , opt(string default(a ///\n    ///\nb))',
         'a b'
       );
     });

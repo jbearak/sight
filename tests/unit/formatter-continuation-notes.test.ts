@@ -9,7 +9,6 @@ import {
     for_each_formatter_mode,
     FormatterMode,
     mode_specific_assertion,
-    skip_for_mode,
 } from '../property/helpers/formatter-test-utils';
 
 /** Format a fixture in the selected mode and return the resulting source. */
@@ -108,27 +107,30 @@ describe('formatting a statement with a note after ///', () => {
             .toBe('if 1 {\n    reg y x /// note\n      z\n}\ndi 1 /// note\n+ 2\n');
     });
 
-    // Whether a continued line is indented decides whether it joins the
-    // token before the `///`: `b///` then `c` at column 0 is `bc`.
-    for_each_formatter_mode('keeps whether a continued line joins', mode => {
-        // The source-preserving formatter re-indents continued lines and
-        // changes both values; that is a separate bug.
-        skip_for_mode(mode, 'source-preserving', () => {
-            // A `///` alone on a line continues a tight chain only from
-            // column 0.
-            const the_cases: Array<[string, string]> = [
-                ['if 1 {\nlocal a b/// note\nc\n}\n', 'bc'],
-                ['        local a b/// note\n    c\n', 'b c'],
-                ['if 1 {\nlocal a b/// note\n///\nc\n}\n', 'bc'],
-                ['if 1 {\nlocal a b /// note\n/// note\nc\n}\n', 'b c'],
-                ['if 1 {\nlocal a b/// note\n  ///\nc\n}\n', 'b c'],
-            ];
-            for (const [my_source, my_value] of the_cases) {
-                expect(macro_values(my_source)).toEqual([my_value]);
-                const formatted = format_idempotent(my_source, mode);
-                expect(macro_values(formatted)).toEqual([my_value]);
-            }
-        });
+    // Stata 18 reads a `///` with no space before it as text: `b///`
+    // then `c` is the value `b///` and a separate command `c`. Formatting
+    // must keep the slashes together, not space them out, drop them, or
+    // add a space before them (which would make them a continuation).
+    for_each_formatter_mode('keeps a /// with no space before it as text', mode => {
+        const the_cases: Array<[string, string]> = [
+            ['if 1 {\nlocal a b/// note\nc\n}\n',
+             'if 1 {\n    local a b/// note\n    c\n}\n'],
+            ['        local a b///\n    c\n', 'local a b///\nc\n'],
+            ['gen y = x///note\n', 'gen y = x///note\n'],
+            ['reg y x, robust///\nz\n', 'reg y x, robust///\nz\n'],
+            ['if 1 {\ngen y = 4//2\n}\n', 'if 1 {\n    gen y = 4//2\n}\n'],
+            ['use http://www.stata-press.com/data/r18/auto, clear\n',
+             'use http://www.stata-press.com/data/r18/auto, clear\n'],
+            // Under `#delimit ;` the next line is more of the statement.
+            ['#delimit ;\nlocal a b///\nc;\ngen y = x///note\n  + 1;\n#delimit cr\n',
+             '#delimit ;\nlocal a b///\nc;\ngen y = x///note\n  + 1;\n#delimit cr\n'],
+        ];
+        for (const [my_source, my_expected] of the_cases) {
+            const formatted = format_idempotent(my_source, mode);
+            expect({ source: my_source, formatted })
+                .toEqual({ source: my_source, formatted: my_expected });
+            expect(macro_values(formatted)).toEqual(macro_values(my_source));
+        }
     });
 
     for_each_formatter_mode('still joins a /// with no note', mode => {

@@ -243,11 +243,10 @@ describe('continuation lines after /// in #delimit cr', () => {
 });
 
 describe('lines after a /// with no space before it', () => {
-    // The parser joins `b///` and a column-0 `c` into `bc`, and reads an
-    // indented `c` as a separate word, so re-indenting either changed the
-    // value: inside a block `c` moved in (`bc` to `b c`), and at the top
-    // level a statement moving left pulled `c` to column 0 (`b c` to `bc`).
-    // (Stata itself doesn't continue a line after a tight `///`.)
+    // Stata 18 doesn't continue a line after a `///` with no space
+    // before it: `local a b///` stores `b///`, and `c` on the next line
+    // is its own command. Formatting must keep the value and indent `c`
+    // like any other statement.
     function macro_values(source: string): string[] {
         const the_values: string[] = [];
         const visit = (the_nodes: StataNode[]): void => {
@@ -269,7 +268,6 @@ describe('lines after a /// with no space before it', () => {
         '    local a b/// note\n  c\n',
         'if 1 {\n        local a b/// note\n  c\n}\n',
         '  local a b///\n  c\n',
-        'if 1 {\nlocal a b///\n///\nc\n}\n',
         'if 1 {\nlocal a b///\n  ///\nc\n}\n',
         '#delimit ;\nif 1 {;\nlocal a b///\nc;\n};\n',
         '#delimit ;\n  local a b///\n  c;\n',
@@ -287,10 +285,10 @@ describe('lines after a /// with no space before it', () => {
         }
     });
 
-    it('stay at column 0 or keep a space [source-preserving]', () => {
-        expect(format_stable('if 1 {\nlocal a b///\nc\n}\n', 'source-preserving'))
-            .toBe('if 1 {\n    local a b///\nc\n}\n');
-        expect(format_stable('  local a b///\n  c\n', 'source-preserving'))
-            .toBe('local a b///\n c\n');
+    for_each_formatter_mode('are indented as statements', mode => {
+        expect(format_stable('if 1 {\nlocal a b///\nc\n}\n', mode))
+            .toBe('if 1 {\n    local a b///\n    c\n}\n');
+        expect(format_stable('  local a b///\n  c\n', mode))
+            .toBe('local a b///\nc\n');
     });
 });

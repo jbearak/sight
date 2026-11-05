@@ -5,8 +5,22 @@ export interface StatementBounds {
     end_line: number;    // 0-indexed, inclusive
 }
 
+// A run of three or more slashes at the end of a line, with what comes
+// before it.
+const TRAILING_SLASHES_PATTERN = /(^|.)\/{3,}$/;
+
+/**
+ * Does `line` end with a `///` continuation? As in Stata 18, the slashes
+ * must start the line or follow a space or tab: `display "a"///` and
+ * `local a b///` are text, and the next line is its own command.
+ */
 export function ends_with_continuation(line: string): boolean {
-    return line.trimEnd().endsWith('///');
+    const match = TRAILING_SLASHES_PATTERN.exec(line.trimEnd());
+    if (match === null) {
+        return false;
+    }
+    const before = match[1];
+    return before === '' || before === ' ' || before === '\t';
 }
 
 export function detect_statement(

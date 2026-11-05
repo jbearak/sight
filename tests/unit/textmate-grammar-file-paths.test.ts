@@ -149,13 +149,25 @@ describe('TextMate Grammar - filename arguments (#187)', () => {
         });
 
         it('stops at // and /// comments', async () => {
-            for (const my_line of ['use i.dta // note', 'use i.dta///x']) {
+            for (const my_line of ['use i.dta // note', 'use i.dta ///x']) {
                 const tokens = await tokenize_stata(my_line);
                 expect(factor_texts(tokens), my_line).toEqual([]);
                 expect(
                     tokens.some((t) => t.scopes.some((s) => s.startsWith('comment'))),
                     `${my_line}: comment preserved`
                 ).toBe(true);
+            }
+        });
+
+        it('keeps a // or /// with no space before it in the path', async () => {
+            // Stata 18 reads them as text there (`use http://...`).
+            for (const my_line of ['use i.dta///x', 'use http://h/i.dta']) {
+                const tokens = await tokenize_stata(my_line);
+                expect(factor_texts(tokens), my_line).toEqual([]);
+                expect(
+                    tokens.some((t) => t.scopes.some((s) => s.startsWith('comment'))),
+                    `${my_line}: no comment`
+                ).toBe(false);
             }
         });
 

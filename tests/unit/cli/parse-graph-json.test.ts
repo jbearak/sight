@@ -142,11 +142,14 @@ describe('sight parse --json', () => {
 
     it('joins value parts across a continuation the way value does', () => {
         for (const [my_source, my_value] of [
-            ['local a foo///\nbar\n', 'foobar'],
-            ['local a foo///\n///\nbar\n', 'foobar'],
             ['local a foo ///\nbar\n', 'foo bar'],
-            ['local a foo///\n  bar\n', 'foo bar'],
-            ['local a foo///\n\nbar\n', 'foo'],
+            ['local a foo ///\n  bar\n', 'foo bar'],
+            ['local a foo ///\n    ///\nbar\n', 'foo bar'],
+            ['local a foo ///\n\nbar\n', 'foo'],
+            // Stata 18 stores `foo///` as written: a `///` continues a
+            // line only after a space or tab.
+            ['local a foo///\nbar\n', 'foo///'],
+            ['local a foo///note\nbar\n', 'foo///note'],
         ]) {
             const [node] = statements(my_source);
             expect(node.value).toBe(my_value);
