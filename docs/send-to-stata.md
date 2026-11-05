@@ -173,13 +173,21 @@ With no selection, the send commands send the whole statement the cursor is in, 
 
 Send Upward Lines ends at the end of the cursor's statement, and Send Downward Lines starts at its first line.
 
+### Blocks
+
+A block's header can't run without its body and closer: Stata stops with "unexpected end of file" (r(612)). So with the cursor on the header or on the closer, Send statement sends the whole block, from the header through its `}` (or `};` under `#delimit ;`), or through `end` for `program define` and `mata` or `python` blocks. That covers `foreach`, `forvalues`, `while`, `if`, `else`, `frame`, a prefix's block (`capture {`, `quietly {`, `capture noisily {`), `program`, `mata`, and `python`, with blocks nested inside them. With the cursor on a line inside the body, it sends just that statement, or a nested block if the line is its header or closer.
+
+An `if` and the `else` and `else if` parts after it go together, from any of their headers or closers. Stata runs an `else` sent on its own even after a true `if`, so sending them apart would run both branches. That holds for one-line `if x di "a"` / `else di "b"` too.
+
+A block with no closer (a `foreach` header with no `}`, or a `mata:` with no `end`) sends only its header's lines, as before.
+
 ### `#delimit ;`
 
 After `#delimit ;`, a statement runs to its `;`, across as many lines as it takes. Comment lines just before a statement are sent with it; a comment after the `;` (`di "A"; // note`) isn't sent with the next statement. A `//` or `///` at column 0 in the middle of a statement is code, as Stata reads it.
 
 Stata runs the code it's sent under `#delimit cr`. So when the code starts in a `#delimit ;` region (Send statement, a selection, or Send Downward Lines), the extension puts a `#delimit ;` line before it. Stata goes back to `#delimit cr` when the sent code ends. Send Upward Lines and Send File start at the top of the file, so they carry the file's own `#delimit` lines.
 
-A block's header (`foreach v in a b {;`), each line of its body, and its `};` are separate statements, as under `#delimit cr`. To run a whole block, select it.
+Blocks work as above: on `foreach v in a b {;` or its `};`, Send statement sends the whole block.
 
 ## Editor Toolbar
 

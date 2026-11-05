@@ -41,10 +41,18 @@ describe('Send statement', () => {
         }
     });
 
-    test('a block close is sent under #delimit ;', () => {
+    test('a block is sent whole under #delimit ;', () => {
+        for (const my_line of [4, 6]) {
+            expect(find_code_to_send(
+                as_document(PROGRAM), 'statement', my_line, null
+            )).toEqual({
+                code: '#delimit ;\n' + PROGRAM.slice(4, 7).join('\n'),
+                statement_end_line: 6,
+            });
+        }
         expect(find_code_to_send(
-            as_document(PROGRAM), 'statement', 6, null
-        ).code).toBe('#delimit ;\n};');
+            as_document(PROGRAM), 'statement', 5, null
+        ).code).toBe('#delimit ;\n    di "`v\'";');
     });
 
     test('a cr statement is sent as it is', () => {
