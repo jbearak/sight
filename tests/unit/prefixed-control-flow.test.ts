@@ -224,9 +224,9 @@ describe('formatting prefixed control flow', () => {
     });
 
     for_each_formatter_mode('keeps a // comment among prefixes before a block', (mode) => {
-        // Under `#delimit ;`, loops, if, and brace blocks keep only block
-        // comments, so a `//` comment there still ends the prefix chain,
-        // as on main, rather than being read as whitespace and lost.
+        // Under `#delimit ;` a `//` comment there is whitespace; AST
+        // formatting moves it to its own line before the statement.
+        // See prefix-line-comments.test.ts.
         for (const my_source of [
             '#delimit ;\ncapture // c\nwhile 1 {;\n    di 1;\n};\n',
             '#delimit ;\nquietly // c\n{;\n    di 1;\n};\n',
