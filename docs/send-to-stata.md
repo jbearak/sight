@@ -85,13 +85,13 @@ What differs from the pane described above:
 
 On native Windows (not in a remote session), the `integrated` target and the "Stata" terminal profile open a **Stata pane** in VS Code's terminal panel that runs [sight console](console.md) inside the extension. There's no separate program to install. The console drives the Stata application through its Automation interface, so it needs Stata's Automation registered. See [console.md](console.md) for what the console does.
 
-If a Stata window is already open, the extension asks, in a dialog, whether sight console may take it over: it then belongs to the console and closes when the pane closes. Choose **Send code to it instead** to leave that Stata alone and use send-to-stata (below) for this session.
+Each pane has its own Stata. When no Stata is open, the pane starts one, so a second pane gets a second Stata window. Stata windows that other panes own don't count as open here or below. If a Stata window is already open, the extension asks, in a dialog, whether sight console may take it over: it then belongs to the console and closes when the pane closes. Choose **Send code to it instead** to leave that Stata alone and use send-to-stata (below) for this session.
 
 Code you send while the console is starting waits in a queue, and the status bar shows how many sends are waiting. The queued sends are typed into the console, in order, once it shows its first prompt; there's no time limit on answering the dialog.
 
 The console doesn't take Stata when:
 
-- several Stata windows are open;
+- several Stata windows are open, not counting those other panes own;
 - you decline the take-over;
 - the open Stata is in use by another program, such as Jupyter;
 - Stata's Automation isn't registered;

@@ -184,11 +184,15 @@ script with Windows PowerShell, which managed machines sometimes block.
 
 ### Which Stata it uses
 
+A Stata that another sight console owns doesn't count as open below:
+each console has its own Stata, so you can run several consoles at
+once, each in its own Stata window.
+
 - No Stata open: the console starts one.
 - One Stata open: the console asks before taking it over. A taken-over
   Stata belongs to the console from then on. `--yes` skips the question.
 - Two or more open: the console won't start; close all but the one to
-  use, or all of them.
+  use, or all of them. Stata windows owned by other consoles can stay.
 - The open Stata is in use by another program (such as Jupyter's
   stata_kernel): the console won't start.
 
@@ -239,7 +243,7 @@ window instead):
 
 | Code | Meaning |
 |---|---|
-| 80 | Two or more Stata windows are open |
+| 80 | Two or more Stata windows are open that no other sight console owns |
 | 81 | You declined to let the console take over the open Stata |
 | 82 | You chose to send code from the editor instead (`s`, only when started by the editor) |
 | 83 | The open Stata is in use by another program |
