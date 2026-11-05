@@ -24,7 +24,6 @@ import {
     OptionSpec,
     ResolvedScope,
     CompletionRankingFactors,
-    ArgumentSpec,
     ProgramSignature,
     ProgramNode,
     ProgramSymbol,
@@ -52,6 +51,7 @@ import {
     filter_forward_site_symbols,
 } from '../scope-resolver';
 import { create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
+import { syntax_locals } from '../analyzer/command-macro-writes';
 import { isPathDirective, isFileCommand, hasStataExtension } from '../utils/file-path-utils';
 import { DIRECTIVE_BODY_PREFIX_PATTERN } from '../utils/directives';
 import { is_cursor_in_block_comment } from '../utils/comment-utils';
@@ -3579,34 +3579,15 @@ export class CompletionProvider {
     }
 
     /**
-     * Get the argument local name mapping for a program signature.
-     * Maps argument types to their implicit local macro names.
-     */
-    private get_argument_local_name(arg: ArgumentSpec): string | null {
-        if (!arg || !arg.type) {
-            return null;
-        }
-        if (arg.type === 'anything' && arg.name) {
-            return arg.name;
-        }
-        return arg.type;
-    }
-
-    /**
-     * Extract program arguments from a program signature.
-     * Returns the implicit local macros created by the syntax command.
+     * The locals a program's `syntax` arguments define (`varlist`,
+     * `if`, `weight` and `exp`, …), without duplicates.
      */
     private extract_program_arguments(signature: ProgramSignature): string[] {
-        const the_arguments: string[] = [];
-        
-        for (const arg of signature.arguments) {
-            const local_name = this.get_argument_local_name(arg);
-            if (local_name) {
-                the_arguments.push(local_name);
-            }
+        const the_names = new Set<string>();
+        for (const my_local of syntax_locals(signature)) {
+            if (my_local.kind === 'argument') the_names.add(my_local.name);
         }
-        
-        return the_arguments;
+        return [...the_names];
     }
 
     /**
