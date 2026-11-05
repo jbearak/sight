@@ -470,6 +470,19 @@ describe('statement structure', () => {
             });
         }
 
+        it('finds the command after a /// continuation', () => {
+            // Before syntax the comment stays where it was, on the prefix.
+            const nodes = parse_nodes('capture /* c */ noisily ///\n    syntax varlist');
+            expect(nodes.map((n) => n.type)).toEqual(['command', 'syntax']);
+            expect((nodes[0] as CommandNode).trailingTrivia?.map((t) => t.content))
+                .toEqual(['/* c */']);
+
+            const plain = parse_nodes('capture /* c */ noisily ///\n    gen x = 1');
+            expect(plain).toHaveLength(1);
+            expect((plain[0] as CommandNode).interiorTrivia?.map((t) => t.content))
+                .toEqual(['/* c */']);
+        });
+
         it('still ends a dangling prefix at a trailing comment', () => {
             const nodes = parse_nodes('quietly /* c */\ngen x = 1');
             expect(nodes).toHaveLength(2);

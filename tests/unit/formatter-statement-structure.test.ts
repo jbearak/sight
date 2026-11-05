@@ -164,6 +164,21 @@ describe('formatting statements with interior block comments', () => {
         }
     });
 
+    for_each_formatter_mode('keeps a comment before syntax, also after ///', mode => {
+        // syntax nodes don't keep interior comments either. The command
+        // after `///` decides, as on the same line. (AST formatting
+        // already drops a prefixed syntax, and what follows `///` here,
+        // on main; this checks only the comment.)
+        for (const my_source of [
+            'capture /* c */ noisily syntax varlist\n',
+            'capture /* c */ noisily ///\n    syntax varlist\n',
+            'quietly /* c */ : ///\n    syntax varlist\n',
+            'capture /* c */ noisily ///\n    foreach x in a {\n    di 1\n}\n',
+        ]) {
+            expect(format_source(my_source, mode, true)).toContain('/* c */');
+        }
+    });
+
     for_each_formatter_mode('keeps a * line that continues a #delimit ; statement', mode => {
         const source = '#delimit ;\ngen y = a\n* b;\ngen z = 1;\n#delimit cr\n';
         const formatted = format_source(source, mode);

@@ -3745,7 +3745,7 @@ export class StataParser {
    */
   private is_plain_command_from(index: number): boolean {
     // Find the command word, past any further prefixes.
-    let i = this.index_after_block_comments(index);
+    let i = this.index_after_statement_trivia(index);
     for (;;) {
       const my_token = this.tokens[i];
       if (my_token?.type !== 'WORD') {
@@ -3758,11 +3758,11 @@ export class StataParser {
         if (colon_index === -1) {
           break;
         }
-        i = this.index_after_block_comments(colon_index + 1);
+        i = this.index_after_statement_trivia(colon_index + 1);
       } else if (prefix_name !== undefined) {
-        i = this.index_after_block_comments(i + 1);
+        i = this.index_after_statement_trivia(i + 1);
         if (this.tokens[i]?.type === 'COLON') {
-          i = this.index_after_block_comments(i + 1);
+          i = this.index_after_statement_trivia(i + 1);
         }
       } else {
         break;
@@ -3797,6 +3797,26 @@ export class StataParser {
       }
     }
     return true;
+  }
+
+  /**
+   * Index of the first token from `index` on that isn't a block comment
+   * or a `///` continuation with its swallowed newline.
+   */
+  private index_after_statement_trivia(index: number): number {
+    let i = index;
+    for (;;) {
+      const my_token = this.tokens[i];
+      if (my_token?.type === 'COMMENT_BLOCK' || my_token?.type === 'CONTINUATION') {
+        i++;
+      } else if (my_token !== undefined && i > 0 &&
+          is_swallowed_continuation_terminator(
+            my_token, this.tokens[i - 1]?.type === 'CONTINUATION')) {
+        i++;
+      } else {
+        return i;
+      }
+    }
   }
 
   /** Index of the first token from `index` on that isn't a block comment. */
