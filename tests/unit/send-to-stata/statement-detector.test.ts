@@ -412,6 +412,29 @@ describe('Send to Stata: a block header or closer sends the block', () => {
             ['if 1 {', '    di "y"', '}', 'else {', '    di "n"'], 0, 0);
     });
 
+    test('an unclosed block around a closed one', () => {
+        // Both end at the inner `}`; only the inner block is closed.
+        const the_lines = [
+            'foreach a in x {',            // 0
+            '    foreach b in y {',        // 1
+            '        di 1',                // 2
+            '    }',                       // 3
+        ];
+        expect_statement(the_lines, 0, 0);
+        expect_bounds(the_lines, [1, 3], { start_line: 1, end_line: 3 });
+        // A program with no `end`, though its last line ends in one.
+        expect_statement(['program define p', '    local x end'], 0, 0);
+    });
+
+    test('an inline else continued onto the next line', () => {
+        expect_bounds(
+            ['if 1 di 1', 'else ///', '    di 2', 'di 3'], [0, 1, 2],
+            { start_line: 0, end_line: 2 });
+        expect_bounds(
+            ['#delimit ;', 'if 1 di 1;', 'else', '    di 2;', 'di 3;'],
+            [1, 2, 3], { start_line: 1, end_line: 3 });
+    });
+
     test('an inline else if chain goes together', () => {
         const the_lines = [
             'if `x\' == 1 di "one"',

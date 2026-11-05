@@ -10,6 +10,7 @@ import type {
     Token,
     TokenType,
 } from '../../../src/types/index.js';
+import type { Position } from 'vscode-languageserver-textdocument';
 
 export interface StatementBounds {
     start_line: number;  // 0-indexed, inclusive
@@ -49,8 +50,6 @@ const COMMENT_TOKEN_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
 // Stata goes back to `#delimit cr` when the sent do-file ends.
 const DELIMIT_SEMICOLON_LINE = '#delimit ;\n';
 
-// The `end` that closes a program, at the end of its last line.
-const PROGRAM_END_PATTERN = /(^|\s)end$/;
 
 /**
  * Read `text` with Sight's lexer, so the send commands follow the
@@ -137,7 +136,7 @@ export function read_document(text: string): DocumentReading {
     return {
         joined_lines,
         delimit_directives,
-        block_by_line: find_blocks(text, the_tokens),
+        block_by_line: find_blocks(the_tokens),
     };
 }
 
@@ -151,10 +150,7 @@ export function read_document(text: string): DocumentReading {
  * an `else` sent on its own even after a true `if`, so they are sent
  * together. That holds for `if x di "a"` / `else di "b"` too.
  */
-function find_blocks(
-    text: string,
-    the_tokens: Token[]
-): Map<number, StatementBounds> {
+function find_blocks(the_tokens: Token[]): Map<number, StatementBounds> {
     const block_by_line = new Map<number, StatementBounds>();
     let the_nodes: StataNode[];
     try {
@@ -163,13 +159,104 @@ function find_blocks(
         // Without blocks, Send statement sends the header's lines.
         return block_by_line;
     }
-    collect_blocks(the_nodes, text.split('\n'), block_by_line);
+    collect_blocks(the_nodes, find_closers(the_tokens), block_by_line);
     return block_by_line;
+}
+
+/** A `{` token, and where its matching `}` ends, if it has one. */
+interface BraceOpen {
+    start: Position;
+    close_end: Position | null;
+}
+
+/** The tokens that close blocks, from the lexer. */
+interface BlockClosers {
+    /** Each `{` outside a mata or python block, in order. */
+    the_opens: BraceOpen[];
+    /** Where each `end` that starts a statement ends. */
+    end_word_ends: Set<string>;
+}
+
+function position_key(position: Position): string {
+    return `${position.line}:${position.character}`;
+}
+
+function is_before(a: Position, b: Position): boolean {
+    return a.line < b.line || (a.line === b.line && a.character < b.character);
+}
+
+function find_closers(the_tokens: Token[]): BlockClosers {
+    const the_opens: BraceOpen[] = [];
+    const end_word_ends = new Set<string>();
+    const the_open_stack: BraceOpen[] = [];
+    let is_in_embedded_block = false;
+    let previous: Token | undefined;
+    for (const my_token of the_tokens) {
+        switch (my_token.type) {
+            case 'MATA_START':
+            case 'PYTHON_START':
+                is_in_embedded_block = true;
+                break;
+            case 'END_MATA':
+            case 'END_PYTHON':
+                is_in_embedded_block = false;
+                break;
+            case 'LBRACE':
+                if (!is_in_embedded_block) {
+                    const my_open = {
+                        start: my_token.range.start, close_end: null,
+                    };
+                    the_opens.push(my_open);
+                    the_open_stack.push(my_open);
+                }
+                break;
+            case 'RBRACE': {
+                const my_open = is_in_embedded_block
+                    ? undefined
+                    : the_open_stack.pop();
+                if (my_open !== undefined) {
+                    my_open.close_end = my_token.range.end;
+                }
+                break;
+            }
+            case 'WORD':
+                if (my_token.value === 'end' &&
+                    (previous === undefined ||
+                        previous.type === 'STATEMENT_TERMINATOR')) {
+                    end_word_ends.add(position_key(my_token.range.end));
+                }
+                break;
+        }
+        if (my_token.type !== 'WHITESPACE' &&
+            my_token.type !== 'COMMENT_BLOCK') {
+            previous = my_token;
+        }
+    }
+    return { the_opens, end_word_ends };
+}
+
+/** The first `{` at or after `position`. */
+function find_open_after(
+    closers: BlockClosers,
+    position: Position
+): BraceOpen | undefined {
+    const the_opens = closers.the_opens;
+    let low = 0;
+    let high = the_opens.length;
+    while (low < high) {
+        const middle = (low + high) >> 1;
+        if (is_before(the_opens[middle].start, position)) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    return the_opens[low];
 }
 
 function collect_blocks(
     the_nodes: StataNode[],
-    the_lines: string[],
+    closers: BlockClosers,
     block_by_line: Map<number, StatementBounds>
 ): void {
     for (let i = 0; i < the_nodes.length; i++) {
@@ -181,9 +268,9 @@ function collect_blocks(
             }
         }
         const is_block = the_chain.length > 1 ||
-            is_closed_block(the_chain[0], the_lines);
+            is_closed_block(the_chain[0], closers);
         if (is_block && the_chain.every((my_node) =>
-            is_complete(my_node, the_lines))) {
+            is_complete(my_node, closers))) {
             const my_bounds = {
                 start_line: the_chain[0].range.start.line,
                 end_line: the_chain[the_chain.length - 1].range.end.line,
@@ -194,7 +281,7 @@ function collect_blocks(
             }
         }
         for (const my_node of the_chain) {
-            collect_blocks(node_body(my_node), the_lines, block_by_line);
+            collect_blocks(node_body(my_node), closers, block_by_line);
         }
     }
 }
@@ -233,40 +320,42 @@ function node_body(node: StataNode): StataNode[] {
 /**
  * Is `node`, a member of an `if`/`else` chain, complete: closed with
  * its `}`, or a single command with no braces (`if x di "a"`,
- * `else di "b"`)?
+ * `else di "b"`, maybe continued onto the next line)?
  */
-function is_complete(node: StataNode, the_lines: string[]): boolean {
+function is_complete(node: StataNode, closers: BlockClosers): boolean {
     if (node.type === 'if' && node.is_single_statement === true) {
         return true;
     }
     if (node.type === 'else') {
-        // `else di "b"` and `else if ...` have their body on the `else`
-        // line; `else {` has it on later lines.
+        // A brace `else` has its `{` before its body.
         const my_first = node.body[0];
-        if (my_first !== undefined &&
-            my_first.range.start.line === node.range.start.line) {
-            return my_first.type === 'if'
-                ? is_complete(my_first, the_lines)
-                : true;
+        const my_open = find_open_after(closers, node.range.start);
+        const is_brace_else = my_open !== undefined &&
+            is_before(my_open.start, node.range.end) &&
+            (my_first === undefined ||
+                is_before(my_open.start, my_first.range.start));
+        if (!is_brace_else) {
+            // `else if ...` is as complete as its `if`.
+            return my_first?.type === 'if'
+                ? is_complete(my_first, closers)
+                : my_first !== undefined;
         }
     }
-    return is_closed_block(node, the_lines);
+    return is_closed_block(node, closers);
 }
 
 /**
- * Is `node` a block that the parser closed with its `}` or `end`? An
- * unclosed one runs to the end of the file.
+ * Is `node` a block closed by its own `}` or `end`? The parser ends an
+ * unclosed block at the end of the file, or at the `}` of a closed
+ * block inside it.
  */
-function is_closed_block(node: StataNode, the_lines: string[]): boolean {
-    const end = node.range.end;
-    const my_last_text = (the_lines[end.line] ?? '')
-        .slice(0, end.character).trimEnd();
+function is_closed_block(node: StataNode, closers: BlockClosers): boolean {
     switch (node.type) {
         case 'embedded_block':
             return !node.is_single_line && node.end_command !== undefined;
         case 'program':
             return node.ends_at_embedded_block === true ||
-                PROGRAM_END_PATTERN.test(my_last_text);
+                closers.end_word_ends.has(position_key(node.range.end));
         case 'if':
         case 'else':
         case 'foreach':
@@ -275,14 +364,24 @@ function is_closed_block(node: StataNode, the_lines: string[]): boolean {
         case 'frame':
             return node.is_single_statement !== true &&
                 node.closed_by_program_end !== true &&
-                my_last_text.endsWith('}');
+                is_closed_by_own_brace(node.range, closers);
         case 'command':
             return node.body !== undefined &&
                 node.closed_by_program_end !== true &&
-                my_last_text.endsWith('}');
+                is_closed_by_own_brace(node.range, closers);
         default:
             return false;
     }
+}
+
+/** Does the block's first `{` have its `}` at the end of the block? */
+function is_closed_by_own_brace(
+    range: { start: Position; end: Position },
+    closers: BlockClosers
+): boolean {
+    const my_open = find_open_after(closers, range.start);
+    return my_open !== undefined && my_open.close_end !== null &&
+        position_key(my_open.close_end) === position_key(range.end);
 }
 
 /**
