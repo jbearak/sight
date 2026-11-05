@@ -14,6 +14,11 @@
       "error": null
     },
     {
+      "path": "column0-slashes.do",
+      "standalone": false,
+      "error": null
+    },
+    {
       "path": "comment-placement.do",
       "standalone": false,
       "error": null
@@ -60,6 +65,7 @@
     }
   ],
   "entry_points": [
+    "column0-slashes.do",
     "comment-placement.do",
     "header-only.do",
     "main.do",

@@ -333,6 +333,8 @@ export class StataParser {
       });
       this.pending_trivia = leading_trivia;
       return null;
+    } else if (has_adjacent_slashes(this.tokens.slice(this.current, this.current + 2))) {
+      node = this.parse_slash_led_statement();
     } else {
       // Skip unknown tokens but preserve any leading trivia for the next statement.
       this.advance();
@@ -3924,6 +3926,26 @@ export class StataParser {
     return trivia;
   }
 
+
+  /**
+   * A statement that starts with `//` as code: under `#delimit ;`, a
+   * column-0 `//` on a later line of a statement, which Stata 18 runs
+   * ("/ is not a valid command name"; the lexer warns). It has no
+   * command name, and keep_noted_lines keeps its text as written.
+   */
+  private parse_slash_led_statement(): CommandNode {
+    const start_token = this.peek();
+    while (!this.at_statement_end()) {
+      this.advance();
+    }
+    return {
+      type: 'command',
+      name: '',
+      fullName: '',
+      expression: undefined,
+      range: this.makeRange(start_token.range.start, this.previous().range.end),
+    };
+  }
 
   /**
    * Keep the lines of the statement starting at token `start` as

@@ -322,7 +322,14 @@ Every statement has:
   only at the start of a line or after a space or tab (or, under
   `#delimit ;`, right after the `;` that ends a statement). Otherwise it
   is part of the statement's text: `local a b///` has the value `b///`,
-  and `use http://example.com/d` keeps the whole URL.
+  and `use http://example.com/d` keeps the whole URL. Under
+  `#delimit ;`, one at column 0 is a comment only on a statement's first
+  line (a comment doesn't end a statement): `local a b` then `/// x` then
+  `c;` has the value `b /// x c`, and `// c` then `// d` then `di 1;` is
+  a `command` with `name` `""` and text `// d` / `di 1`. A `///` that
+  starts a line and doesn't continue a `///` chain is a `slash` comment
+  at any indentation: Stata joins the next line to it, and that line
+  runs as its own statement.
 
 Statements with a body (`block`, `if`, `else`, loops, `program`, `frame`)
 have `body`, a list of statements. `command`, `block`, `macro`, `syntax`,

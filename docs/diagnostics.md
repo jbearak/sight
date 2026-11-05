@@ -48,7 +48,7 @@ same rule IDs in its bracketed suffixes, for example `[undefined_macro]`.
 
 ## Lexical errors
 
-Reported by the lexer. Most are hard errors; two are warnings because
+Reported by the lexer. Most are hard errors; three are warnings because
 Stata still runs the code, just not as written.
 
 | Rule ID | Default | Trigger |
@@ -57,6 +57,7 @@ Stata still runs the code, just not as written.
 | <a id="unbalanced-block-comment"></a>`UNBALANCED_BLOCK_COMMENT` | error | `/*` is not matched by `*/`. |
 | <a id="unterminated-statement"></a>`UNTERMINATED_STATEMENT` | error | A statement runs off the end of the file in `#delimit ;` mode without a terminating `;`. |
 | <a id="continuation-no-space"></a>`CONTINUATION_NO_SPACE` | warning | A `///` with no space or tab before it (`foo///` instead of `foo ///`). Stata 18 reads it as text, not a line continuation: under `#delimit cr` the next line runs as a separate command, and under `#delimit ;` the slashes and any note after them stay in the command. In an expression (`gen y = 2///`) Stata reports r(198). A `//` with no space before it is also text (`use http://...`), but gets no diagnostic. |
+| <a id="slashes-mid-statement"></a>`SLASHES_MID_STATEMENT` | warning | Under `#delimit ;`, a `//` or `///` at column 0 on a later line of a statement. Stata 18 reads one there as a comment only on a statement's first line, and a comment doesn't end the statement: after `// c`, a block comment, or `di 1; // c`, a `// d` at column 0 on the next line is code ("/ is not a valid command name"), and `local a b` then `/// x` then `c;` stores `b /// x c`. Indent the line, or end the statement first. |
 | <a id="block-comment-in-star-comment"></a>`BLOCK_COMMENT_IN_STAR_COMMENT` | warning | A `/* ... */` block appears inside a `*` line comment, which Stata parses unexpectedly. |
 
 ## Parse and structural errors

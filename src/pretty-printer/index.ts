@@ -14,10 +14,21 @@ import {
     OptionNode,
     EmbeddedLanguageBlockNode,
     SyntaxNode,
-    SourceLine
+    SourceLine,
+    LanguageContext,
 } from '../types';
+import { StataLexer } from '../lexer';
 import { compare_positions } from '../utils/scope-position';
+import { find_mid_statement_slash_lines } from '../utils/semicolon-statement';
 import { format_expression_spacing } from './expression-spacing';
+
+// Marks a `//` comment printed at column 0 under `#delimit ;`, for
+// indent_mid_statement_comments. NULs keep it out of any source text.
+const COLUMN0_COMMENT_MARK = '\u0000sight-column-0-comment\u0000';
+
+// A `//` that may start a comment: at the start of a line, or after a
+// space or tab.
+const LINE_COMMENT_START_PATTERN = /(?:^|[ \t])\/\//;
 
 /**
  * Determines if a space should be omitted between two varlist items
@@ -93,19 +104,80 @@ export class PrettyPrinter {
         const the_lines: string[] = [];
 
         for (const my_node of ast.nodes) {
-            const my_printed = this.printNode(my_node, options);
+            const my_printed = this.print_node_text(my_node, options);
             the_lines.push(my_printed);
         }
 
         the_lines.push(this.printTriviaLines(ast.trailingTrivia ?? []));
 
-        return the_lines.join('');
+        return this.indent_mid_statement_comments(the_lines.join(''), 'cr');
+    }
+
+    /**
+     * Indent each marked `//` comment line that Stata 18 would read as
+     * code at column 0 (see find_mid_statement_slash_lines), and drop
+     * the marks. Under `#delimit ;` a comment doesn't end a statement,
+     * so `// c` then `// d` at column 0 is code on the second line; one
+     * indent there keeps it a comment.
+     */
+    private indent_mid_statement_comments(
+        text: string, start_mode: 'cr' | 'semicolon'
+    ): string {
+        if (!text.includes(COLUMN0_COMMENT_MARK)) {
+            return text;
+        }
+        const the_lines = text.split('\n');
+        const marked_lines = new Set<number>();
+        for (let i = 0; i < the_lines.length; i++) {
+            const my_line = the_lines[i];
+            if (my_line.startsWith(COLUMN0_COMMENT_MARK)) {
+                marked_lines.add(i);
+            }
+            if (my_line.includes(COLUMN0_COMMENT_MARK)) {
+                the_lines[i] = my_line.split(COLUMN0_COMMENT_MARK).join('');
+            }
+        }
+        const { tokens } = new StataLexer().tokenize(the_lines.join('\n'), {
+            delimiterMode: start_mode,
+            line: 0,
+            column: 0,
+            language_context: LanguageContext.STATA,
+            context_stack: [LanguageContext.STATA],
+        });
+        const { code_lines } = find_mid_statement_slash_lines(tokens, start_mode);
+        const indent = this.indent_for(1);
+        for (const my_line of marked_lines) {
+            if (code_lines.has(my_line)) {
+                the_lines[my_line] = indent + the_lines[my_line];
+            }
+        }
+        return the_lines.join('\n');
+    }
+
+    /**
+     * The start of a line holding a comment: the indentation, and under
+     * `#delimit ;` a mark on a `//` comment at column 0, which may need
+     * indenting (indent_mid_statement_comments).
+     */
+    private comment_line_start(comment: string, indent: string = this.getIndent()): string {
+        if (indent === '' && this.delimiter_mode === 'semicolon' &&
+            comment.startsWith('//')) {
+            return COLUMN0_COMMENT_MARK;
+        }
+        return indent;
     }
 
     /**
      * Print a single AST node to valid Stata source code.
      */
     printNode(node: StataNode, options?: Partial<PrintOptions>): string {
+        const start_mode = this.delimiter_mode;
+        return this.indent_mid_statement_comments(
+            this.print_node_text(node, options), start_mode);
+    }
+
+    /** printNode, leaving comment marks for the caller to resolve. */
+    private print_node_text(node: StataNode, options?: Partial<PrintOptions>): string {
         if (options) {
             this.options = { ...this.options, ...options };
         }
@@ -363,7 +435,7 @@ export class PrettyPrinter {
 
             // Print body statements
             for (const my_stmt of node.body) {
-                the_parts.push(this.printNode(my_stmt));
+                the_parts.push(this.print_node_text(my_stmt));
             }
 
             the_parts.push(this.printBlockEndingTrivia(node));
@@ -500,7 +572,7 @@ export class PrettyPrinter {
             const my_ends_program = node.ends_at_embedded_block === true &&
                 my_index === node.body.length - 1;
             if (!my_ends_program) {
-                the_lines.push(this.printNode(my_stmt));
+                the_lines.push(this.print_node_text(my_stmt));
                 return;
             }
             this.embedded_end_indent_override = this.current_indent - 1;
@@ -686,7 +758,7 @@ export class PrettyPrinter {
 
         // Print body statements
         for (const my_stmt of node.body) {
-            the_lines.push(this.printNode(my_stmt));
+            the_lines.push(this.print_node_text(my_stmt));
         }
 
         the_lines.push(this.printBlockEndingTrivia(node));
@@ -711,19 +783,54 @@ export class PrettyPrinter {
      * statement's indentation and keeps its own relative to it.
      */
     private printNotedLines(the_lines: SourceLine[]): string {
-        const indent = this.getIndent();
-        const first_column = the_lines[0]?.column ?? 0;
+        // Under `#delimit ;`, slashes at column 0 in a statement are
+        // code (the lexer read them so); indented, they would be a
+        // comment. They stay put, and so do the lines after them when
+        // they start the statement.
+        const is_column0_slash_code = (my_line: SourceLine): boolean =>
+            my_line.column === 0 && my_line.text.startsWith('//') &&
+            this.delimiter_mode === 'semicolon';
+        const first_line = the_lines[0];
+        const indent = first_line !== undefined && is_column0_slash_code(first_line)
+            ? ''
+            : this.getIndent();
+        const first_column = first_line?.column ?? 0;
         return the_lines.map((my_line, i) => {
+            if (is_column0_slash_code(my_line)) {
+                return my_line.text;
+            }
             if (i === 0) {
                 return indent + my_line.text;
             }
             if (my_line.text === '') {
                 return '';
             }
-            return indent +
-                ' '.repeat(Math.max(0, my_line.column - first_column)) +
-                my_line.text;
-        }).join('\n');
+            let my_indent = indent +
+                ' '.repeat(Math.max(0, my_line.column - first_column));
+            // A later line that starts with a `//` comment (it was
+            // indented) can't go to column 0 under `#delimit ;`, where
+            // it would be code. Spaces, since columns count characters.
+            if (my_indent === '' && my_line.text.startsWith('//') &&
+                this.delimiter_mode === 'semicolon') {
+                my_indent = ' '.repeat(this.options.indent_size);
+            }
+            return my_indent + my_line.text;
+        }).join('\n') + this.after_noted_lines(the_lines);
+    }
+
+    /**
+     * What goes after a statement's lines as written: under `#delimit ;`,
+     * when the last line may end in a `//` or `///` comment, a line break
+     * and indent, so the `;` isn't part of the comment. (A `//` in a
+     * string also matches; the `;` on its own line is still right.)
+     */
+    private after_noted_lines(the_lines: SourceLine[]): string {
+        const last_line = the_lines[the_lines.length - 1];
+        if (this.delimiter_mode !== 'semicolon' || last_line === undefined ||
+            !LINE_COMMENT_START_PATTERN.test(last_line.text)) {
+            return '';
+        }
+        return '\n' + this.getIndent();
     }
 
     /**
@@ -826,15 +933,9 @@ export class PrettyPrinter {
         // `#delimit ;` a `*` comment runs to the next `;`, which the
         // lexer keeps in the comment (`* c;`); after a `//` comment a
         // `;` would be part of it. Either way, an added `;` would grow
-        // by one on each format.
-        const the_parts: string[] = [];
-        for (const my_trivia of node.leadingTrivia) {
-            the_parts.push(this.getIndent());
-            the_parts.push(this.printTrivia(my_trivia));
-            the_parts.push('\n');
-        }
-
-        return the_parts.join('');
+        // by one on each format. Comments on one line stay on it, as
+        // they do after a statement's terminator.
+        return this.printTriviaLines(node.leadingTrivia);
     }
 
     /**
@@ -896,7 +997,7 @@ export class PrettyPrinter {
                 if (previous !== undefined) {
                     the_parts.push('\n');
                 }
-                the_parts.push(this.getIndent());
+                the_parts.push(this.comment_line_start(this.printTrivia(my_trivia)));
             }
             the_parts.push(this.printTrivia(my_trivia));
             previous = my_trivia;
@@ -918,8 +1019,9 @@ export class PrettyPrinter {
 
         const the_parts: string[] = [];
         for (const my_trivia of node.blockEndingTrivia) {
-            the_parts.push(this.getIndent());
-            the_parts.push(this.printTrivia(my_trivia));
+            const my_text = this.printTrivia(my_trivia);
+            the_parts.push(this.comment_line_start(my_text));
+            the_parts.push(my_text);
             // Block-ending comments are not statements and do not take `;` in
             // semicolon-delimit mode, unlike leading trivia before statements.
             the_parts.push('\n');
@@ -941,10 +1043,16 @@ export class PrettyPrinter {
         at_line_start: boolean,
         next_line_indent: string | null
     ): boolean {
+        const text = this.printTrivia(comment);
         if (!at_line_start) {
             the_parts.push(' ');
+        } else if (the_parts[the_parts.length - 1] === '' &&
+            this.delimiter_mode === 'semicolon' && text.startsWith('//')) {
+            // At column 0 a later `//` line of the statement would be
+            // code under `#delimit ;`.
+            the_parts.push(this.indent_for(1));
         }
-        the_parts.push(this.printTrivia(comment));
+        the_parts.push(text);
         if (comment.style === 'block' || next_line_indent === null) {
             return false;
         }

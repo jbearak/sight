@@ -75,5 +75,6 @@ To enable comment style normalization, add the following to your VS Code setting
 ### Special Cases
 
 - **Continuation comments** (`///`): These are never normalized, as they have special meaning in Stata for line continuation.
+- **Comments under `#delimit ;`**: Stata reads a `//` or `///` at column 0 as a comment only on a statement's first line, and a comment doesn't end a statement. So after `// c`, a block comment, or `di 1; // c`, the formatter indents a following `//` line one level instead of moving it to column 0, where Stata would run it as code. Slashes at column 0 that are already code stay there.
 - **Embedded language blocks**: Comments within Mata or Python blocks are preserved in their original style.
 - **Markdown in comments**: The formatter respects Markdown syntax in comments and preserves list items and code blocks during line wrapping.

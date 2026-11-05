@@ -97,10 +97,12 @@ describe('comment-only lines at the end of the file', () => {
     for_each_formatter_mode(
         'stay after the terminator of a #delimit ; statement', mode => {
             // The comment sits between the code and its `;`. Before the
-            // fix, `di 1 // c;` swallowed the terminator.
+            // fix, `di 1 // c;` swallowed the terminator. It is indented:
+            // at column 0, Stata 18 reads it as code, since the
+            // statement began on the line above.
             for (const my_source of [
-                '#delimit ;\ndi 1\n// c\n;\n',
-                '#delimit ;\nif 1 di 1\n// c\n;\n',
+                '#delimit ;\ndi 1\n    // c\n;\n',
+                '#delimit ;\nif 1 di 1\n    // c\n;\n',
             ]) {
                 const the_lines = format_stable(my_source, mode)
                     .split('\n')
