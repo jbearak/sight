@@ -171,6 +171,19 @@ describe('TextMate Grammar - filename arguments (#187)', () => {
             }
         });
 
+        it('stops at a // or /// right after the command', async () => {
+            for (const my_line of [
+                'use /// note', 'do // note', 'reg y using /// note',
+                'import delimited /// note', 'cd // note',
+            ]) {
+                const tokens = await tokenize_stata(my_line);
+                expect(
+                    tokens.some((t) => t.scopes.some((s) => s.startsWith('comment.line'))),
+                    `${my_line}: comment`
+                ).toBe(true);
+            }
+        });
+
         it('handles tabs and multiple spaces', async () => {
             for (const my_line of ['use\ti.dta', 'use   i.dta']) {
                 const tokens = await tokenize_stata(my_line);

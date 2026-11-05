@@ -39,7 +39,7 @@
             "beginCaptures": {
                 "1": { "name": "keyword.functions.data.stata" }
             },
-            "end": "(?=\\s|[,;]|/\\*|$)",
+            "end": "(?=\\s|[,;]|(?<=\\s)//|/\\*|$)",
             "patterns": [
                 { "include": "#strings" },
                 { "include": "#macros" }
@@ -50,7 +50,7 @@
             "beginCaptures": {
                 "1": { "name": "keyword.control.flow.stata" }
             },
-            "end": "(?=\\s|[,;]|/\\*|$)",
+            "end": "(?=\\s|[,;]|(?<=\\s)//|/\\*|$)",
             "patterns": [
                 { "include": "#strings" },
                 { "include": "#macros" }
@@ -61,7 +61,7 @@
             "beginCaptures": {
                 "1": { "name": "keyword.functions.data.stata" }
             },
-            "end": "(?=\\s|[,;]|/\\*|$)",
+            "end": "(?=\\s|[,;]|(?<=\\s)//|/\\*|$)",
             "patterns": [
                 { "include": "#strings" },
                 { "include": "#macros" }
@@ -72,7 +72,7 @@
             "beginCaptures": {
                 "1": { "name": "keyword.other.stata" }
             },
-            "end": "(?=\\s|[,;]|/\\*|$)",
+            "end": "(?=\\s|[,;]|(?<=\\s)//|/\\*|$)",
             "patterns": [
                 { "include": "#strings" },
                 { "include": "#macros" }
@@ -83,7 +83,7 @@
             "beginCaptures": {
                 "1": { "name": "keyword.other.command.stata" }
             },
-            "end": "(?=\\s|[,;]|/\\*|$)",
+            "end": "(?=\\s|[,;]|(?<=\\s)//|/\\*|$)",
             "patterns": [
                 { "include": "#strings" },
                 { "include": "#macros" }
