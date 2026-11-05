@@ -7,7 +7,9 @@
  * local, a backward directive, and a cycle. directives.do covers every
  * Sight directive kind (with `@lsp-` aliases and quote and colon
  * variants) and each placement Sight ignores; header-only.do is a file
- * of comments with no statements. The expected JSON is in
+ * of comments with no statements; comment-placement.do has own-line
+ * comments the parser attaches as trailing trivia (after `#delimit ;`
+ * and at end of file), with directives in them. The expected JSON is in
  * tests/fixtures/cli-json/expected, with the fixture's absolute path
  * replaced by <ROOT> and the Sight version by <VERSION>.
  *
@@ -36,6 +38,7 @@ const PARSE_FILES = [
     'extra.do',
     'directives.do',
     'header-only.do',
+    'comment-placement.do',
 ];
 
 /** Replace machine-specific values so the output is stable. */

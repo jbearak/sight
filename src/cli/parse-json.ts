@@ -184,6 +184,8 @@ class ParseDocumentBuilder {
     private directives: CommentDirectives | undefined;
     /** Keys of the comments some statement reports. */
     private readonly reported_comments = new Set<string>();
+    /** The trivia each statement reports, from `place_comments`. */
+    private readonly statement_trivia = new Map<StataNode, StatementTrivia>();
 
     constructor(private readonly input: ParseDocumentInput) {
         this.content = input.content;
@@ -201,6 +203,10 @@ class ParseDocumentBuilder {
 
         this.directives = new CommentDirectives(
             this.input.path, this.content, this.tokens, parse_result.ast.nodes);
+        // Comments left over after the last statement, and the AST's own
+        // trailingTrivia, are no statement's: unreported_comments() finds
+        // them among the tokens.
+        this.place_comments(parse_result.ast.nodes);
         const statements = this.serialize_nodes(parse_result.ast.nodes);
         const comments = this.unreported_comments();
         const errors = [
@@ -230,8 +236,40 @@ class ParseDocumentBuilder {
     }
 
     /**
-     * Comments no statement reports: all of them in a file with no
-     * statements, for example a header-only file.
+     * Decide which statement reports each comment the parser attached
+     * to `nodes`. Only comments on a statement's last line are its
+     * `trailing`. The parser's other trailing comments are on lines of
+     * their own, so they lead the next statement; after the last
+     * statement of a body they precede the closing `}` or `end`
+     * (`block_end`). Returns those after the last of `nodes`.
+     */
+    private place_comments(nodes: StataNode[]): TriviaNode[] {
+        let the_carried: TriviaNode[] = [];
+        for (const my_node of nodes) {
+            const trailing = split_trailing_trivia(my_node);
+            const the_body_leftover = this.place_comments(body_of(my_node));
+            this.statement_trivia.set(my_node, {
+                leading: [...the_carried, ...trivia_of(my_node, 'leadingTrivia')],
+                trailing: trailing.same_line,
+                block_end: [
+                    ...the_body_leftover,
+                    ...trivia_of(my_node, 'blockEndingTrivia'),
+                ],
+            });
+            the_carried = trailing.own_line;
+        }
+        return the_carried;
+    }
+
+    private trivia_reported_by(node: StataNode): StatementTrivia {
+        return this.statement_trivia.get(node) ??
+            { leading: [], trailing: [], block_end: [] };
+    }
+
+    /**
+     * Comments no statement reports, in source order: all of them in a
+     * file with no statements, and the comment-only lines after the
+     * last statement.
      */
     private unreported_comments(): Json[] {
         const the_comments: Json[] = [];
@@ -332,20 +370,16 @@ class ParseDocumentBuilder {
      * to those statements.
      */
     private comments_of(node: StataNode): Json {
-        const leading = trivia_of(node, 'leadingTrivia');
-        const trailing = trivia_of(node, 'trailingTrivia');
-        const block_end = trivia_of(node, 'blockEndingTrivia');
-        const body: StataNode[] = 'body' in node && Array.isArray(node.body) ? node.body : [];
+        const { leading, trailing, block_end } = this.trivia_reported_by(node);
+        const body = body_of(node);
 
         const known = new Set<string>();
         for (const my_trivia of [...leading, ...trailing, ...block_end]) {
             known.add(comment_key(my_trivia.range));
         }
         for (const my_child of body) {
-            for (const my_trivia of [
-                ...trivia_of(my_child, 'leadingTrivia'),
-                ...trivia_of(my_child, 'trailingTrivia'),
-            ]) {
+            const child_trivia = this.trivia_reported_by(my_child);
+            for (const my_trivia of [...child_trivia.leading, ...child_trivia.trailing]) {
                 known.add(comment_key(my_trivia.range));
             }
         }
@@ -829,6 +863,13 @@ function group_adjacent_items(items: IdentifierNode[]): Json[] {
 
 type TriviaField = 'leadingTrivia' | 'trailingTrivia' | 'blockEndingTrivia';
 
+/** The comments one statement reports, before serialization. */
+interface StatementTrivia {
+    leading: TriviaNode[];
+    trailing: TriviaNode[];
+    block_end: TriviaNode[];
+}
+
 function trivia_of(node: StataNode, field: TriviaField): TriviaNode[] {
     switch (field) {
         case 'leadingTrivia':
@@ -838,6 +879,35 @@ function trivia_of(node: StataNode, field: TriviaField): TriviaNode[] {
         case 'blockEndingTrivia':
             return 'blockEndingTrivia' in node ? node.blockEndingTrivia ?? [] : [];
     }
+}
+
+function body_of(node: StataNode): StataNode[] {
+    return 'body' in node && Array.isArray(node.body) ? node.body : [];
+}
+
+/**
+ * Split a node's trailing trivia where the comments leave its last
+ * line, as the AST printer does. The parser also attaches comments
+ * from later lines: a comment-only tail at end of file, and comments
+ * after `#delimit ;`, which has no terminator token.
+ */
+function split_trailing_trivia(
+    node: StataNode
+): { same_line: TriviaNode[]; own_line: TriviaNode[] } {
+    const the_trivia = trivia_of(node, 'trailingTrivia');
+    let previous_end_line = node.range.end.line;
+    let same_line_count = 0;
+    for (const my_trivia of the_trivia) {
+        if (my_trivia.range.start.line > previous_end_line) {
+            break;
+        }
+        previous_end_line = my_trivia.range.end.line;
+        same_line_count++;
+    }
+    return {
+        same_line: the_trivia.slice(0, same_line_count),
+        own_line: the_trivia.slice(same_line_count),
+    };
 }
 
 function comment_style(token: Token): string | null {

@@ -4305,41 +4305,7 @@
         "delimit": "cr",
         "comments": {
           "leading": [],
-          "trailing": [
-            {
-              "style": "slash",
-              "text": "// sight: local",
-              "range": {
-                "start": {
-                  "line": 40,
-                  "character": 0
-                },
-                "end": {
-                  "line": 40,
-                  "character": 15
-                }
-              },
-              "directive": null
-            },
-            {
-              "style": "slash",
-              "text": "// sight: ignore",
-              "range": {
-                "start": {
-                  "line": 41,
-                  "character": 0
-                },
-                "end": {
-                  "line": 41,
-                  "character": 16
-                }
-              },
-              "directive": {
-                "kind": "ignore",
-                "target_range": null
-              }
-            }
-          ],
+          "trailing": [],
           "interior": [],
           "block_end": []
         },
@@ -4401,7 +4367,41 @@
         "options": []
       }
     ],
-    "comments": [],
+    "comments": [
+      {
+        "style": "slash",
+        "text": "// sight: local",
+        "range": {
+          "start": {
+            "line": 40,
+            "character": 0
+          },
+          "end": {
+            "line": 40,
+            "character": 15
+          }
+        },
+        "directive": null
+      },
+      {
+        "style": "slash",
+        "text": "// sight: ignore",
+        "range": {
+          "start": {
+            "line": 41,
+            "character": 0
+          },
+          "end": {
+            "line": 41,
+            "character": 16
+          }
+        },
+        "directive": {
+          "kind": "ignore",
+          "target_range": null
+        }
+      }
+    ],
     "errors": []
   },
   {
@@ -4472,6 +4472,240 @@
           }
         },
         "directive": null
+      }
+    ],
+    "errors": []
+  },
+  {
+    "schema_version": 1,
+    "sight_version": "<VERSION>",
+    "path": "<ROOT>/comment-placement.do",
+    "line_count": 9,
+    "statements": [
+      {
+        "kind": "delimit",
+        "range": {
+          "start": {
+            "line": 1,
+            "character": 0
+          },
+          "end": {
+            "line": 1,
+            "character": 10
+          }
+        },
+        "text": "#delimit ;",
+        "delimit": "cr",
+        "comments": {
+          "leading": [
+            {
+              "style": "star",
+              "text": "* Own-line comments the parser attaches as trailing trivia.",
+              "range": {
+                "start": {
+                  "line": 0,
+                  "character": 0
+                },
+                "end": {
+                  "line": 0,
+                  "character": 59
+                }
+              },
+              "directive": null
+            }
+          ],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "mode": "semicolon"
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 3,
+            "character": 0
+          },
+          "end": {
+            "line": 3,
+            "character": 13
+          }
+        },
+        "text": "display \"`d'\"",
+        "delimit": "semicolon",
+        "comments": {
+          "leading": [
+            {
+              "style": "slash",
+              "text": "// sight: local d",
+              "range": {
+                "start": {
+                  "line": 2,
+                  "character": 0
+                },
+                "end": {
+                  "line": 2,
+                  "character": 17
+                }
+              },
+              "directive": {
+                "kind": "declare",
+                "symbol_kind": "local",
+                "names": [
+                  "d"
+                ]
+              }
+            }
+          ],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "display",
+        "canonical_name": "display",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "\"`d'\"",
+            "range": {
+              "start": {
+                "line": 3,
+                "character": 8
+              },
+              "end": {
+                "line": 3,
+                "character": 13
+              }
+            }
+          }
+        ],
+        "varlist": null,
+        "assignment": null,
+        "if": null,
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": []
+      },
+      {
+        "kind": "delimit",
+        "range": {
+          "start": {
+            "line": 4,
+            "character": 0
+          },
+          "end": {
+            "line": 4,
+            "character": 11
+          }
+        },
+        "text": "#delimit cr",
+        "delimit": "semicolon",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "mode": "cr"
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 5,
+            "character": 0
+          },
+          "end": {
+            "line": 5,
+            "character": 9
+          }
+        },
+        "text": "display 1",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [
+            {
+              "style": "slash",
+              "text": "// same line",
+              "range": {
+                "start": {
+                  "line": 5,
+                  "character": 10
+                },
+                "end": {
+                  "line": 5,
+                  "character": 22
+                }
+              },
+              "directive": null
+            }
+          ],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "display",
+        "canonical_name": "display",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "1",
+            "range": {
+              "start": {
+                "line": 5,
+                "character": 8
+              },
+              "end": {
+                "line": 5,
+                "character": 9
+              }
+            }
+          }
+        ],
+        "varlist": null,
+        "assignment": null,
+        "if": null,
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": []
+      }
+    ],
+    "comments": [
+      {
+        "style": "star",
+        "text": "* end-of-file tail",
+        "range": {
+          "start": {
+            "line": 6,
+            "character": 0
+          },
+          "end": {
+            "line": 6,
+            "character": 18
+          }
+        },
+        "directive": null
+      },
+      {
+        "style": "slash",
+        "text": "// sight: ignore",
+        "range": {
+          "start": {
+            "line": 7,
+            "character": 0
+          },
+          "end": {
+            "line": 7,
+            "character": 16
+          }
+        },
+        "directive": {
+          "kind": "ignore",
+          "target_range": null
+        }
       }
     ],
     "errors": []

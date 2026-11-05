@@ -285,8 +285,10 @@ the left, so `2^3^2` is `(2^3)^2`, `-2^2` is `-(2^2)`, and `!x == 1` is
 
 `comments` lists the comments that no statement reports, in source order:
 all of them in a file with no statements (for example a header of
-comments only). In a file with statements, header comments are the first
-statement's `leading` comments, so each comment appears exactly once.
+comments only), and the comment-only lines after the last statement
+(including after a final `#delimit ;`). In a file with statements,
+header comments are the first statement's `leading` comments. Each
+comment appears exactly once.
 
 `errors` lists lexer and parser errors in source order (`source` is `lexer`
 or `parser`). An unreadable file's document has `schema_version`,
@@ -303,7 +305,10 @@ Every statement has:
 - `comments`: `{"leading": [], "trailing": [], "interior": [], "block_end": []}`:
   comments before and after the statement, inside it (between its tokens,
   including `///` continuations), and, for statements with a body, before
-  the closing `}` or `end`. Comments inside body statements belong to those
+  the closing `}` or `end`. `trailing` comments start on the statement's
+  last line, or on the line where the previous trailing comment ends (as
+  in `di 1 /* a */ // b`); a comment on a line of its own after a
+  statement is never `trailing`. Comments inside body statements belong to those
   statements. Each comment is `{"style", "text", "range", "directive"}`,
   where `style` is `slash` (`//`), `star` (`*`), `block` (`/* */`), or
   `continuation` (`///` with any text after it), and `directive` is described
