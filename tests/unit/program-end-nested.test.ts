@@ -285,6 +285,22 @@ describe('program ends at an end nested in a brace block: formatting', () => {
         }
     );
 
+    for (const my_block of ['capture {', 'foreach i in 1 {']) {
+        for_each_formatter_mode(
+            `adds no } to a one-line else ${my_block} cut off by the program end`,
+            (my_mode) => {
+                const my_source =
+                    `program define foo\n    if 0 {\n    }\n    else ${my_block}\n` +
+                    '        di 1\n    end\n    di 2\nend\n';
+                const my_once = format_text(my_source, my_mode);
+                expect(my_once.split('\n').filter((my_line) => my_line.trim() === '}'))
+                    .toEqual(['    }']);
+                expect(my_once.split('\n').slice(-4)).toEqual(['end', 'di 2', 'end', '']);
+                expect(format_text(my_once, my_mode)).toBe(my_once);
+            }
+        );
+    }
+
     for_each_formatter_mode(
         'keeps a } right after the block end at the top level',
         (my_mode) => {

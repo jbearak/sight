@@ -3076,6 +3076,10 @@ export class StataParser {
       const stmt = this.parseStatement();
       if (stmt) {
         body.push(stmt);
+        // The program's end cut the body off, and with it this `else`
+        if ('closed_by_program_end' in stmt && stmt.closed_by_program_end === true) {
+          closed_by_program_end = true;
+        }
       }
     }
 
