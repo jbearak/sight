@@ -237,6 +237,16 @@ export function arbitrary_numlist(): fc.Arbitrary<string> {
 export const RESERVED_QUALIFIER_KEYWORDS = ['if', 'in', 'using'];
 
 /**
+ * Stata's reserved underscore names ([U] 11.3) and `_se`. In a varlist
+ * they are not variables (`drop _all`, `summarize _b`), so Sight never
+ * reports them as undefined.
+ */
+export const RESERVED_SYSTEM_NAMES: ReadonlySet<string> = new Set([
+  '_all', '_b', '_coef', '_cons', '_n', '_N', '_pi', '_pred', '_rc',
+  '_se', '_skip',
+]);
+
+/**
  * Prefix commands that modify how subsequent commands execute, with every
  * abbreviation the parser accepts (see PREFIX_COMMANDS and
  * COLON_PREFIX_COMMANDS in src/parser/index.ts). These cannot be used as
@@ -336,12 +346,14 @@ export function arbitrary_embedded_block_line(max_length: number): fc.Arbitrary<
 }
 
 /**
- * Generate valid Stata identifiers that exclude reserved qualifier keywords.
- * Use this for variable names that appear immediately after a command.
+ * Generate valid Stata identifiers that exclude reserved qualifier keywords
+ * and reserved system names. Use this for variable names that appear
+ * immediately after a command.
  */
 export function arbitrary_non_reserved_identifier(): fc.Arbitrary<string> {
   return arbitrary_identifier().filter(
     (id) => !RESERVED_QUALIFIER_KEYWORDS.includes(id) &&
+            !RESERVED_SYSTEM_NAMES.has(id) &&
             !PREFIX_COMMANDS.includes(id) &&
             !FILE_COMMANDS.includes(id)
   );
