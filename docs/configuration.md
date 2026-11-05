@@ -100,6 +100,8 @@ the loop is left alone and no names are expanded.
 
 **Macro-creating options**: The analyzer recognizes `local()` and `global()` options on built-in commands (`levelsof`, `glevelsof`) and user-defined programs (via `` c_local `option' `` and `` global `option' `` patterns matching syntax declarations).
 
+**Temporary names**: `tempvar`, `tempname` and `tempfile` define a local for each name they list. `marksample touse` defines `` `touse' ``, which holds the name of the temporary marker variable it creates; its options (`novarlist`, `strok`, `zeroweight`) do not change the name. A name joined to a macro, as in `` marksample tt`i' ``, defines nothing that Sight can know. `mark`, `markout` and `svymarkout` define no local: `mark mk` creates the variable `mk`, and the other two only change an existing marker variable.
+
 **Locals set by `c_local` with a fixed name**: After a call to a program that runs `c_local foo …`, `` `foo' `` is defined from the call on. Hover, go-to-definition and Find References treat the call as a definition of `foo`, in addition to any earlier definitions in the caller. A name joined to a macro, as in `` c_local foo`i' … ``, is known only when the program runs, so Sight defines nothing for it. The same applies to `tempvar`, `tempname`, `tempfile`, `args`, `gettoken` and `file read`. `` local foo`i' … `` is not covered yet: Sight still treats it as defining `foo`.
 
 <a id="locals-named-by-program-arguments"></a>

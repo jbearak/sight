@@ -1656,7 +1656,7 @@ export class SemanticAnalyzer {
      * - Variables: gen/generate, egen, input, rename/ren, confirm
      * - Scalars: scalar
      * - Matrices: matrix, matrix define
-     * - Macros: tempvar/tempfile/tempname, unab, args,
+     * - Macros: tempvar/tempfile/tempname, marksample, unab, args,
      *           gettoken/gettok, file read
      *
      * Note: `replace` mutates an existing variable and is not
@@ -1691,8 +1691,11 @@ export class SemanticAnalyzer {
             this.extract_scalar_symbol(node, symbols, node_index);
         } else if (cmd_name === 'matrix') {
             this.extract_matrix_symbol(node, symbols, node_index);
-        } else if (cmd_name === 'tempvar' || cmd_name === 'tempfile' || cmd_name === 'tempname') {
-            // tempvar/tempfile/tempname create LOCAL MACROs
+        } else if (
+            cmd_name === 'tempvar' || cmd_name === 'tempfile'
+            || cmd_name === 'tempname' || cmd_name === 'marksample'
+        ) {
+            // tempvar/tempfile/tempname/marksample create LOCAL MACROs
             this.extract_tempvar_macro(node, symbols, current_scope, node_index);
         } else if (cmd_name === 'unab') {
             // unab creates a local macro containing variable names
@@ -2173,9 +2176,32 @@ export class SemanticAnalyzer {
     }
 
     /**
-     * Extract macro from tempvar command.
-     * tempvar creates a local macro containing a generated variable name.
-     * Syntax: tempvar name [name ...]
+     * Words a temporary-name command defines as locals:
+     * `tempvar`/`tempname`/`tempfile name [name ...]` name one local
+     * per word, and `marksample name [, options]` names one tempvar
+     * local (its options never change the name). `marksample a b`
+     * fails in Stata ("varlist not allowed") and defines nothing.
+     * Empty for any other command.
+     */
+    private temp_name_words(node: CommandNode): NameWord[] {
+        const cmd_name = node.fullName;
+        if (
+            cmd_name === 'tempvar' || cmd_name === 'tempfile'
+            || cmd_name === 'tempname'
+        ) {
+            return this.semantic_words(node);
+        }
+        if (cmd_name === 'marksample') {
+            const the_words = this.semantic_words(node);
+            return the_words.length === 1 ? the_words : [];
+        }
+        return [];
+    }
+
+    /**
+     * Extract macros from tempvar/tempname/tempfile/marksample.
+     * Each creates a local macro containing a generated name; see
+     * `temp_name_words` for which words name locals.
      */
     private extract_tempvar_macro(
         node: CommandNode,
@@ -2183,9 +2209,9 @@ export class SemanticAnalyzer {
         current_scope: ScopeInfo,
         node_index: number
     ): void {
-        // A name joined to a macro (`` tempvar tv`i' ``) is known only
-        // at run time.
-        for (const my_word of this.semantic_words(node)) {
+        // A name joined to a macro (`` tempvar tv`i' ``,
+        // `` marksample tt`i' ``) is known only at run time.
+        for (const my_word of this.temp_name_words(node)) {
             const var_node = whole_word_item(my_word);
             if (!var_node) continue;
             this.register_local_macro(
@@ -2498,7 +2524,7 @@ export class SemanticAnalyzer {
     /**
      * Literal LOCAL-macro names a command (re)defines through a POSITIONAL
      * target (not a `local()`/`global()` option): `tempvar`/`tempname`/
-     * `tempfile`, `args`, `unab`, `gettoken`, and `file read`. Mirrors the
+     * `tempfile`, `marksample`, `args`, `unab`, `gettoken`, and `file read`. Mirrors the
      * target positions used by the corresponding `extract_*` methods. Used by
      * the loop expander to poison such a target in execution order, so a
      * constructed name AFTER e.g. `` gettoken suffix rest : x `` no longer folds
@@ -2605,11 +2631,13 @@ export class SemanticAnalyzer {
             const name = whole_word_item(word)?.name;
             if (name && is_valid_identifier(name)) names.push(name);
         };
-        if (
-            cmd_name === 'tempvar' || cmd_name === 'tempfile'
-            || cmd_name === 'tempname' || cmd_name === 'args'
-        ) {
+        if (cmd_name === 'args') {
             for (const my_word of this.semantic_words(node)) push_literal(my_word);
+        } else if (
+            cmd_name === 'tempvar' || cmd_name === 'tempfile'
+            || cmd_name === 'tempname' || cmd_name === 'marksample'
+        ) {
+            for (const my_word of this.temp_name_words(node)) push_literal(my_word);
         } else if (cmd_name === 'unab') {
             push_literal(this.semantic_words(node)[0]);
         } else if (cmd_name === 'gettoken' || cmd_name === 'gettok') {
@@ -3437,7 +3465,8 @@ export class SemanticAnalyzer {
         const cmd_name = node.fullName;
         if (cmd_name === 'generate' || cmd_name === 'gen' || 
             cmd_name === 'egen' || cmd_name === 'input' ||
-            cmd_name === 'tempvar' || cmd_name === 'unab') {
+            cmd_name === 'tempvar' || cmd_name === 'unab' ||
+            cmd_name === 'marksample') {
             return;
         }
 
