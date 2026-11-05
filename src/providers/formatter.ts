@@ -21,9 +21,33 @@ import { PrettyPrinter } from '../pretty-printer';
 import { StataLexer } from '../lexer';
 import { StataParser } from '../parser';
 
-// The `;` that ends an inline embedded statement, with what may follow
-// it on the line: spaces and a trailing comment.
-const INLINE_UNIT_TERMINATOR_PATTERN = /;[ \t]*(?:\/\/.*|\/\*.*\*\/[ \t]*)?$/;
+/**
+ * The `;` that ends an inline embedded statement, with what may follow
+ * it on its last line: spaces and a trailing comment. Empty when the
+ * content doesn't end that way. One pass over the line: a regex for
+ * this backtracks polynomially on input such as `;//;//;//`.
+ */
+function inline_unit_terminator(content: string): string {
+    const line_start = content.lastIndexOf('\n') + 1;
+    const line_end = content.trimEnd().length;
+    const ends_with_block_comment = content.endsWith('*/', line_end) &&
+        line_end - line_start >= 2;
+    for (let i = content.indexOf(';', line_start);
+        i !== -1 && i < line_end;
+        i = content.indexOf(';', i + 1)) {
+        let rest_start = i + 1;
+        while (content[rest_start] === ' ' || content[rest_start] === '\t') {
+            rest_start++;
+        }
+        if (rest_start >= line_end ||
+            content.startsWith('//', rest_start) ||
+            (content.startsWith('/*', rest_start) && ends_with_block_comment &&
+                line_end - rest_start >= 4)) {
+            return content.slice(i);
+        }
+    }
+    return '';
+}
 
 /**
  * Code Formatter class with embedded language support.
@@ -192,7 +216,7 @@ export class CodeFormatter {
             // is still a statement of its own, and the next statement isn't
             // read as continuing it. Restoring puts the text back as it was.
             const my_terminator = my_unit.range.is_single_line
-                ? INLINE_UNIT_TERMINATOR_PATTERN.exec(my_unit.content)?.[0] ?? ''
+                ? inline_unit_terminator(my_unit.content)
                 : '';
             the_embedded_blocks.set(my_placeholder, {
                 content: my_unit.content.slice(
