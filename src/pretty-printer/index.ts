@@ -212,7 +212,11 @@ export class PrettyPrinter {
             }
         }
 
-        // Print command name
+        // Print command name. A prefix alone (`capture`, or
+        // `capture: * note`) has none, and no space after the prefixes.
+        if (node.name === '' && the_parts[the_parts.length - 1] === ' ') {
+            the_parts.pop();
+        }
         the_parts.push(node.name);
 
         // Print the arguments in source order: varlist items, and argument
@@ -341,8 +345,8 @@ export class PrettyPrinter {
                 // Prefix brace block: the prefixes, then comments that
                 // were among them (`quietly /* c */ {`), then the brace.
                 the_parts.length = 0;
-                the_parts.push(this.getIndent());
-                the_parts.push(this.printPrefixes(node.prefix));
+                the_parts.push(this.printAfterLineComments(
+                    this.getIndent() + this.printPrefixes(node.prefix).trimEnd(), node));
                 the_parts.push(this.printInteriorComments(node));
                 the_parts.push('{');
             } else {
@@ -387,8 +391,35 @@ export class PrettyPrinter {
         node: CommandNode | ControlFlowNode | EmbeddedLanguageBlockNode
     ): string {
         return (node.interiorTrivia ?? [])
+            .filter(my_comment => my_comment.style === 'block')
             .map(my_comment => `${this.printTrivia(my_comment)} `)
             .join('');
+    }
+
+    /**
+     * `lead` followed by the node's `//` comments (interior only under
+     * `#delimit ;`), then the separator before what follows: a space,
+     * or after a `//` comment a line break and continuation indent. A
+     * `//` comment ends its line, and Stata reads `//` as a comment
+     * there only after whitespace, so the next line is indented.
+     */
+    private printAfterLineComments(
+        lead: string,
+        node: CommandNode | ControlFlowNode | EmbeddedLanguageBlockNode
+    ): string {
+        const the_parts = [lead];
+        let at_line_start = false;
+        for (const my_comment of node.interiorTrivia ?? []) {
+            if (my_comment.style !== 'block') {
+                at_line_start = this.push_interior_comment(
+                    the_parts, my_comment, at_line_start,
+                    this.getContinuationIndent());
+            }
+        }
+        if (!at_line_start) {
+            the_parts.push(' ');
+        }
+        return the_parts.join('');
     }
 
     /**
@@ -546,10 +577,14 @@ export class PrettyPrinter {
      */
     private printControlFlow(node: ControlFlowNode): { code: string; own_line: string } {
         const prefix_text = this.printPrefixes(node.prefix);
-        // Comments among the prefixes and in the header go before the
-        // body: before `{`, or before an inline if's command. In the
-        // condition or loop spec they would be read as operators.
+        // Block comments among the prefixes and in the header go before
+        // the body: before `{`, or before an inline if's command. In the
+        // condition or loop spec they would be read as operators. `//`
+        // comments go after the keyword, so `{` stays on the header's
+        // last line.
         const comment_text = this.printInteriorComments(node);
+        const keyword_lead = (keyword: string): string =>
+            this.printAfterLineComments(this.getIndent() + prefix_text + keyword, node);
         if (node.type === 'if' && node.is_single_statement && node.noted_lines) {
             // The lines hold the inline command too, but not the comments
             // after it, which belong to the innermost inline statement.
@@ -581,7 +616,7 @@ export class PrettyPrinter {
             const inline_body = body.code.trimStart();
             // Preserve expression fragments, comments, and Unicode names.
             return {
-                code: `${this.getIndent()}${prefix_text}if ${node.condition || ''} ${comment_text}${inline_body}`,
+                code: `${keyword_lead('if')}${node.condition || ''} ${comment_text}${inline_body}`,
                 own_line: body.own_line,
             };
         }
@@ -589,26 +624,21 @@ export class PrettyPrinter {
         const the_lines: string[] = [];
 
         // Print the control flow header
-        let header = this.getIndent() + prefix_text;
+        let header = keyword_lead(node.type);
 
         switch (node.type) {
             case 'if':
-                header += `if ${this.normalizeCondition(node.condition || '')} `;
+            case 'while':
+                header += `${this.normalizeCondition(node.condition || '')} `;
                 break;
             case 'else':
-                header += 'else ';
                 break;
             case 'foreach':
-                header += `foreach ${node.loopVar || ''} ${format_expression_spacing(node.loopSpec || '')} `;
-                break;
             case 'forvalues':
-                header += `forvalues ${node.loopVar || ''} ${format_expression_spacing(node.loopSpec || '')} `;
-                break;
-            case 'while':
-                header += `while ${this.normalizeCondition(node.condition || '')} `;
+                header += `${node.loopVar || ''} ${format_expression_spacing(node.loopSpec || '')} `;
                 break;
             case 'frame':
-                header += `frame ${node.frameName || ''} `;
+                header += `${node.frameName || ''} `;
                 break;
         }
         header += `${comment_text}{`;
@@ -686,8 +716,11 @@ export class PrettyPrinter {
      */
     private printEmbeddedBlock(node: EmbeddedLanguageBlockNode): string {
         // `capture mata: ...`: the prefixes and the comments among them
-        const start = `${this.getIndent()}${this.printPrefixes(node.prefix)}` +
-            `${this.printInteriorComments(node)}${node.start_command}`;
+        const prefix_text = this.printPrefixes(node.prefix).trimEnd();
+        const lead = prefix_text === ''
+            ? this.getIndent()
+            : this.printAfterLineComments(this.getIndent() + prefix_text, node);
+        const start = `${lead}${this.printInteriorComments(node)}${node.start_command}`;
         if (node.is_single_line) {
             // For single-line embedded blocks, print everything on one line
             return `${start} ${node.content}`;

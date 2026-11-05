@@ -64,13 +64,18 @@ const COMMAND_NAME_TYPES: ReadonlySet<TokenType | undefined> = new Set<TokenType
 const PREFIX_CHAIN_BLOCK_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
   'LBRACE', 'MATA_START', 'MATA_INLINE', 'PYTHON_START', 'PYTHON_INLINE',
 ]);
-// Commands after a prefix that parse to nodes that keep only block
-// comments among their prefixes and header.
-const BODY_COMMANDS: ReadonlySet<string> = new Set([
-  'foreach', 'while', 'if',
-]);
 // `#delimit ;`, with the `;` as the first thing after the keyword.
 const DELIMIT_SEMICOLON_PATTERN = /^#delimit[ \t]*;/;
+
+/**
+ * Does `token` end its statement? Under `#delimit ;` a `*` comment runs
+ * to the next `;`, which the lexer keeps in the comment (`* note;`), so
+ * `quietly` then `* note;` is a whole statement (Stata 18).
+ */
+function is_statement_ending_comment(token: Token): boolean {
+  return token.type === 'COMMENT_LINE' &&
+    token.value.startsWith('*') && token.value.endsWith(';');
+}
 
 /**
  * Tracks `///` line-continuation state while a caller collects the tokens of a
@@ -1208,7 +1213,7 @@ export class StataParser {
     this.parse_prefix_chain(prefixes);
     // Comments the prefix chain read as whitespace. Plain commands and
     // macro definitions collect theirs in parseStatement.
-    const prefix_comments = this.block_comments_between(start_index, this.current);
+    const prefix_comments = this.comments_between(start_index, this.current);
 
     const macro_node = this.parse_prefixed_macro_definition(prefixes, start_token);
     if (macro_node) {
@@ -1302,7 +1307,10 @@ export class StataParser {
     }
 
     if (!this.check('WORD') && !this.check('MACRO_REF_LOCAL') && !this.check('MACRO_REF_GLOBAL')) {
-      this.addError('Expected command name', this.peek().range);
+      // `capture`, `quietly:`, and `capture: * note` are valid Stata.
+      if (!this.at_statement_end()) {
+        this.addError('Expected command name', this.peek().range);
+      }
       // This point is only reachable after consuming one or more prefix
       // commands (a zero-prefix entry always starts on a WORD/macro_ref), so
       // we have a dangling prefix like `quietly` or `by` with no command after
@@ -1402,14 +1410,15 @@ export class StataParser {
   ): CommandNode | MacroDefNode | ControlFlowNode {
     prefixes.push(frame_prefix);
 
-    // Skip whitespace after the colon
-    this.skipTrivia();
+    // Skip whitespace after the colon. A comment that ends the
+    // statement (`frame f:` then `* note;` under `#delimit ;`) stays.
+    this.skip_statement_whitespace();
 
     // Parse any additional prefix commands (e.g., frame name: quietly: command)
     this.parse_prefix_chain(prefixes);
 
     // Skip any remaining whitespace before the main command
-    this.skipTrivia();
+    this.skip_statement_whitespace();
 
     const macro_node = this.parse_prefixed_macro_definition(prefixes, start_token);
     if (macro_node) {
@@ -1417,7 +1426,7 @@ export class StataParser {
     }
     // Comments from `frame` on, e.g. `frame f: /* c */ while 1 {`.
     // Plain commands collect theirs in parseStatement.
-    const frame_comments = this.block_comments_between(frame_index, this.current);
+    const frame_comments = this.comments_between(frame_index, this.current);
     const control_node = this.parse_prefixed_control_flow();
     if (control_node) {
       control_node.prefix = prefixes;
@@ -1429,10 +1438,12 @@ export class StataParser {
     // Now parse the main command
     if (!this.check('WORD') && !this.check('MACRO_REF_LOCAL') &&
         !this.check('MACRO_REF_GLOBAL')) {
-      this.addError(
-        'Expected command name after frame prefix',
-        this.peek().range
-      );
+      if (!this.at_statement_end()) {
+        this.addError(
+          'Expected command name after frame prefix',
+          this.peek().range
+        );
+      }
       return {
         type: 'command',
         prefix: prefixes,
@@ -1743,6 +1754,9 @@ export class StataParser {
     let i = index;
     for (;;) {
       const my_token = this.tokens[i];
+      if (my_token !== undefined && is_statement_ending_comment(my_token)) {
+        return false;
+      }
       if (my_token?.type === 'COMMENT_BLOCK' || my_token?.type === 'COMMENT_LINE' ||
           my_token?.type === 'CONTINUATION') {
         i++;
@@ -1761,6 +1775,19 @@ export class StataParser {
     return next !== undefined &&
       next.type !== 'STATEMENT_TERMINATOR' &&
       next.type !== 'EOF';
+  }
+
+  /**
+   * Does the statement end at the current token: a terminator, the end
+   * of the file, or a comment with nothing of the statement after it?
+   */
+  private at_statement_end(): boolean {
+    const type = this.peek().type;
+    if (type === 'STATEMENT_TERMINATOR' || type === 'EOF') {
+      return true;
+    }
+    return (type === 'COMMENT_LINE' || type === 'COMMENT_BLOCK') &&
+      !this.statement_continues_after(this.current);
   }
 
   /** Is the token at `index` a comment with more of the statement after it? */
@@ -2921,6 +2948,10 @@ export class StataParser {
       if (this.collect_header_comment(the_comments)) {
         continue;
       }
+      // A line comment that ends the statement stays trailing trivia.
+      if (this.at_header_ending_comment()) {
+        break;
+      }
 
       // Stop at statement terminator
       if (this.check('STATEMENT_TERMINATOR')) {
@@ -3173,6 +3204,9 @@ export class StataParser {
         if (this.collect_header_comment(the_comments)) {
           continue;
         }
+        if (this.at_header_ending_comment()) {
+          break;
+        }
         const token = this.advance();
         if (token.type === 'CONTINUATION') {
           continuation.note_continuation(token);
@@ -3248,6 +3282,10 @@ export class StataParser {
       }
       if (this.collect_header_comment(the_comments)) {
         continue;
+      }
+      // A line comment that ends the statement stays trailing trivia.
+      if (this.at_header_ending_comment()) {
+        break;
       }
 
       // Stop at statement terminator
@@ -3450,7 +3488,7 @@ export class StataParser {
     }
 
     // `frame f /* c */ {`: the comment is whitespace in the header.
-    const header_comments = this.block_comments_between(frame_index, lbrace_index);
+    const header_comments = this.comments_between(frame_index, lbrace_index);
     return {
       type: 'frame',
       frameName: frame_name,
@@ -3663,8 +3701,7 @@ export class StataParser {
     // `quietly /* c */ : gen x = 1`.
     const colon_index = this.index_after_statement_trivia(this.current);
     if (colon_index > this.current &&
-        this.tokens[colon_index]?.type === 'COLON' &&
-        !this.skips_line_comment_before_block(colon_index + 1)) {
+        this.tokens[colon_index]?.type === 'COLON') {
       while (this.current < colon_index) {
         this.advance();
       }
@@ -3871,69 +3908,6 @@ export class StataParser {
   }
 
   /**
-   * Is the statement from token `index` on a plain command, macro
-   * definition, or `syntax`, not a loop, `if` command, brace block, or
-   * Mata/Python? Those nodes keep only block comments, so a `//`
-   * comment between prefixes is read as whitespace only before a plain
-   * command; otherwise it stays where it was.
-   */
-  private is_plain_command_from(index: number): boolean {
-    // Find the command word, past any further prefixes.
-    let i = this.index_after_statement_trivia(index);
-    for (;;) {
-      const my_token = this.tokens[i];
-      if (my_token?.type !== 'WORD') {
-        break;
-      }
-      const prefix_name = PREFIX_COMMANDS.get(my_token.value);
-      if (prefix_name === 'by' || prefix_name === 'bysort' ||
-          (prefix_name === undefined && COLON_PREFIX_COMMANDS.has(my_token.value))) {
-        const colon_index = this.find_statement_colon(i + 1);
-        if (colon_index === -1) {
-          break;
-        }
-        i = this.index_after_statement_trivia(colon_index + 1);
-      } else if (prefix_name !== undefined) {
-        i = this.index_after_statement_trivia(i + 1);
-        if (this.tokens[i]?.type === 'COLON') {
-          i = this.index_after_statement_trivia(i + 1);
-        }
-      } else {
-        break;
-      }
-    }
-    const command = this.tokens[i];
-    if (command?.type === 'WORD' &&
-        (BODY_COMMANDS.has(command.value) ||
-         (command.value.length >= 4 && 'forvalues'.startsWith(command.value)))) {
-      return false;
-    }
-
-    // A brace block or Mata/Python anywhere in the statement.
-    for (let j = i; j < this.tokens.length; j++) {
-      const my_token = this.tokens[j];
-      switch (my_token.type) {
-        case 'STATEMENT_TERMINATOR':
-          if (is_swallowed_continuation_terminator(
-            my_token, this.tokens[j - 1]?.type === 'CONTINUATION')) {
-            break;
-          }
-          return true;
-        case 'EOF':
-        case 'RBRACE':
-          return true;
-        case 'LBRACE':
-        case 'MATA_START':
-        case 'MATA_INLINE':
-        case 'PYTHON_START':
-        case 'PYTHON_INLINE':
-          return false;
-      }
-    }
-    return true;
-  }
-
-  /**
    * May the prefix chain read the tokens from the current one up to
    * `index` as whitespace and go on there? Yes before a command word,
    * a brace block, or Mata/Python.
@@ -3941,23 +3915,7 @@ export class StataParser {
   private continues_prefix_chain(index: number): boolean {
     const next = this.tokens[index];
     return next !== undefined &&
-      (COMMAND_NAME_TYPES.has(next.type) || PREFIX_CHAIN_BLOCK_TYPES.has(next.type)) &&
-      !this.skips_line_comment_before_block(index);
-  }
-
-  /**
-   * Would skipping from the current token up to `index` pass a `//`
-   * comment (under `#delimit ;`) before a loop, if, brace block, or
-   * Mata/Python? Those nodes keep only block comments, so such a
-   * comment ends the prefix chain, as before.
-   */
-  private skips_line_comment_before_block(index: number): boolean {
-    for (let i = this.current; i < index; i++) {
-      if (this.tokens[i]?.type === 'COMMENT_LINE') {
-        return !this.is_plain_command_from(index);
-      }
-    }
-    return false;
+      (COMMAND_NAME_TYPES.has(next.type) || PREFIX_CHAIN_BLOCK_TYPES.has(next.type));
   }
 
   /**
@@ -3968,6 +3926,9 @@ export class StataParser {
     let i = index;
     for (;;) {
       const my_token = this.tokens[i];
+      if (my_token !== undefined && is_statement_ending_comment(my_token)) {
+        return i;
+      }
       if (my_token?.type === 'COMMENT_BLOCK' || my_token?.type === 'COMMENT_LINE' ||
           my_token?.type === 'CONTINUATION') {
         i++;
@@ -3992,27 +3953,32 @@ export class StataParser {
   }
 
   /**
-   * Consume a block comment in a control-flow header into
-   * `the_comments`. Stata reads it as whitespace, so it stays out of
-   * the condition or loop spec. Returns true if one was consumed.
+   * Consume a comment in a control-flow header into `the_comments`: a
+   * block comment, or a `//` comment with more of the header after it
+   * (under `#delimit ;`). Stata reads it as whitespace, so it stays out
+   * of the condition or loop spec. Returns true if one was consumed.
    */
   private collect_header_comment(the_comments: TriviaNode[]): boolean {
-    if (!this.check('COMMENT_BLOCK')) {
+    if (!this.check('COMMENT_BLOCK') && !this.is_interior_comment(this.current)) {
       return false;
     }
-    const comment_token = this.advance();
-    the_comments.push({
-      type: 'comment',
-      style: 'block',
-      content: comment_token.value,
-      range: comment_token.range,
-    });
+    const start = this.current;
+    this.advance();
+    the_comments.push(...this.comments_between(start, this.current));
     return true;
   }
 
   /**
-   * Skip `///` continuations and block comments in a control-flow
-   * header, keeping the comments in `the_comments`.
+   * Is the current token a comment that ends a control-flow header: a
+   * line comment with no more of the statement after it?
+   */
+  private at_header_ending_comment(): boolean {
+    return this.check('COMMENT_LINE') && !this.is_interior_comment(this.current);
+  }
+
+  /**
+   * Skip `///` continuations and comments in a control-flow header,
+   * keeping the comments in `the_comments`.
    */
   private skip_header_whitespace(the_comments: TriviaNode[]): void {
     while (this.skipContinuation() || this.collect_header_comment(the_comments)) {
@@ -4105,15 +4071,6 @@ export class StataParser {
     return trivia;
   }
 
-  /**
-   * Block comments among the tokens from `start` up to `end`. Loops,
-   * if, brace blocks, and Mata/Python keep only these among their
-   * prefixes and header; a `//` comment there would comment out `{`.
-   */
-  private block_comments_between(start: number, end: number): TriviaNode[] {
-    return this.comments_between(start, end)
-      .filter((my_comment) => my_comment.style === 'block');
-  }
 
   /**
    * Keep the lines of the statement starting at token `start` as
@@ -5045,8 +5002,8 @@ export class StataParser {
    * Check if there are non-trivia tokens before the given position on the same line.
    * Returns the last non-trivia token if found, null otherwise.
    * Skips COMMENT_LINE, COMMENT_BLOCK, CONTINUATION tokens.
-   * A `///` continuation joins the next physical line, so "same
-   * line" means the same logical line.
+   * A `///` continuation, or a `//` comment under `#delimit ;`, joins
+   * the next physical line, so "same line" means the same logical line.
    */
   find_code_before_on_same_line(end_pos: number, line: number): Token | null {
     const trivia_types: TokenType[] = [
@@ -5081,6 +5038,12 @@ export class StataParser {
         }
         // Direct continuation token
         if (my_token.type === 'CONTINUATION') {
+          current_line = my_token.range.start.line;
+          continue;
+        }
+        // Under `#delimit ;`, a `//` comment with more of the
+        // statement after it joins the next line, as `///` does.
+        if (my_token.type === 'COMMENT_LINE' && this.is_interior_comment(i)) {
           current_line = my_token.range.start.line;
           continue;
         }
