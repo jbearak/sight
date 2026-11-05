@@ -49,7 +49,7 @@ import {
   parse_path,
   parse_varlist,
 } from '../expression-parser';
-import { joins_name } from '../utils/name-words';
+import { is_macro_piece, joins_name } from '../utils/name-words';
 
 /** Tokens that can be part of a macro name joined across macros. */
 const NAME_PIECE_TOKEN_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
@@ -1066,23 +1066,28 @@ export class StataParser {
   /**
    * `first` and the tokens after it that join it into one name, as
    * Stata reads `` foo`x'bar `` or `` foo${g} ``: a touching macro
-   * reference, or a word or number touching one. A quote, `:`, `=`
+   * reference, a word or number touching one, or, after one, any
+   * touching word or number (`` foo`x'1bar ``). A quote, `:`, `=`
    * or other operator ends the name (`` local q`x'"a b" `` names
    * `` q`x' ``; checked in StataMP 18).
    */
   private read_joined_name(first: Token): Token[] {
     const the_tokens = [first];
     let previous = first;
+    let has_macro = is_macro_piece({ text: first.value, range: first.range });
     while (!this.isAtEnd()) {
       const next = this.peek();
+      const next_piece = { text: next.value, range: next.range };
       if (!NAME_PIECE_TOKEN_TYPES.has(next.type) ||
           !joins_name(
             { text: previous.value, range: previous.range },
-            { text: next.value, range: next.range })) {
+            next_piece,
+            has_macro)) {
         break;
       }
       the_tokens.push(this.advance());
       previous = next;
+      has_macro = has_macro || is_macro_piece(next_piece);
     }
     return the_tokens;
   }

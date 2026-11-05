@@ -49,14 +49,30 @@ function touches(a: Range, b: Range): boolean {
         && a.end.character === b.start.character;
 }
 
+/** Letters, digits and underscores: text that can go on in a name. */
+const NAME_TEXT_RE = /^[A-Za-z0-9_]+$/;
+
 /**
  * True when `next` continues the word that `previous` ends: the two
- * touch, one of them is a macro reference, and `next` is not a quote.
+ * touch, `next` is not a quote, and one of them is a macro reference,
+ * or, once the word has one (`word_has_macro`), `next` is name text.
+ * The lexer splits `` foo`x'1bar `` into `foo`, `` `x' ``, `1` and
+ * `bar`, which Stata reads as one name.
  */
-export function joins_name(previous: NamePiece, next: NamePiece): boolean {
+export function joins_name(
+    previous: NamePiece,
+    next: NamePiece,
+    word_has_macro: boolean
+): boolean {
     return touches(previous.range, next.range)
         && !is_quote_text(next.text)
-        && (is_macro_text(previous.text) || is_macro_text(next.text));
+        && (is_macro_text(previous.text) || is_macro_text(next.text)
+            || (word_has_macro && NAME_TEXT_RE.test(next.text)));
+}
+
+/** True when `piece` is a macro reference. */
+export function is_macro_piece(piece: NamePiece): boolean {
+    return is_macro_text(piece.text);
 }
 
 /**
@@ -75,7 +91,9 @@ export function group_name_words(
             && previous !== undefined
             && joins_name(
                 { text: previous.name, range: previous.range },
-                { text: my_item.name, range: my_item.range }
+                { text: my_item.name, range: my_item.range },
+                last.items.some(
+                    (my_part) => is_macro_text(my_part.name))
             )
         ) {
             last.items.push(my_item);

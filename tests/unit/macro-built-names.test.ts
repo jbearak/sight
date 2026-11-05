@@ -65,6 +65,8 @@ describe('parser: macro names joined to macro references', () => {
         { source: "local foo`x' 1", name: "foo`x'", value: '1', parts: ['foo', "`x'"] },
         { source: "global gg`x' 2", name: "gg`x'", value: '2', parts: ['gg', "`x'"] },
         { source: "local foo`x'bar 4", name: "foo`x'bar", value: '4', parts: ['foo', "`x'", 'bar'] },
+        // The lexer splits `1bar` into a number and a word
+        { source: "local foo`x'1bar 4", name: "foo`x'1bar", value: '4', parts: ['foo', "`x'", '1bar'] },
         { source: 'local foo${g} 5', name: 'foo${g}', value: '5', parts: ['foo', '${g}'] },
         { source: 'local foo$g 6', name: 'foo$g', value: '6', parts: ['foo', '$g'] },
         { source: "local m`x'n`x' 5", name: "m`x'n`x'", value: '5', parts: ['m', "`x'", 'n', "`x'"] },
@@ -177,6 +179,11 @@ describe('analyzer: a macro-built name defines nothing it can name', () => {
         )).toEqual([]);
     });
 
+    it('defines no b for tempvar t`x\'1b', () => {
+        expect(undefined_macros("local x 3\ntempvar t`x'1b\ndi \"`b'\"\n"))
+            .toEqual(["`b' is not defined"]);
+    });
+
     it('reports a macro used in the name', () => {
         expect(undefined_macros("local foo`x' 1\n")).toEqual(["`x' is not defined"]);
     });
@@ -266,6 +273,7 @@ describe('formatter: macro-built names print unchanged', () => {
         "local foo`x' 1",
         "global gg`x' 2",
         "local foo`x'bar 4",
+        "local foo`x'1bar 4",
         'local foo${g} 5',
         'local foo$g 6',
         "local ww`x' : word 2 of a b c",
