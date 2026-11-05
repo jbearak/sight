@@ -232,6 +232,22 @@ describe('marksample local: highlighting', () => {
             'variable.other.local.stata')).toBe(true);
     });
 
+    it('scopes the name before a comment or at the end', async () => {
+        for (const my_line of ['marksample touse', 'marksample touse // c']) {
+            const the_tokens = await tokenize_stata(my_line);
+            expect(has_scope(find_token(the_tokens, 'touse'),
+                'variable.other.local.stata')).toBe(true);
+        }
+    });
+
+    it('does not scope either of two names', async () => {
+        const the_tokens = await tokenize_stata('marksample a b');
+        expect(
+            the_tokens.some((my_token) =>
+                my_token.scopes.includes('variable.other.local.stata'))
+        ).toBe(false);
+    });
+
     it('does not scope a name joined to a macro', async () => {
         const the_tokens = await tokenize_stata('marksample tt`i\'');
         expect(
