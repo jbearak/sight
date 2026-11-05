@@ -159,6 +159,16 @@ describe('program ends at an end nested in a brace block', () => {
             .toEqual([[7, ParseErrorCode.ORPHAN_CLOSE_BRACE]]);
     });
 
+    it('reports a } right after the block end as an orphan', () => {
+        const my_source = 'program define foo\nif 1 {\nmata:\nx=1\nend\n}\ndi 2\n';
+        const my_result = parse(my_source);
+        expect(my_result.errors.map((my_error) => [my_error.range.start.line, my_error.code]))
+            .toEqual([[5, ParseErrorCode.ORPHAN_CLOSE_BRACE]]);
+        const my_program = my_result.ast.nodes[0];
+        const my_if = my_program?.type === 'program' ? my_program.body[0] : undefined;
+        expect(my_if?.type === 'if' && my_if.closed_by_program_end).toBe(true);
+    });
+
     it('still reports a missing } outside a program', () => {
         expect(parse('if 1 {\n    di 1\n').errors.map((my_error) => my_error.message))
             .toEqual(['Missing closing brace for if statement']);
@@ -237,6 +247,16 @@ describe('program ends at an end nested in a brace block: formatting', () => {
             // An indented `end` would leave the Python block open
             const my_once = format_text(PYTHON_IN_FOREACH_IN_IF, my_mode);
             expect(my_once.split('\n')[5]).toBe('end');
+        }
+    );
+
+    for_each_formatter_mode(
+        'keeps a } right after the block end at the top level',
+        (my_mode) => {
+            const my_source = 'program define foo\nif 1 {\nmata:\nx=1\nend\n}\ndi 2\n';
+            const my_once = format_text(my_source, my_mode);
+            expect(my_once).toBe('program define foo\n    if 1 {\n        mata:\nx=1\nend\n}\ndi 2\n');
+            expect(format_text(my_once, my_mode)).toBe(my_once);
         }
     );
 

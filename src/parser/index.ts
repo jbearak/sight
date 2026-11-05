@@ -1230,7 +1230,8 @@ export class StataParser {
       const { body: my_body, blockEndingTrivia } = this.parseBraceBody();
       body.push(...my_body);
       let closed_by_program_end = false;
-      if (this.check('RBRACE')) {
+      // After the program's end, a `}` is a statement of its own.
+      if (this.check('RBRACE') && !this.program_ended_in_block()) {
         const rbrace_index = this.current;
         const rbrace_token = this.advance(); // consume }
 
@@ -2971,7 +2972,8 @@ export class StataParser {
       body.push(...my_body);
       blockEndingTrivia = my_block_ending_trivia;
 
-      if (this.check('RBRACE')) {
+      // After the program's end, a `}` is a statement of its own.
+      if (this.check('RBRACE') && !this.program_ended_in_block()) {
         const rbrace_index = this.current;
         const rbrace_token = this.advance(); // consume }
 
@@ -3046,7 +3048,8 @@ export class StataParser {
       body.push(...my_body);
       blockEndingTrivia = my_block_ending_trivia;
 
-      if (this.check('RBRACE')) {
+      // After the program's end, a `}` is a statement of its own.
+      if (this.check('RBRACE') && !this.program_ended_in_block()) {
         const rbrace_index = this.current;
         const rbrace_token = this.advance(); // consume }
 
@@ -3170,7 +3173,8 @@ export class StataParser {
       body.push(...my_body);
       blockEndingTrivia = my_block_ending_trivia;
 
-      if (this.check('RBRACE')) {
+      // After the program's end, a `}` is a statement of its own.
+      if (this.check('RBRACE') && !this.program_ended_in_block()) {
         const rbrace_index = this.current;
         const rbrace_token = this.advance(); // consume }
 
@@ -3274,7 +3278,8 @@ export class StataParser {
       body.push(...my_body);
       blockEndingTrivia = my_block_ending_trivia;
 
-      if (this.check('RBRACE')) {
+      // After the program's end, a `}` is a statement of its own.
+      if (this.check('RBRACE') && !this.program_ended_in_block()) {
         const rbrace_index = this.current;
         const rbrace_token = this.advance(); // consume }
 
@@ -3417,7 +3422,8 @@ export class StataParser {
     const { body, blockEndingTrivia } = this.parseBraceBody();
     let closed_by_program_end = false;
 
-    if (this.check('RBRACE')) {
+    // After the program's end, a `}` is a statement of its own.
+    if (this.check('RBRACE') && !this.program_ended_in_block()) {
       const rbrace_index = this.current;
       const rbrace_token = this.advance(); // consume }
 
@@ -4057,7 +4063,7 @@ export class StataParser {
       }
     }
 
-    const blockEndingTrivia = this.check('RBRACE')
+    const blockEndingTrivia = this.check('RBRACE') && !this.program_ended_in_block()
       ? this.drainBlockEndingTrivia()
       : undefined;
 
