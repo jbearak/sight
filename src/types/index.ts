@@ -328,6 +328,7 @@ export interface CommandNode {
   body?: StataNode[];  // For prefix command brace blocks (e.g., capture { })
   // As on ControlFlowNode
   closed_by_program_end?: boolean;
+  closed_by_brace?: boolean;
   range: Range;
   leadingTrivia?: TriviaNode[];
   // Comments between the statement's tokens, e.g. `/* c */` in
@@ -356,6 +357,8 @@ export interface ProgramNode {
   // Stata ended the definition at the `end` of a mata/python block in
   // the body (the last body node), so the program has no `end` of its own.
   ends_at_embedded_block?: boolean;
+  // The program's own `end` statement ended it.
+  closed_by_end?: boolean;
   range: Range;
   leadingTrivia?: TriviaNode[];
   blockEndingTrivia?: TriviaNode[];
@@ -407,6 +410,7 @@ export interface MacroRefNode {
 export interface ControlFlowNode {
   type: 'if' | 'else' | 'foreach' | 'forvalues' | 'while' | 'frame';
   prefix?: PrefixNode[];  // e.g. `version 14: foreach ...`, `capture while 1 {`
+  // No braces: `if x di "a"`, or an `else` followed by one statement
   is_single_statement?: boolean;
   // `else if ...`: an `else` whose body is that one `if`, with no braces
   // of its own
@@ -421,6 +425,8 @@ export interface ControlFlowNode {
   // whose first word is `end` (maybe a mata/python block's), so the
   // block has no `}` and its range ends with its last statement.
   closed_by_program_end?: boolean;
+  // The block's `{` has its own `}`, which ends the block's range.
+  closed_by_brace?: boolean;
   // As on CommandNode: the header's lines through `{`, or, for an
   // inline `if`, the whole statement's.
   noted_lines?: SourceLine[];
