@@ -19,6 +19,10 @@ const ASSIGNMENT_OPERATORS = new Set(['=', '==', '!=', '<', '>', '<=', '>=']);
 const COMMENT_TOKEN_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
   'COMMENT_LINE', 'COMMENT_BLOCK', 'CONTINUATION',
 ]);
+// Prefixes a command can follow directly (`quietly * note`).
+const ARGUMENT_FREE_PREFIXES: ReadonlySet<string> = new Set([
+  'capture', 'quietly', 'noisily',
+]);
 // Under `#delimit ;`, a statement starts after one of these (or at the
 // start of the file).
 const STATEMENT_START_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
@@ -312,15 +316,18 @@ export class StataLexer {
   private is_star_comment(start_line: number, start_column: number): boolean {
     // Rule 1: * at beginning of line (after optional whitespace) is a
     // comment. Under `#delimit ;` a newline doesn't end the statement, so
-    // there it is a comment only at the start of a statement:
-    // `gen y = a` then `* b;` on the next line multiplies (Stata 18).
+    // there it is a comment only where a command starts: at the start of
+    // a statement, or after a prefix (`quietly` or `capture:` then
+    // `* note;`). Elsewhere it is code: `gen y = a` then `* b;`
+    // multiplies (Stata 18).
     if (this.is_at_line_start(start_line, start_column)) {
       const is_delimit_stata = this.state.delimiterMode === 'semicolon' &&
         this.get_current_context() === LanguageContext.STATA;
-      if (!is_delimit_stata || this.previous_code_token === null ||
-          STATEMENT_START_TYPES.has(this.previous_code_token.type)) {
-        return true;
-      }
+      const previous = this.previous_code_token;
+      return !is_delimit_stata || previous === null ||
+        STATEMENT_START_TYPES.has(previous.type) ||
+        previous.type === 'COLON' ||
+        (previous.type === 'WORD' && ARGUMENT_FREE_PREFIXES.has(previous.value));
     }
     
     // Rule 2: Check previous token context

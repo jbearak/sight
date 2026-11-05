@@ -212,6 +212,23 @@ gen result = age * income ;
         .toEqual(expect.arrayContaining(['COMMENT_LINE * c;', 'COMMENT_LINE * d;']));
     });
 
+    test('reads * after a word that ends no command as code', () => {
+      // The statement goes on, so `*;` is code, not a comment.
+      expect(tokens_of('#delimit ;\ndrop program\n*;\n')).toEqual([
+        'DELIMIT_DIRECTIVE #delimit ;', 'WORD drop', 'WORD program',
+        'OPERATOR *', 'STATEMENT_TERMINATOR ;',
+      ]);
+    });
+
+    test('reads * where a command starts after a prefix as a comment', () => {
+      // Stata 18 runs `quietly` then `* note;` and `capture:` then
+      // `* note;` as comments.
+      expect(tokens_of('#delimit ;\nquietly\n* note;\n'))
+        .toContain('COMMENT_LINE * note;');
+      expect(tokens_of('#delimit ;\ncapture:\n* note;\n'))
+        .toContain('COMMENT_LINE * note;');
+    });
+
     test('keeps * at the start of a line a comment in cr mode', () => {
       expect(tokens_of('gen y = a\n* b\n')).toContain('COMMENT_LINE * b');
       expect(tokens_of('#delimit ;\n#delimit cr\ngen y = a\n* b\n'))
