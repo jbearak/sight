@@ -236,6 +236,195 @@ gen result = age * income ;
     });
   });
 
+  describe('Where a * comment ends', () => {
+    // Each rule here matches a StataMP 18 run: `gen q` or `gen r` runs
+    // only where it is lexed as code.
+    const tokens_of = (source: string): string[] =>
+      lexer.tokenize(source).tokens
+        .filter(t => t.type !== 'EOF')
+        .map(t => `${t.type} ${t.value}`);
+    const comments_of = (source: string): string[] =>
+      lexer.tokenize(source).tokens
+        .filter(t => t.type === 'COMMENT_LINE')
+        .map(t => t.value);
+
+    test('runs to the next ; across lines under #delimit ;', () => {
+      expect(tokens_of('#delimit ;\n* comment\ngen q = 9;\n')).toEqual([
+        'DELIMIT_DIRECTIVE #delimit ;', 'COMMENT_LINE * comment\ngen q = 9;',
+      ]);
+      expect(tokens_of('#delimit ;\ngen y = a; * c; gen z = 2;\n')).toEqual([
+        'DELIMIT_DIRECTIVE #delimit ;',
+        'WORD gen', 'WORD y', 'OPERATOR =', 'WORD a', 'STATEMENT_TERMINATOR ;',
+        'COMMENT_LINE * c;',
+        'WORD gen', 'WORD z', 'OPERATOR =', 'NUMBER 2', 'STATEMENT_TERMINATOR ;',
+      ]);
+      expect(comments_of('#delimit ;\ngen r = 1; * c\ngen q = 9;\n'))
+        .toEqual(['* c\ngen q = 9;']);
+      expect(comments_of('#delimit ;\ncapture: * note; gen q = 1;\n'))
+        .toEqual(['* note;']);
+      expect(comments_of('#delimit ;\n*c;gen q = 1;\n')).toEqual(['*c;']);
+    });
+
+    test('runs to the end of the file, past #delimit cr, without a ;', () => {
+      const result = lexer.tokenize('#delimit ;\n* c\n#delimit cr\ngen q = 1\n');
+      expect(result.tokens.map(t => `${t.type} ${t.value}`)).toEqual([
+        'DELIMIT_DIRECTIVE #delimit ;',
+        'COMMENT_LINE * c\n#delimit cr\ngen q = 1', 'EOF ',
+      ]);
+      expect(result.finalState.delimiterMode).toBe('semicolon');
+    });
+
+    test('skips a ; hidden by a block comment, quotes, or // after a space', () => {
+      for (const my_source of [
+        '#delimit ;\n* c /* ; */ gen q = 1;\ngen r = 1;\n',
+        '#delimit ;\n* c /* ;\n */ gen q = 1;\ngen r = 1;\n',
+        '#delimit ;\n* c "a;b" gen q = 1;\ngen r = 1;\n',
+        '#delimit ;\n* c "a\n;b" gen q = 1;\ngen r = 1;\n',
+        '#delimit ;\n* c /// ;\ngen q = 1;\ngen r = 1;\n',
+      ]) {
+        const the_tokens = tokens_of(my_source);
+        expect(the_tokens.filter(t => t.startsWith('COMMENT_LINE'))).toHaveLength(1);
+        expect(the_tokens).not.toContain('WORD q');
+      }
+      // `//` or `///` after a space or tab hides the rest of its line.
+      for (const my_source of [
+        '#delimit ;\n* c // x ; gen q = 1;\ngen r = 1;\n',
+        '#delimit ;\n* c\t// x ; gen q = 1;\ngen r = 1;\n',
+        '#delimit ;\n* c\n   // x ; gen r = 1;\ngen q = 1;\n',
+      ]) {
+        const the_tokens = tokens_of(my_source);
+        expect(the_tokens.filter(t => t.startsWith('COMMENT_LINE'))).toHaveLength(1);
+        expect(the_tokens).not.toContain('WORD q');
+        expect(the_tokens).not.toContain('WORD r');
+      }
+      // A block comment hides a quote; a quote hides `/*` and `//`.
+      expect(comments_of('#delimit ;\n* c /* " */ ; gen q = 1;\n')).toEqual(['* c /* " */ ;']);
+      expect(comments_of('#delimit ;\n* c "/*" ; gen q = 1;\n')).toEqual(['* c "/*" ;']);
+      expect(comments_of('#delimit ;\n* c " // " ; gen q = 1;\n')).toEqual(['* c " // " ;']);
+    });
+
+    test('ends at a ; that no quote or // after a space hides', () => {
+      for (const [my_source, my_comment] of [
+        ['#delimit ;\n* c\n// x ; gen r = 1;\n', '* c\n// x ;'],
+        ['#delimit ;\n* c\n/// x ; gen r = 1;\n', '* c\n/// x ;'],
+        ['#delimit ;\n* c// x ; gen q = 1;\n', '* c// x ;'],
+        ["#delimit ;\n* c 'a;b' gen q = 1;\n", "* c 'a;"],
+        ["#delimit ;\n* c `a;b' gen q = 1;\n", '* c `a;'],
+        ['#delimit ;\n* c `"a;b"\' gen q = 1;\n', '* c `"a;'],
+      ]) {
+        expect(comments_of(my_source)[0]).toBe(my_comment);
+      }
+    });
+
+    test('joins the next line after /// with a space before it in cr mode', () => {
+      for (const my_source of [
+        '* c ///\ngen q = 1\n',
+        '* c\t///\ngen q = 1\n',
+        '* c ///x\ngen q = 1\n',
+        '* c /* x */ ///\ngen q = 1\n',
+        '* ----- ///////\ngen q = 1\n',
+        'quietly * c ///\ngen q = 1\n',
+      ]) {
+        expect(tokens_of(my_source)).not.toContain('WORD q');
+      }
+      expect(comments_of('* c ///\n more ///\ngen q = 1\ngen r = 1\n'))
+        .toEqual(['* c ///\n more ///\ngen q = 1']);
+      // No space before `///`, `//` first, `///` in quotes, or a blank
+      // line after it: the next line with code runs.
+      for (const my_source of [
+        '* c///\ngen q = 1\n',
+        '*//////\ngen q = 1\n',
+        '* c // x ///\ngen q = 1\n',
+        '* c " /// "\ngen q = 1\n',
+        '* c ///\n\ngen q = 1\n',
+        '* c "/*"\ngen q = 1\n',
+      ]) {
+        expect(tokens_of(my_source)).toContain('WORD q');
+      }
+    });
+
+    test('reads a line-start * after /// in cr mode as code unless a command starts', () => {
+      expect(tokens_of('gen r = a ///\n* b\n')).toEqual([
+        'WORD gen', 'WORD r', 'OPERATOR =', 'WORD a', 'CONTINUATION ///',
+        'STATEMENT_TERMINATOR \n', 'OPERATOR *', 'WORD b', 'STATEMENT_TERMINATOR \n',
+      ]);
+      expect(comments_of('quietly ///\n* note\ngen q = 1\n')).toEqual(['* note']);
+      // Stata 18 computes r = 6 here too.
+      expect(tokens_of('gen r = a ///\n/* c */ * b\n')).toContain('OPERATOR *');
+    });
+  });
+
+  describe('Star after a colon or a prefix', () => {
+    const star_of = (source: string): string | undefined => {
+      const my_token = lexer.tokenize(source).tokens.find(
+        t => t.value.startsWith('*'));
+      return my_token?.type;
+    };
+
+    test('reads * after a colon that starts a command as a comment', () => {
+      for (const my_source of [
+        'capture: * note\n',
+        'quietly: * note\n',
+        'capture noisily: * note\n',
+        'version 18: * note\n',
+        'version 18 : * note\n',
+        'frame f2: * note\n',
+        'xi: * note\n',
+        'noisily version 18: quietly: * note\n',
+        'capture: /* c */ * note\n',
+        '#delimit ;\ncapture:\n* note;\n',
+      ]) {
+        expect(star_of(my_source)).toBe('COMMENT_LINE');
+      }
+    });
+
+    test('reads * after any other colon as code', () => {
+      // A wildcard or macro name for unab and the like; after `by g:`,
+      // `svy:`, and `bootstrap:` Stata 18 reads `*` as the command name.
+      for (const my_source of [
+        'unab x : *\n',
+        'unab x: *\n',
+        'tsunab x : *\n',
+        'qui unab x : *\n',
+        'capture: unab x : *\n',
+        'local m : *\n',
+        'gettoken f s : *\n',
+        'by g: * note\n',
+        'bysort g: * note\n',
+        'svy: * note\n',
+        'bootstrap, reps(2): * note\n',
+        '#delimit ;\nunab x :\n* ;\n',
+      ]) {
+        expect(star_of(my_source)).toBe('OPERATOR');
+      }
+    });
+
+    test('reads * after capture, quietly, or noisily as a comment only where a command starts', () => {
+      expect(star_of('qui * note\n')).toBe('COMMENT_LINE');
+      expect(star_of('capture noisily * note\n')).toBe('COMMENT_LINE');
+      expect(star_of('#delimit ;\nqui\n* note;\n')).toBe('COMMENT_LINE');
+      // A variable named quietly (Stata 18 computes r = 10).
+      expect(star_of('gen r = quietly * 2\n')).toBe('OPERATOR');
+      expect(star_of('#delimit ;\ngen r = quietly\n* 2;\n')).toBe('OPERATOR');
+      expect(star_of('#delimit ;\ngen r = capture\n* 2;\n')).toBe('OPERATOR');
+    });
+
+    test('reads Mata :* as element-wise multiplication', () => {
+      for (const my_source of [
+        'mata:\nz = x :* y\nend\n',
+        'mata:\nz = x:*y\nend\n',
+        'mata:\nw = (x\n:* y)\nend\n',
+        'mata: z = x :* y\n',
+        'mata: t = 2:*3\n',
+        '#delimit ;\nmata: z = x :* y;\n',
+      ]) {
+        const the_tokens = lexer.tokenize(my_source).tokens;
+        expect(the_tokens.filter(t => t.type === 'COMMENT_LINE')).toEqual([]);
+        expect(the_tokens.some(t => t.value === '*')).toBe(true);
+      }
+    });
+  });
+
   describe('Edge cases', () => {
     test('should handle * at start of file as comment', () => {
       const source = '* File header comment';

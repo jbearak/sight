@@ -195,23 +195,24 @@ describe('sight parse --json', () => {
             }
         });
 
+        // Under `#delimit ;` a `*` comment runs to its `;` (Stata 18).
         it('makes comments after #delimit ; lead the next statement', () => {
-            expect(comment_lists('#delimit ;\n* a\n* b\ndi 1;\n')).toEqual([
-                'delimit L[] T[] B[]', 'command L[* a,* b] T[] B[]', 'comments[]',
+            expect(comment_lists('#delimit ;\n* a;\n* b;\ndi 1;\n')).toEqual([
+                'delimit L[] T[] B[]', 'command L[* a;,* b;] T[] B[]', 'comments[]',
             ]);
-            expect(comment_lists('program p\n#delimit ;\n* a\ndi 1;\n#delimit cr\nend\n')).toEqual([
-                'program L[] T[] B[]', 'delimit L[] T[] B[]', 'command L[* a] T[] B[]',
+            expect(comment_lists('program p\n#delimit ;\n* a;\ndi 1;\n#delimit cr\nend\n')).toEqual([
+                'program L[] T[] B[]', 'delimit L[] T[] B[]', 'command L[* a;] T[] B[]',
                 'delimit L[] T[] B[]', 'comments[]',
             ]);
         });
 
         it('puts comments after a final #delimit ; before the closing end or brace', () => {
-            expect(comment_lists('program p\ndi 1\n#delimit ;\n* c\nend;\n')).toEqual([
-                'program L[] T[] B[* c]', 'command L[] T[] B[]', 'delimit L[] T[] B[]',
+            expect(comment_lists('program p\ndi 1\n#delimit ;\n* c;\nend;\n')).toEqual([
+                'program L[] T[] B[* c;]', 'command L[] T[] B[]', 'delimit L[] T[] B[]',
                 'comments[]',
             ]);
-            expect(comment_lists('if 1 {\n#delimit ;\n* c\n};\n')).toEqual([
-                'if L[] T[] B[* c]', 'delimit L[] T[] B[]', 'comments[]',
+            expect(comment_lists('if 1 {\n#delimit ;\n* c;\n};\n')).toEqual([
+                'if L[] T[] B[* c;]', 'delimit L[] T[] B[]', 'comments[]',
             ]);
             expect(comment_lists('di 1\n#delimit ;\n* c\n')).toEqual([
                 'command L[] T[] B[]', 'delimit L[] T[] B[]', 'comments[* c]',

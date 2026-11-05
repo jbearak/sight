@@ -8,6 +8,11 @@ import {
   LexerErrorCode,
   LanguageContext,
 } from '../types';
+import { is_swallowed_continuation_terminator } from '../utils/continuation';
+import {
+  COLON_PREFIX_COMMANDS,
+  PREFIX_COMMANDS,
+} from '../utils/stata-prefix-commands';
 
 const EXPRESSION_CONTEXT_KEYWORDS = new Set(['if', 'else', 'foreach', 'forvalues', 'while', 'gen', 'generate', 'replace', 'egen', 'set', 'scalar', 'matrix', 'return']);
 const COMMENT_CONTEXT_KEYWORDS = new Set(['program', 'capture', 'quietly', 'noisily', 'by', 'bysort']);
@@ -19,12 +24,21 @@ const ASSIGNMENT_OPERATORS = new Set(['=', '==', '!=', '<', '>', '<=', '>=']);
 const COMMENT_TOKEN_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
   'COMMENT_LINE', 'COMMENT_BLOCK', 'CONTINUATION',
 ]);
-// Prefixes a command can follow directly (`quietly * note`).
-const ARGUMENT_FREE_PREFIXES: ReadonlySet<string> = new Set([
-  'capture', 'quietly', 'noisily',
+// Prefixes a command can follow directly (`quietly * note`), with
+// their abbreviations.
+const ARGUMENT_FREE_PREFIXES: ReadonlySet<string> = new Set(
+  [...PREFIX_COMMANDS].filter(([, my_name]) =>
+    my_name !== 'by' && my_name !== 'bysort').map(([my_word]) => my_word),
+);
+// Prefixes whose colon starts a command that may be a `*` comment
+// (`version 18: * note`). After `by g:`, `svy:`, `bootstrap:` and the
+// like, Stata 18 reads `*` as the command name and fails.
+const STAR_COMMENT_COLON_PREFIXES: ReadonlySet<string> = new Set([
+  ...[...COLON_PREFIX_COMMANDS].filter(([, my_name]) =>
+    my_name === 'version' || my_name === 'xi').map(([my_word]) => my_word),
+  'frame',
 ]);
-// Under `#delimit ;`, a statement starts after one of these (or at the
-// start of the file).
+// A statement starts after one of these (or at the start of the file).
 const STATEMENT_START_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
   'STATEMENT_TERMINATOR', 'DELIMIT_DIRECTIVE', 'LBRACE', 'RBRACE',
   'END_MATA', 'END_PYTHON',
@@ -42,6 +56,8 @@ export class StataLexer {
   };
   private errors: LexerError[] = [];
   private line_offsets: number[] = [];
+  // Offset just past the last non-whitespace character of the source.
+  private content_end_offset = 0;
 
   private previous_token: Token | null = null;
   // The previous token other than whitespace or a comment, so
@@ -53,6 +69,15 @@ export class StataLexer {
   // Whether a `///` joins the current line to the one above (no code
   // since the `///` other than the newline it continues).
   private joined_to_previous_line = false;
+  // Whether a command that may be a `*` comment starts at the next code
+  // token: at the start of a statement, after `capture`/`quietly`/
+  // `noisily` there, or after a prefix colon such as `version 18:`.
+  private at_command_start = true;
+  // The word naming the current command, once past any argument-free
+  // prefixes; it tells `version 18:` from `unab x :`.
+  private command_word: string | null = null;
+  // Inside a `mata:` one-liner, where `:*` multiplies.
+  private in_mata_inline_statement = false;
 
   tokenize(source: string, initialState?: LexerState): LexerResult {
     this.source = source;
@@ -60,10 +85,14 @@ export class StataLexer {
     this.line = 0;
     this.column = 0;
     this.line_offsets = [0]; // First line starts at offset 0
+    this.content_end_offset = source.trimEnd().length;
     this.previous_token = null;
     this.previous_code_token = null;
     this.comment_run_start_line = null;
     this.joined_to_previous_line = false;
+    this.at_command_start = true;
+    this.command_word = null;
+    this.in_mata_inline_statement = false;
     this.state = initialState || {
       delimiterMode: 'cr',
       line: 0,
@@ -394,9 +423,48 @@ export class StataLexer {
       this.joined_to_previous_line =
         this.joined_to_previous_line && my_is_joined_newline;
       this.comment_run_start_line = null;
+      this.note_command_position(token);
       this.previous_code_token = token;
     }
     this.previous_token = token;
+  }
+
+  /** Track where commands start, for reading a `*` as a comment. */
+  private note_command_position(token: Token): void {
+    if (STATEMENT_START_TYPES.has(token.type)) {
+      // The newline after `///` doesn't end the statement.
+      if (is_swallowed_continuation_terminator(
+        token, this.previous_token?.type === 'CONTINUATION')) {
+        return;
+      }
+      if (token.type !== 'LBRACE' && token.type !== 'RBRACE') {
+        this.in_mata_inline_statement = false;
+      }
+      this.at_command_start = true;
+      this.command_word = null;
+      return;
+    }
+    if (token.type === 'MATA_INLINE') {
+      this.in_mata_inline_statement = true;
+    }
+    if (token.type === 'COLON') {
+      // `capture:` and `version 18:` start a command; `unab x :` and
+      // `local m :` don't (Stata 18 reads `unab x : *` as a wildcard).
+      const my_word = this.command_word;
+      if (this.at_command_start || (my_word !== null &&
+          STAR_COMMENT_COLON_PREFIXES.has(my_word))) {
+        this.at_command_start = true;
+        this.command_word = null;
+      }
+      return;
+    }
+    if (this.at_command_start && token.type === 'WORD') {
+      if (ARGUMENT_FREE_PREFIXES.has(token.value)) {
+        return;
+      }
+      this.command_word = token.value;
+    }
+    this.at_command_start = false;
   }
 
 
@@ -411,19 +479,13 @@ export class StataLexer {
    */
   private is_star_comment(start_line: number, start_column: number): boolean {
     // Rule 1: * at beginning of line (after optional whitespace) is a
-    // comment. Under `#delimit ;` a newline doesn't end the statement, so
-    // there it is a comment only where a command starts: at the start of
-    // a statement, or after a prefix (`quietly` or `capture:` then
-    // `* note;`). Elsewhere it is code: `gen y = a` then `* b;`
-    // multiplies (Stata 18).
+    // comment where a command starts: at the start of a statement, or
+    // after a prefix (`quietly` or `capture:` then `* note`). Elsewhere
+    // it is code: under `#delimit ;`, `gen y = a` then `* b;`
+    // multiplies, as does `gen y = a ///` then `* b` (Stata 18).
     if (this.is_at_line_start(start_line, start_column)) {
-      const is_delimit_stata = this.state.delimiterMode === 'semicolon' &&
-        this.get_current_context() === LanguageContext.STATA;
-      const previous = this.previous_code_token;
-      return !is_delimit_stata || previous === null ||
-        STATEMENT_START_TYPES.has(previous.type) ||
-        previous.type === 'COLON' ||
-        (previous.type === 'WORD' && ARGUMENT_FREE_PREFIXES.has(previous.value));
+      return this.get_current_context() !== LanguageContext.STATA ||
+        this.at_command_start;
     }
     
     // Rule 2: Check previous token context
@@ -436,9 +498,10 @@ export class StataLexer {
     const prev_token_type = this.previous_code_token.type;
     const prev_token_value = this.previous_code_token.value;
     
-    // After statement terminators, * is likely a comment
+    // After statement terminators, * is likely a comment, but not
+    // after the newline a `///` swallows (`a ///` then `/* c */ * b`).
     if (prev_token_type === 'STATEMENT_TERMINATOR') {
-      return true;
+      return this.at_command_start;
     }
     
     // After opening braces, * is likely a comment
@@ -446,10 +509,21 @@ export class StataLexer {
       return true;
     }
     
+    // After a colon, * is a comment only where a command starts
+    // (`capture: * note`); `unab x : *` and `mata: z = x :* y` are code.
+    if (prev_token_type === 'COLON') {
+      return this.at_command_start && !this.in_mata_inline_statement;
+    }
+
     // After certain command keywords (case-sensitive), * is likely a comment
     // Keywords that expect expressions where * should be multiplication (case-sensitive)
     
     if (prev_token_type === 'WORD') {
+      // `quietly * note` is a comment, but `gen r = quietly * 2`
+      // multiplies a variable named quietly.
+      if (ARGUMENT_FREE_PREFIXES.has(prev_token_value)) {
+        return this.at_command_start;
+      }
       if (EXPRESSION_CONTEXT_KEYWORDS.has(prev_token_value)) {
         return false; // Treat as multiplication
       } else if (COMMENT_CONTEXT_KEYWORDS.has(prev_token_value)) {
@@ -563,7 +637,7 @@ export class StataLexer {
     if (char === '*') {
       // Check if this is a * comment vs multiplication
       if (this.is_star_comment(startLine, startColumn)) {
-        return this.scanLineComment(startLine, startColumn, 'star');
+        return this.scan_star_comment(startLine, startColumn);
       }
       // Otherwise, fall through to operator handling
     }
@@ -772,8 +846,13 @@ export class StataLexer {
     }
 
     if (first_char === '*') {
-      // In embedded contexts, * comments follow same rules as Stata
-      if (this.is_star_comment(startLine, startColumn)) {
+      // In embedded contexts, * comments follow same rules as Stata,
+      // except that Mata's `:*` multiplies element by element.
+      const is_mata_colon_operator =
+        this.get_current_context() === LanguageContext.MATA &&
+        this.source[this.position - 2] === ':';
+      if (!is_mata_colon_operator &&
+          this.is_star_comment(startLine, startColumn)) {
         return this.scanLineComment(startLine, startColumn, 'star');
       }
       // Otherwise treat as embedded content
@@ -870,35 +949,116 @@ export class StataLexer {
     };
   }
 
+  /**
+   * Scan a `*` comment in Stata code, ending where Stata 18 ends it.
+   *
+   * In cr mode it ends at the end of the line, unless a ` ///` there
+   * joins the next line into it (`* c ///` then `gen q = 1` runs
+   * nothing). Under `#delimit ;` it ends at the next `;`, across
+   * lines, and takes that `;`; with none, it runs to the end of the
+   * file, past any `#delimit cr`.
+   *
+   * A `;` or `///` does not count inside `"..."` (a `"` right after a
+   * backtick opens no quote), inside a block comment, or after a `//` that
+   * follows a space or tab; that `//` hides the rest of its line. In
+   * cr mode a quote ends at the end of the line.
+   */
+  private scan_star_comment(start_line: number, start_column: number): Token {
+    const ends_at_semicolon = this.state.delimiterMode === 'semicolon';
+    let in_quote = false;
+    while (!this.isAtEnd()) {
+      // A comment that runs to the end of the file leaves the trailing
+      // whitespace out.
+      if (ends_at_semicolon && this.position >= this.content_end_offset) {
+        break;
+      }
+      const my_char = this.peek();
+      if (my_char === '\n') {
+        if (!ends_at_semicolon) {
+          break;
+        }
+        this.advance();
+        continue;
+      }
+      if (in_quote) {
+        in_quote = my_char !== '"';
+        this.advance();
+        continue;
+      }
+      if (my_char === ';' && ends_at_semicolon) {
+        this.advance();
+        break;
+      }
+      if (my_char === '"' && this.source[this.position - 1] !== '`') {
+        in_quote = true;
+        this.advance();
+        continue;
+      }
+      if (my_char === '/' && this.peekNext() === '*') {
+        this.scan_block_comment_in_star_comment();
+        continue;
+      }
+      const my_previous_char = this.source[this.position - 1];
+      if (my_char === '/' && this.peekNext() === '/' &&
+          (my_previous_char === ' ' || my_previous_char === '\t')) {
+        const is_continuation = this.source[this.position + 2] === '/';
+        while (this.peek() !== '\n' && !this.isAtEnd()) {
+          this.advance();
+        }
+        if (!ends_at_semicolon && !is_continuation) {
+          break;
+        }
+        if (!ends_at_semicolon) {
+          this.advance(); // `///` joins the next line into the comment
+        }
+        continue;
+      }
+      this.advance();
+    }
+
+    const value = this.source.substring(
+      this.position_to_offset(start_line, start_column), this.position);
+    return {
+      type: 'COMMENT_LINE',
+      value,
+      range: this.makeRange(start_line, start_column, this.line, this.column),
+    };
+  }
+
+  /**
+   * Consume a block comment inside a `*` comment, warning when it spans
+   * lines:
+   * Stata then reads those lines as part of the comment.
+   */
+  private scan_block_comment_in_star_comment(): void {
+    const my_block_start_line = this.line;
+    const my_block_start_column = this.column;
+    this.advance(); // consume /
+    this.advance(); // consume *
+
+    this.consumeBlockCommentBody();
+
+    if (this.line !== my_block_start_line) {
+      this.errors.push({
+        message: 'Block comment `/* */` inside star comment causes'
+          + ' multi-line comment behavior \u2014 subsequent lines until'
+          + ' `*/` will be treated as comment by Stata',
+        range: this.makeRange(
+          my_block_start_line, my_block_start_column,
+          this.line, this.column
+        ),
+        code: LexerErrorCode.BLOCK_COMMENT_IN_STAR_COMMENT,
+      });
+    }
+  }
+
   private scanLineComment(startLine: number, startColumn: number, style: 'star' | 'slash'): Token {
     // Consume until end of line, but watch for /* in star comments.
     // In Stata, /* inside a * comment opens a block comment that extends
     // to the matching */ — potentially spanning multiple lines.
     while (this.peek() !== '\n' && !this.isAtEnd()) {
       if (style === 'star' && this.peek() === '/' && this.peekNext() === '*') {
-        const my_block_start_line = this.line;
-        const my_block_start_column = this.column;
-        this.advance(); // consume /
-        this.advance(); // consume *
-
-        this.consumeBlockCommentBody();
-
-        // Only warn when /* causes multi-line comment behavior
-        // (i.e., */ is on a different line, or unclosed and spans lines)
-        if (this.line !== my_block_start_line) {
-          const my_error: LexerError = {
-            message: 'Block comment `/* */` inside star comment causes'
-              + ' multi-line comment behavior \u2014 subsequent lines until'
-              + ' `*/` will be treated as comment by Stata',
-            range: this.makeRange(
-              my_block_start_line, my_block_start_column,
-              this.line, this.column
-            ),
-            code: LexerErrorCode.BLOCK_COMMENT_IN_STAR_COMMENT,
-          };
-          this.errors.push(my_error);
-        }
-
+        this.scan_block_comment_in_star_comment();
         // Continue scanning the rest of the line (star comment still active)
         continue;
       }

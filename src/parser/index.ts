@@ -33,6 +33,10 @@ import { isFileCommand } from '../utils/file-path-utils';
 import { is_swallowed_continuation_terminator } from '../utils/continuation';
 import { compare_positions } from '../utils/scope-position';
 import {
+  COLON_PREFIX_COMMANDS,
+  PREFIX_COMMANDS,
+} from '../utils/stata-prefix-commands';
+import {
   WEIGHT_KEYWORDS,
   parse_egen_function,
   parse_expression,
@@ -40,22 +44,6 @@ import {
   parse_path,
   parse_varlist,
 } from '../expression-parser';
-
-/**
- * Prefix commands that take no arguments of their own (other than the
- * `by` varlist), mapped to canonical names. Keys are every abbreviation
- * Stata accepts, exact case.
- */
-const PREFIX_COMMANDS: ReadonlyMap<string, string> = new Map([
-  ['by', 'by'],
-  ['bys', 'bysort'], ['byso', 'bysort'], ['bysor', 'bysort'], ['bysort', 'bysort'],
-  ['qui', 'quietly'], ['quie', 'quietly'], ['quiet', 'quietly'],
-  ['quietl', 'quietly'], ['quietly', 'quietly'],
-  ['cap', 'capture'], ['capt', 'capture'], ['captu', 'capture'],
-  ['captur', 'capture'], ['capture', 'capture'],
-  ['n', 'noisily'], ['no', 'noisily'], ['noi', 'noisily'], ['nois', 'noisily'],
-  ['noisi', 'noisily'], ['noisil', 'noisily'], ['noisily', 'noisily'],
-]);
 
 /** `program` subcommands other than define, with abbreviations. */
 const PROGRAM_SUBCOMMANDS: ReadonlySet<string> = new Set([
@@ -65,31 +53,6 @@ const PROGRAM_SUBCOMMANDS: ReadonlySet<string> = new Set([
 /** `define` and its abbreviations after `program`. */
 const PROGRAM_DEFINE_KEYWORDS: ReadonlySet<string> = new Set([
   'de', 'def', 'defi', 'defin', 'define',
-]);
-
-/**
- * Commands that act as a prefix only when a top-level colon follows,
- * e.g. `svy: regress ...` or `version 14: ...`, mapped to canonical
- * names. Without the colon they are ordinary commands (`version 14`).
- */
-const COLON_PREFIX_COMMANDS: ReadonlyMap<string, string> = new Map([
-  ['version', 'version'], ['vers', 'version'], ['versi', 'version'],
-  ['versio', 'version'],
-  ['svy', 'svy'],
-  ['xi', 'xi'],
-  ['bootstrap', 'bootstrap'], ['bs', 'bootstrap'],
-  ['jackknife', 'jackknife'], ['jknife', 'jackknife'],
-  ['simulate', 'simulate'],
-  ['statsby', 'statsby'],
-  ['rolling', 'rolling'],
-  ['permute', 'permute'],
-  ['mi', 'mi'],
-  ['nestreg', 'nestreg'],
-  ['stepwise', 'stepwise'], ['sw', 'stepwise'],
-  ['fp', 'fp'],
-  ['mfp', 'mfp'],
-  ['collect', 'collect'],
-  ['eststo', 'eststo'],
 ]);
 
 // Tokens that can name a command (`gen`, `` `cmd' ``, `$cmd`).

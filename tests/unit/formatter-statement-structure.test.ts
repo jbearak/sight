@@ -191,6 +191,60 @@ describe('formatting statements with interior block comments', () => {
         expect(format_source(formatted, mode)).toBe(formatted);
     });
 
+    for_each_formatter_mode('keeps a * comment that runs to the next ; under #delimit ;', mode => {
+        // Stata 18 runs none of the code inside these comments.
+        for (const my_source of [
+            '#delimit ;\n* comment\ngen q = 9;\ngen r = 1;\n#delimit cr\n',
+            '#delimit ;\n* c // x ; gen q = 1;\ngen r = 1;\n#delimit cr\n',
+            '#delimit ;\n* c /* ;\n */ gen q = 1;\ngen r = 1;\n#delimit cr\n',
+        ]) {
+            const formatted = format_source(my_source, mode);
+            expect(formatted).toBe(my_source);
+            expect(format_source(formatted, mode)).toBe(formatted);
+        }
+    });
+
+    for_each_formatter_mode('keeps a * comment between #delimit ; statements, with its one ;', mode => {
+        for (const [my_source, my_ast] of [
+            ['#delimit ;\ngen y = 1;\n* multi\n  line\n  gen q = 9;\ngen r = 1;\n#delimit cr\n', undefined],
+            ['#delimit ;\ngen y = a;\n* one;\n* two;\n#delimit cr\n', undefined],
+            ['#delimit ;\ngen y = a; * c; gen z = 2;\n#delimit cr\n',
+                '#delimit ;\ngen y = a;\n* c;\ngen z = 2;\n#delimit cr\n'],
+        ] as const) {
+            const formatted = format_source(my_source, mode);
+            expect(formatted).toBe(mode === 'ast' && my_ast ? my_ast : my_source);
+            expect(format_source(formatted, mode)).toBe(formatted);
+        }
+    });
+
+    for_each_formatter_mode('keeps a * comment that runs to the end of the file under #delimit ;', mode => {
+        const source = '#delimit ;\ngen r = 1;\n* c\n#delimit cr\ngen q = 1\n';
+        const formatted = format_source(source, mode);
+        expect(formatted).toContain('gen r = 1;\n* c\n#delimit cr\ngen q = 1');
+        expect(formatted).not.toContain('gen q = 1;');
+        expect(format_source(formatted, mode)).toBe(formatted);
+    });
+
+    for_each_formatter_mode('keeps the line a * comment joins with ///', mode => {
+        const source = '* c ///\ngen q = 1\ngen r = 1\n';
+        const formatted = format_source(source, mode);
+        expect(formatted).toBe(source);
+        expect(format_source(formatted, mode)).toBe(formatted);
+    });
+
+    for_each_formatter_mode('keeps * after /// or a colon as code', mode => {
+        for (const [my_source, my_ast] of [
+            ['gen r = a ///\n* b\n', 'gen r = a * b\n'],
+            ['unab x : *\n', 'unab x:*\n'],
+            ['mata: z = x :* y\n', 'mata: z = x :* y\n'],
+            ['mata:\nz = x :* y\nw = (x\n:* y)\nend\n', 'mata:\nz = x :* y\nw = (x\n:* y)\nend\n'],
+        ]) {
+            const formatted = format_source(my_source, mode);
+            expect(formatted).toBe(mode === 'ast' ? my_ast : my_source);
+            expect(format_source(formatted, mode)).toBe(formatted);
+        }
+    });
+
     for_each_formatter_mode('keeps interior comments in #delimit ; mode', mode => {
         const source = '#delimit ;\nreg y /* c */ x;\ngen z = a /* d */ * b;\n#delimit cr\n';
         const formatted = format_source(source, mode);

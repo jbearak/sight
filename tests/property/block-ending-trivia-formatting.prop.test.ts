@@ -80,10 +80,13 @@ describe('formatter block-ending trivia placement', () => {
     for_each_formatter_mode(
         'places semicolon-delimit block-ending comments inside the block',
         (mode: FormatterMode) => {
-            const source = '#delimit ;\nif 1 {;\ndisplay 1;\n* keep\n};\n#delimit cr';
+            // The `*` comment ends at its `;`; without one it would hide
+            // the `}` (Stata 18: "matching close brace not found").
+            const source = '#delimit ;\nif 1 {;\ndisplay 1;\n* keep;\n};\n#delimit cr';
             const formatted = format_source(source, mode);
 
-            expect_comment_inside_block(formatted, '* keep', '};');
+            expect_comment_inside_block(formatted, '* keep;', '};');
+            expect(format_source(formatted, mode)).toBe(formatted);
         }
     );
 });
