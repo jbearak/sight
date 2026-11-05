@@ -454,6 +454,10 @@ describe('statement structure', () => {
             ['version 14: /* c */ gen x = 1', ['version']],
             ['by g /* c */ : gen x = 1', ['by']],
             ['by g: /* c */ gen x = 1', ['by']],
+            // Loop and syntax keywords aren't reserved: here they are
+            // variable names, not the command.
+            ['capture /* c */ noisily gen syntax = 1', ['capture', 'noisily']],
+            ['quietly /* c */ : gen while = 1', ['quietly']],
         ];
         for (const [my_source, my_prefixes] of prefixed_sources) {
             it(`keeps ${my_source} whole`, () => {

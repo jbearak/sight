@@ -92,15 +92,15 @@ const COLON_PREFIX_COMMANDS: ReadonlyMap<string, string> = new Map([
   ['eststo', 'eststo'],
 ]);
 
-/** Canonical names of the colon prefixes above. */
 // Tokens that can name a command (`gen`, `` `cmd' ``, `$cmd`).
 const COMMAND_NAME_TYPES: ReadonlySet<TokenType | undefined> = new Set<TokenType>([
   'WORD', 'MACRO_REF_LOCAL', 'MACRO_REF_GLOBAL',
 ]);
 // Commands after a prefix that parse to nodes without interior comments.
 const BODY_COMMANDS: ReadonlySet<string> = new Set([
-  'foreach', 'while', 'syntax',
+  'foreach', 'while', 'if', 'syntax',
 ]);
+/** Canonical names of the colon prefixes above. */
 const COLON_PREFIX_NAMES: ReadonlySet<string> = new Set(COLON_PREFIX_COMMANDS.values());
 
 /**
@@ -3737,20 +3737,51 @@ export class StataParser {
   }
 
   /**
-   * Is the rest of the statement from token `index` a plain command or
-   * macro definition, with no loop, `if` command, `syntax`, brace block,
-   * or Mata/Python? Those nodes don't keep interior comments, so a
-   * comment between prefixes is read as whitespace only before a plain
-   * command; otherwise it stays where it was.
+   * Is the statement from token `index` on a plain command or macro
+   * definition, not a loop, `if` command, `syntax`, brace block, or
+   * Mata/Python? Those nodes don't keep interior comments, so a comment
+   * between prefixes is read as whitespace only before a plain command;
+   * otherwise it stays where it was.
    */
   private is_plain_command_from(index: number): boolean {
-    let previous: Token | undefined = this.tokens[index - 1];
-    for (let i = index; i < this.tokens.length; i++) {
+    // Find the command word, past any further prefixes.
+    let i = this.index_after_block_comments(index);
+    for (;;) {
       const my_token = this.tokens[i];
+      if (my_token?.type !== 'WORD') {
+        break;
+      }
+      const prefix_name = PREFIX_COMMANDS.get(my_token.value);
+      if (prefix_name === 'by' || prefix_name === 'bysort' ||
+          (prefix_name === undefined && COLON_PREFIX_COMMANDS.has(my_token.value))) {
+        const colon_index = this.find_statement_colon(i + 1);
+        if (colon_index === -1) {
+          break;
+        }
+        i = this.index_after_block_comments(colon_index + 1);
+      } else if (prefix_name !== undefined) {
+        i = this.index_after_block_comments(i + 1);
+        if (this.tokens[i]?.type === 'COLON') {
+          i = this.index_after_block_comments(i + 1);
+        }
+      } else {
+        break;
+      }
+    }
+    const command = this.tokens[i];
+    if (command?.type === 'WORD' &&
+        (BODY_COMMANDS.has(command.value) ||
+         (command.value.length >= 4 && 'forvalues'.startsWith(command.value)))) {
+      return false;
+    }
+
+    // A brace block or Mata/Python anywhere in the statement.
+    for (let j = i; j < this.tokens.length; j++) {
+      const my_token = this.tokens[j];
       switch (my_token.type) {
         case 'STATEMENT_TERMINATOR':
           if (is_swallowed_continuation_terminator(
-            my_token, previous?.type === 'CONTINUATION')) {
+            my_token, this.tokens[j - 1]?.type === 'CONTINUATION')) {
             break;
           }
           return true;
@@ -3763,20 +3794,6 @@ export class StataParser {
         case 'PYTHON_START':
         case 'PYTHON_INLINE':
           return false;
-        case 'WORD':
-          if (BODY_COMMANDS.has(my_token.value) ||
-              (my_token.value.length >= 4 && 'forvalues'.startsWith(my_token.value))) {
-            return false;
-          }
-          // `if` right after a colon prefix is the if command, not a
-          // qualifier.
-          if (my_token.value === 'if' && (i === index || previous?.type === 'COLON')) {
-            return false;
-          }
-          break;
-      }
-      if (my_token.type !== 'COMMENT_BLOCK') {
-        previous = my_token;
       }
     }
     return true;
