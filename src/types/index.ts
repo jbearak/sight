@@ -188,12 +188,15 @@ export interface ProgramSignature {
 /**
  * One line of a statement as written. Statements whose `///` has a note
  * after it keep their lines (see `noted_lines`), so the AST printer can
- * print the note where it was. `indent` is the line's indentation
- * relative to the statement's first line, which has 0.
+ * print the note where it was. `column` is where the line's first token
+ * was in the source. `after_tight_continuation` marks a line after a
+ * `///` with no space before it, whose indentation decides whether it
+ * joins the token before the `///` (`b///` then `c` is `bc`).
  */
 export interface SourceLine {
-  indent: number;
+  column: number;
   text: string;
+  after_tight_continuation?: true;
 }
 
 export interface SyntaxNode {

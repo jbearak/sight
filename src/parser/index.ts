@@ -157,9 +157,10 @@ function is_noted_continuation(token: Token): boolean {
  */
 function source_lines_of(tokens: Token[]): SourceLine[] {
   const the_lines: SourceLine[] = [];
-  const start_column = tokens[0]?.range.start.character ?? 0;
   let the_parts: string[] = [];
-  let indent = 0;
+  let column = tokens[0]?.range.start.character ?? 0;
+  let is_after_tight = false;
+  let before_previous: Token | undefined;
   let previous: Token | undefined;
   for (const my_token of tokens) {
     if (previous !== undefined) {
@@ -170,19 +171,35 @@ function source_lines_of(tokens: Token[]): SourceLine[] {
           the_parts.push(' '.repeat(gap));
         }
       } else {
-        the_lines.push({ indent, text: the_parts.join('') });
+        the_lines.push(source_line(column, the_parts, is_after_tight));
         for (let i = 1; i < line_gap; i++) {
-          the_lines.push({ indent: 0, text: '' });
+          the_lines.push({ column: 0, text: '' });
         }
         the_parts = [];
-        indent = Math.max(0, my_token.range.start.character - start_column);
+        column = my_token.range.start.character;
+        // A `///` with no space before it, after a token or alone at
+        // the start of its line.
+        is_after_tight = previous.type === 'CONTINUATION' &&
+          (previous.range.start.character === 0 ||
+           (before_previous !== undefined &&
+            compare_positions(before_previous.range.end, previous.range.start) === 0));
       }
     }
     the_parts.push(my_token.value);
+    before_previous = previous;
     previous = my_token;
   }
-  the_lines.push({ indent, text: the_parts.join('') });
+  the_lines.push(source_line(column, the_parts, is_after_tight));
   return the_lines;
+}
+
+function source_line(
+  column: number, the_parts: string[], is_after_tight: boolean
+): SourceLine {
+  const text = the_parts.join('');
+  return is_after_tight
+    ? { column, text, after_tight_continuation: true }
+    : { column, text };
 }
 
 /** Placeholder for a qualifier or `=` with nothing after it. */

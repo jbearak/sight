@@ -9,6 +9,7 @@ import {
     for_each_formatter_mode,
     FormatterMode,
     mode_specific_assertion,
+    skip_for_mode,
 } from '../property/helpers/formatter-test-utils';
 
 /** Format a fixture in the selected mode and return the resulting source. */
@@ -58,6 +59,7 @@ const NOTED_STATEMENTS: Array<[string, string[]]> = [
     ['prefixes', ['capture noisily reg y x /// note', '    z']],
     ['an inline if', ['if a & /// note', '    b di 1']],
     ['a comment after the statement', ['reg y x /// note', '    z // trail']],
+    ['a nested inline if', ['if a if b di 1 /// note', '    + 2 // trail']],
 ];
 
 describe('formatting a statement with a note after ///', () => {
@@ -106,6 +108,25 @@ describe('formatting a statement with a note after ///', () => {
             .toBe('if 1 {\n    reg y x /// note\n      z\n}\ndi 1 /// note\n+ 2\n');
     });
 
+    // Whether a continued line is indented decides whether it joins the
+    // token before the `///`: `b///` then `c` at column 0 is `bc`.
+    for_each_formatter_mode('keeps whether a continued line joins', mode => {
+        // The source-preserving formatter re-indents continued lines and
+        // changes both values; that is a separate bug.
+        skip_for_mode(mode, 'source-preserving', () => {
+            const sources = [
+                'if 1 {\nlocal a b/// note\nc\n}\n',
+                '        local a b/// note\n    c\n',
+            ];
+            for (const my_source of sources) {
+                const formatted = format_idempotent(my_source, mode);
+                expect(macro_values(formatted)).toEqual(macro_values(my_source));
+            }
+            expect(macro_values(sources[0] ?? '')).toEqual(['bc']);
+            expect(macro_values(sources[1] ?? '')).toEqual(['b c']);
+        });
+    });
+
     for_each_formatter_mode('still joins a /// with no note', mode => {
         const formatted = format_idempotent('reg y x ///\n    z\n', mode);
         mode_specific_assertion(mode, {
@@ -119,6 +140,22 @@ describe('formatting a statement with a note after ///', () => {
     });
 });
 
+/** Values of the macro definitions in `source`, in blocks too. */
+function macro_values(source: string): string[] {
+    const the_values: string[] = [];
+    const visit = (the_nodes: StataNode[]): void => {
+        for (const my_node of the_nodes) {
+            if (my_node.type === 'macro_def') {
+                the_values.push(my_node.value);
+            } else if ('body' in my_node && Array.isArray(my_node.body)) {
+                visit(my_node.body);
+            }
+        }
+    };
+    visit(parse_nodes(source));
+    return the_values;
+}
+
 /** Parse `source` and return its top-level statements. */
 function parse_nodes(source: string): StataNode[] {
     const parse_result = new StataParser()
@@ -128,16 +165,16 @@ function parse_nodes(source: string): StataNode[] {
 }
 
 describe('parsing a statement with a note after ///', () => {
-    it('keeps its lines, indented relative to the first', () => {
+    it('keeps its lines and their columns', () => {
         const [node] = parse_nodes('  reg y x /// note\n      z ///\n  w\n');
         expect(node?.type).toBe('command');
         if (node?.type !== 'command') {
             return;
         }
         expect(node.noted_lines).toEqual([
-            { indent: 0, text: 'reg y x /// note' },
-            { indent: 4, text: 'z ///' },
-            { indent: 0, text: 'w' },
+            { column: 2, text: 'reg y x /// note' },
+            { column: 6, text: 'z ///' },
+            { column: 2, text: 'w' },
         ]);
     });
 
@@ -147,8 +184,8 @@ describe('parsing a statement with a note after ///', () => {
             throw new Error('expected a foreach loop');
         }
         expect(node.noted_lines).toEqual([
-            { indent: 0, text: 'foreach v in a /// note' },
-            { indent: 1, text: 'b {' },
+            { column: 0, text: 'foreach v in a /// note' },
+            { column: 1, text: 'b {' },
         ]);
         const body = node.body[0];
         expect(body?.type === 'command' ? body.noted_lines?.length : 0).toBe(2);
