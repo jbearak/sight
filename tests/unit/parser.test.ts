@@ -933,6 +933,7 @@ end`;
     // in the tree, tolerant of union members that do not carry trivia.
     type MaybeTriviaNode = {
       leadingTrivia?: { content: string }[];
+      interiorTrivia?: { content: string }[];
       blockEndingTrivia?: { content: string }[];
       trailingTrivia?: { content: string }[];
       body?: MaybeTriviaNode[];
@@ -942,6 +943,7 @@ end`;
       const walk = (the_nodes: MaybeTriviaNode[]): void => {
         for (const my_node of the_nodes) {
           for (const t of my_node.leadingTrivia ?? []) contents.push(t.content);
+          for (const t of my_node.interiorTrivia ?? []) contents.push(t.content);
           for (const t of my_node.blockEndingTrivia ?? []) contents.push(t.content);
           for (const t of my_node.trailingTrivia ?? []) contents.push(t.content);
           if (my_node.body) walk(my_node.body);

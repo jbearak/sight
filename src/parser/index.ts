@@ -59,15 +59,17 @@ const PROGRAM_DEFINE_KEYWORDS: ReadonlySet<string> = new Set([
 const COMMAND_NAME_TYPES: ReadonlySet<TokenType | undefined> = new Set<TokenType>([
   'WORD', 'MACRO_REF_LOCAL', 'MACRO_REF_GLOBAL',
 ]);
-// Commands after a prefix that parse to nodes without interior comments.
+// Tokens after a prefix that start a brace block or Mata/Python.
+const PREFIX_CHAIN_BLOCK_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
+  'LBRACE', 'MATA_START', 'MATA_INLINE', 'PYTHON_START', 'PYTHON_INLINE',
+]);
+// Commands after a prefix that parse to nodes that keep only block
+// comments among their prefixes and header.
 const BODY_COMMANDS: ReadonlySet<string> = new Set([
   'foreach', 'while', 'if',
 ]);
 // `#delimit ;`, with the `;` as the first thing after the keyword.
 const DELIMIT_SEMICOLON_PATTERN = /^#delimit[ \t]*;/;
-
-/** Canonical names of the colon prefixes above. */
-const COLON_PREFIX_NAMES: ReadonlySet<string> = new Set(COLON_PREFIX_COMMANDS.values());
 
 /**
  * Tracks `///` line-continuation state while a caller collects the tokens of a
@@ -1090,37 +1092,75 @@ export class StataParser {
     return macro_node;
   }
 
+  /**
+   * The control-flow statement after a prefix, or undefined. Stata 18
+   * runs `capture while 1 {`, `quietly if 1 {`, `noisily foreach`,
+   * `qui else {`, and `capture frame f {` with their bodies.
+   */
+  private parse_prefixed_control_flow(): ControlFlowNode | undefined {
+    if (this.checkWord('foreach') || this.checkForvalues()) {
+      return this.parseLoopStatement();
+    }
+    if (this.checkWord('while')) {
+      return this.parseWhileStatement();
+    }
+    if (this.checkWord('if')) {
+      return this.parseIfStatement();
+    }
+    if (this.checkWord('else')) {
+      return this.parseElseStatement();
+    }
+    if (this.checkWord('frame') && this.starts_frame_block()) {
+      const frame_node = this.parseFrameBlock();
+      return frame_node?.type === 'frame' ? frame_node : undefined;
+    }
+    return undefined;
+  }
+
+  /** Put `the_comments`, from before the node's header, first in its interiorTrivia. */
+  private add_interior_comments(node: ControlFlowNode, the_comments: TriviaNode[]): void {
+    const the_merged = [...the_comments, ...(node.interiorTrivia ?? [])];
+    if (the_merged.length > 0) {
+      node.interiorTrivia = the_merged;
+    }
+  }
+
+  /** Does `frame name {` start at the current token? */
+  private starts_frame_block(): boolean {
+    const name_index = this.index_after_statement_trivia(this.current + 1);
+    if (this.tokens[name_index]?.type !== 'WORD') {
+      return false;
+    }
+    const brace_index = this.index_after_statement_trivia(name_index + 1);
+    return this.tokens[brace_index]?.type === 'LBRACE';
+  }
+
   private parseCommand(): CommandNode | MacroDefNode | ControlFlowNode {
     const start_token = this.peek();
+    const start_index = this.current;
     const command_start_line = start_token.range.start.line;
 
     // Parse prefix commands (by, quietly, capture, svy:, etc.)
     const prefixes: PrefixNode[] = [];
     this.parse_prefix_chain(prefixes);
+    // Comments the prefix chain read as whitespace. Plain commands and
+    // macro definitions collect theirs in parseStatement.
+    const prefix_comments = this.block_comments_between(start_index, this.current);
 
     const macro_node = this.parse_prefixed_macro_definition(prefixes, start_token);
     if (macro_node) {
       return macro_node;
     }
-    // `version 14: foreach x in a b { ... }` keeps its loop. Argument-free
-    // prefixes such as `capture foreach ...` keep parsing as commands.
-    const has_colon_prefix = prefixes.some(
-      (my_prefix) => COLON_PREFIX_NAMES.has(my_prefix.fullName)
-    );
-    if (has_colon_prefix) {
-      let control_node: ControlFlowNode | undefined;
-      if (this.checkWord('foreach') || this.checkForvalues()) {
-        control_node = this.parseLoopStatement();
-      } else if (this.checkWord('while')) {
-        control_node = this.parseWhileStatement();
-      } else if (this.checkWord('if')) {
-        control_node = this.parseIfStatement();
-      }
-      if (control_node) {
-        control_node.prefix = prefixes;
-        control_node.range = this.makeRange(start_token.range.start, control_node.range.end);
-        return control_node;
-      }
+    // A prefixed loop, `if`, `else`, `while`, or frame block keeps its
+    // body: `capture while 1 {`, `quietly if 1 {`, `version 14: foreach`.
+    const control_node = prefixes.length > 0
+      ? this.parse_prefixed_control_flow()
+      : undefined;
+    if (control_node) {
+      control_node.prefix = prefixes;
+      control_node.range = this.makeRange(start_token.range.start, control_node.range.end);
+      this.add_interior_comments(control_node, prefix_comments);
+      return control_node;
     }
 
     // Check if this is a syntax command after prefixes
@@ -1142,8 +1182,9 @@ export class StataParser {
 
     // Check if this is an embedded language block after prefixes
     // (e.g., capture mata: ...)
-    if (this.check('MATA_START') || this.check('MATA_INLINE')) {
-      const embedded_node = this.parseEmbeddedLanguageBlock('mata');
+    const is_mata = this.check('MATA_START') || this.check('MATA_INLINE');
+    if (is_mata || this.check('PYTHON_START') || this.check('PYTHON_INLINE')) {
+      const embedded_node = this.parseEmbeddedLanguageBlock(is_mata ? 'mata' : 'python');
       // Attach prefixes to the embedded block
       if (prefixes.length > 0) {
         embedded_node.prefix = prefixes;
@@ -1153,18 +1194,8 @@ export class StataParser {
           embedded_node.range.end
         );
       }
-      return embedded_node as unknown as CommandNode;
-    }
-    if (this.check('PYTHON_START') || this.check('PYTHON_INLINE')) {
-      const embedded_node = this.parseEmbeddedLanguageBlock('python');
-      // Attach prefixes to the embedded block
-      if (prefixes.length > 0) {
-        embedded_node.prefix = prefixes;
-        // Update range to include prefixes
-        embedded_node.range = this.makeRange(
-          start_token.range.start,
-          embedded_node.range.end
-        );
+      if (prefix_comments.length > 0) {
+        embedded_node.interiorTrivia = prefix_comments;
       }
       return embedded_node as unknown as CommandNode;
     }
@@ -1202,6 +1233,7 @@ export class StataParser {
           start_token.range.start,
           this.previous().range.end
         ),
+        interiorTrivia: prefix_comments.length > 0 ? prefix_comments : undefined,
         blockEndingTrivia,
       };
     }
@@ -1268,9 +1300,15 @@ export class StataParser {
           };
 
           // Use shared helper for consistent frame prefix parsing
-          return this.parseFramePrefixedCommand(
-            frame_prefix, prefixes, start_token
+          const frame_node = this.parseFramePrefixedCommand(
+            frame_prefix, prefixes, start_token, saved_pos - 1
           );
+          // `capture /* c */ frame f: if 1 {`: plain commands collect
+          // their comments in parseStatement; a loop or if does not.
+          if (frame_node.type !== 'command' && frame_node.type !== 'macro_def') {
+            this.add_interior_comments(frame_node, prefix_comments);
+          }
+          return frame_node;
         }
       }
       // Not frame prefix syntax, backtrack
@@ -1290,13 +1328,15 @@ export class StataParser {
    * @param frame_prefix - The frame prefix node (has_colon=true)
    * @param prefixes - Array of prefix nodes to append to
    * @param start_token - The original start token for range calculation
-   * @returns the frame-prefixed command, or macro definition
+   * @param frame_index - Index of the `frame` token
+   * @returns the frame-prefixed command, loop, if, or macro definition
    */
   private parseFramePrefixedCommand(
     frame_prefix: PrefixNode,
     prefixes: PrefixNode[],
-    start_token: Token
-  ): CommandNode | MacroDefNode {
+    start_token: Token,
+    frame_index: number
+  ): CommandNode | MacroDefNode | ControlFlowNode {
     prefixes.push(frame_prefix);
 
     // Skip whitespace after the colon
@@ -1311,6 +1351,16 @@ export class StataParser {
     const macro_node = this.parse_prefixed_macro_definition(prefixes, start_token);
     if (macro_node) {
       return macro_node;
+    }
+    // Comments from `frame` on, e.g. `frame f: /* c */ while 1 {`.
+    // Plain commands collect theirs in parseStatement.
+    const frame_comments = this.block_comments_between(frame_index, this.current);
+    const control_node = this.parse_prefixed_control_flow();
+    if (control_node) {
+      control_node.prefix = prefixes;
+      control_node.range = this.makeRange(start_token.range.start, control_node.range.end);
+      this.add_interior_comments(control_node, frame_comments);
+      return control_node;
     }
 
     // Now parse the main command
@@ -2028,7 +2078,7 @@ export class StataParser {
     const start_pos = command_token.range.start;
 
     // Parse macro name
-    this.skip_interior_comments();
+    this.skip_statement_whitespace();
     if (!this.check('WORD')) {
       this.addError('Expected macro name after unab', this.peek().range);
       throw new Error('Missing macro name in unab command');
@@ -2046,8 +2096,8 @@ export class StataParser {
     // This keeps varlists pure (only variable names) while preserving syntax
     let has_colon_before_varlist = false;
 
-    // Expect colon; a comment before it is whitespace.
-    this.skip_interior_comments();
+    // Expect colon; a block comment or `///` before it is whitespace.
+    this.skip_statement_whitespace();
     if (!this.check('COLON')) {
       this.addError(
         'Expected ":" after macro name in unab command',
@@ -2058,10 +2108,10 @@ export class StataParser {
       has_colon_before_varlist = true;
     }
 
-    // Parse variable list after colon; a comment between names is
-    // whitespace.
+    // Parse variable list after colon; a block comment or `///` between
+    // names is whitespace.
     for (;;) {
-      this.skip_interior_comments();
+      this.skip_statement_whitespace();
       if (!this.is_unab_varlist_token()) {
         break;
       }
@@ -2794,6 +2844,7 @@ export class StataParser {
     let bracket_depth = 0;
     let previous_operand: Token | undefined;
     let is_single_statement = false;
+    const the_comments: TriviaNode[] = [];
 
     while (!this.check('LBRACE') && !this.isAtEnd()) {
       // Handle continuation tokens - skip them and continue parsing
@@ -2803,6 +2854,9 @@ export class StataParser {
           continuation.note_continuation(cont_token);
           continue;
         }
+      }
+      if (this.collect_header_comment(the_comments)) {
+        continue;
       }
 
       // Stop at statement terminator
@@ -2920,12 +2974,17 @@ export class StataParser {
         is_single_statement && body.length > 0
           ? body[body.length - 1].range.end : this.previous().range.end
       ),
+      ...(the_comments.length > 0 ? { interiorTrivia: the_comments } : {}),
       blockEndingTrivia,
     };
   }
 
   private parseElseStatement(): ControlFlowNode {
     const elseToken = this.advance(); // consume 'else'
+    // `else /* c */ {`: the comment is whitespace before the body.
+    const the_comments: TriviaNode[] = [];
+    this.skip_header_whitespace(the_comments);
+    const comment_field = the_comments.length > 0 ? { interiorTrivia: the_comments } : {};
 
     // Check for 'if' (else if)
     if (this.checkWord('if')) {
@@ -2934,6 +2993,7 @@ export class StataParser {
         type: 'else',
         body: [ifNode],
         range: this.makeRange(elseToken.range.start, ifNode.range.end),
+        ...comment_field,
       };
     }
 
@@ -2987,6 +3047,7 @@ export class StataParser {
       type: 'else',
       body,
       range: this.makeRange(elseToken.range.start, end_position),
+      ...comment_field,
       blockEndingTrivia,
     };
   }
@@ -3000,11 +3061,14 @@ export class StataParser {
 
     let loopVar = '';
     let loopSpec = '';
+    const the_comments: TriviaNode[] = [];
 
     // Parse loop variable.
+    this.skip_header_whitespace(the_comments);
     if (this.check('WORD')) {
       loopVar = this.advance().value;
     }
+    this.skip_header_whitespace(the_comments);
 
     // Parse loop specification
     // For forvalues: next token is '=' (OPERATOR)
@@ -3040,6 +3104,9 @@ export class StataParser {
             continue;
           }
           break;
+        }
+        if (this.collect_header_comment(the_comments)) {
+          continue;
         }
         const token = this.advance();
         if (token.type === 'CONTINUATION') {
@@ -3088,6 +3155,7 @@ export class StataParser {
       loopSpec,
       body,
       range: this.makeRange(loopToken.range.start, this.previous().range.end),
+      ...(the_comments.length > 0 ? { interiorTrivia: the_comments } : {}),
       blockEndingTrivia,
     };
   }
@@ -3102,6 +3170,7 @@ export class StataParser {
     const preceded_by_continuation: boolean[] = [];
     const continuation = new ContinuationTracker();
     let paren_depth = 0;
+    const the_comments: TriviaNode[] = [];
 
     while (!this.check('LBRACE') && !this.isAtEnd()) {
       // Handle continuation tokens - skip them and continue parsing
@@ -3111,6 +3180,9 @@ export class StataParser {
           continuation.note_continuation(cont_token);
           continue;
         }
+      }
+      if (this.collect_header_comment(the_comments)) {
+        continue;
       }
 
       // Stop at statement terminator
@@ -3185,6 +3257,7 @@ export class StataParser {
         : {}),
       body,
       range: this.makeRange(whileToken.range.start, this.previous().range.end),
+      ...(the_comments.length > 0 ? { interiorTrivia: the_comments } : {}),
       blockEndingTrivia,
     };
   }
@@ -3277,7 +3350,7 @@ export class StataParser {
       };
 
       // Use shared helper for consistent frame prefix parsing
-      return this.parseFramePrefixedCommand(frame_prefix, [], frame_token);
+      return this.parseFramePrefixedCommand(frame_prefix, [], frame_token, frame_index);
     }
 
     if (!this.check('LBRACE')) {
@@ -3311,11 +3384,14 @@ export class StataParser {
       this.addError('Missing closing brace for frame block', frame_token.range);
     }
 
+    // `frame f /* c */ {`: the comment is whitespace in the header.
+    const header_comments = this.block_comments_between(frame_index, lbrace_index);
     return {
       type: 'frame',
       frameName: frame_name,
       body,
       range: this.makeRange(frame_token.range.start, this.previous().range.end),
+      ...(header_comments.length > 0 ? { interiorTrivia: header_comments } : {}),
       blockEndingTrivia,
     };
   }
@@ -3328,7 +3404,7 @@ export class StataParser {
     const start_pos = command_token.range.start;
 
     // Parse macro name
-    this.skip_interior_comments();
+    this.skip_statement_whitespace();
     if (!this.check('WORD')) {
       this.addError('Expected macro name after unab', this.peek().range);
       return {
@@ -3351,8 +3427,8 @@ export class StataParser {
     // This keeps varlists pure (only variable names) while preserving syntax
     let has_colon_before_varlist = false;
 
-    // Expect colon; a comment before it is whitespace.
-    this.skip_interior_comments();
+    // Expect colon; a block comment or `///` before it is whitespace.
+    this.skip_statement_whitespace();
     if (!this.check('COLON')) {
       this.addError(
         'Expected ":" after macro name in unab command',
@@ -3363,10 +3439,10 @@ export class StataParser {
       has_colon_before_varlist = true;
     }
 
-    // Parse variable list after colon; a comment between names is
-    // whitespace.
+    // Parse variable list after colon; a block comment or `///` between
+    // names is whitespace.
     for (;;) {
-      this.skip_interior_comments();
+      this.skip_statement_whitespace();
       if (!this.is_unab_varlist_token()) {
         break;
       }
@@ -3461,19 +3537,17 @@ export class StataParser {
    */
   private parse_prefix_chain(prefixes: PrefixNode[]): void {
     for (;;) {
-      // A `///` continuation, or comments before the next word of a
-      // plain command (`capture /* c */ noisily`, `quietly: /* c */
-      // gen`, or a `//` comment under `#delimit ;`), may separate
-      // prefixes; other comments end the chain so they stay attached to
-      // the statement as trivia.
+      // `///` continuations and block comments may separate prefixes
+      // and what follows them: `capture /* c */ noisily`,
+      // `quietly /* c */ {`, `capture: /* c */ mata:`. A
+      // comment before anything else ends the chain, so it stays
+      // attached to the statement as trivia.
       while (this.skipContinuation()) {
         // skip
       }
-      const word_index = this.index_after_comments(this.current);
-      if (word_index > this.current &&
-          COMMAND_NAME_TYPES.has(this.tokens[word_index]?.type) &&
-          this.is_plain_command_from(word_index)) {
-        while (this.current < word_index) {
+      const next_index = this.index_after_statement_trivia(this.current);
+      if (next_index > this.current && this.continues_prefix_chain(next_index)) {
+        while (this.current < next_index) {
           this.advance();
         }
       }
@@ -3520,12 +3594,12 @@ export class StataParser {
     }
 
     // Consume colon after any prefix command (quietly:, capture:, by g:,
-    // etc.). A comment before it is whitespace before a plain command:
+    // etc.). A block comment or `///` before it is whitespace:
     // `quietly /* c */ : gen x = 1`.
-    const colon_index = this.index_after_comments(this.current);
+    const colon_index = this.index_after_statement_trivia(this.current);
     if (colon_index > this.current &&
         this.tokens[colon_index]?.type === 'COLON' &&
-        this.is_plain_command_from(colon_index + 1)) {
+        !this.skips_line_comment_before_block(colon_index + 1)) {
       while (this.current < colon_index) {
         this.advance();
       }
@@ -3734,9 +3808,9 @@ export class StataParser {
   /**
    * Is the statement from token `index` on a plain command, macro
    * definition, or `syntax`, not a loop, `if` command, brace block, or
-   * Mata/Python? Those nodes don't keep interior comments, so a comment
-   * between prefixes is read as whitespace only before a plain command;
-   * otherwise it stays where it was.
+   * Mata/Python? Those nodes keep only block comments, so a `//`
+   * comment between prefixes is read as whitespace only before a plain
+   * command; otherwise it stays where it was.
    */
   private is_plain_command_from(index: number): boolean {
     // Find the command word, past any further prefixes.
@@ -3795,6 +3869,33 @@ export class StataParser {
   }
 
   /**
+   * May the prefix chain read the tokens from the current one up to
+   * `index` as whitespace and go on there? Yes before a command word,
+   * a brace block, or Mata/Python.
+   */
+  private continues_prefix_chain(index: number): boolean {
+    const next = this.tokens[index];
+    return next !== undefined &&
+      (COMMAND_NAME_TYPES.has(next.type) || PREFIX_CHAIN_BLOCK_TYPES.has(next.type)) &&
+      !this.skips_line_comment_before_block(index);
+  }
+
+  /**
+   * Would skipping from the current token up to `index` pass a `//`
+   * comment (under `#delimit ;`) before a loop, if, brace block, or
+   * Mata/Python? Those nodes keep only block comments, so such a
+   * comment ends the prefix chain, as before.
+   */
+  private skips_line_comment_before_block(index: number): boolean {
+    for (let i = this.current; i < index; i++) {
+      if (this.tokens[i]?.type === 'COMMENT_LINE') {
+        return !this.is_plain_command_from(index);
+      }
+    }
+    return false;
+  }
+
+  /**
    * Index of the first token from `index` on that isn't a comment or a
    * `///` continuation with its swallowed newline.
    */
@@ -3816,16 +3917,42 @@ export class StataParser {
   }
 
   /**
-   * Index of the first token from `index` on that isn't a comment. A
-   * `//` comment is followed by code only under `#delimit ;`.
+   * Skip `///` continuations and block comments that have more of the
+   * statement after them. Stata reads both as whitespace.
    */
-  private index_after_comments(index: number): number {
-    let i = index;
-    while (this.tokens[i]?.type === 'COMMENT_BLOCK' ||
-        this.tokens[i]?.type === 'COMMENT_LINE') {
-      i++;
+  private skip_statement_whitespace(): void {
+    while (this.skipContinuation() || this.skip_interior_comments()) {
+      // skip
     }
-    return i;
+  }
+
+  /**
+   * Consume a block comment in a control-flow header into
+   * `the_comments`. Stata reads it as whitespace, so it stays out of
+   * the condition or loop spec. Returns true if one was consumed.
+   */
+  private collect_header_comment(the_comments: TriviaNode[]): boolean {
+    if (!this.check('COMMENT_BLOCK')) {
+      return false;
+    }
+    const comment_token = this.advance();
+    the_comments.push({
+      type: 'comment',
+      style: 'block',
+      content: comment_token.value,
+      range: comment_token.range,
+    });
+    return true;
+  }
+
+  /**
+   * Skip `///` continuations and block comments in a control-flow
+   * header, keeping the comments in `the_comments`.
+   */
+  private skip_header_whitespace(the_comments: TriviaNode[]): void {
+    while (this.skipContinuation() || this.collect_header_comment(the_comments)) {
+      // skip
+    }
   }
 
   /**
@@ -3911,6 +4038,16 @@ export class StataParser {
     }
 
     return trivia;
+  }
+
+  /**
+   * Block comments among the tokens from `start` up to `end`. Loops,
+   * if, brace blocks, and Mata/Python keep only these among their
+   * prefixes and header; a `//` comment there would comment out `{`.
+   */
+  private block_comments_between(start: number, end: number): TriviaNode[] {
+    return this.comments_between(start, end)
+      .filter((my_comment) => my_comment.style === 'block');
   }
 
   /**
