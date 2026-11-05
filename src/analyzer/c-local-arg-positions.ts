@@ -25,6 +25,7 @@ import {
 } from '../types';
 import { nested_statements } from '../utils/node-body';
 import { is_valid_identifier } from './option-argument-parser';
+import { group_name_words, whole_word_item } from './name-words';
 
 const C_LOCAL_MACRO_NAME_RE = /^`([A-Za-z_][A-Za-z0-9_]*)'$/;
 const C_LOCAL_DIGIT_NAME_RE = /^`([1-9][0-9]*)'$/;
@@ -175,13 +176,10 @@ function collect_c_local_name_macros(
             const the_items = (my_node.varlist ?? []).filter(
                 (my_item) => my_item.recovery_only !== true
             );
-            const first = the_items[0];
-            const second = the_items[1];
             // The parser splits `` `where'_x `` into two items; a name
             // joined to more text is not the argument alone.
-            const is_joined = first !== undefined && second !== undefined
-                && compare_positions(first.range.end, second.range.start) === 0;
-            const match = first && !is_joined
+            const first = whole_word_item(group_name_words(the_items)[0]);
+            const match = first
                 ? C_LOCAL_MACRO_NAME_RE.exec(first.name)
                     ?? C_LOCAL_DIGIT_NAME_RE.exec(first.name)
                 : null;
@@ -218,8 +216,11 @@ function collect_args_in(
         const the_items = node.varlist ?? [];
         // A recovered item may not be one word in Stata's split.
         if (!the_items.some((my_item) => my_item.recovery_only === true)) {
-            the_items.forEach((my_item, i) => {
-                if (!is_valid_identifier(my_item.name)) return;
+            // Positions count words: `` args a`i' b `` binds `b` to 2,
+            // and the joined first name is known only at run time.
+            group_name_words(the_items).forEach((my_word, i) => {
+                const my_item = whole_word_item(my_word);
+                if (!my_item || !is_valid_identifier(my_item.name)) return;
                 const the_list = bindings.get(my_item.name) ?? [];
                 the_list.push({ position: i + 1, range: my_item.range });
                 bindings.set(my_item.name, the_list);
@@ -251,8 +252,9 @@ function collect_gettoken_bindings(
             if (some_statement(my_node, changes_zero)) return;
             continue;
         }
-        const the_outputs = my_node.varlist ?? [];
-        const first = the_outputs[0];
+        // Words, so a joined name (`` gettoken a`i' : 0 ``) binds nothing.
+        const the_outputs = group_name_words(my_node.varlist ?? []);
+        const first = whole_word_item(the_outputs[0]);
         if (
             !first
             || first.recovery_only === true
@@ -265,7 +267,7 @@ function collect_gettoken_bindings(
         const the_list = bindings.get(first.name) ?? [];
         the_list.push({ position: 1, range: first.range });
         bindings.set(first.name, the_list);
-        if (the_outputs[1]?.name === '0') return;
+        if (whole_word_item(the_outputs[1])?.name === '0') return;
     }
 }
 

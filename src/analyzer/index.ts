@@ -43,6 +43,7 @@ import {
 } from './loop-expander';
 import { find_macro_creating_command, matches_option } from './macro-creating-commands';
 import { parse_option_argument, is_valid_identifier } from './option-argument-parser';
+import { NameWord, group_name_words, whole_word_item } from './name-words';
 import {
     type CLocalArgName,
     extract_c_local_arg_positions,
@@ -1030,20 +1031,26 @@ export class SemanticAnalyzer {
     }
 
     /**
+     * `semantic_varlist` joined into words as Stata splits them, so a
+     * name such as `` foo`x' `` is one word, not `foo` and `` `x' ``.
+     */
+    private semantic_words(node: CommandNode): NameWord[] {
+        return group_name_words(this.semantic_varlist(node));
+    }
+
+    /**
      * Extract static c_local macro names from program body.
-     * Only extracts names that are literal identifiers (not macro expansions).
+     * Only extracts names that are literal identifiers (not macro
+     * expansions). A name joined to a macro (`` c_local foo`x' ``)
+     * is known only at run time.
      */
     private extract_c_locals(nodes: StataNode[]): string[] {
         const c_locals: string[] = [];
         for (const node of nodes) {
-            if (node.type === 'command') {
-                const varlist = this.semantic_varlist(node);
-                if (node.fullName === 'c_local' && varlist.length > 0) {
-                    const name = varlist[0].name;
-                    // Only include valid literal identifiers (exclude macro refs like `name')
-                    if (is_valid_identifier(name)) {
-                        c_locals.push(name);
-                    }
+            if (node.type === 'command' && node.fullName === 'c_local') {
+                const name_item = whole_word_item(this.semantic_words(node)[0]);
+                if (name_item && is_valid_identifier(name_item.name)) {
+                    c_locals.push(name_item.name);
                 }
             }
             // Recurse into control flow and brace block bodies
@@ -1092,10 +1099,12 @@ export class SemanticAnalyzer {
         
         for (const node of nodes) {
             if (node.type === 'command') {
-                const varlist = this.semantic_varlist(node);
+                // The name must be the macro alone: `` c_local `local'_x ``
+                // names a local other than the option's value.
+                const name_item = whole_word_item(this.semantic_words(node)[0]);
                 // Check for c_local `local' pattern (case-sensitive)
-                if (node.fullName === 'c_local' && varlist.length > 0) {
-                    const macro_name = varlist[0].name;
+                if (node.fullName === 'c_local' && name_item) {
+                    const macro_name = name_item.name;
                     // Check if it's a macro reference pattern (starts with backtick)
                     if (macro_name.startsWith('`') && macro_name.endsWith("'")) {
                         const inner_name = macro_name.slice(1, -1);
@@ -1107,8 +1116,8 @@ export class SemanticAnalyzer {
                     }
                 }
                 // Check for global `global' pattern (case-sensitive)
-                else if (node.fullName === 'global' && varlist.length > 0) {
-                    const macro_name = varlist[0].name;
+                else if (node.fullName === 'global' && name_item) {
+                    const macro_name = name_item.name;
                     // Check if it's a macro reference pattern (starts with backtick)
                     if (macro_name.startsWith('`') && macro_name.endsWith("'")) {
                         const inner_name = macro_name.slice(1, -1);
@@ -1717,39 +1726,32 @@ export class SemanticAnalyzer {
             // c_local writes into the CALLER's scope (real Stata semantics:
             // the called program sets locals in its caller's frame), so the
             // registration deliberately targets `current_scope` at the call
-            // site. Quirk preserved from the pre-split code: each call
-            // OVERWRITES the scope entry unconditionally (no
-            // additional_definitions chaining).
-            for (const macro_name of program.c_locals) {
-                const macro_symbol: MacroSymbol = {
-                    name: macro_name,
-                    scope: 'local',
-                    location: { uri: this.uri, range: node.range },
-                    sourceUri: program.sourceUri,
-                    containingScope: current_scope.type,
-                    scope_id: current_scope.id,
-                    ...(current_scope.type === 'program'
-                        ? { containing_program_name: current_scope.program_name }
-                        : {}),
-                    definition_index: node_index,
-                    definition_line: node.range.start.line,
-                };
-                const replaced = current_scope.localMacros.get(macro_name);
-                current_scope.localMacros.set(macro_name, macro_symbol);
-                this.publish_flat_local(
-                    symbols,
+            // site. The call is the definition, as for the argument names
+            // below: location and sourceUri are both this file, even when
+            // the program lives elsewhere. A call adds a definition and
+            // keeps the earlier ones, like any other redefinition.
+            for (const macro_name of new Set(program.c_locals)) {
+                this.register_local_macro(
                     current_scope,
-                    macro_symbol,
-                    replaced
+                    symbols,
+                    macro_name,
+                    node_index,
+                    node.range,
+                    () => ({
+                        name: macro_name,
+                        scope: 'local',
+                        location: { uri: this.uri, range: node.range },
+                        sourceUri: this.uri,
+                        definition_index: node_index,
+                        definition_line: node.range.start.line,
+                    })
                 );
             }
         }
 
         // c_local names the caller passes as arguments (`_getrhs rhs`).
         // Each is defined at its argument word, so go-to-definition and
-        // find references land on the name the caller wrote. Unlike the
-        // literal names above, a later call adds a definition rather
-        // than replacing the first.
+        // find references land on the name the caller wrote.
         for (const my_created of this.get_program_c_local_arg_names(node, program)) {
             this.register_local_macro(
                 current_scope,
@@ -2181,12 +2183,11 @@ export class SemanticAnalyzer {
         current_scope: ScopeInfo,
         node_index: number
     ): void {
-        const varlist = this.semantic_varlist(node);
-        if (varlist.length === 0) {
-            return;
-        }
-
-        for (const var_node of varlist) {
+        // A name joined to a macro (`` tempvar tv`i' ``) is known only
+        // at run time.
+        for (const my_word of this.semantic_words(node)) {
+            const var_node = whole_word_item(my_word);
+            if (!var_node) continue;
             this.register_local_macro(
                 current_scope,
                 symbols,
@@ -2219,9 +2220,8 @@ export class SemanticAnalyzer {
     ): void {
         // For unab command, the first argument is the macro name
         // The syntax is: unab macname : varlist
-        const varlist = this.semantic_varlist(node);
-        if (varlist.length > 0) {
-            const macro_node = varlist[0];
+        const macro_node = whole_word_item(this.semantic_words(node)[0]);
+        if (macro_node) {
             const macro_name = macro_node.name;
             this.register_local_macro(
                 current_scope,
@@ -2257,9 +2257,11 @@ export class SemanticAnalyzer {
     ): void {
         // For args command, each argument in the varlist becomes a local macro
         // The syntax is: args name1 name2 name3 ...
-        const varlist = this.semantic_varlist(node);
-        if (varlist.length > 0) {
-            for (const my_var_node of varlist) {
+        // A name joined to a macro (`` args a`i' ``) is known only at
+        // run time.
+        for (const my_word of this.semantic_words(node)) {
+            const my_var_node = whole_word_item(my_word);
+            if (my_var_node) {
                 const macro_name = my_var_node.name;
                 // Use definition_index: 0 and definition_line: 0 because args
                 // macros represent parameters passed into the program/file.
@@ -2306,19 +2308,18 @@ export class SemanticAnalyzer {
         // The syntax is: gettoken macname1 [macname2] : macname3 [, options]
         // - If varlist has 1 element: single output macro (macname1)
         // - If varlist has 2 elements: two output macros (macname1, macname2)
-        const varlist = this.semantic_varlist(node);
-        if (varlist.length === 0) {
-            return;
-        }
+        // Words, not items: `` gettoken a`i' rest : s `` names `rest`
+        // second, and the first name is known only at run time.
+        const the_words = this.semantic_words(node);
 
         // Extract up to 2 macro names from the varlist (before the colon)
-        const max_macros = Math.min(varlist.length, 2);
+        const max_macros = Math.min(the_words.length, 2);
         for (let i = 0; i < max_macros; i++) {
-            const my_var_node = varlist[i];
-            const macro_name = my_var_node.name;
+            const my_var_node = whole_word_item(the_words[i]);
+            const macro_name = my_var_node?.name;
 
             // Skip invalid identifiers (e.g., macro references like `name')
-            if (!is_valid_identifier(macro_name)) {
+            if (!my_var_node || !macro_name || !is_valid_identifier(macro_name)) {
                 continue;
             }
 
@@ -2359,21 +2360,23 @@ export class SemanticAnalyzer {
         current_scope: ScopeInfo,
         node_index: number
     ): void {
-        // Require at least 3 varlist items: subcommand, handle, macroname
-        const varlist = this.semantic_varlist(node);
-        if (varlist.length < 3) {
+        // Require at least 3 words: subcommand, handle, macroname.
+        // A name joined to a macro (`` fr`i' ``) is known only at run
+        // time.
+        const the_words = this.semantic_words(node);
+        if (the_words.length < 3) {
             return;
         }
 
         // Only "read" subcommand creates a local macro (exact match)
-        if (varlist[0].name !== 'read') {
+        if (whole_word_item(the_words[0])?.name !== 'read') {
             return;
         }
 
-        const macro_node = varlist[2];
-        const macro_name = macro_node.name;
+        const macro_node = whole_word_item(the_words[2]);
+        const macro_name = macro_node?.name;
 
-        if (!is_valid_identifier(macro_name)) {
+        if (!macro_node || !macro_name || !is_valid_identifier(macro_name)) {
             return;
         }
 
@@ -2596,28 +2599,34 @@ export class SemanticAnalyzer {
     private get_command_redefined_macro_names(node: CommandNode): string[] {
         const cmd_name = node.fullName;
         const names: string[] = [];
-        const push_literal = (name: string | undefined): void => {
+        // Mirrors the extractors: a word joined to a macro names no
+        // literal local.
+        const push_literal = (word: NameWord | undefined): void => {
+            const name = whole_word_item(word)?.name;
             if (name && is_valid_identifier(name)) names.push(name);
         };
         if (
             cmd_name === 'tempvar' || cmd_name === 'tempfile'
             || cmd_name === 'tempname' || cmd_name === 'args'
         ) {
-            for (const my_var of this.semantic_varlist(node)) push_literal(my_var.name);
+            for (const my_word of this.semantic_words(node)) push_literal(my_word);
         } else if (cmd_name === 'unab') {
-            push_literal(this.semantic_varlist(node)[0]?.name);
+            push_literal(this.semantic_words(node)[0]);
         } else if (cmd_name === 'gettoken' || cmd_name === 'gettok') {
-            const varlist = this.semantic_varlist(node);
-            const max_macros = Math.min(varlist.length, 2);
+            const the_words = this.semantic_words(node);
+            const max_macros = Math.min(the_words.length, 2);
             for (let i = 0; i < max_macros; i++) {
-                push_literal(varlist[i].name);
+                push_literal(the_words[i]);
             }
         } else if (cmd_name === 'file' || cmd_name === 'fil' || cmd_name === 'fi') {
             // `file read handle macroname` — only the "read" subcommand creates
-            // a macro, stored in varlist[2] (see extract_file_read_macro).
-            const varlist = this.semantic_varlist(node);
-            if (varlist.length >= 3 && varlist[0].name === 'read') {
-                push_literal(varlist[2].name);
+            // a macro, the third word (see extract_file_read_macro).
+            const the_words = this.semantic_words(node);
+            if (
+                the_words.length >= 3
+                && whole_word_item(the_words[0])?.name === 'read'
+            ) {
+                push_literal(the_words[2]);
             }
         }
         return names;

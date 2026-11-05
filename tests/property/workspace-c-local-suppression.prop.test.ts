@@ -47,9 +47,11 @@ display "\`status'"
         expect(result.symbols.localMacros.has('result')).toBe(true);
         expect(result.symbols.localMacros.has('status')).toBe(true);
 
-        // The macros should reference the workspace program as source
+        // The call is the definition: location and sourceUri are both
+        // the calling file, not the program's file.
         const result_macro = result.symbols.localMacros.get('result');
-        expect(result_macro?.sourceUri).toBe('file:///workspace/myprogram.ado');
+        expect(result_macro?.sourceUri).toBe('file:///test.do');
+        expect(result_macro?.location.uri).toBe('file:///test.do');
     });
 
     it('should prefer same-file program over workspace program for c_locals', () => {
@@ -306,10 +308,11 @@ display "\`error_code'"
         expect(result.symbols.localMacros.has('status')).toBe(true);
         expect(result.symbols.localMacros.has('error_code')).toBe(true);
 
-        // All macros should reference the workspace program as source
+        // All macros are defined at the call, in the calling file
         for (const macro_name of ['result1', 'result2', 'status', 'error_code']) {
             const macro = result.symbols.localMacros.get(macro_name);
-            expect(macro?.sourceUri).toBe('file:///workspace/myprogram.ado');
+            expect(macro?.sourceUri).toBe('file:///test.do');
+            expect(macro?.location.uri).toBe('file:///test.do');
         }
     });
 });
