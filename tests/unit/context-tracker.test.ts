@@ -26,9 +26,10 @@ describe('ContextTracker', () => {
     });
 
     test('should detect python block', () => {
+      // Stata closes a Python block only at an `end` in column 0.
       const my_source = `python
       import numpy as np
-      end`;
+end`;
 
       init_tracker_from_source(tracker, my_source);
       const my_ranges = tracker.get_all_context_ranges();

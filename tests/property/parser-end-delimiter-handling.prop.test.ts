@@ -2,7 +2,10 @@ import { describe, test, expect } from 'bun:test';
 import fc from 'fast-check';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
-import { could_end_embedded_block } from './generators/primitives';
+import {
+  could_end_embedded_block,
+  could_join_next_line,
+} from './generators/primitives';
 
 /**
  * One line of block content that cannot end the block early. Unlike
@@ -12,7 +15,9 @@ import { could_end_embedded_block } from './generators/primitives';
 function block_content_line(max_length: number): fc.Arbitrary<string> {
   return fc
     .string({ minLength: 1, maxLength: max_length })
-    .filter((my_line) => !could_end_embedded_block(my_line));
+    .filter((my_line) =>
+      !could_end_embedded_block(my_line) && !could_join_next_line(my_line)
+    );
 }
 
 /**

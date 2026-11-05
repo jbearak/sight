@@ -457,20 +457,17 @@ describe('StataLexer', () => {
       expect(end_token?.value).toBe('end');
     });
 
-    test('should handle old end python syntax as separate tokens', () => {
+    test('should not close a python block at end python', () => {
+      // Stata 18 passes `end python` to Python (a SyntaxError) and
+      // keeps the block open; only a bare `end` line closes it.
       const source = 'python\nprint("hello")\nend python';
       const result = lexer.tokenize(source);
 
       expect(result.errors).toHaveLength(0);
-      
-      // Should have END_PYTHON token for 'end'
-      const end_token = result.tokens.find(t => t.type === 'END_PYTHON');
-      expect(end_token).toBeDefined();
-      expect(end_token?.value).toBe('end');
-      
-      // The 'python' after 'end' should be treated as a new Python block start
+      expect(result.tokens.some(t => t.type === 'END_PYTHON')).toBe(false);
       const python_start_tokens = result.tokens.filter(t => t.type === 'PYTHON_START');
-      expect(python_start_tokens.length).toBe(2); // Original start + new start after end
+      expect(python_start_tokens.length).toBe(1);
+      expect(result.finalState.language_context).toBe(LanguageContext.PYTHON);
     });
 
     test('should tokenize embedded content in mata block', () => {

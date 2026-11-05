@@ -47,6 +47,12 @@ export class StataLexer {
   // The previous token other than whitespace or a comment, so
   // `a /* c */ * b` reads `*` after `a`.
   private previous_code_token: Token | null = null;
+  // Start line of the run of block comments since previous_code_token
+  // (null if none), so `x /* a<newline>b */ /* c */ end` is mid-line.
+  private comment_run_start_line: number | null = null;
+  // Whether a `///` joins the current line to the one above (no code
+  // since the `///` other than the newline it continues).
+  private joined_to_previous_line = false;
 
   tokenize(source: string, initialState?: LexerState): LexerResult {
     this.source = source;
@@ -56,6 +62,8 @@ export class StataLexer {
     this.line_offsets = [0]; // First line starts at offset 0
     this.previous_token = null;
     this.previous_code_token = null;
+    this.comment_run_start_line = null;
+    this.joined_to_previous_line = false;
     this.state = initialState || {
       delimiterMode: 'cr',
       line: 0,
@@ -201,6 +209,74 @@ export class StataLexer {
   }
 
   /**
+   * Whether the `end` just scanned (starting at `start_line`) closes a
+   * plain `mata` block. Stata 18 ends a Mata block only at an `end`
+   * that begins its logical line: leading blanks and a block
+   * comment may precede it, but code may not (`y end`, `a=end`,
+   * `x = 1; end`), and neither may a `///` that joins it to the line
+   * above. What may follow is checked by
+   * `is_end_at_statement_boundary()`.
+   */
+  private is_mata_block_end(start_line: number): boolean {
+    return (
+      this.is_first_code_on_line(start_line) &&
+      this.is_end_at_statement_boundary()
+    );
+  }
+
+  /**
+   * Whether the `end` just scanned (starting at `start_column`) closes
+   * a plain `python` block. Stata 18 hands Python every line except
+   * one that is exactly `end`, with optional trailing blanks: an
+   * indented `end`, `end // c`, `end # c` and `end python` all stay
+   * Python code.
+   */
+  private is_python_block_end(start_column: number): boolean {
+    if (start_column !== 0) {
+      return false;
+    }
+    let my_pos = this.position;
+    while (my_pos < this.source.length) {
+      const my_char = this.source[my_pos];
+      if (my_char === '\n') {
+        return true;
+      }
+      if (my_char !== ' ' && my_char !== '\t' && my_char !== '\r') {
+        return false;
+      }
+      my_pos++;
+    }
+    return true;
+  }
+
+  /**
+   * Whether no code token precedes the word starting on `start_line`
+   * on its logical line. Block comments do not count as code, but a
+   * run of them that opened on an earlier line counts from there, so
+   * `end` after `x = 1` plus a block comment that spans lines is still
+   * mid-line, while `end` after only such a comment is not. A `///`
+   * joins the line to the one above.
+   */
+  private is_first_code_on_line(start_line: number): boolean {
+    if (this.joined_to_previous_line) {
+      return false;
+    }
+    const my_prev_code = this.previous_code_token;
+    if (my_prev_code === null) {
+      return true;
+    }
+    if (
+      my_prev_code.type === 'STATEMENT_TERMINATOR' &&
+      my_prev_code.value === '\n'
+    ) {
+      return true;
+    }
+    const my_line = this.comment_run_start_line ?? start_line;
+    return my_prev_code.range.end.line < my_line;
+  }
+
+
+  /**
    * Check if the rest of the current line contains only whitespace or comments.
    * Used to determine if mata:/python: should start a block or be inline.
    * Returns true if only whitespace/comments (or nothing) remains until newline/EOF.
@@ -296,13 +372,33 @@ export class StataLexer {
   /** Remember the token just scanned for context-sensitive lexing. */
   private note_previous_token(token: Token): void {
     if (token.type === 'WHITESPACE') {
+      // Under `#delimit ;` a newline is whitespace; it still ends the
+      // physical line a comment run sits on.
+      if (token.value.includes('\n')) {
+        this.comment_run_start_line = null;
+      }
       return;
     }
-    this.previous_token = token;
-    if (!COMMENT_TOKEN_TYPES.has(token.type)) {
+    if (token.type === 'COMMENT_BLOCK') {
+      this.comment_run_start_line ??= token.range.start.line;
+    }
+    if (token.type === 'CONTINUATION') {
+      this.joined_to_previous_line = true;
+    } else if (!COMMENT_TOKEN_TYPES.has(token.type)) {
+      // The newline right after a `///` stays joined; any other code
+      // starts a fresh logical line.
+      const my_is_joined_newline =
+        token.type === 'STATEMENT_TERMINATOR' &&
+        token.value === '\n' &&
+        this.previous_token?.type === 'CONTINUATION';
+      this.joined_to_previous_line =
+        this.joined_to_previous_line && my_is_joined_newline;
+      this.comment_run_start_line = null;
       this.previous_code_token = token;
     }
+    this.previous_token = token;
   }
+
 
   /**
    * Determines if a * character should be treated as a comment or multiplication.
@@ -1616,9 +1712,9 @@ export class StataLexer {
     } else if (my_current_context === LanguageContext.MATA) {
       // In Mata context, check for end delimiter (case-sensitive)
       // But NOT if we're in a brace-style block (mata { ... })
-      // And only if 'end' is at a statement boundary (nothing else on the line except comments)
+      // And only where Stata ends the block (see is_mata_block_end)
       if (this.is_end_delimiter(value) && this.state.embedded_brace_depth === undefined) {
-        if (this.is_end_at_statement_boundary()) {
+        if (this.is_mata_block_end(startLine)) {
           this.pop_context();
           this.state.embedded_block_start_line = undefined;
           return {
@@ -1632,9 +1728,9 @@ export class StataLexer {
     } else if (my_current_context === LanguageContext.PYTHON) {
       // In Python context, check for end delimiter (case-sensitive)
       // But NOT if we're in a brace-style block (python { ... })
-      // And only if 'end' is at a statement boundary (nothing else on the line except comments)
+      // And only where Stata ends the block (see is_python_block_end)
       if (this.is_end_delimiter(value) && this.state.embedded_brace_depth === undefined) {
-        if (this.is_end_at_statement_boundary()) {
+        if (this.is_python_block_end(startColumn)) {
           this.pop_context();
           this.state.embedded_block_start_line = undefined;
           return {

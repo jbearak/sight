@@ -12,7 +12,7 @@ import {
 } from 'vscode-languageserver';
 import { DocumentState } from '../document-store';
 import { SourcePreservingFormatter, FormatterConfig } from '../formatter';
-import { ContextRange } from '../context-tracker/types';
+import { ContextRange, LanguageContext } from '../context-tracker/types';
 import { CommentFormattingConfig, StataLSPConfig } from '../types';
 import { CommentProcessor, CommentTransformation } from '../comment-processor/comment-processor';
 import { logger } from '../utils/logger';
@@ -258,6 +258,14 @@ export class CodeFormatter {
                                 // multiple physical lines, and a continuation line
                                 // that happens to trim to "end" must be preserved
                                 // as-is, not reindented as a block terminator.
+                                // Stata ends a Python block only at an `end` in
+                                // column 0, so that one is never indented.
+                                if (
+                                    my_block_info.range.context === LanguageContext.PYTHON &&
+                                    expected_end_delimiter === 'end'
+                                ) {
+                                    return line;
+                                }
                                 return leading_indent + line;
                             } else {
                                 // Middle lines (embedded content): preserve as-is

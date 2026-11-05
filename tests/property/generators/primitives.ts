@@ -283,26 +283,56 @@ export const FILE_COMMANDS = ['do', 'run', 'include', 'use', 'save', 'append', '
 
 const BLOCK_BOUNDARY_START = new RegExp(`^\\s*(?:${BLOCK_BOUNDARY_WORDS.join('|')})`);
 
+// Leading blanks and closed block comments, which may precede a Mata
+// block's closing `end` on its line.
+const LEADING_BLANKS_AND_BLOCK_COMMENTS = /^(?:\s|\/\*.*?\*\/)*/;
+
 /**
  * True when `line`, as mata or python block content, could close the
  * block or open a nested one. The context tracker reads a line that
- * starts with a block boundary word as a boundary, and the lexer ends
- * the block at an `end` that finishes a line even mid-line (`x end`,
- * `#end`), so any line containing `end` is rejected. Over-rejecting
- * lines such as `endx` or `x_end` is harmless.
+ * starts with a block boundary word as a boundary. Stata, and so the
+ * lexer, closes a block only at an `end` that begins its line (after
+ * blanks or a closed block comment, for Mata); a mid-line `end`
+ * (`x end`, `a=end`, `#end`, `1end`) stays block content.
  */
 export function could_end_embedded_block(line: string): boolean {
-  return BLOCK_BOUNDARY_START.test(line) || line.includes('end');
+  if (BLOCK_BOUNDARY_START.test(line)) {
+    return true;
+  }
+  const my_rest = line.replace(LEADING_BLANKS_AND_BLOCK_COMMENTS, '');
+  return /^end(?![A-Za-z0-9_.])/.test(my_rest);
+}
+
+/**
+ * True when `line`, as Mata block content, joins the next line onto
+ * it with a `///` continuation, so that an `end` on the next line is
+ * mid-line and does not close the block (as in Stata).
+ */
+export function could_join_next_line(line: string): boolean {
+  return line.includes('///');
 }
 
 /**
  * Generate one line of mata or python block content that cannot close
- * the block early or open a nested block or comment.
+ * the block early, keep the next line's `end` from closing it, or
+ * open a nested block or comment.
  */
 export function arbitrary_embedded_block_line(max_length: number): fc.Arbitrary<string> {
+  // Random text seldom contains `end`, so also splice one in mid-line
+  // (`x end`, `a=end`, `#end`, `1end`), which must stay block content.
+  const my_mid_line_end = fc
+    .tuple(
+      fc.string({ minLength: 1, maxLength: max_length }),
+      fc.string({ maxLength: max_length })
+    )
+    .map(([my_before, my_after]) => `${my_before}end${my_after}`);
   return fc
-    .string({ minLength: 1, maxLength: max_length })
-    .filter((my_line) => !could_end_embedded_block(my_line) && !my_line.includes('/*'));
+    .oneof(fc.string({ minLength: 1, maxLength: max_length }), my_mid_line_end)
+    .filter((my_line) =>
+      !could_end_embedded_block(my_line) &&
+      !could_join_next_line(my_line) &&
+      !my_line.includes('/*')
+    );
 }
 
 /**

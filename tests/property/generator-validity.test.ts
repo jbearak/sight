@@ -12,6 +12,7 @@ import {
   PREFIX_COMMANDS,
   RESERVED_QUALIFIER_KEYWORDS,
   could_end_embedded_block,
+  could_join_next_line,
 } from './generators/primitives';
 
 const SAMPLE_SIZE = 50000;
@@ -33,30 +34,47 @@ describe('arbitrary_command_name', () => {
 });
 
 describe('arbitrary_embedded_block_line', () => {
-  // Lines that close or open a block. `end` and `#end` are the
-  // counterexamples from valid-block-terminators (CI seed 37415869).
+  // Lines that close or open a block.
   const BOUNDARY_LINES = [
-    'end', '  end', 'end // note', 'mata', 'python', 'program define x',
-    'input x', '#end', 'x end', 'a=end',
+    'end', '  end', 'end // note', 'end /* c */', '/* c */ end',
+    'mata', 'python', 'program define x', 'input x',
+  ];
+  // A mid-line `end` stays block content, as in Stata 18. `#end` and
+  // `x end` are the counterexamples #352 excluded from generated
+  // content (CI seed 37415869) before the lexer followed this rule.
+  const CONTENT_LINES = [
+    'display 1', 'End', '#mata', '#end', 'x end', 'a=end', '1end',
+    'x = 1 // end', 'x = "end"', 'x = 1; end',
   ];
 
   it('recognizes every block boundary line', () => {
     for (const my_line of BOUNDARY_LINES) {
       expect(could_end_embedded_block(my_line)).toBe(true);
     }
-    expect(could_end_embedded_block('display 1')).toBe(false);
-    expect(could_end_embedded_block('End')).toBe(false);
-    expect(could_end_embedded_block('#mata')).toBe(false);
+    for (const my_line of CONTENT_LINES) {
+      expect(could_end_embedded_block(my_line)).toBe(false);
+    }
   });
 
-  it('never generates a block boundary line or a comment opener', () => {
+  it('never generates a block boundary, continuation, or comment opener', () => {
     const the_lines = fc.sample(arbitrary_embedded_block_line(20), {
       numRuns: SAMPLE_SIZE,
       seed: 1,
     });
     const the_hits = [...new Set(the_lines.filter(
-      (my_line) => could_end_embedded_block(my_line) || my_line.includes('/*')
+      (my_line) =>
+        could_end_embedded_block(my_line) ||
+        could_join_next_line(my_line) ||
+        my_line.includes('/*')
     ))];
     expect(the_hits).toEqual([]);
+  });
+
+  it('still generates lines with a mid-line end', () => {
+    const the_lines = fc.sample(arbitrary_embedded_block_line(20), {
+      numRuns: SAMPLE_SIZE,
+      seed: 1,
+    });
+    expect(the_lines.some((my_line) => my_line.includes('end'))).toBe(true);
   });
 });

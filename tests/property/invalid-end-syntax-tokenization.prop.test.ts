@@ -60,16 +60,23 @@ end ${invalid_suffix}`;
 
   /**
    * Property 2: Legacy End Python Syntax Handling
-   * The old "end python" syntax should be tokenized as "end" (END_PYTHON) 
-   * followed by "python" (PYTHON_START), effectively closing one block and
-   * starting another.
+   * Stata 18 hands a Python block every line except one that is exactly
+   * `end` (plus optional trailing blanks), so the old "end python"
+   * syntax does not close the block: Python sees it as a SyntaxError
+   * and the block stays open. It must lex as plain Python words.
    * Feature: lexer-end-delimiter-handling, Property 2: Legacy End Python Syntax Handling
    * Validates: Requirements 1.3, 1.4
    */
-  it('should handle legacy end python syntax as separate tokens', () => {
+  it('should not close a python block at legacy end python syntax', () => {
     fc.assert(
       fc.property(
-        fc.array(fc.stringMatching(/^[a-zA-Z0-9_\s\-+=(){}[\]]*$/), { minLength: 0, maxLength: 3 }),
+        fc.array(
+          fc.stringMatching(/^[a-zA-Z0-9_\s\-+=(){}[\]]*$/)
+            // A content line that is itself a bare `end` would close
+            // the block before `end python` is reached.
+            .filter(my_line => !/^end[ \t\r]*$/m.test(my_line)),
+          { minLength: 0, maxLength: 3 }
+        ),
         (content_lines) => {
           const my_lexer = new StataLexer();
           
@@ -82,18 +89,14 @@ end ${invalid_suffix}`;
           
           const my_result = my_lexer.tokenize(my_document);
           
-          // Should have initial PYTHON_START token
-          const my_initial_python_tokens = my_result.tokens.filter(t => t.type === 'PYTHON_START');
-          expect(my_initial_python_tokens.length).toBe(2); // Original + new one after "end"
-          expect(my_initial_python_tokens[0].value).toBe('python');
-          expect(my_initial_python_tokens[1].value).toBe('python');
+          const my_python_tokens = my_result.tokens.filter(t => t.type === 'PYTHON_START');
+          expect(my_python_tokens.length).toBe(1);
+          expect(my_python_tokens[0].value).toBe('python');
           
-          // Should have END_PYTHON token for "end" part
           const my_end_tokens = my_result.tokens.filter(t => t.type === 'END_PYTHON');
-          expect(my_end_tokens.length).toBe(1);
-          expect(my_end_tokens[0].value).toBe('end');
+          expect(my_end_tokens.length).toBe(0);
           
-          // Final state should be in Python context (due to new python block)
+          // The block is still open at the end of the document
           expect(my_result.finalState.language_context).toBe(LanguageContext.PYTHON);
         }
       ),
