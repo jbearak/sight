@@ -58,6 +58,11 @@ describe('end diagnostics: what Stata does not read', () => {
             .toEqual([]);
     });
 
+    it('keeps reading after capture exit, which Stata goes on from', () => {
+        expect(end_codes('capture exit 198\ncap exit 198\nend\n'))
+            .toEqual([[2, ContextErrorCode.UNEXPECTED_END]]);
+    });
+
     it('does not read an end with code before it on its line', () => {
         expect(end_codes('di 1\n<end>\n')).toEqual([]);
     });

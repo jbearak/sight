@@ -44,6 +44,15 @@ function begins_line(line_text: string, character: number): boolean {
     return before === '' || before.endsWith(';') || before.endsWith('*/');
 }
 
+/**
+ * Is `node` an `exit` that stops Stata reading the file? Under
+ * `capture`, Stata catches the return code of `exit 198` and goes on.
+ */
+function is_unconditional_exit(node: StataNode): boolean {
+    return node.type === 'command' && node.fullName === 'exit' &&
+        !(node.prefix ?? []).some((my_prefix) => my_prefix.fullName === 'capture');
+}
+
 /** The last mata/python block among `nodes`, searching nested blocks. */
 function last_embedded_block(
     the_nodes: readonly StataNode[]
@@ -93,8 +102,7 @@ export function find_end_diagnostics(
     const the_diagnostics: ContextDiagnostic[] = [];
     const visit = (my_nodes: readonly StataNode[], is_top_level: boolean): void => {
         for (const my_node of my_nodes) {
-            if (is_top_level && my_node.type === 'command' &&
-                my_node.fullName === 'exit') {
+            if (is_top_level && is_unconditional_exit(my_node)) {
                 return;
             }
             if (my_node.type === 'command' && my_node.fullName === 'end' &&
