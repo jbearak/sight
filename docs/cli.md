@@ -466,8 +466,9 @@ The qualifiers may appear in any order in the source, as Stata allows.
   null when the range has another shape and `first` holds all of it.
 - `while`: `condition: {"text", "expression"}`, `body`.
 - `program`: `name`, `define_options` (raw text after the comma, such as
-  `rclass`, or null), `args` (`{"name", "range"}` from the program's `args`
-  statements), `syntax`, `body`. `syntax` is the parsed `syntax` signature
+  `rclass`, or null), `args` (`{"name", "range", "name_parts"}` from the
+  program's `args` statements; see "Names built from macros" below),
+  `syntax`, `body`. `syntax` is the parsed `syntax` signature
   or null. Both come from the statements at the top of the program body,
   or, when the body has exactly one `args` (or `syntax`) in all and it is
   inside brace or `frame` blocks (`quietly { args a b }`), from that one;
@@ -477,13 +478,16 @@ The qualifiers may appear in any order in the source, as Stata allows.
   "options": [{"name", "min_abbreviation", "required", "optional",
   "argument_type", "default", "range"}], "allows_arbitrary_options"}`.
 - `syntax`: `prefixes`, `signature` (as above).
-- `macro`: `scope` (`local` or `global`), `name`, `form`, `value`,
-  `value_parts`, `expression`, `extended`, `increment`. `form` is `value`
-  (`local a x y`), `expression` (`local n = exp`, with `expression`),
-  `extended` (`local w : word 1 of ...`, with `extended: {"function",
-  "args"}`), or `increment` (`local ++i`, with `increment`). `value` is the
-  raw value text. For the `value` form, `value_parts` splits it into text
-  and `macro_ref` parts.
+- `macro`: `scope` (`local` or `global`), `name`, `name_parts`, `form`,
+  `value`, `value_parts`, `expression`, `extended`, `increment`. `name` is
+  the name as written, and `name_parts` is null unless the name is built
+  from macros (see below). `form` is `value` (`local a x y`), `expression`
+  (`local n = exp`, with `expression`), `extended` (`local w : word 1 of
+  ...`, with `extended: {"function", "args"}`; `function` is as written
+  and may be built from macros, as in `` local s : `ch'(scalars) ``), or
+  `increment` (`local ++i`, with `increment`). `value` is the raw value
+  text. For the `value` form, `value_parts` splits it into text and
+  `macro_ref` parts.
 - `embedded`: a Mata or Python block, kept opaque: `language` (`mata` or
   `python`), `inline` (true for `mata: ...` on one line), `prefixes`,
   `content: {"text", "range"}`. For a block, `text` is its lines as
@@ -491,6 +495,20 @@ The qualifiers may appear in any order in the source, as Stata allows.
 - `delimit`: `mode` (`cr` or `semicolon`), the mode from the next statement
   on.
 - `frame`: `frame name { ... }`: `frame`, `body`.
+
+#### Names built from macros
+
+Stata reads a name that runs on into a macro reference as one name:
+`` local foo`x' 1 `` defines `foo` followed by the value of `x` (`foo3`
+when `x` is 3), not `foo`. A quote ends the name, so `` local q`x'"a b" ``
+names `` q`x' ``. A `macro` statement's `name` and each program `args`
+entry's `name` hold the whole name as written (`` foo`x' ``, `` a`x' ``),
+and `name_parts` splits it into `text` and `macro_ref` parts, the same
+objects as a `variable`'s `parts` and a macro's `value_parts`. A non-null
+`name_parts` means the name can't be resolved statically. It is null for
+a plain name. An `args` entry that is just a macro (`` `x' ``) has
+`name_parts` too. A `local` or `global` whose name starts with a macro
+(`` local `x' 9 ``) is a `command`, not a `macro`.
 
 ### `sight graph` documents
 

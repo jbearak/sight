@@ -11,6 +11,9 @@
  *
  * Only a macro reference joins items. A quote ends a name, so
  * `` c_local qa"`v'" `` defines `qa` (checked in StataMP 18).
+ *
+ * The parser reads a `local`/`global` name with the same rule
+ * (`joins_name`), so `` local foo`x' 1 `` names `` foo`x' ``.
  */
 import { Range } from 'vscode-languageserver-textdocument';
 import { IdentifierNode } from '../types';
@@ -21,23 +24,39 @@ export interface NameWord {
     range: Range;
 }
 
+/** A piece of a name as written: an item or a token. */
+export interface NamePiece {
+    text: string;
+    range: Range;
+}
+
 /**
- * A macro reference item: `` `name' ``, `` `=exp' ``, `$name` or
+ * A macro reference: `` `name' ``, `` `=exp' ``, `$name` or
  * `${name}`. A compound-quote opener `` `" `` is not one.
  */
-function is_macro_item(item: IdentifierNode): boolean {
-    return item.name.startsWith('$')
-        || (item.name.startsWith('`') && !item.name.startsWith('`"'));
+function is_macro_text(text: string): boolean {
+    return text.startsWith('$')
+        || (text.startsWith('`') && !text.startsWith('`"'));
 }
 
 /** `"` or the compound-quote opener `` `" ``: either ends a name. */
-function is_quote_opener(item: IdentifierNode): boolean {
-    return item.name.startsWith('"') || item.name.startsWith('`"');
+function is_quote_text(text: string): boolean {
+    return text.startsWith('"') || text.startsWith('`"');
 }
 
 function touches(a: Range, b: Range): boolean {
     return a.end.line === b.start.line
         && a.end.character === b.start.character;
+}
+
+/**
+ * True when `next` continues the word that `previous` ends: the two
+ * touch, one of them is a macro reference, and `next` is not a quote.
+ */
+export function joins_name(previous: NamePiece, next: NamePiece): boolean {
+    return touches(previous.range, next.range)
+        && !is_quote_text(next.text)
+        && (is_macro_text(previous.text) || is_macro_text(next.text));
 }
 
 /**
@@ -54,9 +73,10 @@ export function group_name_words(
         if (
             last !== undefined
             && previous !== undefined
-            && touches(previous.range, my_item.range)
-            && !is_quote_opener(my_item)
-            && (is_macro_item(previous) || is_macro_item(my_item))
+            && joins_name(
+                { text: previous.name, range: previous.range },
+                { text: my_item.name, range: my_item.range }
+            )
         ) {
             last.items.push(my_item);
             last.range = { start: last.range.start, end: my_item.range.end };

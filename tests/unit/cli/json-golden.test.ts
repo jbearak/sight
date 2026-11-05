@@ -16,6 +16,9 @@
  * program-ends.do has `args`/`unab` with a stray operator, a program
  * that a nested mata block's `end` ends, a `///`-continued program
  * header, and an `if` whose `{;` is on the next line under `#delimit ;`.
+ * macro-built-names.do has `local`, `global`, `args` and `gen` names
+ * joined to macro references (`` local foo`x' 1 ``), in every macro
+ * definition form, which have `name_parts`.
  * The expected JSON is in
  * tests/fixtures/cli-json/expected, with the fixture's absolute path
  * replaced by <ROOT> and the Sight version by <VERSION>.
@@ -50,6 +53,7 @@ const PARSE_FILES = [
     'column0-slashes.do',
     'program-ends.do',
     'brace-blocks.do',
+    'macro-built-names.do',
 ];
 
 /** Replace machine-specific values so the output is stable. */

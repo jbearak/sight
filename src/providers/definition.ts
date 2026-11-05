@@ -19,6 +19,7 @@ import {
     StataNode,
     LanguageContext,
     ResolvedScope,
+    MacroDefNode,
     MacroSymbol,
     Token,
     ProgramSymbol,
@@ -32,13 +33,6 @@ import {
 /** Symbol with a location, as returned by WorkspaceIndexer.find_symbol_definitions */
 type LocatableSymbol = ProgramSymbol | MacroSymbol | VariableSymbol | ScalarSymbol | MatrixSymbol;
 
-type MacroDefNodeLike = {
-    type: 'macro_def';
-    scope: 'local' | 'global';
-    name: string;
-    value: string;
-    range: { start: Position; end: Position };
-};
 import { IContextTracker } from '../context-tracker/types';
 import { ScopeResolver, build_scope_resolver_config, get_visible_symbols_at } from '../scope-resolver';
 import { WorkspaceIndexer } from '../indexer';
@@ -1559,7 +1553,7 @@ export class DefinitionProvider {
             return a.character <= b.character;
         };
 
-        let best_node: MacroDefNodeLike | null = null;
+        let best_node: MacroDefNode | null = null;
 
         // NOTE: Do this iteratively (not via a nested function) so TypeScript control-flow
         // analysis can see that best_node may be assigned.
@@ -1577,8 +1571,11 @@ export class DefinitionProvider {
             }
 
             if (node.type === 'macro_def') {
-                const macro_def = node as unknown as MacroDefNodeLike;
-                if (macro_def.scope === scope && macro_def.name === name) {
+                const macro_def = node;
+                // A name joined to a macro (`` local foo`x' 1 ``) is
+                // known only at run time, so it defines no name here.
+                if (macro_def.scope === scope && macro_def.name === name &&
+                    macro_def.name_parts === undefined) {
                     if (is_before_or_equal(macro_def.range.start, reference_position)) {
                         if (!best_node) {
                             best_node = macro_def;

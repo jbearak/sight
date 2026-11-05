@@ -91,6 +91,7 @@
         "prefixes": [],
         "scope": "global",
         "name": "root",
+        "name_parts": null,
         "form": "value",
         "value": "\".\"",
         "value_parts": [
@@ -360,6 +361,7 @@
         "prefixes": [],
         "scope": "local",
         "name": "wave",
+        "name_parts": null,
         "form": "value",
         "value": "3",
         "value_parts": [
@@ -1529,6 +1531,7 @@
         "prefixes": [],
         "scope": "local",
         "name": "files",
+        "name_parts": null,
         "form": "extended",
         "value": "",
         "value_parts": [],
@@ -1986,7 +1989,8 @@
                 "line": 1,
                 "character": 12
               }
-            }
+            },
+            "name_parts": null
           },
           {
             "name": "group",
@@ -1999,7 +2003,8 @@
                 "line": 1,
                 "character": 18
               }
-            }
+            },
+            "name_parts": null
           }
         ],
         "syntax": {
@@ -4803,6 +4808,7 @@
         "prefixes": [],
         "scope": "local",
         "name": "a",
+        "name_parts": null,
         "form": "value",
         "value": "b///",
         "value_parts": [
@@ -4895,6 +4901,7 @@
         "prefixes": [],
         "scope": "local",
         "name": "b",
+        "name_parts": null,
         "form": "value",
         "value": "b///note",
         "value_parts": [
@@ -4956,6 +4963,7 @@
         "prefixes": [],
         "scope": "local",
         "name": "c",
+        "name_parts": null,
         "form": "value",
         "value": "b c",
         "value_parts": [
@@ -5088,6 +5096,7 @@
         "prefixes": [],
         "scope": "local",
         "name": "d",
+        "name_parts": null,
         "form": "value",
         "value": "b/// c",
         "value_parts": [
@@ -5497,6 +5506,7 @@
         "prefixes": [],
         "scope": "local",
         "name": "a",
+        "name_parts": null,
         "form": "value",
         "value": "b /// x c",
         "value_parts": [
@@ -5558,6 +5568,7 @@
         "prefixes": [],
         "scope": "local",
         "name": "e",
+        "name_parts": null,
         "form": "value",
         "value": "b f",
         "value_parts": [
@@ -5774,7 +5785,8 @@
                 "line": 5,
                 "character": 10
               }
-            }
+            },
+            "name_parts": null
           }
         ],
         "syntax": null,
@@ -6863,7 +6875,8 @@
                 "line": 19,
                 "character": 18
               }
-            }
+            },
+            "name_parts": null
           },
           {
             "name": "second",
@@ -6876,7 +6889,8 @@
                 "line": 19,
                 "character": 25
               }
-            }
+            },
+            "name_parts": null
           }
         ],
         "syntax": null,
@@ -7065,5 +7079,1530 @@
         }
       }
     ]
+  },
+  {
+    "schema_version": 1,
+    "sight_version": "<VERSION>",
+    "path": "<ROOT>/macro-built-names.do",
+    "line_count": 25,
+    "statements": [
+      {
+        "kind": "macro",
+        "range": {
+          "start": {
+            "line": 2,
+            "character": 0
+          },
+          "end": {
+            "line": 2,
+            "character": 9
+          }
+        },
+        "text": "local x 3",
+        "delimit": "cr",
+        "comments": {
+          "leading": [
+            {
+              "style": "star",
+              "text": "* Names joined to macro references (StataMP 18: local foo`x' 1 defines",
+              "range": {
+                "start": {
+                  "line": 0,
+                  "character": 0
+                },
+                "end": {
+                  "line": 0,
+                  "character": 70
+                }
+              },
+              "directive": null
+            },
+            {
+              "style": "star",
+              "text": "* foo3 when x is 3). Each name is known only at run time.",
+              "range": {
+                "start": {
+                  "line": 1,
+                  "character": 0
+                },
+                "end": {
+                  "line": 1,
+                  "character": 57
+                }
+              },
+              "directive": null
+            }
+          ],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [],
+        "scope": "local",
+        "name": "x",
+        "name_parts": null,
+        "form": "value",
+        "value": "3",
+        "value_parts": [
+          {
+            "kind": "text",
+            "value": "3",
+            "range": {
+              "start": {
+                "line": 2,
+                "character": 8
+              },
+              "end": {
+                "line": 2,
+                "character": 9
+              }
+            }
+          }
+        ],
+        "expression": null,
+        "extended": null,
+        "increment": null
+      },
+      {
+        "kind": "macro",
+        "range": {
+          "start": {
+            "line": 3,
+            "character": 0
+          },
+          "end": {
+            "line": 3,
+            "character": 14
+          }
+        },
+        "text": "local foo`x' 1",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [],
+        "scope": "local",
+        "name": "foo`x'",
+        "name_parts": [
+          {
+            "kind": "text",
+            "value": "foo",
+            "range": {
+              "start": {
+                "line": 3,
+                "character": 6
+              },
+              "end": {
+                "line": 3,
+                "character": 9
+              }
+            }
+          },
+          {
+            "kind": "macro_ref",
+            "scope": "local",
+            "form": "name",
+            "text": "`x'",
+            "range": {
+              "start": {
+                "line": 3,
+                "character": 9
+              },
+              "end": {
+                "line": 3,
+                "character": 12
+              }
+            },
+            "name": "x"
+          }
+        ],
+        "form": "value",
+        "value": "1",
+        "value_parts": [
+          {
+            "kind": "text",
+            "value": "1",
+            "range": {
+              "start": {
+                "line": 3,
+                "character": 13
+              },
+              "end": {
+                "line": 3,
+                "character": 14
+              }
+            }
+          }
+        ],
+        "expression": null,
+        "extended": null,
+        "increment": null
+      },
+      {
+        "kind": "macro",
+        "range": {
+          "start": {
+            "line": 4,
+            "character": 0
+          },
+          "end": {
+            "line": 4,
+            "character": 14
+          }
+        },
+        "text": "global gg`x' 2",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [],
+        "scope": "global",
+        "name": "gg`x'",
+        "name_parts": [
+          {
+            "kind": "text",
+            "value": "gg",
+            "range": {
+              "start": {
+                "line": 4,
+                "character": 7
+              },
+              "end": {
+                "line": 4,
+                "character": 9
+              }
+            }
+          },
+          {
+            "kind": "macro_ref",
+            "scope": "local",
+            "form": "name",
+            "text": "`x'",
+            "range": {
+              "start": {
+                "line": 4,
+                "character": 9
+              },
+              "end": {
+                "line": 4,
+                "character": 12
+              }
+            },
+            "name": "x"
+          }
+        ],
+        "form": "value",
+        "value": "2",
+        "value_parts": [
+          {
+            "kind": "text",
+            "value": "2",
+            "range": {
+              "start": {
+                "line": 4,
+                "character": 13
+              },
+              "end": {
+                "line": 4,
+                "character": 14
+              }
+            }
+          }
+        ],
+        "expression": null,
+        "extended": null,
+        "increment": null
+      },
+      {
+        "kind": "macro",
+        "range": {
+          "start": {
+            "line": 5,
+            "character": 0
+          },
+          "end": {
+            "line": 5,
+            "character": 29
+          }
+        },
+        "text": "local ww`x' : word 2 of a b c",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [],
+        "scope": "local",
+        "name": "ww`x'",
+        "name_parts": [
+          {
+            "kind": "text",
+            "value": "ww",
+            "range": {
+              "start": {
+                "line": 5,
+                "character": 6
+              },
+              "end": {
+                "line": 5,
+                "character": 8
+              }
+            }
+          },
+          {
+            "kind": "macro_ref",
+            "scope": "local",
+            "form": "name",
+            "text": "`x'",
+            "range": {
+              "start": {
+                "line": 5,
+                "character": 8
+              },
+              "end": {
+                "line": 5,
+                "character": 11
+              }
+            },
+            "name": "x"
+          }
+        ],
+        "form": "extended",
+        "value": "",
+        "value_parts": [],
+        "expression": null,
+        "extended": {
+          "function": "word",
+          "args": "2 of a b c"
+        },
+        "increment": null
+      },
+      {
+        "kind": "macro",
+        "range": {
+          "start": {
+            "line": 6,
+            "character": 0
+          },
+          "end": {
+            "line": 6,
+            "character": 19
+          }
+        },
+        "text": "local ee`x' = 1 + 2",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [],
+        "scope": "local",
+        "name": "ee`x'",
+        "name_parts": [
+          {
+            "kind": "text",
+            "value": "ee",
+            "range": {
+              "start": {
+                "line": 6,
+                "character": 6
+              },
+              "end": {
+                "line": 6,
+                "character": 8
+              }
+            }
+          },
+          {
+            "kind": "macro_ref",
+            "scope": "local",
+            "form": "name",
+            "text": "`x'",
+            "range": {
+              "start": {
+                "line": 6,
+                "character": 8
+              },
+              "end": {
+                "line": 6,
+                "character": 11
+              }
+            },
+            "name": "x"
+          }
+        ],
+        "form": "expression",
+        "value": "1 + 2",
+        "value_parts": [],
+        "expression": {
+          "kind": "binary",
+          "op": "+",
+          "op_text": "+",
+          "left": {
+            "kind": "number",
+            "text": "1",
+            "value": 1,
+            "range": {
+              "start": {
+                "line": 6,
+                "character": 14
+              },
+              "end": {
+                "line": 6,
+                "character": 15
+              }
+            }
+          },
+          "right": {
+            "kind": "number",
+            "text": "2",
+            "value": 2,
+            "range": {
+              "start": {
+                "line": 6,
+                "character": 18
+              },
+              "end": {
+                "line": 6,
+                "character": 19
+              }
+            }
+          },
+          "range": {
+            "start": {
+              "line": 6,
+              "character": 14
+            },
+            "end": {
+              "line": 6,
+              "character": 19
+            }
+          }
+        },
+        "extended": null,
+        "increment": null
+      },
+      {
+        "kind": "macro",
+        "range": {
+          "start": {
+            "line": 7,
+            "character": 0
+          },
+          "end": {
+            "line": 7,
+            "character": 14
+          }
+        },
+        "text": "local ++foo`x'",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [],
+        "scope": "local",
+        "name": "foo`x'",
+        "name_parts": [
+          {
+            "kind": "text",
+            "value": "foo",
+            "range": {
+              "start": {
+                "line": 7,
+                "character": 8
+              },
+              "end": {
+                "line": 7,
+                "character": 11
+              }
+            }
+          },
+          {
+            "kind": "macro_ref",
+            "scope": "local",
+            "form": "name",
+            "text": "`x'",
+            "range": {
+              "start": {
+                "line": 7,
+                "character": 11
+              },
+              "end": {
+                "line": 7,
+                "character": 14
+              }
+            },
+            "name": "x"
+          }
+        ],
+        "form": "increment",
+        "value": "++",
+        "value_parts": [],
+        "expression": null,
+        "extended": null,
+        "increment": "++"
+      },
+      {
+        "kind": "macro",
+        "range": {
+          "start": {
+            "line": 8,
+            "character": 0
+          },
+          "end": {
+            "line": 8,
+            "character": 17
+          }
+        },
+        "text": "local foo`x'bar 4",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [],
+        "scope": "local",
+        "name": "foo`x'bar",
+        "name_parts": [
+          {
+            "kind": "text",
+            "value": "foo",
+            "range": {
+              "start": {
+                "line": 8,
+                "character": 6
+              },
+              "end": {
+                "line": 8,
+                "character": 9
+              }
+            }
+          },
+          {
+            "kind": "macro_ref",
+            "scope": "local",
+            "form": "name",
+            "text": "`x'",
+            "range": {
+              "start": {
+                "line": 8,
+                "character": 9
+              },
+              "end": {
+                "line": 8,
+                "character": 12
+              }
+            },
+            "name": "x"
+          },
+          {
+            "kind": "text",
+            "value": "bar",
+            "range": {
+              "start": {
+                "line": 8,
+                "character": 12
+              },
+              "end": {
+                "line": 8,
+                "character": 15
+              }
+            }
+          }
+        ],
+        "form": "value",
+        "value": "4",
+        "value_parts": [
+          {
+            "kind": "text",
+            "value": "4",
+            "range": {
+              "start": {
+                "line": 8,
+                "character": 16
+              },
+              "end": {
+                "line": 8,
+                "character": 17
+              }
+            }
+          }
+        ],
+        "expression": null,
+        "extended": null,
+        "increment": null
+      },
+      {
+        "kind": "macro",
+        "range": {
+          "start": {
+            "line": 9,
+            "character": 0
+          },
+          "end": {
+            "line": 9,
+            "character": 15
+          }
+        },
+        "text": "local foo${g} 5",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [],
+        "scope": "local",
+        "name": "foo${g}",
+        "name_parts": [
+          {
+            "kind": "text",
+            "value": "foo",
+            "range": {
+              "start": {
+                "line": 9,
+                "character": 6
+              },
+              "end": {
+                "line": 9,
+                "character": 9
+              }
+            }
+          },
+          {
+            "kind": "macro_ref",
+            "scope": "global",
+            "form": "name",
+            "text": "${g}",
+            "range": {
+              "start": {
+                "line": 9,
+                "character": 9
+              },
+              "end": {
+                "line": 9,
+                "character": 13
+              }
+            },
+            "name": "g"
+          }
+        ],
+        "form": "value",
+        "value": "5",
+        "value_parts": [
+          {
+            "kind": "text",
+            "value": "5",
+            "range": {
+              "start": {
+                "line": 9,
+                "character": 14
+              },
+              "end": {
+                "line": 9,
+                "character": 15
+              }
+            }
+          }
+        ],
+        "expression": null,
+        "extended": null,
+        "increment": null
+      },
+      {
+        "kind": "macro",
+        "range": {
+          "start": {
+            "line": 10,
+            "character": 0
+          },
+          "end": {
+            "line": 10,
+            "character": 15
+          }
+        },
+        "text": "local q`x'\"a b\"",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [],
+        "scope": "local",
+        "name": "q`x'",
+        "name_parts": [
+          {
+            "kind": "text",
+            "value": "q",
+            "range": {
+              "start": {
+                "line": 10,
+                "character": 6
+              },
+              "end": {
+                "line": 10,
+                "character": 7
+              }
+            }
+          },
+          {
+            "kind": "macro_ref",
+            "scope": "local",
+            "form": "name",
+            "text": "`x'",
+            "range": {
+              "start": {
+                "line": 10,
+                "character": 7
+              },
+              "end": {
+                "line": 10,
+                "character": 10
+              }
+            },
+            "name": "x"
+          }
+        ],
+        "form": "value",
+        "value": "\"a b\"",
+        "value_parts": [
+          {
+            "kind": "text",
+            "value": "\"a b\"",
+            "range": {
+              "start": {
+                "line": 10,
+                "character": 10
+              },
+              "end": {
+                "line": 10,
+                "character": 15
+              }
+            }
+          }
+        ],
+        "expression": null,
+        "extended": null,
+        "increment": null
+      },
+      {
+        "kind": "macro",
+        "range": {
+          "start": {
+            "line": 12,
+            "character": 0
+          },
+          "end": {
+            "line": 12,
+            "character": 31
+          }
+        },
+        "text": "global SR_`x'_s : `ch'(scalars)",
+        "delimit": "cr",
+        "comments": {
+          "leading": [
+            {
+              "style": "star",
+              "text": "* An extended function named by macros",
+              "range": {
+                "start": {
+                  "line": 11,
+                  "character": 0
+                },
+                "end": {
+                  "line": 11,
+                  "character": 38
+                }
+              },
+              "directive": null
+            }
+          ],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [],
+        "scope": "global",
+        "name": "SR_`x'_s",
+        "name_parts": [
+          {
+            "kind": "text",
+            "value": "SR_",
+            "range": {
+              "start": {
+                "line": 12,
+                "character": 7
+              },
+              "end": {
+                "line": 12,
+                "character": 10
+              }
+            }
+          },
+          {
+            "kind": "macro_ref",
+            "scope": "local",
+            "form": "name",
+            "text": "`x'",
+            "range": {
+              "start": {
+                "line": 12,
+                "character": 10
+              },
+              "end": {
+                "line": 12,
+                "character": 13
+              }
+            },
+            "name": "x"
+          },
+          {
+            "kind": "text",
+            "value": "_s",
+            "range": {
+              "start": {
+                "line": 12,
+                "character": 13
+              },
+              "end": {
+                "line": 12,
+                "character": 15
+              }
+            }
+          }
+        ],
+        "form": "extended",
+        "value": "",
+        "value_parts": [],
+        "expression": null,
+        "extended": {
+          "function": "`ch'",
+          "args": "(scalars)"
+        },
+        "increment": null
+      },
+      {
+        "kind": "macro",
+        "range": {
+          "start": {
+            "line": 13,
+            "character": 0
+          },
+          "end": {
+            "line": 13,
+            "character": 24
+          }
+        },
+        "text": "local hn : `what'names m",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [],
+        "scope": "local",
+        "name": "hn",
+        "name_parts": null,
+        "form": "extended",
+        "value": "",
+        "value_parts": [],
+        "expression": null,
+        "extended": {
+          "function": "`what'names",
+          "args": "m"
+        },
+        "increment": null
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 15,
+            "character": 0
+          },
+          "end": {
+            "line": 15,
+            "character": 11
+          }
+        },
+        "text": "local `x' 9",
+        "delimit": "cr",
+        "comments": {
+          "leading": [
+            {
+              "style": "star",
+              "text": "* A name that starts with a macro stays a command, as before",
+              "range": {
+                "start": {
+                  "line": 14,
+                  "character": 0
+                },
+                "end": {
+                  "line": 14,
+                  "character": 60
+                }
+              },
+              "directive": null
+            }
+          ],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "local",
+        "canonical_name": "local",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "`x'",
+            "range": {
+              "start": {
+                "line": 15,
+                "character": 6
+              },
+              "end": {
+                "line": 15,
+                "character": 9
+              }
+            }
+          },
+          {
+            "text": "9",
+            "range": {
+              "start": {
+                "line": 15,
+                "character": 10
+              },
+              "end": {
+                "line": 15,
+                "character": 11
+              }
+            }
+          }
+        ],
+        "varlist": null,
+        "assignment": null,
+        "if": null,
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": [],
+        "options_tail": []
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 16,
+            "character": 0
+          },
+          "end": {
+            "line": 16,
+            "character": 14
+          }
+        },
+        "text": "local `x'`x' 9",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "local",
+        "canonical_name": "local",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "`x'`x'",
+            "range": {
+              "start": {
+                "line": 16,
+                "character": 6
+              },
+              "end": {
+                "line": 16,
+                "character": 12
+              }
+            }
+          },
+          {
+            "text": "9",
+            "range": {
+              "start": {
+                "line": 16,
+                "character": 13
+              },
+              "end": {
+                "line": 16,
+                "character": 14
+              }
+            }
+          }
+        ],
+        "varlist": null,
+        "assignment": null,
+        "if": null,
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": [],
+        "options_tail": []
+      },
+      {
+        "kind": "program",
+        "range": {
+          "start": {
+            "line": 17,
+            "character": 0
+          },
+          "end": {
+            "line": 19,
+            "character": 3
+          }
+        },
+        "text": "program pa\n    args a`x' b `x'\nend",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "pa",
+        "define_options": null,
+        "args": [
+          {
+            "name": "a`x'",
+            "range": {
+              "start": {
+                "line": 18,
+                "character": 9
+              },
+              "end": {
+                "line": 18,
+                "character": 13
+              }
+            },
+            "name_parts": [
+              {
+                "kind": "text",
+                "value": "a",
+                "range": {
+                  "start": {
+                    "line": 18,
+                    "character": 9
+                  },
+                  "end": {
+                    "line": 18,
+                    "character": 10
+                  }
+                }
+              },
+              {
+                "kind": "macro_ref",
+                "scope": "local",
+                "form": "name",
+                "text": "`x'",
+                "range": {
+                  "start": {
+                    "line": 18,
+                    "character": 10
+                  },
+                  "end": {
+                    "line": 18,
+                    "character": 13
+                  }
+                },
+                "name": "x"
+              }
+            ]
+          },
+          {
+            "name": "b",
+            "range": {
+              "start": {
+                "line": 18,
+                "character": 14
+              },
+              "end": {
+                "line": 18,
+                "character": 15
+              }
+            },
+            "name_parts": null
+          },
+          {
+            "name": "`x'",
+            "range": {
+              "start": {
+                "line": 18,
+                "character": 16
+              },
+              "end": {
+                "line": 18,
+                "character": 19
+              }
+            },
+            "name_parts": [
+              {
+                "kind": "macro_ref",
+                "scope": "local",
+                "form": "name",
+                "text": "`x'",
+                "range": {
+                  "start": {
+                    "line": 18,
+                    "character": 16
+                  },
+                  "end": {
+                    "line": 18,
+                    "character": 19
+                  }
+                },
+                "name": "x"
+              }
+            ]
+          }
+        ],
+        "syntax": null,
+        "body": [
+          {
+            "kind": "command",
+            "range": {
+              "start": {
+                "line": 18,
+                "character": 4
+              },
+              "end": {
+                "line": 18,
+                "character": 19
+              }
+            },
+            "text": "args a`x' b `x'",
+            "delimit": "cr",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "name": "args",
+            "canonical_name": "args",
+            "prefixes": [],
+            "args": [
+              {
+                "text": "a`x'",
+                "range": {
+                  "start": {
+                    "line": 18,
+                    "character": 9
+                  },
+                  "end": {
+                    "line": 18,
+                    "character": 13
+                  }
+                }
+              },
+              {
+                "text": "b",
+                "range": {
+                  "start": {
+                    "line": 18,
+                    "character": 14
+                  },
+                  "end": {
+                    "line": 18,
+                    "character": 15
+                  }
+                }
+              },
+              {
+                "text": "`x'",
+                "range": {
+                  "start": {
+                    "line": 18,
+                    "character": 16
+                  },
+                  "end": {
+                    "line": 18,
+                    "character": 19
+                  }
+                }
+              }
+            ],
+            "varlist": {
+              "kind": "varlist",
+              "items": [
+                {
+                  "kind": "variable",
+                  "name": "a`x'",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "a",
+                      "range": {
+                        "start": {
+                          "line": 18,
+                          "character": 9
+                        },
+                        "end": {
+                          "line": 18,
+                          "character": 10
+                        }
+                      }
+                    },
+                    {
+                      "kind": "macro_ref",
+                      "scope": "local",
+                      "form": "name",
+                      "text": "`x'",
+                      "range": {
+                        "start": {
+                          "line": 18,
+                          "character": 10
+                        },
+                        "end": {
+                          "line": 18,
+                          "character": 13
+                        }
+                      },
+                      "name": "x"
+                    }
+                  ],
+                  "range": {
+                    "start": {
+                      "line": 18,
+                      "character": 9
+                    },
+                    "end": {
+                      "line": 18,
+                      "character": 13
+                    }
+                  }
+                },
+                {
+                  "kind": "variable",
+                  "name": "b",
+                  "range": {
+                    "start": {
+                      "line": 18,
+                      "character": 14
+                    },
+                    "end": {
+                      "line": 18,
+                      "character": 15
+                    }
+                  }
+                },
+                {
+                  "kind": "macro_ref",
+                  "scope": "local",
+                  "form": "name",
+                  "text": "`x'",
+                  "range": {
+                    "start": {
+                      "line": 18,
+                      "character": 16
+                    },
+                    "end": {
+                      "line": 18,
+                      "character": 19
+                    }
+                  },
+                  "name": "x"
+                }
+              ],
+              "range": {
+                "start": {
+                  "line": 18,
+                  "character": 9
+                },
+                "end": {
+                  "line": 18,
+                  "character": 19
+                }
+              }
+            },
+            "assignment": null,
+            "if": null,
+            "in": null,
+            "weight": null,
+            "using": null,
+            "options": [],
+            "options_tail": []
+          }
+        ]
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 20,
+            "character": 0
+          },
+          "end": {
+            "line": 20,
+            "character": 12
+          }
+        },
+        "text": "gen v`x' = 1",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "gen",
+        "canonical_name": "generate",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "v`x'",
+            "range": {
+              "start": {
+                "line": 20,
+                "character": 4
+              },
+              "end": {
+                "line": 20,
+                "character": 8
+              }
+            }
+          }
+        ],
+        "varlist": {
+          "kind": "varlist",
+          "items": [
+            {
+              "kind": "variable",
+              "name": "v`x'",
+              "parts": [
+                {
+                  "kind": "text",
+                  "value": "v",
+                  "range": {
+                    "start": {
+                      "line": 20,
+                      "character": 4
+                    },
+                    "end": {
+                      "line": 20,
+                      "character": 5
+                    }
+                  }
+                },
+                {
+                  "kind": "macro_ref",
+                  "scope": "local",
+                  "form": "name",
+                  "text": "`x'",
+                  "range": {
+                    "start": {
+                      "line": 20,
+                      "character": 5
+                    },
+                    "end": {
+                      "line": 20,
+                      "character": 8
+                    }
+                  },
+                  "name": "x"
+                }
+              ],
+              "range": {
+                "start": {
+                  "line": 20,
+                  "character": 4
+                },
+                "end": {
+                  "line": 20,
+                  "character": 8
+                }
+              }
+            }
+          ],
+          "range": {
+            "start": {
+              "line": 20,
+              "character": 4
+            },
+            "end": {
+              "line": 20,
+              "character": 8
+            }
+          }
+        },
+        "assignment": {
+          "text": "1",
+          "expression": {
+            "kind": "number",
+            "text": "1",
+            "value": 1,
+            "range": {
+              "start": {
+                "line": 20,
+                "character": 11
+              },
+              "end": {
+                "line": 20,
+                "character": 12
+              }
+            }
+          }
+        },
+        "if": null,
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": [],
+        "options_tail": []
+      },
+      {
+        "kind": "delimit",
+        "range": {
+          "start": {
+            "line": 21,
+            "character": 0
+          },
+          "end": {
+            "line": 21,
+            "character": 10
+          }
+        },
+        "text": "#delimit ;",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "mode": "semicolon"
+      },
+      {
+        "kind": "macro",
+        "range": {
+          "start": {
+            "line": 22,
+            "character": 0
+          },
+          "end": {
+            "line": 22,
+            "character": 13
+          }
+        },
+        "text": "local dd`x' 4",
+        "delimit": "semicolon",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [],
+        "scope": "local",
+        "name": "dd`x'",
+        "name_parts": [
+          {
+            "kind": "text",
+            "value": "dd",
+            "range": {
+              "start": {
+                "line": 22,
+                "character": 6
+              },
+              "end": {
+                "line": 22,
+                "character": 8
+              }
+            }
+          },
+          {
+            "kind": "macro_ref",
+            "scope": "local",
+            "form": "name",
+            "text": "`x'",
+            "range": {
+              "start": {
+                "line": 22,
+                "character": 8
+              },
+              "end": {
+                "line": 22,
+                "character": 11
+              }
+            },
+            "name": "x"
+          }
+        ],
+        "form": "value",
+        "value": "4",
+        "value_parts": [
+          {
+            "kind": "text",
+            "value": "4",
+            "range": {
+              "start": {
+                "line": 22,
+                "character": 12
+              },
+              "end": {
+                "line": 22,
+                "character": 13
+              }
+            }
+          }
+        ],
+        "expression": null,
+        "extended": null,
+        "increment": null
+      },
+      {
+        "kind": "delimit",
+        "range": {
+          "start": {
+            "line": 23,
+            "character": 0
+          },
+          "end": {
+            "line": 23,
+            "character": 11
+          }
+        },
+        "text": "#delimit cr",
+        "delimit": "semicolon",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "mode": "cr"
+      }
+    ],
+    "comments": [],
+    "errors": []
   }
 ]

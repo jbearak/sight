@@ -12,7 +12,11 @@
 import { Position, Range } from 'vscode-languageserver-textdocument';
 import { ContextTracker } from '../context-tracker';
 import { CommandDatabase } from '../command-database';
-import { parse_expression, parse_varlist } from '../expression-parser';
+import {
+    name_parts_from_tokens,
+    parse_expression,
+    parse_varlist,
+} from '../expression-parser';
 import { StataLexer } from '../lexer';
 import { StataParser } from '../parser';
 import {
@@ -21,6 +25,7 @@ import {
     SyntaxErrorSeverity,
 } from '../utils/syntax-error-severity';
 import { program_args_commands } from '../utils/node-body';
+import { group_name_words } from '../utils/name-words';
 import { CommentDirectives, comment_key } from './parse-directives';
 import {
     CommandNode,
@@ -603,10 +608,15 @@ class ParseDocumentBuilder {
     private serialize_program(node: ProgramNode): Json {
         const the_args: Json[] = [];
         // Top-level `args`, or a lone one in brace blocks, as for the
-        // signature (program_args_commands)
+        // signature (program_args_commands). Read as words, as Stata
+        // does: `` args a`x' b `` names `` a`x' `` and `b`.
         for (const my_child of program_args_commands(node.body)) {
-            for (const my_item of my_child.varlist ?? []) {
-                the_args.push({ name: my_item.name, range: my_item.range });
+            for (const my_word of group_name_words(my_child.varlist ?? [])) {
+                the_args.push({
+                    name: my_word.items.map((my_item) => my_item.name).join(''),
+                    range: my_word.range,
+                    name_parts: this.word_name_parts(my_word.range),
+                });
             }
         }
         const common = this.common('program', node);
@@ -618,6 +628,17 @@ class ParseDocumentBuilder {
             syntax: node.signature ? serialize_signature(node.signature) : null,
             body: this.serialize_nodes(node.body),
         };
+    }
+
+    /**
+     * The parts of an `args` name with a macro reference in it
+     * (`` a`x' ``, or a lone `` `x' ``), or null for a plain name.
+     */
+    private word_name_parts(range: Range): TextOrMacroPart[] | null {
+        const the_tokens = this.tokens_in(range);
+        const has_macro = the_tokens.some((my_token) =>
+            my_token.type === 'MACRO_REF_LOCAL' || my_token.type === 'MACRO_REF_GLOBAL');
+        return has_macro ? name_parts_from_tokens(the_tokens) : null;
     }
 
     private serialize_macro(node: MacroDefNode): Json {
@@ -634,7 +655,15 @@ class ParseDocumentBuilder {
             increment = maybe_increment.value;
             index++;
         }
-        index++; // the name
+        // The name: one token, or several joined across macros
+        // (`` foo`x' ``)
+        index++;
+        const the_name_parts = node.name_parts ?? [];
+        const name_end = the_name_parts[the_name_parts.length - 1]?.range.end;
+        while (name_end !== undefined && the_tokens[index] !== undefined &&
+            compare_positions(the_tokens[index].range.start, name_end) < 0) {
+            index++;
+        }
         if (node.hasEquals && the_tokens[index]?.value === '=') {
             index++;
         }
@@ -656,6 +685,7 @@ class ParseDocumentBuilder {
             prefixes: (node.prefix ?? []).map((p) => this.serialize_prefix(p)),
             scope: node.scope,
             name: node.name,
+            name_parts: node.name_parts ?? null,
             form,
             value: node.value,
             value_parts: form === 'value' ? this.value_parts(value_tokens) : [],

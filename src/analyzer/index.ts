@@ -43,7 +43,7 @@ import {
 } from './loop-expander';
 import { find_macro_creating_command, matches_option } from './macro-creating-commands';
 import { parse_option_argument, is_valid_identifier } from './option-argument-parser';
-import { NameWord, group_name_words, whole_word_item } from './name-words';
+import { NameWord, group_name_words, whole_word_item } from '../utils/name-words';
 import {
     type CLocalArgName,
     extract_c_local_arg_positions,
@@ -1249,6 +1249,11 @@ export class SemanticAnalyzer {
         current_scope: ScopeInfo,
         node_index: number
     ): void {
+        // `` local foo`x' 1 `` defines `foo` followed by the value of
+        // `x`, a name Sight cannot know, so it defines nothing here.
+        if (node.name_parts) {
+            return;
+        }
         const create_primary = (): MacroSymbol => ({
             name: node.name,
             scope: node.scope,
@@ -1798,22 +1803,24 @@ export class SemanticAnalyzer {
         symbols: SymbolTable,
         node_index: number
     ): void {
-        const varlist = this.semantic_varlist(node);
-        if (varlist.length === 0) {
+        // `` scalar sc`x' = 1 `` names `sc` followed by the value of
+        // `x`, which Sight cannot know.
+        const name_item = whole_word_item(this.semantic_words(node)[0]);
+        if (!name_item) {
             return;
         }
 
-        const scalar_name = varlist[0].name;
+        const scalar_name = name_item.name;
         this.add_or_append_definition(
             symbols.scalars,
             scalar_name,
             node_index,
-            varlist[0].range,
+            name_item.range,
             () => ({
                 name: scalar_name,
-                location: { uri: this.uri, range: varlist[0].range },
+                location: { uri: this.uri, range: name_item.range },
                 sourceUri: this.uri,
-                definition_line: varlist[0].range.start.line,
+                definition_line: name_item.range.start.line,
             })
         );
     }
@@ -1829,26 +1836,17 @@ export class SemanticAnalyzer {
         symbols: SymbolTable,
         node_index: number
     ): void {
-        const varlist = this.semantic_varlist(node);
-        if (varlist.length === 0) {
+        // Words, so `` matrix m`i' = ... `` names no matrix `m`
+        const the_words = this.semantic_words(node);
+        const first_item = whole_word_item(the_words[0]);
+        const name_item = first_item?.name === 'define'
+            ? whole_word_item(the_words[1])
+            : first_item;
+        if (!name_item) {
             return;
         }
-
-        const first = varlist[0]?.name;
-        const second = varlist[1]?.name;
-
-        const matrix_name = (first && first === 'define')
-            ? second
-            : first;
-
-        if (!matrix_name) {
-            return;
-        }
-
-        // If 'define' is present, prefer the name token's range.
-        const name_range = (first && first === 'define' && varlist[1])
-            ? varlist[1].range
-            : varlist[0].range;
+        const matrix_name = name_item.name;
+        const name_range = name_item.range;
 
         this.add_or_append_definition(
             symbols.matrices,
@@ -1873,23 +1871,26 @@ export class SemanticAnalyzer {
     // Pushes diagnostics to this.current_diagnostics; only call from within an
     // analyze() cycle (e.g., process_command → extract_gen_variable / extract_egen_variable).
     private pick_new_variable(node: CommandNode): IdentifierNode | undefined {
-        const varlist = this.semantic_varlist(node);
-        if (varlist.length === 0) {
+        // Words, so `` gen v`i' = 1 `` names no variable `v`: a word
+        // joined to a macro is known only at run time.
+        const the_words = this.semantic_words(node);
+        const first_item = whole_word_item(the_words[0]);
+        if (the_words.length === 0) {
             return undefined;
         }
-        if (is_stata_storage_type(varlist[0].name)) {
-            if (varlist.length > 1) {
-                return varlist[1];
+        if (first_item && is_stata_storage_type(first_item.name)) {
+            if (the_words.length > 1) {
+                return whole_word_item(the_words[1]);
             }
             this.current_diagnostics.push({
-                message: `Missing variable name after storage type \`${varlist[0].name}'`,
-                range: varlist[0].range,
+                message: `Missing variable name after storage type \`${first_item.name}'`,
+                range: first_item.range,
                 code: StataDiagnosticCode.MISSING_VARIABLE_NAME,
                 severity: 'error',
             });
             return undefined;
         }
-        return varlist[0];
+        return first_item;
     }
 
     /**
@@ -1943,14 +1944,12 @@ export class SemanticAnalyzer {
      * Syntax: input varlist
      */
     private extract_input_variables(node: CommandNode, symbols: SymbolTable): void {
-        const varlist = this.semantic_varlist(node);
-        if (varlist.length === 0) {
-            return;
-        }
-
-        for (const var_node of varlist) {
+        for (const my_word of this.semantic_words(node)) {
+            // A word joined to a macro (`` v`i' ``) is known only at
+            // run time
+            const var_node = whole_word_item(my_word);
             // Skip macro references - they are not actual variable definitions
-            if (this.is_macro_reference(var_node.name)) {
+            if (!var_node || this.is_macro_reference(var_node.name)) {
                 continue;
             }
 
@@ -2021,6 +2020,12 @@ export class SemanticAnalyzer {
      * as they cannot be statically resolved.
      */
     private extract_rename_variables(node: CommandNode, symbols: SymbolTable): void {
+        // A name joined to a macro (`` rename v`i' w`i' ``) is known
+        // only at run time, so the rename registers nothing.
+        if (this.semantic_words(node).some(
+            (my_word) => whole_word_item(my_word) === undefined)) {
+            return;
+        }
         const varlist = this.semantic_varlist(node);
         if (varlist.length < 2) {
             return;
@@ -2147,6 +2152,11 @@ export class SemanticAnalyzer {
     private extract_confirm_variable(node: CommandNode, symbols: SymbolTable): void {
         const varlist = this.semantic_varlist(node);
         if (varlist.length < 2) {
+            return;
+        }
+        // `` confirm variable v`i' `` names `v` followed by the value of
+        // `i`, which Sight cannot know.
+        if (whole_word_item(this.semantic_words(node)[1]) === undefined) {
             return;
         }
 
@@ -3470,8 +3480,13 @@ export class SemanticAnalyzer {
             return;
         }
 
-        // Check varlist for undefined variables
-        for (const var_node of this.semantic_varlist(node)) {
+        // Check varlist for undefined variables. A word joined to a
+        // macro (`` replace v`i' = 2 ``) is known only at run time.
+        for (const my_word of this.semantic_words(node)) {
+            const var_node = whole_word_item(my_word);
+            if (!var_node) {
+                continue;
+            }
             const is_defined = this.is_variable_defined(
                 var_node.name,
                 symbols,
