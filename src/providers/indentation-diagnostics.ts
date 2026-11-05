@@ -95,7 +95,7 @@ export class IndentationDiagnosticAnalyzer {
     const structural_taint = this.compute_structural_taint(document);
 
     for (const range of stataRanges) {
-      diagnostics.push(...this.find_comment_indentation_issues(lines, range, block_comment_lines, indent_size));
+      diagnostics.push(...this.find_comment_indentation_issues(lines, range, block_comment_lines, indent_size, delimit_continuation_lines));
       diagnostics.push(...this.find_block_indentation_issues(document, lines, range, block_comment_lines, indent_size, all_continuation_lines));
       
       // Compute expected depths from the AST and flag lines whose actual
@@ -187,12 +187,17 @@ export class IndentationDiagnosticAnalyzer {
     return continuation_lines.has(lineIndex);
   }
 
-  private find_comment_indentation_issues(lines: string[], range: { start: number; end: number }, block_comment_lines: Set<number>, indent_size: number): Diagnostic[] {
+  private find_comment_indentation_issues(lines: string[], range: { start: number; end: number }, block_comment_lines: Set<number>, indent_size: number, delimit_continuation_lines: Set<number>): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
     
     for (let i = range.start; i < range.end && i < lines.length - 1; i++) {
       // Skip lines inside block comments (Requirements 1.1, 1.2, 1.3)
       if (block_comment_lines.has(i) || block_comment_lines.has(i + 1)) {
+        continue;
+      }
+      // A line that continues a `#delimit ;` statement may sit deeper
+      // than a comment inside the statement.
+      if (delimit_continuation_lines.has(i + 1)) {
         continue;
       }
       

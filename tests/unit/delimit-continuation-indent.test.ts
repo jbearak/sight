@@ -157,6 +157,8 @@ describe('indentation diagnostics after formatting under #delimit ;', () => {
             '#delimit ;\nprogram foo;\nsyntax varlist\n[if] [, Detail];\nend;\n',
             '#delimit ;\nprogram foo;\n  reg y x\n          z\n          w;\nend;\n',
             '#delimit ;\nforeach v in a\n    b {;\n    di 1;\n};\n',
+            // A line deeper than a comment inside the statement.
+            '#delimit ;\nreg y x\n    // c\n        z;\n',
         ]) {
             const config = create_formatter_config(mode);
             config.diagnostics = { ...config.diagnostics, indentation: true };
@@ -194,6 +196,13 @@ describe('a statement after an inline mata: under #delimit ;', () => {
         }
     });
 
+    it('keeps a second inline statement on its line as written [source-preserving]', () => {
+        // `; /* a */ python: ... /* b */` read as one trailing comment,
+        // which left the python statement to the Stata formatter.
+        const source = '#delimit ;\nmata: x = 1; /* a */ python:\tprint(1); /* b */\ndi 1;\n';
+        expect(format_stable(source, 'source-preserving')).toBe(source);
+    });
+
     for_each_formatter_mode('keeps the inline statement as written', mode => {
         // Under `#delimit ;`, `y = 2;` is a statement of its own; the
         // AST printer puts it on its own line.
@@ -211,6 +220,16 @@ describe('continuation lines after /// in #delimit cr', () => {
         const source = 'program foo\ngen x = 1 ///\n+ 2 ///\n+ 3\nend\n';
         expect(format_stable(source, 'source-preserving', { preserve_alignment: false }))
             .toBe('program foo\n    gen x = 1 ///\n        + 2 ///\n        + 3\nend\n');
+    });
+
+    it('move by the statement\'s shift in columns with tabs [source-preserving]', () => {
+        // A 2-column shift added a whole tab, moving the aligned line 4.
+        expect(format_stable('program foo\n  reg y x ///\n          z\nend\n',
+            'source-preserving', { insert_spaces: false }))
+            .toBe('program foo\n\treg y x ///\n\t\t\tz\nend\n');
+        expect(format_stable('program foo\n\t  reg y x ///\n\t  z\nend\n',
+            'source-preserving', { insert_spaces: false }))
+            .toBe('program foo\n\treg y x ///\n\tz\nend\n');
     });
 
     it('take the configured indent style on the first format [source-preserving]', () => {

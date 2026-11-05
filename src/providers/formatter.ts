@@ -32,6 +32,9 @@ function inline_unit_terminator(content: string): string {
     const line_end = content.trimEnd().length;
     const ends_with_block_comment = content.endsWith('*/', line_end) &&
         line_end - line_start >= 2;
+    // A `*/` before the last one: a block comment from before it to the
+    // end of the line would have code in it (another inline statement).
+    const inner_close = line_end >= 3 ? content.lastIndexOf('*/', line_end - 3) : -1;
     for (let i = content.indexOf(';', line_start);
         i !== -1 && i < line_end;
         i = content.indexOf(';', i + 1)) {
@@ -42,7 +45,7 @@ function inline_unit_terminator(content: string): string {
         if (rest_start >= line_end ||
             content.startsWith('//', rest_start) ||
             (content.startsWith('/*', rest_start) && ends_with_block_comment &&
-                line_end - rest_start >= 4)) {
+                line_end - rest_start >= 4 && inner_close < rest_start + 2)) {
             return content.slice(i);
         }
     }
