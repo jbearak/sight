@@ -172,7 +172,7 @@ function find_program(
 
 /**
  * A program's macro-creating options as `matches_option` reads them.
- * `names` are the lowercase locals its `syntax` defines; the minimum
+ * `names` are the locals its `syntax` defines; the minimum
  * abbreviation comes from the `syntax` option that defines each, and
  * without one the option must be typed in full.
  */
@@ -347,18 +347,15 @@ export function command_macro_writes(
 }
 
 /**
- * The local a `syntax` option defines. Stata lowercases the name, and
- * for an option without an argument drops a lowercase `no` prefix:
+ * The local a `syntax` option defines (see `syntax_option_spelling`):
  * `noCONStant`, `nolog` and `noTE` define `constant`, `log` and `te`,
- * while `NODetail` defines `nodetail` and `notable(string)` defines
- * `notable` (checked in StataMP 18).
+ * `NODetail` defines `nodetail`, `notable(string)` defines `notable`,
+ * and `saveAs(string)` and `MyOption` keep their later capitals:
+ * `saveAs` and `myOption` (checked in StataMP 18).
  */
 export function syntax_option_local_name(opt: OptionSpec): string {
-    if (opt.hasArgument !== true && opt.name.length > 2 &&
-        opt.name.startsWith('no')) {
-        return opt.name.slice(2).toLowerCase();
-    }
-    return opt.name.toLowerCase();
+    return syntax_option_spelling(opt.name, opt.hasArgument === true)
+        .local_name;
 }
 
 /**
