@@ -1,7 +1,7 @@
 import { describe, test, expect } from 'bun:test';
 import * as fc from 'fast-check';
 import {
-    ends_with_continuation,
+    find_joined_lines,
     detect_statement,
     get_statement_text,
     get_upward_bounds,
@@ -17,6 +17,11 @@ import { create_mock_document, MockTextDocument } from './helpers';
  * Property 1: Statement Detection with Continuations
  * Validates: Requirements 1.2, 1.3, 1.4, 8.1, 8.2, 8.3, 8.4
  */
+
+// Does Stata read `line` together with the line after it?
+function ends_with_continuation(line: string): boolean {
+    return find_joined_lines(line).has(0);
+}
 
 describe('Feature: send-to-stata - Statement Detection Properties', () => {
     // Generator for simple Stata statements (without ///)
@@ -183,18 +188,28 @@ describe('Feature: send-to-stata - Statement Detection Properties', () => {
         }
     });
 
-    test('Property 1: /// not at end is not detected as continuation', () => {
+    test('Property 1: /// in a string or a // comment does not continue', () => {
         const non_continuation_lines = [
             'display "///" // not continuation',
-            '/// this is a comment',
             'local x "///" // comment',
-            '// comment with /// in middle'
+            '// comment with /// in middle',
+            'display 1 // comment ///',
         ];
 
         for (const my_line of non_continuation_lines) {
-            // These should NOT be detected as continuations because /// is not
-            // at the end (after trimming whitespace)
             expect(ends_with_continuation(my_line)).toBe(false);
+        }
+    });
+
+    test('Property 1: a note after /// still continues', () => {
+        // Stata 18 joins the next line to `reg y x /// note`, and to a
+        // `/// note` line that starts a statement.
+        for (const my_line of [
+            'gen x = 1 /// this is a comment',
+            'gen x = 1 ///note',
+            '/// this is a comment',
+        ]) {
+            expect(ends_with_continuation(my_line)).toBe(true);
         }
     });
 });
@@ -384,16 +399,15 @@ describe('Feature: send-to-stata - Unit Tests for Edge Cases', () => {
             expect(bounds.end_line).toBe(0);
         });
 
-        test('/// with comment after is NOT continuation (comment consumes ///)', () => {
+        test('/// with a note after it continues', () => {
             const content = [
                 'gen x = 1 /// this is a comment',
                 '    + 2'
             ].join('\n');
             const document = create_mock_document(content);
-            
-            // ends_with_continuation should return false because the comment text
-            // after /// means it's a comment line, not a continuation marker
-            expect(ends_with_continuation('gen x = 1 /// this is a comment')).toBe(false);
+            const bounds = detect_statement(document as any, 0);
+            expect(bounds.start_line).toBe(0);
+            expect(bounds.end_line).toBe(1);
         });
     });
 

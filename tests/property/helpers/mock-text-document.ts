@@ -11,6 +11,7 @@
 export interface MockTextDocument {
     lineCount: number;
     lineAt(line: number): { text: string };
+    getText(): string;
 }
 
 /**
@@ -26,6 +27,9 @@ export function create_mock_document(content: string): MockTextDocument {
         lineCount: the_lines.length,
         lineAt(line: number) {
             return { text: the_lines[line] ?? '' };
+        },
+        getText() {
+            return content;
         }
     };
 }
