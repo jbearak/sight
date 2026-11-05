@@ -1410,14 +1410,15 @@ export class StataParser {
   ): CommandNode | MacroDefNode | ControlFlowNode {
     prefixes.push(frame_prefix);
 
-    // Skip whitespace after the colon
-    this.skipTrivia();
+    // Skip whitespace after the colon. A comment that ends the
+    // statement (`frame f:` then `* note;` under `#delimit ;`) stays.
+    this.skip_statement_whitespace();
 
     // Parse any additional prefix commands (e.g., frame name: quietly: command)
     this.parse_prefix_chain(prefixes);
 
     // Skip any remaining whitespace before the main command
-    this.skipTrivia();
+    this.skip_statement_whitespace();
 
     const macro_node = this.parse_prefixed_macro_definition(prefixes, start_token);
     if (macro_node) {

@@ -70,11 +70,20 @@ describe('a prefix with no command', () => {
     it('ends at a * comment that runs to ; under #delimit ;', () => {
         // Stata 18 ends `quietly` at the comment's `;`, so `di 1` runs
         // without the prefix.
-        const the_nodes = statements('#delimit ;\nquietly\n* note;\ndi 1;\n');
-        expect(the_nodes).toHaveLength(2);
-        expect(prefix_names(the_nodes[0])).toEqual(['quietly']);
-        expect(the_nodes[1]).toMatchObject({ type: 'command', name: 'di' });
-        expect(prefix_names(the_nodes[1])).toEqual([]);
+        const the_cases: Array<[string, string[]]> = [
+            ['quietly\n', ['quietly']],
+            ['frame f: quietly\n', ['frame', 'quietly']],
+            ['frame f:\n', ['frame']],
+        ];
+        for (const [my_prefix, my_names] of the_cases) {
+            const source = `#delimit ;\n${my_prefix}* note;\ndi 1;\n`;
+            expect(parse(source).errors).toEqual([]);
+            const the_nodes = statements(source);
+            expect(the_nodes).toHaveLength(2);
+            expect(prefix_names(the_nodes[0])).toEqual(my_names);
+            expect(the_nodes[1]).toMatchObject({ type: 'command', name: 'di' });
+            expect(prefix_names(the_nodes[1])).toEqual([]);
+        }
     });
 
     it('still reports a prefix before something that is not a command', () => {
@@ -114,6 +123,8 @@ describe('formatting a prefix with no command, and // header comments', () => {
         ['capture: * note\n'],
         ['quietly * note\n'],
         ['#delimit ;\nquietly\n* note;\ndi 1;\n', '#delimit ;\nquietly;\n* note;\ndi 1;\n'],
+        ['#delimit ;\nframe f: quietly\n* note;\ndi 1;\n', '#delimit ;\nframe f: quietly;\n* note;\ndi 1;\n'],
+        ['frame f: * note\n'],
         // A `//` comment ends its line, and `{` must stay on the
         // header's, so AST formatting puts the comment after the
         // keyword and indents the rest. Stata reads a `//` at the start
