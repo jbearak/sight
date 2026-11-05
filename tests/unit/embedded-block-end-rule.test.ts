@@ -221,6 +221,18 @@ describe('embedded block end rule', () => {
         expect(my_tracker.validate_context_structure()).toEqual([]);
     });
 
+    it('ends a mata block under #delimit ; after a commented line', () => {
+        // Under `#delimit ;` a newline lexes as whitespace, but it still
+        // ends the physical line, so a block comment on the line above
+        // does not make `end` mid-line. Stata 18 ends the block here.
+        const my_source = '#delimit ;\nmata;\nx = 1 /* c */\nend\n';
+        const the_tokens = new StataLexer().tokenize(my_source).tokens;
+        const my_end_token = the_tokens.find(
+            (my_token) => my_token.type === 'END_MATA'
+        );
+        expect(my_end_token?.range.start.line).toBe(3);
+    });
+
     it('keeps program end validation in step with the lexer', () => {
         // The tracker's program/input `end` scan used to re-derive mata
         // block extents from raw lines, so it disagreed with the lexer

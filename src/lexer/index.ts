@@ -372,6 +372,11 @@ export class StataLexer {
   /** Remember the token just scanned for context-sensitive lexing. */
   private note_previous_token(token: Token): void {
     if (token.type === 'WHITESPACE') {
+      // Under `#delimit ;` a newline is whitespace; it still ends the
+      // physical line a comment run sits on.
+      if (token.value.includes('\n')) {
+        this.comment_run_start_line = null;
+      }
       return;
     }
     if (token.type === 'COMMENT_BLOCK') {
