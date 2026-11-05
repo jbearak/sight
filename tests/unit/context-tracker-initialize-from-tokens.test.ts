@@ -496,13 +496,16 @@ end;
     const my_lex_result = lexer.tokenize(my_content);
     tracker.initialize_from_tokens(my_lex_result.tokens, my_content);
 
-    // Lines 2-3 are the body of the real mata block opened at end of line 1.
+    // Line 2 is the body of the real mata block opened at end of line 1;
+    // StataMP 18 closes the block at `end;` on line 3.
     expect(
       tracker.get_context_at_position({ line: 2, character: 0 })
     ).toBe(LanguageContext.MATA);
-    expect(
-      tracker.get_context_at_position({ line: 3, character: 0 })
-    ).toBe(LanguageContext.MATA);
+    const the_blocks = tracker
+      .get_all_context_ranges()
+      .filter((my_range) => !my_range.is_single_line);
+    expect(the_blocks).toHaveLength(1);
+    expect(the_blocks[0].end_delimiter?.range.start.line).toBe(3);
   });
 
   it('reports mata across a multi-line block comment in a cr inline', () => {

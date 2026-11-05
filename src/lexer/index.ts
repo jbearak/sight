@@ -181,76 +181,47 @@ export class StataLexer {
   }
 
   /**
-   * Check if 'end' is at a statement boundary.
-   * Returns true if the rest of the line (after current position) contains only:
-   * - whitespace
-   * - comments (// or block comments, NOT star-style since we are in Mata/Python)
-   * - 'python' or 'mata' (legacy syntax: 'end python' / 'end mata')
-   * 
-   * This ensures 'end generate x = 1' is not treated as a block terminator,
-   * but 'end python' and 'end mata' are still recognized.
-   * 
-   * Note: We do NOT treat '*' as a comment here because this function is only
-   * called from Mata/Python context, where '*' is multiplication, not a comment.
+   * Whether the `end` just scanned (starting at `start_line`) closes a
+   * plain `mata` block. Stata 18 ends a Mata block at an `end` that
+   * begins its logical line: leading blanks and a block comment may
+   * precede it, but code may not (`y end`, `a=end`, `x = 1; end`), and
+   * neither may a `///` that joins it to the line above. Anything but
+   * a word character or `.` may follow (`end foo`, `end;`, `end(1)`,
+   * `end mata`); Stata discards that tail.
    */
-  private is_end_at_statement_boundary(): boolean {
-    let my_pos = this.position;
-    
-    // Skip whitespace (but not newlines)
-    while (my_pos < this.source.length) {
-      const my_char = this.source[my_pos];
-      if (my_char === '\n' || my_char === '\r') {
-        // End of line - 'end' is at statement boundary
-        return true;
-      }
-      if (my_char === ' ' || my_char === '\t') {
-        my_pos++;
-        continue;
-      }
-      // Check for comment start (// and /* */ are valid in Mata/Python)
-      if (my_char === '/') {
-        if (my_pos + 1 < this.source.length && this.source[my_pos + 1] === '/') {
-          // // comment - rest of line is comment
-          return true;
-        }
-        if (my_pos + 1 < this.source.length && this.source[my_pos + 1] === '*') {
-          // /* comment - could span multiple lines, but for statement boundary
-          // purposes, we consider this as 'end' being at boundary
-          return true;
-        }
-      }
-      // Note: '*' is NOT a comment in Mata/Python - it's multiplication
-      // Check for 'python' or 'mata' (legacy 'end python' / 'end mata' syntax)
-      const my_remaining = this.source.substring(my_pos);
-      if (my_remaining.startsWith('python') && 
-          (my_remaining.length === 6 || !this.isAlphaNumeric(my_remaining[6]))) {
-        return true;
-      }
-      if (my_remaining.startsWith('mata') && 
-          (my_remaining.length === 4 || !this.isAlphaNumeric(my_remaining[4]))) {
-        return true;
-      }
-      // Non-whitespace, non-comment, non-python/mata character found
-      return false;
-    }
-    // End of file - 'end' is at statement boundary
-    return true;
+  private is_mata_block_end(start_line: number): boolean {
+    return this.peek() !== '.' && this.is_first_code_on_line(start_line);
   }
 
   /**
-   * Whether the `end` just scanned (starting at `start_line`) closes a
-   * plain `mata` block. Stata 18 ends a Mata block only at an `end`
-   * that begins its logical line: leading blanks and a block
-   * comment may precede it, but code may not (`y end`, `a=end`,
-   * `x = 1; end`), and neither may a `///` that joins it to the line
-   * above. What may follow is checked by
-   * `is_end_at_statement_boundary()`.
+   * Consume the tail Stata discards after a Mata block's `end`, up to
+   * a comment, the end of the line, or (under `#delimit ;`) the `;`
+   * that ends the statement. Trailing blanks are left to be lexed as
+   * whitespace.
    */
-  private is_mata_block_end(start_line: number): boolean {
-    return (
-      this.is_first_code_on_line(start_line) &&
-      this.is_end_at_statement_boundary()
-    );
+  private consume_mata_end_tail(): void {
+    let my_pos = this.position;
+    let my_tail_end = this.position;
+    while (my_pos < this.source.length) {
+      const my_char = this.source[my_pos];
+      const my_next = this.source[my_pos + 1];
+      if (my_char === '\n') {
+        break;
+      }
+      if (my_char === '/' && (my_next === '/' || my_next === '*')) {
+        break;
+      }
+      if (my_char === ';' && this.state.delimiterMode === 'semicolon') {
+        break;
+      }
+      if (my_char !== ' ' && my_char !== '\t' && my_char !== '\r') {
+        my_tail_end = my_pos + 1;
+      }
+      my_pos++;
+    }
+    while (this.position < my_tail_end) {
+      this.advance();
+    }
   }
 
   /**
@@ -315,11 +286,12 @@ export class StataLexer {
    *   - "mata:   \n"        (only whitespace)
    *   - "mata: // comment\n" (whitespace + line comment)
    *   - "mata: [block comment]\n" (whitespace + block comment)
-   *   - "mata: * comment\n" (whitespace + star comment - valid at statement boundary)
    * 
    * Examples that return false (inline mode):
    *   - "mata: x = 5\n"     (code after colon)
    *   - "mata: x = 5 // comment\n" (code + comment)
+   *   - "mata: * note\n"    (`*` after the colon is code: Stata 18 runs
+   *     it as Mata, giving r(3499) "note not found")
    */
   private is_only_whitespace_or_comment_until_newline(): boolean {
     let my_pos = this.position;
@@ -375,12 +347,6 @@ export class StataLexer {
           return true;
         }
         continue;
-      }
-      
-      // Check for * line comment (valid at statement boundary after mata:/python:)
-      if (my_char === '*') {
-        // Rest of line is a comment - treat as block mode
-        return true;
       }
       
       // Found non-whitespace, non-comment content
@@ -478,6 +444,12 @@ export class StataLexer {
    * 4. * in embedded language contexts follows different rules
    */
   private is_star_comment(start_line: number, start_column: number): boolean {
+    // A `mata:` or `python:` one-liner is Mata or Python code, where
+    // `*` never starts a comment (`mata: * note` is r(3499) in Stata 18).
+    if (this.in_mata_inline_statement ||
+        this.previous_code_token?.type === 'PYTHON_INLINE') {
+      return false;
+    }
     // Rule 1: * at beginning of line (after optional whitespace) is a
     // comment where a command starts: at the start of a statement, or
     // after a prefix (`quietly` or `capture:` then `* note`). Elsewhere
@@ -829,33 +801,25 @@ export class StataLexer {
       return this.scanString(startLine, startColumn, 'compound');
     }
 
-    // Handle comments
-    if (first_char === '/' && this.peek() === '/') {
-      this.advance();
-      if (this.peek() === '/') {
+    // Mata has `//` and `/* */` comments (and `///` joins lines).
+    // Python block content is handed to Python as written: `//` is
+    // floor division and `/*` is code, and Stata does not join `///`
+    // lines there. In neither language does `*` start a comment (in
+    // Mata it multiplies or dereferences a pointer).
+    if (this.get_current_context() === LanguageContext.MATA) {
+      if (first_char === '/' && this.peek() === '/') {
         this.advance();
-        return this.scanContinuationComment(startLine, startColumn);
-      } else {
+        if (this.peek() === '/') {
+          this.advance();
+          return this.scanContinuationComment(startLine, startColumn);
+        }
         return this.scanLineComment(startLine, startColumn, 'slash');
       }
-    }
 
-    if (first_char === '/' && this.peek() === '*') {
-      this.advance();
-      return this.scanBlockComment(startLine, startColumn);
-    }
-
-    if (first_char === '*') {
-      // In embedded contexts, * comments follow same rules as Stata,
-      // except that Mata's `:*` multiplies element by element.
-      const is_mata_colon_operator =
-        this.get_current_context() === LanguageContext.MATA &&
-        this.source[this.position - 2] === ':';
-      if (!is_mata_colon_operator &&
-          this.is_star_comment(startLine, startColumn)) {
-        return this.scanLineComment(startLine, startColumn, 'star');
+      if (first_char === '/' && this.peek() === '*') {
+        this.advance();
+        return this.scanBlockComment(startLine, startColumn);
       }
-      // Otherwise treat as embedded content
     }
 
     // Handle braces for bracket matching
@@ -1888,11 +1852,15 @@ export class StataLexer {
       // And only where Stata ends the block (see is_mata_block_end)
       if (this.is_end_delimiter(value) && this.state.embedded_brace_depth === undefined) {
         if (this.is_mata_block_end(startLine)) {
+          this.consume_mata_end_tail();
           this.pop_context();
           this.state.embedded_block_start_line = undefined;
           return {
             type: 'END_MATA',
-            value,
+            value: this.source.substring(
+              this.position_to_offset(startLine, startColumn),
+              this.position
+            ),
             range: this.makeRange(startLine, startColumn, this.line, this.column),
           };
         }

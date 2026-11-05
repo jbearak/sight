@@ -95,7 +95,9 @@ describe('Property 1: Colon-Newline Block Start Detection', () => {
         ), { numRuns: 50 });
     });
 
-    it('mata: followed by * comment should emit MATA_START', () => {
+    // StataMP 18 runs `mata: * note` as a one-line Mata statement
+    // (r(3499) "note not found"): `*` is not a comment after `mata:`.
+    it('mata: followed by * is a one-line statement (MATA_INLINE)', () => {
         fc.assert(fc.property(
             arbitrary_whitespace,
             arbitrary_comment_content,
@@ -106,7 +108,7 @@ describe('Property 1: Colon-Newline Block Start Detection', () => {
                 
                 const mata_token = result.tokens.find(t => t.value.startsWith('mata'));
                 expect(mata_token).toBeDefined();
-                expect(mata_token!.type).toBe('MATA_START');
+                expect(mata_token!.type).toBe('MATA_INLINE');
                 return true;
             }
         ), { numRuns: 50 });
