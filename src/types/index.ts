@@ -176,6 +176,9 @@ export interface OptionSpec {
   isRequired: boolean; // true if marked with *
   isOptional: boolean; // true if in brackets
   argumentType?: 'real' | 'integer' | 'string' | 'varlist' | 'name' | 'filename' | 'numlist' | 'varname' | 'passthru';
+  // The option takes an argument: `Name(str)`, even when `argumentType`
+  // does not cover the type written
+  hasArgument?: true;
   defaultValue?: string;
   range: Range;
 }

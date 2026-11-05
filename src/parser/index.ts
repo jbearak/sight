@@ -2753,9 +2753,11 @@ export class StataParser {
 
     let argument_type: OptionSpec['argumentType'] | undefined;
     let default_value: string | undefined;
+    const has_argument = current_idx < tokens.length &&
+      tokens[current_idx].type === 'LPAREN';
 
     // Check for argument type in parentheses
-    if (current_idx < tokens.length && tokens[current_idx].type === 'LPAREN') {
+    if (has_argument) {
       current_idx++; // consume (
 
       // Collect tokens until closing paren
@@ -2849,6 +2851,9 @@ export class StataParser {
       defaultValue: default_value,
       range: this.makeRange(start_token.range.start, tokens[current_idx - 1].range.end),
     };
+    if (has_argument) {
+      spec.hasArgument = true;
+    }
 
     return { spec, next_idx: current_idx };
   }
