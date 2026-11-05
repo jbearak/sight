@@ -236,6 +236,10 @@ describe('program signature from a syntax in a brace block', () => {
         expect(option_names(
             'program p\n    capture noisily {\n        quietly {\n            syntax [, A]\n        }\n    }\nend\n', 'p'
         )).toEqual(['A']);
+        // A frame block runs its body too (checked in Stata 18).
+        expect(option_names(
+            'program p\n    frame default {\n        syntax [, Level(integer 5)]\n    }\nend\n', 'p'
+        )).toEqual(['Level']);
     });
 
     it('offers its options and shows them on hover', async () => {

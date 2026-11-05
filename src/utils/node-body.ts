@@ -29,7 +29,8 @@ export function nested_statements(node: StataNode): StataNode[] | undefined {
 /**
  * The `syntax` statements a program's signature comes from: those at
  * the top of `body`, or, when the body has exactly one `syntax` in
- * all and it is inside brace blocks (`quietly { syntax … }`), that one.
+ * all and it is inside brace or `frame` blocks (`quietly { syntax … }`),
+ * that one.
  * With several `syntax` statements and any of them nested (say one per
  * if/else branch), it stays the top-level ones, which may be none, as
  * which branch runs is not known.
@@ -56,7 +57,9 @@ export function program_signature_syntax_nodes(body: StataNode[]): SyntaxNode[] 
                 ? undefined
                 : nested_statements(my_node);
             if (the_body) {
-                visit(the_body, in_brace_blocks_only && my_node.type === 'command');
+                // A brace block or `frame` block always runs its body
+                const is_block = my_node.type === 'command' || my_node.type === 'frame';
+                visit(the_body, in_brace_blocks_only && is_block);
             }
         }
     };
