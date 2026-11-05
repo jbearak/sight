@@ -847,10 +847,12 @@ export class StataParser {
     this.program_end_at = undefined;
 
     // Consume 'end'
+    let closed_by_end = false;
     if (embedded_block_end !== undefined) {
       // The block's `end` was the program's
     } else if (this.checkWord('end')) {
       this.advance();
+      closed_by_end = true;
     } else {
       this.addError('Missing "end" for program definition', start_token.range);
       // Printing the AST would add the missing closer
@@ -870,6 +872,7 @@ export class StataParser {
       ...(embedded_block_end !== undefined
         ? { ends_at_embedded_block: true }
         : {}),
+      ...(closed_by_end ? { closed_by_end: true } : {}),
       range: this.makeRange(
         start_token.range.start,
         embedded_block_end ?? this.previous().range.end
@@ -1378,19 +1381,10 @@ export class StataParser {
       const { body: my_body, blockEndingTrivia } = this.parseBraceBody();
       body.push(...my_body);
       let closed_by_program_end = false;
-      // After the program's end, a `}` is a statement of its own.
-      if (this.check('RBRACE') && !this.program_ended_in_block()) {
-        const rbrace_index = this.current;
-        const rbrace_token = this.advance(); // consume }
-
-        // Validate close brace placement
-        this.validate_close_brace(rbrace_token, rbrace_index);
-      } else if (this.program_ended_in_block()) {
-        closed_by_program_end = true;
-      } else {
-        // Printing the AST would add the missing closer
-        this.note_unprintable(start_token.range.start);
-      }
+      let closed_by_brace = false;
+      const closure = this.close_brace_block(start_token.range.start);
+      closed_by_program_end = closure === 'program_end';
+      closed_by_brace = closure === 'brace';
 
       return {
         type: 'command',
@@ -1406,6 +1400,7 @@ export class StataParser {
         interiorTrivia: prefix_comments.length > 0 ? prefix_comments : undefined,
         blockEndingTrivia,
         ...(closed_by_program_end ? { closed_by_program_end: true } : {}),
+        ...(closed_by_brace ? { closed_by_brace: true } : {}),
       };
     }
 
@@ -3128,6 +3123,7 @@ export class StataParser {
     let blockEndingTrivia: TriviaNode[] | undefined;
     // The program around the block ended inside it (no `}`)
     let closed_by_program_end = false;
+    let closed_by_brace = false;
     if (is_single_statement) {
       const statement = this.parseStatement(false);
       if (statement) body.push(statement);
@@ -3144,20 +3140,10 @@ export class StataParser {
       body.push(...my_body);
       blockEndingTrivia = my_block_ending_trivia;
 
-      // After the program's end, a `}` is a statement of its own.
-      if (this.check('RBRACE') && !this.program_ended_in_block()) {
-        const rbrace_index = this.current;
-        const rbrace_token = this.advance(); // consume }
-
-        // Validate close brace placement
-        this.validate_close_brace(rbrace_token, rbrace_index);
-      } else if (this.program_ended_in_block()) {
-        closed_by_program_end = true;
-      } else {
-        this.addError('Missing closing brace for if statement', ifToken.range);
-        // Printing the AST would add the missing closer
-        this.note_unprintable(ifToken.range.start);
-      }
+      const closure = this.close_brace_block(
+        ifToken.range.start, { text: 'Missing closing brace for if statement', range: ifToken.range });
+      closed_by_program_end = closure === 'program_end';
+      closed_by_brace = closure === 'brace';
     } else {
       // `if exp` with no `{` and no command: Stata stops, "{ required"
       this.report_header_without_brace(ifToken, true);
@@ -3180,6 +3166,7 @@ export class StataParser {
       ...(the_comments.length > 0 ? { interiorTrivia: the_comments } : {}),
       blockEndingTrivia,
       ...(closed_by_program_end ? { closed_by_program_end: true } : {}),
+      ...(closed_by_brace ? { closed_by_brace: true } : {}),
     };
   }
 
@@ -3211,6 +3198,7 @@ export class StataParser {
     let blockEndingTrivia: TriviaNode[] | undefined;
     // The program around the block ended inside it (no `}`)
     let closed_by_program_end = false;
+    let closed_by_brace = false;
     let is_brace_else = false;
     if (this.check('LBRACE')) {
       is_brace_else = true;
@@ -3226,20 +3214,10 @@ export class StataParser {
       body.push(...my_body);
       blockEndingTrivia = my_block_ending_trivia;
 
-      // After the program's end, a `}` is a statement of its own.
-      if (this.check('RBRACE') && !this.program_ended_in_block()) {
-        const rbrace_index = this.current;
-        const rbrace_token = this.advance(); // consume }
-
-        // Validate close brace placement
-        this.validate_close_brace(rbrace_token, rbrace_index);
-      } else if (this.program_ended_in_block()) {
-        closed_by_program_end = true;
-      } else {
-        this.addError('Missing closing brace for else statement', elseToken.range);
-        // Printing the AST would add the missing closer
-        this.note_unprintable(elseToken.range.start);
-      }
+      const closure = this.close_brace_block(
+        elseToken.range.start, { text: 'Missing closing brace for else statement', range: elseToken.range });
+      closed_by_program_end = closure === 'program_end';
+      closed_by_brace = closure === 'brace';
     } else {
       // `else` alone on its line is a statement of its own to Stata
       // 18, so a `{` on the next line opens a block that always runs.
@@ -3274,11 +3252,13 @@ export class StataParser {
 
     return {
       type: 'else',
+      ...(is_brace_else ? {} : { is_single_statement: true }),
       body,
       range: this.makeRange(elseToken.range.start, end_position),
       ...comment_field,
       blockEndingTrivia,
       ...(closed_by_program_end ? { closed_by_program_end: true } : {}),
+      ...(closed_by_brace ? { closed_by_brace: true } : {}),
     };
   }
 
@@ -3353,6 +3333,7 @@ export class StataParser {
     let blockEndingTrivia: TriviaNode[] | undefined;
     // The program around the block ended inside it (no `}`)
     let closed_by_program_end = false;
+    let closed_by_brace = false;
     if (this.check('LBRACE')) {
       const lbrace_index = this.current;
       const lbrace_token = this.advance(); // consume {
@@ -3366,20 +3347,10 @@ export class StataParser {
       body.push(...my_body);
       blockEndingTrivia = my_block_ending_trivia;
 
-      // After the program's end, a `}` is a statement of its own.
-      if (this.check('RBRACE') && !this.program_ended_in_block()) {
-        const rbrace_index = this.current;
-        const rbrace_token = this.advance(); // consume }
-
-        // Validate close brace placement
-        this.validate_close_brace(rbrace_token, rbrace_index);
-      } else if (this.program_ended_in_block()) {
-        closed_by_program_end = true;
-      } else {
-        this.addError(`Missing closing brace for ${loopType} statement`, loopToken.range);
-        // Printing the AST would add the missing closer
-        this.note_unprintable(loopToken.range.start);
-      }
+      const closure = this.close_brace_block(
+        loopToken.range.start, { text: `Missing closing brace for ${loopType} statement`, range: loopToken.range });
+      closed_by_program_end = closure === 'program_end';
+      closed_by_brace = closure === 'brace';
     } else {
       // A loop header with no `{`: Stata stops, "{ required"
       this.report_header_without_brace(loopToken, false);
@@ -3395,6 +3366,7 @@ export class StataParser {
       ...(the_comments.length > 0 ? { interiorTrivia: the_comments } : {}),
       blockEndingTrivia,
       ...(closed_by_program_end ? { closed_by_program_end: true } : {}),
+      ...(closed_by_brace ? { closed_by_brace: true } : {}),
     };
   }
 
@@ -3461,6 +3433,7 @@ export class StataParser {
     let blockEndingTrivia: TriviaNode[] | undefined;
     // The program around the block ended inside it (no `}`)
     let closed_by_program_end = false;
+    let closed_by_brace = false;
     if (this.check('LBRACE')) {
       const lbrace_index = this.current;
       const lbrace_token = this.advance(); // consume {
@@ -3474,20 +3447,10 @@ export class StataParser {
       body.push(...my_body);
       blockEndingTrivia = my_block_ending_trivia;
 
-      // After the program's end, a `}` is a statement of its own.
-      if (this.check('RBRACE') && !this.program_ended_in_block()) {
-        const rbrace_index = this.current;
-        const rbrace_token = this.advance(); // consume }
-
-        // Validate close brace placement
-        this.validate_close_brace(rbrace_token, rbrace_index);
-      } else if (this.program_ended_in_block()) {
-        closed_by_program_end = true;
-      } else {
-        this.addError('Missing closing brace for while statement', whileToken.range);
-        // Printing the AST would add the missing closer
-        this.note_unprintable(whileToken.range.start);
-      }
+      const closure = this.close_brace_block(
+        whileToken.range.start, { text: 'Missing closing brace for while statement', range: whileToken.range });
+      closed_by_program_end = closure === 'program_end';
+      closed_by_brace = closure === 'brace';
     } else {
       // A while header with no `{`: Stata stops, "{ required"
       this.report_header_without_brace(whileToken, false);
@@ -3505,6 +3468,7 @@ export class StataParser {
       ...(the_comments.length > 0 ? { interiorTrivia: the_comments } : {}),
       blockEndingTrivia,
       ...(closed_by_program_end ? { closed_by_program_end: true } : {}),
+      ...(closed_by_brace ? { closed_by_brace: true } : {}),
     };
   }
 
@@ -3620,21 +3584,12 @@ export class StataParser {
     // Parse body
     const { body, blockEndingTrivia } = this.parseBraceBody();
     let closed_by_program_end = false;
+    let closed_by_brace = false;
 
-    // After the program's end, a `}` is a statement of its own.
-    if (this.check('RBRACE') && !this.program_ended_in_block()) {
-      const rbrace_index = this.current;
-      const rbrace_token = this.advance(); // consume }
-
-      // Validate close brace placement
-      this.validate_close_brace(rbrace_token, rbrace_index);
-    } else if (this.program_ended_in_block()) {
-      closed_by_program_end = true;
-    } else {
-      this.addError('Missing closing brace for frame block', frame_token.range);
-      // Printing the AST would add the missing closer
-      this.note_unprintable(frame_token.range.start);
-    }
+    const closure = this.close_brace_block(
+      frame_token.range.start, { text: 'Missing closing brace for frame block', range: frame_token.range });
+    closed_by_program_end = closure === 'program_end';
+    closed_by_brace = closure === 'brace';
 
     // `frame f /* c */ {`: the comment is whitespace in the header.
     const header_comments = this.comments_between(frame_index, lbrace_index);
@@ -3646,6 +3601,7 @@ export class StataParser {
       ...(header_comments.length > 0 ? { interiorTrivia: header_comments } : {}),
       blockEndingTrivia,
       ...(closed_by_program_end ? { closed_by_program_end: true } : {}),
+      ...(closed_by_brace ? { closed_by_brace: true } : {}),
     };
   }
 
@@ -4269,6 +4225,34 @@ export class StataParser {
       : undefined;
 
     return { body, blockEndingTrivia };
+  }
+
+  /**
+   * Finish a brace block whose body was just parsed: consume its `}`,
+   * or see that the program around it ended inside it, or report the
+   * missing `}` (with `missing`, when given) and record the block from
+   * `start` as unprintable.
+   */
+  private close_brace_block(
+    start: Position,
+    missing?: { text: string; range: Range }
+  ): 'brace' | 'program_end' | 'missing' {
+    // After the program's end, a `}` is a statement of its own.
+    if (this.check('RBRACE') && !this.program_ended_in_block()) {
+      const rbrace_index = this.current;
+      const rbrace_token = this.advance(); // consume }
+      this.validate_close_brace(rbrace_token, rbrace_index);
+      return 'brace';
+    }
+    if (this.program_ended_in_block()) {
+      return 'program_end';
+    }
+    if (missing !== undefined) {
+      this.addError(missing.text, missing.range);
+    }
+    // Printing the AST would add the missing closer
+    this.note_unprintable(start);
+    return 'missing';
   }
 
   /**

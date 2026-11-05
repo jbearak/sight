@@ -463,4 +463,30 @@ describe('Send to Stata: a block header or closer sends the block', () => {
         expect_statement(the_lines, 2, 2);
         expect_bounds(the_lines, [7, 9], { start_line: 7, end_line: 9 });
     });
+
+    test('a block after a mata { } block', () => {
+        // From Stata's _bmapredict_mean_std.ado. A `mata {` block ends
+        // with `}`, not `end`, so the blocks after it are still found.
+        const the_lines = [
+            'mata {',              // 0
+            '    x = 1',           // 1
+            '}',                   // 2
+            'if 1 {',              // 3
+            '    di "a"',          // 4
+            '}',                   // 5
+        ];
+        expect_bounds(the_lines, [3, 5], { start_line: 3, end_line: 5 });
+    });
+
+    test('a loop whose body has a { in a local value', () => {
+        // From Stata's expoisson.ado: the `{` is text in the local's
+        // value, so it opens no block and the loop keeps its `}`.
+        const the_lines = [
+            'foreach x in a b {',              // 0
+            '    local w : word 1 of a b {',   // 1
+            '    di "`w\'"',                    // 2
+            '}',                               // 3
+        ];
+        expect_bounds(the_lines, [0, 3], { start_line: 0, end_line: 3 });
+    });
 });
