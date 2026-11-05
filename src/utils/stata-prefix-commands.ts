@@ -12,3 +12,44 @@ export const SINGLE_LINE_PREFIX_COMMANDS: ReadonlySet<string> = new Set([
     'quietly', 'qui', 'quie',
     'noisily', 'noi',
 ]);
+
+/**
+ * Prefix commands that take no arguments of their own (other than the
+ * `by` varlist), mapped to canonical names. Keys are every abbreviation
+ * Stata accepts, exact case.
+ */
+export const PREFIX_COMMANDS: ReadonlyMap<string, string> = new Map([
+    ['by', 'by'],
+    ['bys', 'bysort'], ['byso', 'bysort'], ['bysor', 'bysort'], ['bysort', 'bysort'],
+    ['qui', 'quietly'], ['quie', 'quietly'], ['quiet', 'quietly'],
+    ['quietl', 'quietly'], ['quietly', 'quietly'],
+    ['cap', 'capture'], ['capt', 'capture'], ['captu', 'capture'],
+    ['captur', 'capture'], ['capture', 'capture'],
+    ['n', 'noisily'], ['no', 'noisily'], ['noi', 'noisily'], ['nois', 'noisily'],
+    ['noisi', 'noisily'], ['noisil', 'noisily'], ['noisily', 'noisily'],
+]);
+
+/**
+ * Commands that act as a prefix only when a top-level colon follows,
+ * e.g. `svy: regress ...` or `version 14: ...`, mapped to canonical
+ * names. Without the colon they are ordinary commands (`version 14`).
+ */
+export const COLON_PREFIX_COMMANDS: ReadonlyMap<string, string> = new Map([
+    ['version', 'version'], ['vers', 'version'], ['versi', 'version'],
+    ['versio', 'version'],
+    ['svy', 'svy'],
+    ['xi', 'xi'],
+    ['bootstrap', 'bootstrap'], ['bs', 'bootstrap'],
+    ['jackknife', 'jackknife'], ['jknife', 'jackknife'],
+    ['simulate', 'simulate'],
+    ['statsby', 'statsby'],
+    ['rolling', 'rolling'],
+    ['permute', 'permute'],
+    ['mi', 'mi'],
+    ['nestreg', 'nestreg'],
+    ['stepwise', 'stepwise'], ['sw', 'stepwise'],
+    ['fp', 'fp'],
+    ['mfp', 'mfp'],
+    ['collect', 'collect'],
+    ['eststo', 'eststo'],
+]);
