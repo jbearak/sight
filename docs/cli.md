@@ -279,7 +279,7 @@ the left, so `2^3^2` is `(2^3)^2`, `-2^2` is `-(2^2)`, and `!x == 1` is
   "line_count": 16,
   "statements": [],
   "comments": [],
-  "errors": [{"source": "parser", "code": "SYNTAX_ERROR", "message": "...", "range": {}}]
+  "errors": [{"source": "parser", "code": "SYNTAX_ERROR", "severity": "error", "message": "...", "range": {}}]
 }
 ```
 
@@ -291,8 +291,14 @@ header comments are the first statement's `leading` comments. Each
 comment appears exactly once.
 
 `errors` lists lexer and parser errors in source order (`source` is `lexer`
-or `parser`). An unreadable file's document has `schema_version`,
-`sight_version`, `path`, and `error: {"message"}` instead.
+or `parser`). `severity` is the severity the editor shows for the `code`,
+named as in LSP `DiagnosticSeverity`: `error`, `warning`, `information`,
+or `hint`. It depends only on the code, not on configuration. Lexer and
+parser codes are currently `error` or `warning`; for example,
+`CONTINUATION_NO_SPACE` (a `///` with no space before it, which Stata
+reads as text) is a `warning`. An unreadable file's document has
+`schema_version`, `sight_version`, `path`, and `error: {"message"}`
+instead.
 
 Every statement has:
 
