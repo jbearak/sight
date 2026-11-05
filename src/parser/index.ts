@@ -2041,8 +2041,12 @@ export class StataParser {
     // text the user wrote. We intentionally do not emit an unbalanced-paren
     // diagnostic here: like unclosed option arguments, this is usually an
     // editor mid-typing state and warning on each keystroke is noisy.
+    // After a closing `//` comment, the `)` goes on the next line.
+    const closer = inner_tokens[inner_tokens.length - 1]?.type === 'COMMENT_LINE'
+      ? '\n)'
+      : ')';
     const group_name = closed_group
-      ? `(${paren_content})`
+      ? `(${paren_content}${closer}`
       : `(${paren_content}`;
 
     return {
@@ -5000,7 +5004,12 @@ export class StataParser {
     let prev_token: Token | null = null;
     for (let i = 0; i < tokens.length; i++) {
       const my_token = tokens[i];
-      if (prev_token !== null) {
+      if (prev_token?.type === 'COMMENT_LINE') {
+        // A `//` comment runs to the end of its line, so what followed
+        // it (under `#delimit ;`, `(mean // c` then `x)`) stays on the
+        // next line.
+        the_parts.push('\n');
+      } else if (prev_token !== null) {
         const same_line = prev_token.range.end.line === my_token.range.start.line;
         let needs_separator: boolean;
         if (same_line) {

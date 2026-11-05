@@ -135,6 +135,17 @@ describe('a // comment inside a ;-terminated statement', () => {
         }
     });
 
+    for_each_formatter_mode('keeps its line break inside a parenthesized group', mode => {
+        // A group keeps its comments in its text; `(mean // c) x;`
+        // would put `) x;` in the comment.
+        for (const my_source of [
+            '#delimit ;\ncollapse (mean // c\n) x;\n',
+            '#delimit ;\ncollapse (mean // c\nx) y;\n',
+        ]) {
+            expect(format_stable(my_source, mode)).toBe(my_source);
+        }
+    });
+
     it('is whitespace to the parser, not the end of the statement', () => {
         const command = parse_nodes('#delimit ;\ndi 1 // c\n 2;\n')[1];
         expect(is_command(command)).toBe(true);
