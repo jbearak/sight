@@ -48,6 +48,14 @@ import {
   parse_varlist,
 } from '../expression-parser';
 
+/**
+ * `display` and its abbreviations. It has no options, so a comma in it
+ * is an argument (`di "a", "b"` shows `a b` in Stata 18).
+ */
+const DISPLAY_COMMANDS: ReadonlySet<string> = new Set([
+  'di', 'dis', 'disp', 'displ', 'displa', 'display',
+]);
+
 /** `define` and its abbreviations after `program`. */
 const PROGRAM_DEFINE_KEYWORDS: ReadonlySet<string> = new Set([
   'de', 'def', 'defi', 'defin', 'define',
@@ -395,6 +403,15 @@ export class StataParser {
     }
 
     const trailing_trivia = this.collectTrivia();
+    // Under `#delimit ;` these come before the statement's `;`. Comments
+    // the end of the file adds later come after it.
+    if (node !== null && node.type !== 'directive' &&
+        this.delimit_mode === 'semicolon' &&
+        this.check('STATEMENT_TERMINATOR') && this.peek().value === ';') {
+      for (const my_trivia of trailing_trivia) {
+        my_trivia.before_terminator = true;
+      }
+    }
     if (node && this.isNodeWithTrivia(node) && trailing_trivia.length > 0) {
       node.trailingTrivia = trailing_trivia;
     }
@@ -542,7 +559,12 @@ export class StataParser {
         }
       }
     }
-    content = content.trim();
+    // A block's lines keep their indentation as written (Python's is
+    // part of the code); only the opener's line break and the blanks
+    // after the last line go.
+    content = is_single_line
+      ? content.trim()
+      : content.replace(/^[ \t]*\r?\n/, '').trimEnd();
 
     // Calculate content range
     const content_range: Range =
@@ -1482,7 +1504,8 @@ export class StataParser {
           this.check('LBRACE') || this.check('RBRACE')) {
         break;
       }
-      if (extra_depth === 0 && this.at_argument_boundary()) {
+      if (extra_depth === 0 && this.at_argument_boundary() &&
+          !(this.check('COMMA') && DISPLAY_COMMANDS.has(command_name))) {
         break;
       }
 
@@ -1543,6 +1566,7 @@ export class StataParser {
     let using_clause: UsingClause | undefined;
     let saw_using = false;
     const options: OptionNode[] = [];
+    let options_tail: IdentifierNode[] = [];
 
     for (;;) {
       if (this.skipContinuation()) {
@@ -1596,8 +1620,7 @@ export class StataParser {
         continue;
       }
       if (this.check('COMMA')) {
-        this.advance(); // consume comma
-        this.parse_command_options(options);
+        options_tail = this.parse_command_options(options, this.advance());
         break;
       }
       if (this.isAtEnd() || this.check('STATEMENT_TERMINATOR') ||
@@ -1625,6 +1648,9 @@ export class StataParser {
     if (extra_args.length > 0) {
       node.extra_args = extra_args;
     }
+    if (options_tail.length > 0) {
+      node.options_tail = options_tail;
+    }
     if (expression_ast) {
       node.expression_ast = expression_ast;
     }
@@ -1647,8 +1673,15 @@ export class StataParser {
    * Parse command options after the comma. Continuations join option
    * lines and comments inside the statement are whitespace; other
    * comments end the options.
+   *
+   * Returns the rest of the statement from a token no option can start,
+   * as in `twoway scatter y x, mcolor(red) || line y x`, for
+   * `options_tail`. With no option before it, the comma is part of that
+   * too, so a bare trailing comma (`reg y x,`) is kept.
    */
-  private parse_command_options(options: OptionNode[]): void {
+  private parse_command_options(options: OptionNode[], comma_token: Token): IdentifierNode[] {
+    // Token index of each option's name
+    const the_option_starts: number[] = [];
     while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
       if (this.skipContinuation()) continue;
       if (this.is_interior_comment(this.current)) {
@@ -1657,6 +1690,7 @@ export class StataParser {
       }
       if (this.isTrivia()) break;
       if (this.check('WORD')) {
+        the_option_starts.push(this.current);
         const optionToken = this.advance();
         const option: OptionNode = {
           type: 'option',
@@ -1677,11 +1711,28 @@ export class StataParser {
 
         options.push(option);
       } else {
-        // An option can't start here (`, robust/cluster`)
-        const skipped_token = this.advance();
-        this.note_unprintable(skipped_token.range.start);
+        // An option can't start here. One it touches (`robust/cluster`)
+        // goes with it, so the text stays as written.
+        const last_start = the_option_starts[the_option_starts.length - 1];
+        if (last_start !== undefined &&
+            this.isAdjacentToken(this.previous(), this.peek())) {
+          options.pop();
+          this.current = last_start;
+        }
+        return this.option_tail_items(options, comma_token, this.collect_statement_tail_tokens(false));
       }
     }
+    return this.option_tail_items(options, comma_token, []);
+  }
+
+  /** The `options_tail` items for parse_command_options. */
+  private option_tail_items(
+    options: OptionNode[],
+    comma_token: Token,
+    the_tokens: Token[]
+  ): IdentifierNode[] {
+    return this.group_adjacent_tokens(
+      options.length === 0 ? [comma_token, ...the_tokens] : the_tokens);
   }
 
   /**
@@ -2175,10 +2226,9 @@ export class StataParser {
 
     // Parse options (after comma) - same as regular commands
     const options: OptionNode[] = [];
-    if (this.check('COMMA')) {
-      this.advance(); // consume comma
-      this.parse_command_options(options);
-    }
+    const options_tail = this.check('COMMA')
+      ? this.parse_command_options(options, this.advance())
+      : [];
 
     const node: CommandNode = {
       type: 'command',
@@ -2193,6 +2243,9 @@ export class StataParser {
     if (extra_args.length > 0) {
       node.extra_args = extra_args;
     }
+    if (options_tail.length > 0) {
+      node.options_tail = options_tail;
+    }
     return node;
   }
 
@@ -2203,6 +2256,11 @@ export class StataParser {
    * are whitespace.
    */
   private collect_statement_tail(stop_at_comma: boolean): IdentifierNode[] {
+    return this.group_adjacent_tokens(this.collect_statement_tail_tokens(stop_at_comma));
+  }
+
+  /** The tokens collect_statement_tail groups into items. */
+  private collect_statement_tail_tokens(stop_at_comma: boolean): Token[] {
     const the_tokens: Token[] = [];
     while (!this.isAtEnd()) {
       if (this.skipContinuation()) {
@@ -2219,7 +2277,7 @@ export class StataParser {
       }
       the_tokens.push(this.advance());
     }
-    return this.group_adjacent_tokens(the_tokens);
+    return the_tokens;
   }
 
   /**
@@ -3029,6 +3087,7 @@ export class StataParser {
       this.keep_noted_lines(ifNode, if_start);
       return {
         type: 'else',
+        is_else_if: true,
         body: [ifNode],
         range: this.makeRange(elseToken.range.start, ifNode.range.end),
         ...comment_field,
@@ -3382,8 +3441,8 @@ export class StataParser {
 
     this.skipTrivia();
 
-    // Get frame name - must be a WORD token
-    if (!this.check('WORD')) {
+    // Get frame name: a word, or a macro holding one (`frame `f' {`)
+    if (!this.check('WORD') && !this.isMacroRefToken(this.peek())) {
       // Not a frame block/prefix syntax, fall back to command parsing
       // Reset position and return null to let parseCommand handle it
       this.current = frame_index;

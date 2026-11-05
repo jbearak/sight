@@ -300,6 +300,11 @@ export interface CommandNode {
   varlist?: IdentifierNode[];
   has_colon_before_varlist?: boolean;  // For unab commands: separates macro name from varlist
   options?: OptionNode[];
+  // The rest of the statement from a token after the comma that no
+  // option can start, as written: `|| line y x` in `twoway scatter y x,
+  // mcolor(red) || line y x`. With no option before it, the comma is
+  // its first item, so a bare trailing comma (`reg y x,`) is `[","]`.
+  options_tail?: IdentifierNode[];
   // Argument items after the first token that cannot belong to a varlist
   // (an operator, colon, or bracket), grouped by adjacency, e.g. `> 0` in
   // `assert x > 0`. Keeps the statement's text without splitting it into
@@ -395,6 +400,9 @@ export interface ControlFlowNode {
   type: 'if' | 'else' | 'foreach' | 'forvalues' | 'while' | 'frame';
   prefix?: PrefixNode[];  // e.g. `version 14: foreach ...`, `capture while 1 {`
   is_single_statement?: boolean;
+  // `else if ...`: an `else` whose body is that one `if`, with no braces
+  // of its own
+  is_else_if?: boolean;
   condition?: string;
   condition_ast?: ExpressionNode;  // Parsed `if`/`while` condition (structured parse)
   loopVar?: string;
@@ -429,6 +437,9 @@ export interface TriviaNode {
   style: 'star' | 'slash' | 'block' | 'continuation';
   content: string;
   range: Range;
+  // A trailing comment before its statement's `;` under `#delimit ;`
+  // (`local a b // c` then `;`), not after it
+  before_terminator?: boolean;
 }
 
 // Expression AST

@@ -305,7 +305,9 @@ describe('Quoted Path Parsing Property Tests', () => {
       fc.assert(
         fc.property(
           fc.tuple(
-            fc.constantFrom('display', 'list', 'gen'),
+            // Not `display`: it has no options, so its comma is an
+            // argument (`di 1, 2` shows `1 2` in Stata 18).
+            fc.constantFrom('summarize', 'list', 'gen'),
             fc.array(arbitrary_identifier(), { minLength: 1, maxLength: 3 }),
             arbitrary_identifier()
           ),

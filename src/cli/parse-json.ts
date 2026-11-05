@@ -563,6 +563,7 @@ class ParseDocumentBuilder {
                 }
                 : null,
             options: (node.options ?? []).map((o) => this.serialize_option(node.name, o)),
+            options_tail: group_adjacent_items(node.options_tail ?? []),
         };
     }
 
