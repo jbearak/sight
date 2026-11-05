@@ -34,6 +34,7 @@ import { unwrap_macval } from '../utils/local-macro';
 import { isFileCommand } from '../utils/file-path-utils';
 import { is_swallowed_continuation_terminator } from '../utils/continuation';
 import { compare_positions } from '../utils/scope-position';
+import { program_signature_syntax_nodes } from '../utils/node-body';
 import { PROGRAM_SUBCOMMANDS } from '../utils/program-definition';
 import {
   COLON_PREFIX_COMMANDS,
@@ -55,6 +56,79 @@ import {
 const DISPLAY_COMMANDS: ReadonlySet<string> = new Set([
   'di', 'dis', 'disp', 'displ', 'displa', 'display',
 ]);
+
+/**
+ * `: list` subcommands that take one macro name, as in
+ * `list uniq mylist`. Stata 18 accepts them exactly as written (no
+ * abbreviation, exact case), except `retokenize`; see
+ * `is_list_retokenize`.
+ */
+const LIST_UNARY_SUBCOMMANDS: ReadonlySet<string> = new Set([
+  'uniq', 'dups', 'sort', 'clean', 'sizeof',
+]);
+
+/** `retokenize` and its abbreviations down to `retok`, as in Stata 18. */
+function is_list_retokenize(word: string): boolean {
+  return word.length >= 5 && 'retokenize'.startsWith(word);
+}
+
+/** A bare word that can be a macro name. */
+const MACRO_NAME_WORD = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+
+/**
+ * The bare macro-name operands of `: list`, from its argument tokens
+ * (after `list`). Stata 18's forms:
+ *
+ * - `uniq|dups|sort|clean|sizeof|retok[enize] macname`
+ * - `posof "element" in macname`
+ * - `macname1 op macname2`, with op `|`, `&`, `-`, `==`, `===`, `in`
+ *
+ * A subcommand word followed by an operator is a macro name in the
+ * binary form (`list sort | b`). Explicit `` `x' `` and `$x` tokens
+ * are references of their own, read elsewhere.
+ */
+function list_operand_tokens(arg_tokens: Token[]): Token[] {
+  const the_tokens = arg_tokens.filter((my_token) =>
+    my_token.type !== 'WHITESPACE');
+  const first = the_tokens[0];
+  const second = the_tokens[1];
+  const is_word = (my_token: Token | undefined, value?: string): boolean =>
+    my_token !== undefined && my_token.type === 'WORD' &&
+    (value === undefined || my_token.value === value);
+  const second_is_operator = second !== undefined &&
+    (second.type === 'OPERATOR' || is_word(second, 'in'));
+
+  let the_operands: Token[];
+  if (is_word(first, 'posof') && !second_is_operator) {
+    // The element is a string; the operand follows `in`.
+    const in_index = the_tokens.findIndex(
+      (my_token, i) => i > 0 && is_word(my_token, 'in'));
+    the_operands = in_index < 0 ? [] : the_tokens.slice(in_index + 1);
+  } else if (
+    first !== undefined && is_word(first) && !second_is_operator &&
+    (LIST_UNARY_SUBCOMMANDS.has(first.value) || is_list_retokenize(first.value))
+  ) {
+    the_operands = the_tokens.slice(1);
+  } else {
+    // Binary: drop the `in` operator, keep the names on either side.
+    const in_index = the_tokens.findIndex(
+      (my_token, i) => i > 0 && is_word(my_token, 'in'));
+    the_operands = the_tokens.filter((_, i) => i !== in_index);
+  }
+  // A word touching a macro reference or another word is part of a
+  // name built at run time (`` `dim'list ``), not a name to check.
+  const touches = (left: Token | undefined, right: Token | undefined): boolean =>
+    left !== undefined && right !== undefined &&
+    left.type !== 'OPERATOR' && right.type !== 'OPERATOR' &&
+    left.range.end.line === right.range.start.line &&
+    left.range.end.character === right.range.start.character;
+  const the_operand_set = new Set(the_operands);
+  return the_tokens.filter((my_token, i) =>
+    the_operand_set.has(my_token) &&
+    my_token.type === 'WORD' && MACRO_NAME_WORD.test(my_token.value) &&
+    !touches(the_tokens[i - 1], my_token) &&
+    !touches(my_token, the_tokens[i + 1]));
+}
 
 /** `define` and its abbreviations after `program`. */
 const PROGRAM_DEFINE_KEYWORDS: ReadonlySet<string> = new Set([
@@ -797,13 +871,9 @@ export class StataParser {
   }
 
   private extract_and_merge_signatures(body: StataNode[]): ProgramSignature | undefined {
-    // Find all SyntaxNode instances in the program body
-    const syntax_nodes: SyntaxNode[] = [];
-    for (const node of body) {
-      if (node.type === 'syntax') {
-        syntax_nodes.push(node);
-      }
-    }
+    // The syntax statements the signature comes from (see
+    // program_signature_syntax_nodes)
+    const syntax_nodes = program_signature_syntax_nodes(body);
 
     // If no syntax nodes, return undefined
     if (syntax_nodes.length === 0) {
@@ -1022,7 +1092,7 @@ export class StataParser {
     const extended_function = {
       name: function_name,
       args: args_trimmed,
-      macroRefs: this.extract_macro_refs_from_extended_tokens(arg_tokens),
+      macroRefs: this.extract_macro_refs_from_extended_tokens(function_name, arg_tokens),
     };
 
     return {
@@ -1035,7 +1105,10 @@ export class StataParser {
     };
   }
 
-  private extract_macro_refs_from_extended_tokens(arg_tokens: Token[]): MacroReference[] {
+  private extract_macro_refs_from_extended_tokens(
+    function_name: string,
+    arg_tokens: Token[]
+  ): MacroReference[] {
     const macro_refs: MacroReference[] = [];
 
     // 1) Explicit macro tokens (`name' and $name/${name}) come from the lexer with exact ranges.
@@ -1061,46 +1134,18 @@ export class StataParser {
       }
     }
 
-    // 2) Bare identifiers (e.g., list a - b) are WORD tokens. These are treated as local
-    // macro references only for a subset of downstream checks (e.g. list operations).
-    // We keep them here so downstream consumers can decide which functions to validate.
-    const function_names = new Set([
-      'list',
-      'sizeof',
-      'sort',
-      'uniq',
-      'dups',
-      'clean',
-      'posof',
-      'in',
-      'and',
-      'or',
-      'count',
-      'word',
-      'piece',
-      'subinstr',
-      'length',
-    ]);
-
-    for (const my_token of arg_tokens) {
-      if (my_token.type !== 'WORD') {
-        continue;
+    // 2) The operands of `list` are macro names written bare
+    // (`list a - b`), so they are local macro references too. No other
+    // extended function takes a bare macro name operand that is
+    // checked, so only `list` gets them.
+    if (function_name === 'list') {
+      for (const my_token of list_operand_tokens(arg_tokens)) {
+        macro_refs.push({
+          name: my_token.value,
+          range: my_token.range,
+          scope: 'local',
+        });
       }
-
-      const name = my_token.value;
-      if (!/^[a-zA-Z_][a-zA-Z0-9_]*$/.test(name)) {
-        continue;
-      }
-
-      if (function_names.has(name)) {
-        continue;
-      }
-
-      macro_refs.push({
-        name,
-        range: my_token.range,
-        scope: 'local',
-      });
     }
 
     return macro_refs;
@@ -3057,7 +3102,7 @@ export class StataParser {
       // Validate open brace placement
       // has_condition_before is true if the brace is on the same line as the 'if' keyword
       const has_condition_before = lbrace_token.range.start.line === condition_start_line;
-      this.validate_open_brace(lbrace_token, lbrace_index, has_condition_before);
+      this.validate_open_brace(lbrace_token, lbrace_index, has_condition_before, true);
 
       const { body: my_body, blockEndingTrivia: my_block_ending_trivia } = this.parseBraceBody();
       body.push(...my_body);
@@ -5260,14 +5305,26 @@ export class StataParser {
    * Validate open brace placement and emit diagnostics if invalid.
    * Checks for:
    * - Brace alone on line (no condition before) → emit OPEN_BRACE_ALONE
-   * - Code after brace on same line → emit CODE_AFTER_OPEN_BRACE (warning)
+   * - Code after brace on same line → after an `if` header (prefixed,
+   *   or in `else if`), Stata 18 runs the block and ignores the code:
+   *   CODE_AFTER_OPEN_BRACE (warning). After any other header (`{`,
+   *   `quietly {`, `else {`, a loop, `while`, `frame`), Stata stops
+   *   with "code follows on the same line as open brace" (r(198)):
+   *   CODE_FOLLOWS_OPEN_BRACE (error). Under `capture` that error is
+   *   swallowed, the body runs unblocked, and its `}` fails (r(199)).
    *
    * @param brace_token The opening brace token to validate
    * @param brace_index The index of the brace token in the tokens array
    * @param has_condition_before Whether there is a condition/statement before the brace on the same line
+   * @param after_if_header Whether the brace ends an `if` header
    * @returns Whether code follows the brace on its line
    */
-  validate_open_brace(brace_token: Token, brace_index: number, has_condition_before: boolean): boolean {
+  validate_open_brace(
+    brace_token: Token,
+    brace_index: number,
+    has_condition_before: boolean,
+    after_if_header = false
+  ): boolean {
     const brace_line = brace_token.range.start.line;
 
     // Check if brace is alone on line (no condition before)
@@ -5290,16 +5347,19 @@ export class StataParser {
     }
 
     // Check for code AFTER the open brace on the same line
-    // This is a warning because Stata runs but silently ignores the code
     const code_after = this.scan_code_on_same_line(brace_index + 1, brace_line);
     if (code_after) {
       this.errors.push({
-        message: 'code after open brace may be silently ignored',
+        message: after_if_header
+          ? 'code after open brace may be silently ignored'
+          : 'code after open brace is an error in Stata',
         range: this.makeRange(
           brace_token.range.start,
           code_after.last_token.range.end
         ),
-        code: ParseErrorCode.CODE_AFTER_OPEN_BRACE,
+        code: after_if_header
+          ? ParseErrorCode.CODE_AFTER_OPEN_BRACE
+          : ParseErrorCode.CODE_FOLLOWS_OPEN_BRACE,
       });
     }
     return code_after !== null;

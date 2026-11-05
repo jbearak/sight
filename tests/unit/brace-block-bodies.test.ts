@@ -222,3 +222,58 @@ describe('brace block bodies in sight graph', () => {
         }
     });
 });
+
+describe('program signature from a syntax in a brace block', () => {
+    function option_names(source: string, program_name: string): string[] | null {
+        const program = create_document_state(source).symbols.programs.get(program_name);
+        return program?.signature?.options.map((my_option) => my_option.name) ?? null;
+    }
+
+    it('reads a lone syntax inside quietly { … } or nested blocks', () => {
+        expect(option_names(
+            'program p\n    quietly {\n        syntax varlist, Level(integer 95) DETail\n    }\nend\n', 'p'
+        )).toEqual(['Level', 'DETail']);
+        expect(option_names(
+            'program p\n    capture noisily {\n        quietly {\n            syntax [, A]\n        }\n    }\nend\n', 'p'
+        )).toEqual(['A']);
+        // A frame block runs its body too (checked in Stata 18).
+        expect(option_names(
+            'program p\n    frame default {\n        syntax [, Level(integer 5)]\n    }\nend\n', 'p'
+        )).toEqual(['Level']);
+    });
+
+    it('offers its options and shows them on hover', async () => {
+        const source = 'program myprog\n    quietly {\n        syntax varlist, Level(integer 95) DETail\n    }\nend\nmyprog x, \n';
+        const document = create_document_state(source);
+        const the_items = await new CompletionProvider(new CommandDatabase())
+            .get_completions(document, { line: 5, character: 10 });
+        expect(the_items.map((my_item) => my_item.label)).toEqual(['Level', 'DETail']);
+        const hover = await new HoverProvider(new CommandDatabase())
+            .get_hover(document, { line: 5, character: 2 });
+        expect(JSON.stringify(hover?.contents ?? '')).toContain('Level(integer) DETail');
+    });
+
+    it('keeps the top-level signature when several syntax statements are reachable', () => {
+        // One per if/else branch: which runs is not known, so none.
+        expect(option_names(
+            'program p\n    if 1 {\n        syntax [, A]\n    }\n    else {\n        syntax [, B]\n    }\nend\n', 'p'
+        )).toBeNull();
+        // A top-level syntax and one in a block: the top-level one.
+        expect(option_names(
+            'program p\n    syntax [, A]\n    quietly {\n        syntax [, B]\n    }\nend\n', 'p'
+        )).toEqual(['A']);
+        // A lone syntax in an if branch is not read either.
+        expect(option_names(
+            'program p\n    if 1 {\n        syntax [, A]\n    }\nend\n', 'p'
+        )).toBeNull();
+    });
+
+    it('gives the parsed program the same signature', () => {
+        const { tokens } = new StataLexer().tokenize(
+            'program p\n    quietly {\n        syntax [, A]\n    }\nend\n'
+        );
+        const node = new StataParser().parse(tokens).ast.nodes[0];
+        expect(node?.type === 'program' ? node.signature?.options.map((o) => o.name) : null)
+            .toEqual(['A']);
+    });
+});

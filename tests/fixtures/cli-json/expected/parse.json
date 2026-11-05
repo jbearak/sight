@@ -6312,5 +6312,542 @@
         }
       }
     ]
+  },
+  {
+    "schema_version": 1,
+    "sight_version": "<VERSION>",
+    "path": "<ROOT>/brace-blocks.do",
+    "line_count": 16,
+    "statements": [
+      {
+        "kind": "if",
+        "range": {
+          "start": {
+            "line": 2,
+            "character": 0
+          },
+          "end": {
+            "line": 4,
+            "character": 1
+          }
+        },
+        "text": "if 1 { di \"ignored\"\n    di \"runs\"\n}",
+        "delimit": "cr",
+        "comments": {
+          "leading": [
+            {
+              "style": "star",
+              "text": "* Code after an if header's { is ignored; after any other { it is an",
+              "range": {
+                "start": {
+                  "line": 0,
+                  "character": 0
+                },
+                "end": {
+                  "line": 0,
+                  "character": 68
+                }
+              },
+              "directive": null
+            },
+            {
+              "style": "star",
+              "text": "* error (r(198)).",
+              "range": {
+                "start": {
+                  "line": 1,
+                  "character": 0
+                },
+                "end": {
+                  "line": 1,
+                  "character": 17
+                }
+              },
+              "directive": null
+            }
+          ],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [],
+        "condition": {
+          "text": "1",
+          "expression": {
+            "kind": "number",
+            "text": "1",
+            "value": 1,
+            "range": {
+              "start": {
+                "line": 2,
+                "character": 3
+              },
+              "end": {
+                "line": 2,
+                "character": 4
+              }
+            }
+          }
+        },
+        "single_statement": false,
+        "body": [
+          {
+            "kind": "command",
+            "range": {
+              "start": {
+                "line": 2,
+                "character": 7
+              },
+              "end": {
+                "line": 2,
+                "character": 19
+              }
+            },
+            "text": "di \"ignored\"",
+            "delimit": "cr",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "name": "di",
+            "canonical_name": "display",
+            "prefixes": [],
+            "args": [
+              {
+                "text": "\"ignored\"",
+                "range": {
+                  "start": {
+                    "line": 2,
+                    "character": 10
+                  },
+                  "end": {
+                    "line": 2,
+                    "character": 19
+                  }
+                }
+              }
+            ],
+            "varlist": null,
+            "assignment": null,
+            "if": null,
+            "in": null,
+            "weight": null,
+            "using": null,
+            "options": [],
+            "options_tail": []
+          },
+          {
+            "kind": "command",
+            "range": {
+              "start": {
+                "line": 3,
+                "character": 4
+              },
+              "end": {
+                "line": 3,
+                "character": 13
+              }
+            },
+            "text": "di \"runs\"",
+            "delimit": "cr",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "name": "di",
+            "canonical_name": "display",
+            "prefixes": [],
+            "args": [
+              {
+                "text": "\"runs\"",
+                "range": {
+                  "start": {
+                    "line": 3,
+                    "character": 7
+                  },
+                  "end": {
+                    "line": 3,
+                    "character": 13
+                  }
+                }
+              }
+            ],
+            "varlist": null,
+            "assignment": null,
+            "if": null,
+            "in": null,
+            "weight": null,
+            "using": null,
+            "options": [],
+            "options_tail": []
+          }
+        ]
+      },
+      {
+        "kind": "block",
+        "range": {
+          "start": {
+            "line": 5,
+            "character": 0
+          },
+          "end": {
+            "line": 7,
+            "character": 1
+          }
+        },
+        "text": "quietly { di \"error\"\n    di \"body\"\n}",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [
+          {
+            "name": "quietly",
+            "canonical_name": "quietly",
+            "range": {
+              "start": {
+                "line": 5,
+                "character": 0
+              },
+              "end": {
+                "line": 5,
+                "character": 7
+              }
+            },
+            "by_varlist": null,
+            "sort_varlist": null,
+            "arguments": null,
+            "options": [],
+            "frame": null
+          }
+        ],
+        "body": [
+          {
+            "kind": "command",
+            "range": {
+              "start": {
+                "line": 5,
+                "character": 10
+              },
+              "end": {
+                "line": 5,
+                "character": 20
+              }
+            },
+            "text": "di \"error\"",
+            "delimit": "cr",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "name": "di",
+            "canonical_name": "display",
+            "prefixes": [],
+            "args": [
+              {
+                "text": "\"error\"",
+                "range": {
+                  "start": {
+                    "line": 5,
+                    "character": 13
+                  },
+                  "end": {
+                    "line": 5,
+                    "character": 20
+                  }
+                }
+              }
+            ],
+            "varlist": null,
+            "assignment": null,
+            "if": null,
+            "in": null,
+            "weight": null,
+            "using": null,
+            "options": [],
+            "options_tail": []
+          },
+          {
+            "kind": "command",
+            "range": {
+              "start": {
+                "line": 6,
+                "character": 4
+              },
+              "end": {
+                "line": 6,
+                "character": 13
+              }
+            },
+            "text": "di \"body\"",
+            "delimit": "cr",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "name": "di",
+            "canonical_name": "display",
+            "prefixes": [],
+            "args": [
+              {
+                "text": "\"body\"",
+                "range": {
+                  "start": {
+                    "line": 6,
+                    "character": 7
+                  },
+                  "end": {
+                    "line": 6,
+                    "character": 13
+                  }
+                }
+              }
+            ],
+            "varlist": null,
+            "assignment": null,
+            "if": null,
+            "in": null,
+            "weight": null,
+            "using": null,
+            "options": [],
+            "options_tail": []
+          }
+        ]
+      },
+      {
+        "kind": "program",
+        "range": {
+          "start": {
+            "line": 10,
+            "character": 0
+          },
+          "end": {
+            "line": 14,
+            "character": 3
+          }
+        },
+        "text": "program define quiet_syntax\n    quietly {\n        syntax varlist [, Level(integer 95)]\n    }\nend",
+        "delimit": "cr",
+        "comments": {
+          "leading": [
+            {
+              "style": "star",
+              "text": "* A program whose only syntax is in a brace block has that signature.",
+              "range": {
+                "start": {
+                  "line": 9,
+                  "character": 0
+                },
+                "end": {
+                  "line": 9,
+                  "character": 69
+                }
+              },
+              "directive": null
+            }
+          ],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "quiet_syntax",
+        "define_options": null,
+        "args": [],
+        "syntax": {
+          "arguments": [
+            {
+              "type": "varlist",
+              "name": null,
+              "optional": false,
+              "range": {
+                "start": {
+                  "line": 12,
+                  "character": 15
+                },
+                "end": {
+                  "line": 12,
+                  "character": 22
+                }
+              }
+            }
+          ],
+          "options": [
+            {
+              "name": "Level",
+              "min_abbreviation": "L",
+              "required": false,
+              "optional": false,
+              "argument_type": "integer",
+              "default": null,
+              "range": {
+                "start": {
+                  "line": 12,
+                  "character": 26
+                },
+                "end": {
+                  "line": 12,
+                  "character": 43
+                }
+              }
+            }
+          ],
+          "allows_arbitrary_options": false
+        },
+        "body": [
+          {
+            "kind": "block",
+            "range": {
+              "start": {
+                "line": 11,
+                "character": 4
+              },
+              "end": {
+                "line": 13,
+                "character": 5
+              }
+            },
+            "text": "quietly {\n        syntax varlist [, Level(integer 95)]\n    }",
+            "delimit": "cr",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "prefixes": [
+              {
+                "name": "quietly",
+                "canonical_name": "quietly",
+                "range": {
+                  "start": {
+                    "line": 11,
+                    "character": 4
+                  },
+                  "end": {
+                    "line": 11,
+                    "character": 11
+                  }
+                },
+                "by_varlist": null,
+                "sort_varlist": null,
+                "arguments": null,
+                "options": [],
+                "frame": null
+              }
+            ],
+            "body": [
+              {
+                "kind": "syntax",
+                "range": {
+                  "start": {
+                    "line": 12,
+                    "character": 8
+                  },
+                  "end": {
+                    "line": 12,
+                    "character": 44
+                  }
+                },
+                "text": "syntax varlist [, Level(integer 95)]",
+                "delimit": "cr",
+                "comments": {
+                  "leading": [],
+                  "trailing": [],
+                  "interior": [],
+                  "block_end": []
+                },
+                "prefixes": [],
+                "signature": {
+                  "arguments": [
+                    {
+                      "type": "varlist",
+                      "name": null,
+                      "optional": false,
+                      "range": {
+                        "start": {
+                          "line": 12,
+                          "character": 15
+                        },
+                        "end": {
+                          "line": 12,
+                          "character": 22
+                        }
+                      }
+                    }
+                  ],
+                  "options": [
+                    {
+                      "name": "Level",
+                      "min_abbreviation": "L",
+                      "required": false,
+                      "optional": false,
+                      "argument_type": "integer",
+                      "default": null,
+                      "range": {
+                        "start": {
+                          "line": 12,
+                          "character": 26
+                        },
+                        "end": {
+                          "line": 12,
+                          "character": 43
+                        }
+                      }
+                    }
+                  ],
+                  "allows_arbitrary_options": false
+                }
+              }
+            ]
+          }
+        ]
+      }
+    ],
+    "comments": [],
+    "errors": [
+      {
+        "source": "parser",
+        "code": "CODE_AFTER_OPEN_BRACE",
+        "severity": "warning",
+        "message": "code after open brace may be silently ignored",
+        "range": {
+          "start": {
+            "line": 2,
+            "character": 5
+          },
+          "end": {
+            "line": 2,
+            "character": 19
+          }
+        }
+      },
+      {
+        "source": "parser",
+        "code": "CODE_FOLLOWS_OPEN_BRACE",
+        "severity": "error",
+        "message": "code after open brace is an error in Stata",
+        "range": {
+          "start": {
+            "line": 5,
+            "character": 8
+          },
+          "end": {
+            "line": 5,
+            "character": 20
+          }
+        }
+      }
+    ]
   }
 ]
