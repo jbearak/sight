@@ -7,22 +7,28 @@ import {
     create_formatter_config,
     for_each_formatter_mode,
 } from '../property/helpers/formatter-test-utils';
+import {
+    expect_line_at_depth,
+    indentation_diagnostics,
+} from '../property/helpers/indentation-test-utils';
 
 describe('single-statement if indentation diagnostics', () => {
     it('keeps multiline inline bodies at the condition depth', () => {
-        const document = create_document_state([
+        // Under `#delimit ;` lines 1-3 are one statement: a
+        // single-statement `if` opens no block, so the flush-left
+        // layout is clean. Lines 2-3 are continuation lines, which
+        // Format Document keeps where they sit relative to line 1, so
+        // only the statement's first line is held to a block depth.
+        const source = [
             '#delimit ;',
             'if (1)',
             'if (2)',
             'local selected yes;',
             '#delimit cr',
             '',
-        ].join('\n'));
-        const depths = new IndentationDiagnosticAnalyzer()
-            .compute_expected_depths(document, { start: 0, end: 5 });
-        expect(depths.get(1)).toBe(0);
-        expect(depths.get(2)).toBe(0);
-        expect(depths.get(3)).toBe(0);
+        ].join('\n');
+        expect(indentation_diagnostics(source)).toEqual([]);
+        expect_line_at_depth(source, 1, 0);
     });
 
     const the_sources = [

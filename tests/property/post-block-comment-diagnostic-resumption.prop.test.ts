@@ -11,84 +11,12 @@
  * closes.
  */
 
-import { describe, it, expect } from 'bun:test';
+import { describe, it } from 'bun:test';
 import * as fc from 'fast-check';
-import { IndentationDiagnosticAnalyzer } from '../../src/providers/indentation-diagnostics';
-import { DocumentState } from '../../src/document-store';
-import { ContextTracker } from '../../src/context-tracker';
-import { StataLexer } from '../../src/lexer';
-import { StataParser } from '../../src/parser';
-import { StataDiagnosticCode, StataLSPConfig } from '../../src/types';
-
-/**
- * Create a DocumentState for indentation analysis with proper AST.
- * The IndentationDiagnosticAnalyzer needs content, context_tracker, and AST
- * for depth-based indentation analysis.
- */
-function create_document_for_indentation(content: string): DocumentState {
-    const the_line_offsets: number[] = [];
-    let my_offset = 0;
-    for (const my_line of content.split('\n')) {
-        the_line_offsets.push(my_offset);
-        my_offset += my_line.length + 1;
-    }
-
-    // Parse the content to get proper AST for depth computation
-    const my_lexer = new StataLexer();
-    const my_parser = new StataParser();
-    const my_lex_result = my_lexer.tokenize(content);
-    const my_parse_result = my_parser.parse(my_lex_result.tokens);
-    
-    const my_context_tracker = new ContextTracker();
-    my_context_tracker.initialize_from_tokens(my_lex_result.tokens);
-
-    return {
-        uri: 'file:///test.do',
-        version: 1,
-        content,
-        tokens: my_lex_result.tokens,
-        ast: my_parse_result.ast,
-        symbols: {
-            localMacros: new Map(),
-            globalMacros: new Map(),
-            programs: new Map(),
-            scalars: new Map(),
-            matrices: new Map(),
-            variables: new Map()
-        },
-        diagnostics: [],
-        context_tracker: my_context_tracker,
-        context_ranges: [],
-        line_offsets: the_line_offsets,
-        forward_calls: []
-    };
-}
-
-const config: StataLSPConfig = {
-    diagnostics: {
-        enabled: true,
-        indentation: true,
-        severity: {
-            undefinedMacro: 'warning',
-            undefinedVariable: 'information',
-            styleWarnings: 'hint'
-        },
-    },
-    adoPaths: [],
-    cross_file: {
-        index_workspace: true,
-        max_indexed_files: 1000,
-        assume_call_site: 'end',
-        max_backward_depth: 10,
-        max_forward_depth: 10,
-        max_chain_depth: 20,
-        auto_detect_forward_calls: true
-    }
-};
+import { StataDiagnosticCode } from '../../src/types';
+import { indentation_diagnostics } from './helpers/indentation-test-utils';
 
 describe('Post-Block-Comment Diagnostic Resumption Property Tests', () => {
-    const analyzer = new IndentationDiagnosticAnalyzer();
-
     // Generator for random block comment content lines (without /* or */)
     const arbitrary_comment_line = fc.oneof(
         // Line starting with asterisk (common style)
@@ -128,21 +56,11 @@ describe('Post-Block-Comment Diagnostic Resumption Property Tests', () => {
 if 1 {
 display "not indented"
 }`;
-                    const my_document = create_document_for_indentation(my_source);
-                    const my_diagnostics = analyzer.analyze(my_document, config);
+                    const my_diagnostics = indentation_diagnostics(my_source);
 
-                    // Get the line numbers that are inside the block comment
-                    const the_lines = my_source.split('\n');
-                    const my_block_comment_lines = analyzer.compute_block_comment_lines(the_lines);
-
-                    // Find the line with "display" - it should be after the block comment
-                    const my_display_line_index = the_lines.findIndex(l => l.includes('display "not indented"'));
-
-                    // The display line should NOT be in a block comment
-                    if (my_block_comment_lines.has(my_display_line_index)) {
-                        // Something is wrong with our test setup
-                        return false;
-                    }
+                    // The display line is the second line after the
+                    // block comment's closing `*/`
+                    const my_display_line_index = my_block_comment.split('\n').length + 1;
 
                     // Filter for indentation-related diagnostics
                     const my_indentation_diagnostics = my_diagnostics.filter(
@@ -179,20 +97,11 @@ display "not indented"
 if 1 {
     display "properly indented"
 }`;
-                    const my_document = create_document_for_indentation(my_source);
-                    const my_diagnostics = analyzer.analyze(my_document, config);
+                    const my_diagnostics = indentation_diagnostics(my_source);
 
-                    // Get the line numbers that are inside the block comment
-                    const the_lines = my_source.split('\n');
-                    const my_block_comment_lines = analyzer.compute_block_comment_lines(the_lines);
-
-                    // Find the line with "display" - it should be after the block comment
-                    const my_display_line_index = the_lines.findIndex(l => l.includes('display "properly indented"'));
-
-                    // The display line should NOT be in a block comment
-                    if (my_block_comment_lines.has(my_display_line_index)) {
-                        return false;
-                    }
+                    // The display line is the second line after the
+                    // block comment's closing `*/`
+                    const my_display_line_index = my_block_comment.split('\n').length + 1;
 
                     // Filter for indentation-related diagnostics on the display line
                     const my_diagnostics_on_display = my_diagnostics.filter(
@@ -232,22 +141,13 @@ ${my_comment2}
 if 1 {
 display "second block - not indented"
 }`;
-                    const my_document = create_document_for_indentation(my_source);
-                    const my_diagnostics = analyzer.analyze(my_document, config);
+                    const my_diagnostics = indentation_diagnostics(my_source);
 
-                    // Get the line numbers that are inside block comments
-                    const the_lines = my_source.split('\n');
-                    const my_block_comment_lines = analyzer.compute_block_comment_lines(the_lines);
-
-                    // Find the lines with display statements
-                    const my_first_display_index = the_lines.findIndex(l => l.includes('first block - properly indented'));
-                    const my_second_display_index = the_lines.findIndex(l => l.includes('second block - not indented'));
-
-                    // Both display lines should NOT be in block comments
-                    if (my_block_comment_lines.has(my_first_display_index) ||
-                        my_block_comment_lines.has(my_second_display_index)) {
-                        return false;
-                    }
+                    // The display lines are each the second line after
+                    // a block comment's closing `*/`
+                    const my_first_display_index = my_comment1.split('\n').length + 1;
+                    const my_second_display_index =
+                        my_first_display_index + 2 + my_comment2.split('\n').length + 1;
 
                     // Filter for indentation diagnostics
                     const my_indentation_diagnostics = my_diagnostics.filter(
@@ -288,20 +188,11 @@ display "second block - not indented"
                     const my_source = `${my_block_comment}
 * This is a comment
 ${' '.repeat(my_indent)}display "unnecessarily indented after comment"`;
-                    const my_document = create_document_for_indentation(my_source);
-                    const my_diagnostics = analyzer.analyze(my_document, config);
+                    const my_diagnostics = indentation_diagnostics(my_source);
 
-                    // Get the line numbers that are inside the block comment
-                    const the_lines = my_source.split('\n');
-                    const my_block_comment_lines = analyzer.compute_block_comment_lines(the_lines);
-
-                    // Find the line with "display"
-                    const my_display_line_index = the_lines.findIndex(l => l.includes('display "unnecessarily indented'));
-
-                    // The display line should NOT be in a block comment
-                    if (my_block_comment_lines.has(my_display_line_index)) {
-                        return false;
-                    }
+                    // The display line is the second line after the
+                    // block comment's closing `*/`
+                    const my_display_line_index = my_block_comment.split('\n').length + 1;
 
                     // Filter for unnecessary indentation diagnostics
                     const my_unnecessary_indent_diagnostics = my_diagnostics.filter(
