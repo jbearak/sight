@@ -105,7 +105,7 @@ the loop is left alone and no names are expanded.
 
 - `args where` (at any position), then `` c_local `where' … ``;
 - `` c_local `1' … `` (or `` `2' `` and so on), when nothing in the program may change the numbered locals (`tokenize`, `macro shift`, `local 1`, or `` local `name' ``);
-- a leading `gettoken where 0 : 0`, with no options or only a `parse()` that includes a space, then `` c_local `where' … ``.
+- the first `gettoken where 0 : 0` in the program (first argument only), with no options or only a `parse()` that includes a space, then `` c_local `where' … ``.
 
 This works for programs in the same file, in other workspace files, and on the ado-path, and for calls behind prefixes such as `quietly` or `capture`. The argument must be a plain name separated by spaces. Sight resolves nothing when the argument is a macro, a quoted string, missing, or joined to other text (`rhs,`), or when a macro comes before it, since the macro could expand to any number of words. It also skips a name the program defines a second time. Go-to-definition and Find References treat the argument word at the call as the local's definition.
 

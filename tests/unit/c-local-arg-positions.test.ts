@@ -115,13 +115,15 @@ describe('c_local argument positions: extraction', () => {
             '    c_local `id\' 1',
             'end',
         ].join('\n'), 'setter')).toEqual([1]);
+        // A later read is not counted: under parse(" ,") the call
+        // `setter x, rhs` gives b the comma, not rhs.
         expect(positions_of([
             'program define setter',
-            '    gettoken a 0 : 0',
-            '    gettoken b 0:0',
+            '    gettoken a 0 : 0, parse(" ,")',
+            '    gettoken b 0:0, parse(" ,")',
             '    c_local `b\' 1',
             'end',
-        ].join('\n'), 'setter')).toEqual([2]);
+        ].join('\n'), 'setter')).toBeUndefined();
         // `gettoken a : 0` reads the next word without consuming it.
         expect(positions_of([
             'program define setter',
@@ -176,6 +178,14 @@ describe('c_local argument positions: extraction', () => {
             'program define setter',
             '    c_local `1\' 1',
             '    local `n\'',
+            'end',
+        ].join('\n'), 'setter')).toBeUndefined();
+        // gettoken into a numbered local.
+        expect(positions_of([
+            'program define setter',
+            '    gettoken 1 rest : other',
+            '    args where',
+            '    c_local `where\' 1',
             'end',
         ].join('\n'), 'setter')).toBeUndefined();
         // An args before a later tokenize still counts.

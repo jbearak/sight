@@ -78,8 +78,8 @@ function changes_zero(node: StataNode): boolean {
 
 /**
  * True if `node` itself (not its body) may change a numbered local
- * such as `1`: `tokenize`, `macro shift`, `local 1 …`, or
- * `` local `name' ``, whose target is not known.
+ * such as `1`: `tokenize`, `macro shift`, `local 1 …`, a `gettoken`
+ * into `1`, or `` local `name' ``, whose target is not known.
  */
 function changes_numbered_local(node: StataNode): boolean {
     if (node.type === 'macro_def') {
@@ -88,6 +88,11 @@ function changes_numbered_local(node: StataNode): boolean {
     }
     if (node.type !== 'command') return false;
     if (node.fullName === 'tokenize') return true;
+    if (is_gettoken(node)) {
+        return (node.varlist ?? []).some(
+            (my_item) => DIGITS_RE.test(my_item.name) || my_item.name.includes('`')
+        );
+    }
     if (is_local_command(node)) {
         // `` local `n' `` may name a numbered local too.
         const first = node.varlist?.[0]?.name;
@@ -224,16 +229,17 @@ function collect_args_in(
 }
 
 /**
- * Positions bound by the leading run of top-level `gettoken name 0 : 0`
- * (and `gettoken name : 0`, which reads without consuming). The run
- * ends at the first statement anywhere that may change `0` some other
+ * Names bound to position 1 by the first top-level reads from `0`:
+ * `gettoken name : 0` (which reads without consuming) and the first
+ * `gettoken name 0 : 0`. Later reads are not counted: a word such as
+ * `x,` is one argument but two tokens under `parse(" ,")`. The search
+ * also ends at a statement anywhere that may change `0` some other
  * way, such as a `gettoken` from `0` inside an `if`, or `local 0 …`.
  */
 function collect_gettoken_bindings(
     body: StataNode[],
     bindings: Map<string, Array<{ position: number; range: Range }>>
 ): void {
-    let consumed = 0;
     for (const my_node of body) {
         const is_top_level_read = my_node.type === 'command'
             && is_gettoken(my_node)
@@ -254,9 +260,9 @@ function collect_gettoken_bindings(
             return;
         }
         const the_list = bindings.get(first.name) ?? [];
-        the_list.push({ position: consumed + 1, range: first.range });
+        the_list.push({ position: 1, range: first.range });
         bindings.set(first.name, the_list);
-        if (the_outputs[1]?.name === '0') consumed += 1;
+        if (the_outputs[1]?.name === '0') return;
     }
 }
 
@@ -267,7 +273,7 @@ function collect_gettoken_bindings(
  * - `args a b` then `` c_local `b' `` (position 2);
  * - `` c_local `1' `` when nothing in the body changes the numbered
  *   locals (`tokenize`, `macro shift`, `local 1 …`);
- * - a leading `gettoken a 0 : 0` run then `` c_local `a' ``.
+ * - a leading `gettoken a 0 : 0` then `` c_local `a' `` (position 1).
  *
  * An `args`/`gettoken` name counts only when that statement is the
  * name's one definition in the program. `local_macros` is the
