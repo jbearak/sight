@@ -2397,12 +2397,12 @@ export class HoverProvider {
         workspace_symbols?: SymbolTable
     ): MarkupContent | null {
         const command = find_command_at(document.ast?.nodes ?? [], position);
+        // On the option's name, not its `(…)` argument
         const option = command?.options?.find((my_option) =>
-            compare_positions(my_option.range.start, position) <= 0
-            && compare_positions(
-                position,
-                my_option.argument_range?.start ?? my_option.range.end
-            ) <= 0);
+            my_option.range.start.line === position.line
+            && my_option.range.start.character <= position.character
+            && position.character <=
+                my_option.range.start.character + my_option.name.length);
         if (!command || !option) {
             return null;
         }

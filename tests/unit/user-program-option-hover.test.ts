@@ -43,6 +43,7 @@ describe('user program option hover', () => {
     });
 
     it('shows nothing inside the option argument', async () => {
+        expect(await hover_text('p, level(90)', 9)).toBeNull();
         expect(await hover_text('p, level(90)', 10)).toBeNull();
     });
 });
