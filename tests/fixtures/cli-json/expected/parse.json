@@ -6317,7 +6317,7 @@
     "schema_version": 1,
     "sight_version": "<VERSION>",
     "path": "<ROOT>/brace-blocks.do",
-    "line_count": 16,
+    "line_count": 23,
     "statements": [
       {
         "kind": "if",
@@ -6808,6 +6808,222 @@
                   ],
                   "allows_arbitrary_options": false
                 }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "kind": "program",
+        "range": {
+          "start": {
+            "line": 17,
+            "character": 0
+          },
+          "end": {
+            "line": 21,
+            "character": 3
+          }
+        },
+        "text": "program define quiet_args\n    quietly {\n        args first second\n    }\nend",
+        "delimit": "cr",
+        "comments": {
+          "leading": [
+            {
+              "style": "star",
+              "text": "* Likewise for args.",
+              "range": {
+                "start": {
+                  "line": 16,
+                  "character": 0
+                },
+                "end": {
+                  "line": 16,
+                  "character": 20
+                }
+              },
+              "directive": null
+            }
+          ],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "quiet_args",
+        "define_options": null,
+        "args": [
+          {
+            "name": "first",
+            "range": {
+              "start": {
+                "line": 19,
+                "character": 13
+              },
+              "end": {
+                "line": 19,
+                "character": 18
+              }
+            }
+          },
+          {
+            "name": "second",
+            "range": {
+              "start": {
+                "line": 19,
+                "character": 19
+              },
+              "end": {
+                "line": 19,
+                "character": 25
+              }
+            }
+          }
+        ],
+        "syntax": null,
+        "body": [
+          {
+            "kind": "block",
+            "range": {
+              "start": {
+                "line": 18,
+                "character": 4
+              },
+              "end": {
+                "line": 20,
+                "character": 5
+              }
+            },
+            "text": "quietly {\n        args first second\n    }",
+            "delimit": "cr",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "prefixes": [
+              {
+                "name": "quietly",
+                "canonical_name": "quietly",
+                "range": {
+                  "start": {
+                    "line": 18,
+                    "character": 4
+                  },
+                  "end": {
+                    "line": 18,
+                    "character": 11
+                  }
+                },
+                "by_varlist": null,
+                "sort_varlist": null,
+                "arguments": null,
+                "options": [],
+                "frame": null
+              }
+            ],
+            "body": [
+              {
+                "kind": "command",
+                "range": {
+                  "start": {
+                    "line": 19,
+                    "character": 8
+                  },
+                  "end": {
+                    "line": 19,
+                    "character": 25
+                  }
+                },
+                "text": "args first second",
+                "delimit": "cr",
+                "comments": {
+                  "leading": [],
+                  "trailing": [],
+                  "interior": [],
+                  "block_end": []
+                },
+                "name": "args",
+                "canonical_name": "args",
+                "prefixes": [],
+                "args": [
+                  {
+                    "text": "first",
+                    "range": {
+                      "start": {
+                        "line": 19,
+                        "character": 13
+                      },
+                      "end": {
+                        "line": 19,
+                        "character": 18
+                      }
+                    }
+                  },
+                  {
+                    "text": "second",
+                    "range": {
+                      "start": {
+                        "line": 19,
+                        "character": 19
+                      },
+                      "end": {
+                        "line": 19,
+                        "character": 25
+                      }
+                    }
+                  }
+                ],
+                "varlist": {
+                  "kind": "varlist",
+                  "items": [
+                    {
+                      "kind": "variable",
+                      "name": "first",
+                      "range": {
+                        "start": {
+                          "line": 19,
+                          "character": 13
+                        },
+                        "end": {
+                          "line": 19,
+                          "character": 18
+                        }
+                      }
+                    },
+                    {
+                      "kind": "variable",
+                      "name": "second",
+                      "range": {
+                        "start": {
+                          "line": 19,
+                          "character": 19
+                        },
+                        "end": {
+                          "line": 19,
+                          "character": 25
+                        }
+                      }
+                    }
+                  ],
+                  "range": {
+                    "start": {
+                      "line": 19,
+                      "character": 13
+                    },
+                    "end": {
+                      "line": 19,
+                      "character": 25
+                    }
+                  }
+                },
+                "assignment": null,
+                "if": null,
+                "in": null,
+                "weight": null,
+                "using": null,
+                "options": [],
+                "options_tail": []
               }
             ]
           }

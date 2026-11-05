@@ -100,6 +100,27 @@ describe('sight parse --json', () => {
         expect(b.spec.items.map((i: Json) => i.text)).toEqual(['a', '"b c"']);
     });
 
+    it('reports the args of a program, including a lone one in brace blocks', () => {
+        function args_of(source: string): string[] {
+            const program = statements(source).find((s) => s.kind === 'program');
+            return (program?.args ?? []).map((my_arg: Json) => my_arg.name);
+        }
+        expect(args_of('program p\n    args a b\nend\n')).toEqual(['a', 'b']);
+        for (const my_opener of ['quietly {', 'capture {', 'capture noisily {', 'frame default {']) {
+            expect({ my_opener, args: args_of(`program p\n    ${my_opener}\n        args a b\n    }\nend\n`) })
+                .toEqual({ my_opener, args: ['a', 'b'] });
+        }
+        expect(args_of('program p\n    quietly {\n        capture {\n            args a\n        }\n    }\nend\n'))
+            .toEqual(['a']);
+        // Several args with any nested: the top-level ones only.
+        expect(args_of('program p\n    if 1 {\n        args a\n    }\n    else {\n        args b\n    }\nend\n'))
+            .toEqual([]);
+        expect(args_of('program p\n    args a\n    quietly {\n        args b\n    }\nend\n'))
+            .toEqual(['a']);
+        // A lone args in an if branch is not read either.
+        expect(args_of('program p\n    if 1 {\n        args a\n    }\nend\n')).toEqual([]);
+    });
+
     it('reports macro forms', () => {
         const [value, expression, extended, increment] = statements(
             'local a x `b\' y\nlocal n = 1 + 2\nlocal w : word 1 of a b\nlocal ++i\n'

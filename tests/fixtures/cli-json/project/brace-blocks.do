@@ -13,3 +13,10 @@ program define quiet_syntax
         syntax varlist [, Level(integer 95)]
     }
 end
+
+* Likewise for args.
+program define quiet_args
+    quietly {
+        args first second
+    }
+end
