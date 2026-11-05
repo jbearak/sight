@@ -231,6 +231,9 @@ export interface EmbeddedLanguageBlockNode {
   prefix?: PrefixNode[]; // Prefix commands like 'capture', 'quietly'
   range: Range; // Full range including delimiters
   leadingTrivia?: TriviaNode[];
+  // Block comments among the prefixes, e.g. `/* c */` in
+  // `capture: /* c */ mata: x = 1`.
+  interiorTrivia?: TriviaNode[];
   trailingTrivia?: TriviaNode[];
 }
 
@@ -307,7 +310,8 @@ export interface CommandNode {
   // the next line under `#delimit ;`, in source order. Stata reads them
   // as whitespace, and the fields above leave them out, except that a
   // parenthesized varlist group keeps its comments in its text; those
-  // are not repeated here. Not set on brace blocks.
+  // are not repeated here. On a brace block, only block comments among
+  // the prefixes (`quietly /* c */ {`).
   interiorTrivia?: TriviaNode[];
   blockEndingTrivia?: TriviaNode[];
   trailingTrivia?: TriviaNode[];
@@ -364,7 +368,7 @@ export interface MacroRefNode {
 
 export interface ControlFlowNode {
   type: 'if' | 'else' | 'foreach' | 'forvalues' | 'while' | 'frame';
-  prefix?: PrefixNode[];  // e.g. `version 14: foreach ...`
+  prefix?: PrefixNode[];  // e.g. `version 14: foreach ...`, `capture while 1 {`
   is_single_statement?: boolean;
   condition?: string;
   condition_ast?: ExpressionNode;  // Parsed `if`/`while` condition (structured parse)
@@ -374,6 +378,9 @@ export interface ControlFlowNode {
   body: StataNode[];
   range: Range;
   leadingTrivia?: TriviaNode[];
+  // Block comments among the prefixes, e.g. `/* c */` in
+  // `capture /* c */ while 1 {`.
+  interiorTrivia?: TriviaNode[];
   blockEndingTrivia?: TriviaNode[];
   trailingTrivia?: TriviaNode[];
 }

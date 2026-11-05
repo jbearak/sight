@@ -332,20 +332,13 @@ export class PrettyPrinter {
                 the_parts.push(this.getIndent());
                 the_parts.push('{');
             } else if (is_prefix_brace_block) {
-                // Prefix brace block: prefixes are already in the_parts
-                // We need to remove the trailing space and '{' that were added as command name
-                // Expected state: [..., 'prefix', ' ', '{']
-                // We want: [..., 'prefix', ' {']
-                
-                // Remove the '{' command name we added earlier
-                if (the_parts.length > 0 && the_parts[the_parts.length - 1] === '{') {
-                    the_parts.pop();
-                }
-                // Remove trailing space after command name (which was '{')
-                if (the_parts.length > 0 && the_parts[the_parts.length - 1] === ' ') {
-                    the_parts.pop();
-                }
-                the_parts.push(' {');
+                // Prefix brace block: the prefixes, then comments that
+                // were among them (`quietly /* c */ {`), then the brace.
+                the_parts.length = 0;
+                the_parts.push(this.getIndent());
+                the_parts.push(this.printPrefixes(node.prefix));
+                the_parts.push(this.printInteriorComments(node));
+                the_parts.push('{');
             } else {
                 // Regular command with body: add space and brace
                 the_parts.push(' {');
@@ -370,6 +363,26 @@ export class PrettyPrinter {
         }
 
         return the_parts.join('');
+    }
+
+    /** Print prefixes, each followed by a space. */
+    private printPrefixes(the_prefixes: PrefixNode[] | undefined): string {
+        return (the_prefixes ?? [])
+            .map(my_prefix => `${this.printPrefix(my_prefix)} `)
+            .join('');
+    }
+
+    /**
+     * Print a node's interior block comments, each followed by a space.
+     * Stata reads them as whitespace, so any place between two words of
+     * the statement keeps its meaning.
+     */
+    private printInteriorComments(
+        node: CommandNode | ControlFlowNode | EmbeddedLanguageBlockNode
+    ): string {
+        return (node.interiorTrivia ?? [])
+            .map(my_comment => `${this.printTrivia(my_comment)} `)
+            .join('');
     }
 
     /**
@@ -459,9 +472,7 @@ export class PrettyPrinter {
      * Print a macro definition.
      */
     private printMacroDef(node: MacroDefNode): string {
-        const prefix_text = (node.prefix ?? [])
-            .map(p => `${this.printPrefix(p)} `)
-            .join('');
+        const prefix_text = this.printPrefixes(node.prefix);
         const scope_keyword = `${prefix_text}${node.scope}`;
         
         // `local ++i` keeps its operator before the name. The parser puts
@@ -525,9 +536,11 @@ export class PrettyPrinter {
      * Print a control flow statement (if, else, foreach, forvalues, while).
      */
     private printControlFlow(node: ControlFlowNode): { code: string; own_line: string } {
-        const prefix_text = (node.prefix ?? [])
-            .map(p => `${this.printPrefix(p)} `)
-            .join('');
+        const prefix_text = this.printPrefixes(node.prefix);
+        // Comments among the prefixes and in the header go before the
+        // body: before `{`, or before an inline if's command. In the
+        // condition or loop spec they would be read as operators.
+        const comment_text = this.printInteriorComments(node);
         if (node.type === 'if' && node.is_single_statement) {
             const body_node = node.body[0];
             const body = body_node
@@ -539,7 +552,7 @@ export class PrettyPrinter {
             const inline_body = body.code.trimStart();
             // Preserve expression fragments, comments, and Unicode names.
             return {
-                code: `${this.getIndent()}${prefix_text}if ${node.condition || ''} ${inline_body}`,
+                code: `${this.getIndent()}${prefix_text}if ${node.condition || ''} ${comment_text}${inline_body}`,
                 own_line: body.own_line,
             };
         }
@@ -551,24 +564,25 @@ export class PrettyPrinter {
 
         switch (node.type) {
             case 'if':
-                header += `if ${this.normalizeCondition(node.condition || '')} {`;
+                header += `if ${this.normalizeCondition(node.condition || '')} `;
                 break;
             case 'else':
-                header += 'else {';
+                header += 'else ';
                 break;
             case 'foreach':
-                header += `foreach ${node.loopVar || ''} ${format_expression_spacing(node.loopSpec || '')} {`;
+                header += `foreach ${node.loopVar || ''} ${format_expression_spacing(node.loopSpec || '')} `;
                 break;
             case 'forvalues':
-                header += `forvalues ${node.loopVar || ''} ${format_expression_spacing(node.loopSpec || '')} {`;
+                header += `forvalues ${node.loopVar || ''} ${format_expression_spacing(node.loopSpec || '')} `;
                 break;
             case 'while':
-                header += `while ${this.normalizeCondition(node.condition || '')} {`;
+                header += `while ${this.normalizeCondition(node.condition || '')} `;
                 break;
             case 'frame':
-                header += `frame ${node.frameName || ''} {`;
+                header += `frame ${node.frameName || ''} `;
                 break;
         }
+        header += `${comment_text}{`;
 
         the_lines.push(header);
         the_lines.push(this.getStatementTerminator());
@@ -608,15 +622,18 @@ export class PrettyPrinter {
      * Preserves the content unchanged while formatting delimiters.
      */
     private printEmbeddedBlock(node: EmbeddedLanguageBlockNode): string {
+        // `capture mata: ...`: the prefixes and the comments among them
+        const start = `${this.getIndent()}${this.printPrefixes(node.prefix)}` +
+            `${this.printInteriorComments(node)}${node.start_command}`;
         if (node.is_single_line) {
             // For single-line embedded blocks, print everything on one line
-            return `${this.getIndent()}${node.start_command} ${node.content}`;
+            return `${start} ${node.content}`;
         }
 
         const the_lines: string[] = [];
 
         // Print start delimiter
-        the_lines.push(`${this.getIndent()}${node.start_command}`);
+        the_lines.push(start);
         the_lines.push(this.getStatementTerminator());
 
         // Print content unchanged (preserve embedded language code)
