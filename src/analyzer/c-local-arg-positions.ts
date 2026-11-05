@@ -19,13 +19,14 @@
 import { Position, Range } from 'vscode-languageserver-textdocument';
 import {
     CommandNode,
+    MacroDefNode,
     MacroSymbol,
     StataNode,
     Token,
 } from '../types';
 import { nested_statements } from '../utils/node-body';
 import { is_valid_identifier } from './option-argument-parser';
-import { group_name_words, whole_word_item } from './name-words';
+import { group_name_words, whole_word_item } from '../utils/name-words';
 
 const C_LOCAL_MACRO_NAME_RE = /^`([A-Za-z_][A-Za-z0-9_]*)'$/;
 const C_LOCAL_DIGIT_NAME_RE = /^`([1-9][0-9]*)'$/;
@@ -58,14 +59,25 @@ function is_macro_shift(node: CommandNode): boolean {
 }
 
 /**
+ * The name a `local` definition is read by here: its first word or
+ * number, so `` local 1`x' `` counts as `1` and `` local foo`x' ``
+ * as `foo`, as before names were joined across macros.
+ */
+function macro_def_head(node: MacroDefNode): string {
+    const head = node.name_parts?.[0];
+    return head?.kind === 'text' ? head.value : node.name;
+}
+
+/**
  * True if `node` itself (not its body) may change the program's `0`,
  * including `` local `name' `` and `` gettoken `name' ``, whose target
  * is not known.
  */
 function changes_zero(node: StataNode): boolean {
     if (node.type === 'macro_def') {
+        const head = macro_def_head(node);
         return node.scope === 'local'
-            && (node.name === '0' || node.name.includes('`'));
+            && (head === '0' || head.includes('`'));
     }
     if (node.type !== 'command') return false;
     if (is_local_command(node)) {
@@ -87,8 +99,9 @@ function changes_zero(node: StataNode): boolean {
  */
 function changes_numbered_local(node: StataNode): boolean {
     if (node.type === 'macro_def') {
+        const head = macro_def_head(node);
         return node.scope === 'local'
-            && (DIGITS_RE.test(node.name) || node.name.includes('`'));
+            && (DIGITS_RE.test(head) || head.includes('`'));
     }
     if (node.type !== 'command') return false;
     if (node.fullName === 'tokenize') return true;

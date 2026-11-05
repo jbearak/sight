@@ -42,12 +42,19 @@ import {
 } from '../utils/stata-prefix-commands';
 import {
   WEIGHT_KEYWORDS,
+  name_parts_from_tokens,
   parse_egen_function,
   parse_expression,
   parse_in_range,
   parse_path,
   parse_varlist,
 } from '../expression-parser';
+import { is_macro_piece, joins_name } from '../utils/name-words';
+
+/** Tokens that can be part of a macro name joined across macros. */
+const NAME_PIECE_TOKEN_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
+  'WORD', 'NUMBER', 'MACRO_REF_LOCAL', 'MACRO_REF_GLOBAL',
+]);
 
 /**
  * `display` and its abbreviations. It has no options, so a comma in it
@@ -932,7 +939,13 @@ export class StataParser {
     }
 
     const nameToken = this.advance();
-    const macroName = nameToken.value;
+    // `` local foo`x' 1 `` defines `foo` followed by the value of `x`,
+    // so the name runs on across touching macro references.
+    const the_name_tokens = this.read_joined_name(nameToken);
+    const macroName = the_name_tokens.map((t) => t.value).join('');
+    const name_parts = the_name_tokens.length > 1
+      ? name_parts_from_tokens(the_name_tokens)
+      : undefined;
 
     // Check for suffix increment/decrement (likely mistake): local i++
     // This assigns "++" to the macro instead of incrementing it.
@@ -949,7 +962,11 @@ export class StataParser {
 
     // Check for colon (extended macro syntax)
     if (this.check('COLON')) {
-      return this.parse_extended_macro_def(scopeToken, scope, macroName);
+      const extended_node = this.parse_extended_macro_def(scopeToken, scope, macroName);
+      if (name_parts) {
+        extended_node.name_parts = name_parts;
+      }
+      return extended_node;
     }
 
     // Skip assignment operator if present
@@ -1029,6 +1046,9 @@ export class StataParser {
       hasEquals: has_equals,
       range: this.makeRange(scopeToken.range.start, this.previous().range.end),
     };
+    if (name_parts) {
+      macro_node.name_parts = name_parts;
+    }
     if (prefixOp === '++' || prefixOp === '--') {
       macro_node.increment = prefixOp;
     }
@@ -1043,16 +1063,51 @@ export class StataParser {
     return macro_node;
   }
 
+  /**
+   * `first` and the tokens after it that join it into one name, as
+   * Stata reads `` foo`x'bar `` or `` foo${g} ``: a touching macro
+   * reference, a word or number touching one, or, after one, any
+   * touching word or number (`` foo`x'1bar ``). A quote, `:`, `=`
+   * or other operator ends the name (`` local q`x'"a b" `` names
+   * `` q`x' ``; checked in StataMP 18).
+   */
+  private read_joined_name(first: Token): Token[] {
+    const the_tokens = [first];
+    let previous = first;
+    let has_macro = is_macro_piece({ text: first.value, range: first.range });
+    while (!this.isAtEnd()) {
+      const next = this.peek();
+      const next_piece = { text: next.value, range: next.range };
+      if (!NAME_PIECE_TOKEN_TYPES.has(next.type) ||
+          !joins_name(
+            { text: previous.value, range: previous.range },
+            next_piece,
+            has_macro)) {
+        break;
+      }
+      the_tokens.push(this.advance());
+      previous = next;
+      has_macro = has_macro || is_macro_piece(next_piece);
+    }
+    return the_tokens;
+  }
+
   private parse_extended_macro_def(scopeToken: Token, scope: 'local' | 'global', macroName: string): MacroDefNode {
     this.advance(); // consume colon
     this.skipMacroDefinitionTrivia();
 
-    if (!this.check('WORD')) {
+    // The function may be named by macros, joined like a macro name:
+    // `` local x : `ch'(scalars) `` runs `e(scalars)` when `ch` is `e`,
+    // and `` local x : `what'names m `` runs `rownames` (StataMP 18).
+    if (!this.check('WORD') && !this.check('MACRO_REF_LOCAL') &&
+        !this.check('MACRO_REF_GLOBAL')) {
       this.addError('Expected function name after colon', this.peek().range);
       throw new Error('Missing function name');
     }
 
-    const function_name = this.advance().value;
+    const function_name = this.read_joined_name(this.advance())
+      .map((my_token) => my_token.value)
+      .join('');
     this.skipMacroDefinitionTrivia();
 
     // Collect function arguments. `arg_tokens` keeps every token for

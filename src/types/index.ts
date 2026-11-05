@@ -376,7 +376,12 @@ export interface MacroDefNode {
   type: 'macro_def';
   prefix?: PrefixNode[];  // e.g. `version 14: local x = 1`, `capture local x 1`
   scope: 'local' | 'global';
+  // The name as written. In `` local foo`x' 1 `` it is `` foo`x' ``:
+  // Stata defines `foo` followed by the value of `x`.
   name: string;
+  // Present when the name is joined to macro references, as above. Its
+  // text and macro_ref parts; the name is then known only at run time.
+  name_parts?: TextOrMacroPart[];
   value: string;
   hasEquals?: boolean;  // Whether the definition used '=' (e.g., local x = 1 vs local x 1)
   increment?: '++' | '--';  // `local ++i`; `value` then starts with the operator

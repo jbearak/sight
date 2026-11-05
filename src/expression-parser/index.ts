@@ -375,6 +375,32 @@ function scan_name_parts(
 const MACVAL_OPEN = 'macval(';
 
 /**
+ * The text and macro_ref parts of a name built from touching tokens,
+ * such as `` v`i' `` or `` foo`x'bar ``. Adjacent text tokens share
+ * one text part. Used for varlist names, macro definition names and
+ * `args` names, so all three have the same part objects.
+ */
+export function name_parts_from_tokens(
+    tokens: readonly Token[]
+): TextOrMacroPart[] {
+    const the_parts: TextOrMacroPart[] = [];
+    for (const my_token of tokens) {
+        if (my_token.type === 'MACRO_REF_LOCAL' || my_token.type === 'MACRO_REF_GLOBAL') {
+            the_parts.push(parse_macro_ref_token(my_token));
+            continue;
+        }
+        const previous = the_parts[the_parts.length - 1];
+        if (previous && previous.kind === 'text') {
+            previous.value += my_token.value;
+            previous.range = span(previous.range, my_token.range);
+        } else {
+            the_parts.push({ kind: 'text', value: my_token.value, range: my_token.range });
+        }
+    }
+    return the_parts;
+}
+
+/**
  * Parse one MACRO_REF_LOCAL or MACRO_REF_GLOBAL token into a node.
  * Never throws.
  */
@@ -932,22 +958,7 @@ class ExpressionParser {
     }
 
     private name_parts(start: number, end: number): TextOrMacroPart[] {
-        const the_parts: TextOrMacroPart[] = [];
-        for (let i = start; i < end; i++) {
-            const my_token = this.tokens[i];
-            if (my_token.type === 'MACRO_REF_LOCAL' || my_token.type === 'MACRO_REF_GLOBAL') {
-                the_parts.push(parse_macro_ref_token(my_token));
-                continue;
-            }
-            const previous = the_parts[the_parts.length - 1];
-            if (previous && previous.kind === 'text') {
-                previous.value += my_token.value;
-                previous.range = span(previous.range, my_token.range);
-            } else {
-                the_parts.push({ kind: 'text', value: my_token.value, range: my_token.range });
-            }
-        }
-        return the_parts;
+        return name_parts_from_tokens(this.tokens.slice(start, end));
     }
 
     private parse_call(): CallExpressionNode {

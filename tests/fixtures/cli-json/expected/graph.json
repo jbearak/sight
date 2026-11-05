@@ -54,6 +54,11 @@
       "error": null
     },
     {
+      "path": "macro-built-names.do",
+      "standalone": false,
+      "error": null
+    },
+    {
       "path": "main.do",
       "standalone": false,
       "error": null
@@ -79,6 +84,7 @@
     "column0-slashes.do",
     "comment-placement.do",
     "header-only.do",
+    "macro-built-names.do",
     "main.do",
     "program-ends.do",
     "tight-slashes.do"
