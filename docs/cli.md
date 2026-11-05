@@ -312,7 +312,11 @@ Every statement has:
   statements. Each comment is `{"style", "text", "range", "directive"}`,
   where `style` is `slash` (`//`), `star` (`*`), `block` (`/* */`), or
   `continuation` (`///` with any text after it), and `directive` is described
-  under "Directives" below.
+  under "Directives" below. As in Stata 18, a `//` or `///` is a comment
+  only at the start of a line or after a space or tab (or, under
+  `#delimit ;`, right after the `;` that ends a statement). Otherwise it
+  is part of the statement's text: `local a b///` has the value `b///`,
+  and `use http://example.com/d` keeps the whole URL.
 
 Statements with a body (`block`, `if`, `else`, loops, `program`, `frame`)
 have `body`, a list of statements. `command`, `block`, `macro`, `syntax`,

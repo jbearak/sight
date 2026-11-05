@@ -371,13 +371,10 @@ export class DiagnosticsProvider {
 
         // Add lexer diagnostics (structural errors are always reported)
         // These come from DocumentStore's cached parse results
+        // Structural errors (quotes, braces) are reported even in
+        // embedded contexts.
         for (const my_error of this.extract_lexer_errors(document)) {
-            const my_diagnostic = this.convert_lexer_error(my_error, config);
-            if (my_diagnostic) {
-                // Structural errors (quotes, braces) are always reported
-                // These are important even in embedded contexts
-                the_diagnostics.push(my_diagnostic);
-            }
+            the_diagnostics.push(this.convert_lexer_error(my_error));
         }
 
         // Add parser diagnostics (filtered by context)
@@ -954,31 +951,24 @@ export class DiagnosticsProvider {
     /**
      * Convert a lexer error to an LSP Diagnostic.
      */
-    private convert_lexer_error(
-        error: LexerError,
-        config: StataLSPConfig
-    ): Diagnostic | null {
-        let severity: DiagnosticSeverity | null;
+    private convert_lexer_error(error: LexerError): Diagnostic {
+        let severity: DiagnosticSeverity;
 
-        // Determine severity based on error code and config
+        // Lexer diagnostics have fixed severities.
         switch (error.code) {
             case LexerErrorCode.UNBALANCED_QUOTES:
             case LexerErrorCode.UNBALANCED_BLOCK_COMMENT:
             case LexerErrorCode.UNTERMINATED_STATEMENT:
                 severity = DiagnosticSeverity.Error;
                 break;
+            // A `///` with no space before it is text, so the next line
+            // runs as its own command: not a matter of style.
             case LexerErrorCode.CONTINUATION_NO_SPACE:
-                severity = this.get_severity_from_config(config.diagnostics.severity.styleWarnings);
-                break;
             case LexerErrorCode.BLOCK_COMMENT_IN_STAR_COMMENT:
                 severity = DiagnosticSeverity.Warning;
                 break;
             default:
                 severity = DiagnosticSeverity.Error;
-        }
-
-        if (severity === null) {
-            return null; // Disabled
         }
 
         return {

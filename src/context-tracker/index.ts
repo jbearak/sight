@@ -17,6 +17,9 @@ import {
 // A line whose first word is `end` (not `endx` or `end.x`).
 const PROGRAM_END_LINE = /^end(?![A-Za-z0-9_.])/;
 
+// A `//` comment start: at the start of the line or after a space or tab.
+const LINE_COMMENT_START_PATTERN = /(?<=^|[ \t])\/\//;
+
 // Token types that carry no live code. A line whose only tokens are
 // these (and that the lexer placed inside a block comment) is safe to
 // skip in the raw-line block-structure scans.
@@ -684,10 +687,11 @@ export class ContextTracker implements IContextTracker {
    * Handles both * and // style comments.
    */
   private extract_code_before_comment(line: string): string {
-    // Handle // comments
-    const my_double_slash_index = line.indexOf('//');
-    if (my_double_slash_index !== -1) {
-      return line.substring(0, my_double_slash_index);
+    // Handle // comments. As in Stata 18, `//` starts one only at the
+    // start of the line or after a space or tab (`use http://...` is code).
+    const my_comment_match = LINE_COMMENT_START_PATTERN.exec(line);
+    if (my_comment_match !== null) {
+      return line.substring(0, my_comment_match.index);
     }
 
     // Handle * comments (but not at start of line, which is already handled)

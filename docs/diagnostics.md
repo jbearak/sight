@@ -48,15 +48,15 @@ same rule IDs in its bracketed suffixes, for example `[undefined_macro]`.
 
 ## Lexical errors
 
-Reported by the lexer. Most are hard errors; `CONTINUATION_NO_SPACE` is
-gated by the `styleWarnings` severity.
+Reported by the lexer. Most are hard errors; two are warnings because
+Stata still runs the code, just not as written.
 
 | Rule ID | Default | Trigger |
 |---|---|---|
 | <a id="unbalanced-quotes"></a>`UNBALANCED_QUOTES` | error | A string literal is opened but never closed on the same statement. |
 | <a id="unbalanced-block-comment"></a>`UNBALANCED_BLOCK_COMMENT` | error | `/*` is not matched by `*/`. |
 | <a id="unterminated-statement"></a>`UNTERMINATED_STATEMENT` | error | A statement runs off the end of the file in `#delimit ;` mode without a terminating `;`. |
-| <a id="continuation-no-space"></a>`CONTINUATION_NO_SPACE` | information (`styleWarnings`) | `///` continuation marker not preceded by whitespace (`foo///` instead of `foo ///`). |
+| <a id="continuation-no-space"></a>`CONTINUATION_NO_SPACE` | warning | A `///` with no space or tab before it (`foo///` instead of `foo ///`). Stata 18 reads it as text, not a line continuation: under `#delimit cr` the next line runs as a separate command, and under `#delimit ;` the slashes and any note after them stay in the command. In an expression (`gen y = 2///`) Stata reports r(198). A `//` with no space before it is also text (`use http://...`), but gets no diagnostic. |
 | <a id="block-comment-in-star-comment"></a>`BLOCK_COMMENT_IN_STAR_COMMENT` | warning | A `/* ... */` block appears inside a `*` line comment, which Stata parses unexpectedly. |
 
 ## Parse and structural errors
@@ -302,7 +302,9 @@ Each severity key accepts `"error"`, `"warning"`, `"information"`,
   and the `OUT_OF_SCOPE_SYMBOL` variants of those categories.
 - `undefinedVariable` is experimental and ships off — see
   [Why undefined-variable is off by default](#why-undefined-variable-is-off-by-default).
-- `styleWarnings` currently gates `CONTINUATION_NO_SPACE`.
+- `styleWarnings` currently gates no diagnostic. `CONTINUATION_NO_SPACE`
+  used to be under it but is now always a warning, because a `///` with
+  no space before it changes what Stata runs.
 - Parse and brace-style diagnostics have no per-category control and
   `sight: ignore` does not silence them — fix the underlying issue.
 - Indentation diagnostics ship off; turn them on with the boolean

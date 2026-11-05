@@ -73,82 +73,27 @@ function is_statement_ending_comment(token: Token): boolean {
     token.value.startsWith('*') && token.value.endsWith(';');
 }
 
-/**
- * Tracks `///` line-continuation state while a caller collects the tokens of a
- * reconstructed value (expression, if/in qualifier, parenthesized group, macro
- * value, or loop spec). It answers, per collected token, whether that token was
- * reached by an UNBROKEN continuation chain from the previous collected token —
- * i.e. every physical line between them ended with `///`.
- *
- * `///` continues ONLY the immediately-following line, so a token pushed
- * further down by a raw newline or by a `///` that does not extend the chain
- * contiguously is NOT a continuation join and must separate. This prevents
- * value-token fusion such as `a///\n\nb` -> `ab` or
- * `a///\n\n///\nb` -> `ab` (issue #306). The boolean flag it produces feeds
- * `reconstruct_value_tokens`, which applies the column-0-join rule only when
- * the flag is true.
- */
-class ContinuationTracker {
-  // The line that must end with `///` to extend the chain by one line. Advances
-  // as contiguous continuations are noted; a gap leaves it behind the next
-  // collected token, which then reads as a raw-newline separator.
-  private required_line = -1;
-  private prev_collected_line: number | null = null;
-  private prev_collected_end: { line: number; character: number } | null = null;
-  // False once the chain contains real whitespace that must separate (a
-  // same-line gap before the first `///`, e.g. `a ///`); a "clean" chain is a
-  // pure column-0 join like `a///`.
-  private chain_clean = true;
-
-  /** Record a `///` continuation token (used for its own line and column). */
-  note_continuation(continuation_token: Token): void {
-    const cont_line = continuation_token.range.start.line;
-    if (cont_line !== this.required_line) {
-      // Not a contiguous extension; collect()'s line check separates the token.
-      return;
-    }
-    // Whitespace immediately before a contiguous `///` is real content that
-    // must separate, so the chain is no longer a clean column-0 join (issue
-    // #306). For the FIRST `///` (on the previous collected token's line) that
-    // is a same-line gap after that token, e.g. `a ///`. For a `///` on its own
-    // continuation line, any leading indentation is that whitespace, e.g. the
-    // `    ` before the second `///` in `a///` / `    ///` / `b`.
-    const cont_col = continuation_token.range.start.character;
-    const is_first_on_prev_line =
-      this.prev_collected_end !== null &&
-      this.required_line === this.prev_collected_line &&
-      cont_line === this.prev_collected_end.line;
-    const has_leading_gap = is_first_on_prev_line
-      ? cont_col > (this.prev_collected_end as { character: number }).character
-      : cont_col > 0;
-    if (has_leading_gap) {
-      this.chain_clean = false;
-    }
-    this.required_line += 1;
-  }
-
-  /**
-   * Register a collected token; returns whether it directly follows an unbroken,
-   * gap-free `///` chain from the previous collected token (a column-0 join).
-   */
-  collect(token: Token): boolean {
-    const token_line = token.range.start.line;
-    const follows_continuation =
-      this.prev_collected_line !== null &&
-      token_line > this.prev_collected_line &&
-      token_line === this.required_line &&
-      this.chain_clean;
-    this.prev_collected_line = token_line;
-    this.prev_collected_end = token.range.end;
-    this.required_line = token_line;
-    this.chain_clean = true;
-    return follows_continuation;
-  }
-}
-
 /** Is `token` a `///` continuation with a note after it? */
 function is_noted_continuation(token: Token): boolean {
   return token.type === 'CONTINUATION' && token.value.slice(3).trim() !== '';
+}
+
+/**
+ * Do `tokens` hold two `/` operators with nothing between them? That is
+ * a `//` or `///` with code right before it (`b///`, `http://`), which
+ * Stata 18 reads as text, so it must keep its slashes together.
+ */
+function has_adjacent_slashes(tokens: Token[]): boolean {
+  for (let i = 1; i < tokens.length; i++) {
+    const previous = tokens[i - 1];
+    const my_token = tokens[i];
+    if (previous.type === 'OPERATOR' && previous.value === '/' &&
+        my_token.type === 'OPERATOR' && my_token.value === '/' &&
+        compare_positions(previous.range.end, my_token.range.start) === 0) {
+      return true;
+    }
+  }
+  return false;
 }
 
 /**
@@ -160,8 +105,6 @@ function source_lines_of(tokens: Token[]): SourceLine[] {
   const the_lines: SourceLine[] = [];
   let the_parts: string[] = [];
   let column = tokens[0]?.range.start.character ?? 0;
-  let is_after_tight = false;
-  let before_previous: Token | undefined;
   let previous: Token | undefined;
   for (const my_token of tokens) {
     if (previous !== undefined) {
@@ -172,37 +115,19 @@ function source_lines_of(tokens: Token[]): SourceLine[] {
           the_parts.push(' '.repeat(gap));
         }
       } else {
-        the_lines.push(source_line(column, the_parts, is_after_tight));
+        the_lines.push({ column, text: the_parts.join('') });
         for (let i = 1; i < line_gap; i++) {
           the_lines.push({ column: 0, text: '' });
         }
         the_parts = [];
         column = my_token.range.start.character;
-        // A `///` with no space before it. One alone on its line keeps a
-        // tight chain going only from column 0, as ContinuationTracker
-        // reads it (`b///` then `///` then `c` is `bc`).
-        is_after_tight = previous.type === 'CONTINUATION' &&
-          (before_previous === undefined ||
-           before_previous.range.end.line !== previous.range.start.line
-            ? is_after_tight && previous.range.start.character === 0
-            : compare_positions(before_previous.range.end, previous.range.start) === 0);
       }
     }
     the_parts.push(my_token.value);
-    before_previous = previous;
     previous = my_token;
   }
-  the_lines.push(source_line(column, the_parts, is_after_tight));
+  the_lines.push({ column, text: the_parts.join('') });
   return the_lines;
-}
-
-function source_line(
-  column: number, the_parts: string[], is_after_tight: boolean
-): SourceLine {
-  const text = the_parts.join('');
-  return is_after_tight
-    ? { column, text, after_tight_continuation: true }
-    : { column, text };
 }
 
 /** Placeholder for a qualifier or `=` with nothing after it. */
@@ -723,14 +648,10 @@ export class StataParser {
 
     // Keep the raw text of `, options` (rclass, eclass, byable(), ...)
     const option_tokens: Token[] = [];
-    const preceded_by_continuation: boolean[] = [];
-    const continuation = new ContinuationTracker();
     let saw_comma = false;
     while (!this.isAtEnd() && !this.check('STATEMENT_TERMINATOR')) {
       if (this.check('CONTINUATION')) {
-        const cont_token = this.peek();
         if (this.skipContinuation()) {
-          continuation.note_continuation(cont_token);
           continue;
         }
       }
@@ -744,11 +665,10 @@ export class StataParser {
       }
       if (saw_comma) {
         option_tokens.push(my_token);
-        preceded_by_continuation.push(continuation.collect(my_token));
       }
     }
     const define_options = saw_comma
-      ? this.reconstruct_value_tokens(option_tokens, preceded_by_continuation).trim()
+      ? this.reconstruct_value_tokens(option_tokens).trim()
       : undefined;
 
     // Parse program body
@@ -917,20 +837,11 @@ export class StataParser {
     const value_start_pos = this.current;
     let paren_depth = 0;
     const value_tokens: Token[] = [];
-    // Parallel to value_tokens: true when the token at the same index was
-    // reached by crossing a `///` continuation (vs an ordinary newline). A
-    // `///` join keeps only indentation, so an unindented continuation joins
-    // with no space; a raw `#delimit ;` newline is ordinary whitespace and
-    // always separates. See reconstruct_value_tokens.
-    const preceded_by_continuation: boolean[] = [];
-    const continuation = new ContinuationTracker();
 
     while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
       // Handle continuation tokens - skip them and continue parsing
       if (this.check('CONTINUATION')) {
-        const cont_token = this.peek();
         if (this.skipContinuation()) {
-          continuation.note_continuation(cont_token);
           continue;
         }
       }
@@ -961,9 +872,6 @@ export class StataParser {
       }
 
       value_tokens.push(token);
-      preceded_by_continuation.push(
-        continuation.collect(token)
-      );
     }
 
     // Reconstruct with single-space separation from token ranges. The lexer
@@ -971,7 +879,7 @@ export class StataParser {
     // would collapse `local mylist a b c` to "abc" and `` `a' `b' `` to
     // "`a'`b'". A separated token pair (gap on the same line, or a line break
     // from a `///` continuation) becomes one space; adjacent tokens stay joined.
-    const value = prefix_value + this.reconstruct_value_tokens(value_tokens, preceded_by_continuation);
+    const value = prefix_value + this.reconstruct_value_tokens(value_tokens);
 
     // Check for unbalanced parentheses (unclosed opening parentheses)
     if (paren_depth > 0) {
@@ -1027,15 +935,11 @@ export class StataParser {
     // joined).
     const arg_tokens: Token[] = [];
     const value_tokens: Token[] = [];
-    const preceded_by_continuation: boolean[] = [];
-    const continuation = new ContinuationTracker();
     while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
       // Bridge `///` continuations onto the next physical line, matching the
       // standard `= ...` value path.
       if (this.check('CONTINUATION')) {
-        const cont_token = this.peek();
         if (this.skipContinuation()) {
-          continuation.note_continuation(cont_token);
           continue;
         }
       }
@@ -1053,16 +957,10 @@ export class StataParser {
       const token = this.advance();
       arg_tokens.push(token);
       value_tokens.push(token);
-      preceded_by_continuation.push(
-        continuation.collect(token)
-      );
     }
 
     // Reconstruct args with mode-independent single-space spacing.
-    const args_trimmed = this.reconstruct_value_tokens(
-      value_tokens,
-      preceded_by_continuation
-    ).trim();
+    const args_trimmed = this.reconstruct_value_tokens(value_tokens).trim();
     const extended_function = {
       name: function_name,
       args: args_trimmed,
@@ -1856,14 +1754,10 @@ export class StataParser {
       this.advance(); // consume '='
     }
     const the_tokens: Token[] = [];
-    const preceded_by_continuation: boolean[] = [];
-    const continuation = new ContinuationTracker();
     let depth = 0;
     while (!this.isAtEnd() && !this.check('STATEMENT_TERMINATOR')) {
       if (this.check('CONTINUATION')) {
-        const cont_token = this.peek();
         if (this.skipContinuation()) {
-          continuation.note_continuation(cont_token);
           continue;
         }
       }
@@ -1881,7 +1775,6 @@ export class StataParser {
         depth = Math.max(0, depth - 1);
       }
       the_tokens.push(my_token);
-      preceded_by_continuation.push(continuation.collect(my_token));
     }
     if (this.check('RBRACKET')) {
       this.advance(); // consume ']'
@@ -1889,10 +1782,7 @@ export class StataParser {
     return {
       keyword: keyword_token.value,
       kind,
-      expression: this.reconstruct_value_tokens(
-        the_tokens,
-        preceded_by_continuation
-      ).trim(),
+      expression: this.reconstruct_value_tokens(the_tokens).trim(),
       ...(this.structured ? {
         expression_ast: the_tokens.length > 0
           ? parse_expression(the_tokens)
@@ -1996,17 +1886,13 @@ export class StataParser {
     // single-space form and multi-token arguments are never fused — e.g.
     // `absorb(firm year)` stays `firm year`, not `firmyear` (issue #306).
     const arg_tokens: Token[] = [];
-    const preceded_by_continuation: boolean[] = [];
-    const continuation = new ContinuationTracker();
     let paren_depth = 1;
     while (!this.isAtEnd() && paren_depth > 0) {
       if (this.check('STATEMENT_TERMINATOR')) {
         break;
       }
       if (this.check('CONTINUATION')) {
-        const cont_token = this.peek();
         if (this.skipContinuation()) {
-          continuation.note_continuation(cont_token);
           continue;
         }
       }
@@ -2024,13 +1910,9 @@ export class StataParser {
         }
       }
       arg_tokens.push(t);
-      preceded_by_continuation.push(continuation.collect(t));
     }
     const argument_unclosed = paren_depth > 0 ? true : undefined;
-    const argument = this.reconstruct_value_tokens(
-      arg_tokens,
-      preceded_by_continuation
-    );
+    const argument = this.reconstruct_value_tokens(arg_tokens);
     const argument_range = arg_tokens.length > 0
       ? { start: arg_tokens[0].range.start, end: arg_tokens[arg_tokens.length - 1].range.end }
       : undefined;
@@ -2107,15 +1989,10 @@ export class StataParser {
     // single-space form — e.g. `(a b)` stays `(a b)` and `(1/3 = 1)` is
     // `(1/3 = 1)` in both modes (issue #306).
     const inner_tokens: Token[] = [];
-    const preceded_by_continuation: boolean[] = [];
-    const continuation = new ContinuationTracker();
     let paren_depth = 1;
 
     const collect = (my_token: Token): void => {
       inner_tokens.push(my_token);
-      preceded_by_continuation.push(
-        continuation.collect(my_token)
-      );
     };
 
     while (!this.isAtEnd() && paren_depth > 0) {
@@ -2123,9 +2000,7 @@ export class StataParser {
         break;
       }
       if (this.check('CONTINUATION')) {
-        const cont_token = this.peek();
         if (this.skipContinuation()) {
-          continuation.note_continuation(cont_token);
           continue;
         }
       }
@@ -2144,10 +2019,7 @@ export class StataParser {
       }
     }
 
-    const paren_content = this.reconstruct_value_tokens(
-      inner_tokens,
-      preceded_by_continuation
-    );
+    const paren_content = this.reconstruct_value_tokens(inner_tokens);
     const closed_group = paren_depth === 0 && this.check('RPAREN');
     const paren_end_pos = closed_group
         ? this.peek().range.end
@@ -2364,8 +2236,6 @@ export class StataParser {
     // index-based spec parsers below operate on the lexer token stream
     // directly; comments still stop collection.
     const syntax_tokens: Token[] = [];
-    const preceded_by_continuation: boolean[] = [];
-    const continuation = new ContinuationTracker();
     while (
       !this.check('STATEMENT_TERMINATOR') &&
       !this.isAtEnd()
@@ -2375,9 +2245,7 @@ export class StataParser {
       // collected whole rather than truncated at the first continuation
       // (issue #306). A comment still stops collection.
       if (this.check('CONTINUATION')) {
-        const cont_token = this.peek();
         if (this.skipContinuation()) {
-          continuation.note_continuation(cont_token);
           continue;
         }
       }
@@ -2392,7 +2260,6 @@ export class StataParser {
       }
       const my_token = this.advance();
       syntax_tokens.push(my_token);
-      preceded_by_continuation.push(continuation.collect(my_token));
     }
 
     // Parse the collected tokens
@@ -2433,8 +2300,7 @@ export class StataParser {
           // This is a required option marker, let parse_option_spec handle it
           const opt_result = this.parse_option_spec(
             syntax_tokens,
-            token_idx,
-            preceded_by_continuation
+            token_idx
           );
           if (opt_result) {
             // Track option names for duplicate detection
@@ -2457,8 +2323,7 @@ export class StataParser {
       // Try to parse an option
       const opt_result = this.parse_option_spec(
         syntax_tokens,
-        token_idx,
-        preceded_by_continuation
+        token_idx
       );
       if (opt_result) {
         // Track option names for duplicate detection
@@ -2490,10 +2355,7 @@ export class StataParser {
       ),
     };
     if (syntax_tokens.length > 0) {
-      syntax_node.arguments = this.reconstruct_value_tokens(
-        syntax_tokens,
-        preceded_by_continuation
-      );
+      syntax_node.arguments = this.reconstruct_value_tokens(syntax_tokens);
     }
     return syntax_node;
   }
@@ -2610,8 +2472,7 @@ export class StataParser {
 
   private parse_option_spec(
     tokens: Token[],
-    start_idx: number,
-    preceded_by_continuation: boolean[] = []
+    start_idx: number
   ): { spec: OptionSpec; next_idx: number } | null {
     if (start_idx >= tokens.length) {
       return null;
@@ -2658,7 +2519,6 @@ export class StataParser {
 
       // Collect tokens until closing paren
       const type_tokens: Token[] = [];
-      const type_flags: boolean[] = [];
       let paren_depth = 1;
       while (current_idx < tokens.length && paren_depth > 0) {
         const my_token = tokens[current_idx];
@@ -2671,7 +2531,6 @@ export class StataParser {
           }
         }
         type_tokens.push(my_token);
-        type_flags.push(preceded_by_continuation[current_idx] ?? false);
         current_idx++;
       }
 
@@ -2709,7 +2568,6 @@ export class StataParser {
               // yields a single space per gap even though whitespace tokens are
               // absent here.
               const default_tokens: Token[] = [];
-              const default_flags: boolean[] = [];
               let default_paren_depth = 1;
               let j = i + 2;
               while (j < type_tokens.length && default_paren_depth > 0) {
@@ -2723,13 +2581,10 @@ export class StataParser {
                   }
                 }
                 default_tokens.push(my_token);
-                default_flags.push(type_flags[j] ?? false);
                 j++;
               }
-              default_value = this.reconstruct_value_tokens(
-                default_tokens,
-                default_flags
-              ).trim();
+              default_value =
+                this.reconstruct_value_tokens(default_tokens).trim();
               break;
             }
           }
@@ -2955,11 +2810,9 @@ export class StataParser {
     const has_brace = this.hasIfBrace();
 
     // Parse condition up to { or a single statement, reconstructing spacing from
-    // token ranges, so both delimiter modes agree and `///` continuations use
-    // the same join semantics as expressions/qualifiers (issue #306).
+    // token ranges, so both delimiter modes agree and `///` continuations
+    // space the same way as expressions/qualifiers (issue #306).
     const condition_tokens: Token[] = [];
-    const preceded_by_continuation: boolean[] = [];
-    const continuation = new ContinuationTracker();
     const condition_start_line = ifToken.range.start.line;
     let paren_depth = 0;
     let bracket_depth = 0;
@@ -2970,9 +2823,7 @@ export class StataParser {
     while (!this.check('LBRACE') && !this.isAtEnd()) {
       // Handle continuation tokens - skip them and continue parsing
       if (this.check('CONTINUATION')) {
-        const cont_token = this.peek();
         if (this.skipContinuation()) {
-          continuation.note_continuation(cont_token);
           continue;
         }
       }
@@ -2990,15 +2841,13 @@ export class StataParser {
       }
 
       const token = this.peek();
-      const follows_continuation = continuation.collect(token);
       // Two separate operands cannot belong to one expression. The second
       // starts the command in `if expression command`. Adjacent fragments
       // of macro-built names and interpolated strings are still one operand.
       const joins_operand = previous_operand &&
         previous_operand.type !== 'RPAREN' &&
         previous_operand.type !== 'RBRACKET' &&
-        (this.isAdjacentToken(previous_operand, token) ||
-         (follows_continuation && token.range.start.character === 0));
+        this.isAdjacentToken(previous_operand, token);
       // A separated literal `if` starts a nested statement, so any brace
       // ahead belongs to that statement. Unlike a macro, the keyword
       // cannot expand to an operator or serve as a variable name.
@@ -3038,14 +2887,10 @@ export class StataParser {
       }
 
       condition_tokens.push(token);
-      preceded_by_continuation.push(follows_continuation);
     }
 
     // Reconstruct condition with mode-independent single-space spacing.
-    const condition = this.reconstruct_value_tokens(
-      condition_tokens,
-      preceded_by_continuation
-    ).trim();
+    const condition = this.reconstruct_value_tokens(condition_tokens).trim();
 
     // Check for unbalanced parentheses and empty condition
     if (paren_depth > 0) {
@@ -3209,11 +3054,8 @@ export class StataParser {
       // Collect the spec tokens and reconstruct spacing from their ranges via
       // reconstruct_value_tokens, so `#delimit ;` and `#delimit cr` yield the
       // identical single-space form and value items are never fused (issue
-      // #306). A `///` continuation changes how a line break is spaced, so its
-      // line is recorded on the shared ContinuationTracker.
+      // #306).
       const spec_tokens: Token[] = [];
-      const preceded_by_continuation: boolean[] = [];
-      const continuation = new ContinuationTracker();
 
       // Collect specification until {
       while (!this.check('LBRACE') && !this.isAtEnd()) {
@@ -3240,16 +3082,12 @@ export class StataParser {
         }
         const token = this.advance();
         if (token.type === 'CONTINUATION') {
-          continuation.note_continuation(token);
           continue;
         }
         spec_tokens.push(token);
-        preceded_by_continuation.push(
-          continuation.collect(token)
-        );
       }
       loopSpec = specType + ' ' +
-        this.reconstruct_value_tokens(spec_tokens, preceded_by_continuation).trim();
+        this.reconstruct_value_tokens(spec_tokens).trim();
     }
 
     // Parse body
@@ -3297,17 +3135,13 @@ export class StataParser {
     // Parse condition - collect tokens until { and reconstruct spacing from
     // token ranges, matching the expression/qualifier path (issue #306).
     const condition_tokens: Token[] = [];
-    const preceded_by_continuation: boolean[] = [];
-    const continuation = new ContinuationTracker();
     let paren_depth = 0;
     const the_comments: TriviaNode[] = [];
 
     while (!this.check('LBRACE') && !this.isAtEnd()) {
       // Handle continuation tokens - skip them and continue parsing
       if (this.check('CONTINUATION')) {
-        const cont_token = this.peek();
         if (this.skipContinuation()) {
-          continuation.note_continuation(cont_token);
           continue;
         }
       }
@@ -3338,14 +3172,10 @@ export class StataParser {
       }
 
       condition_tokens.push(token);
-      preceded_by_continuation.push(continuation.collect(token));
     }
 
     // Reconstruct condition with mode-independent single-space spacing.
-    const condition = this.reconstruct_value_tokens(
-      condition_tokens,
-      preceded_by_continuation
-    ).trim();
+    const condition = this.reconstruct_value_tokens(condition_tokens).trim();
 
     // Check for unbalanced parentheses and empty condition
     if (paren_depth > 0) {
@@ -3830,14 +3660,10 @@ export class StataParser {
     };
 
     const argument_tokens: Token[] = [];
-    const preceded_by_continuation: boolean[] = [];
-    const continuation = new ContinuationTracker();
     let depth = 0;
     while (this.current < colon_index) {
       if (this.check('CONTINUATION')) {
-        const cont_token = this.peek();
         if (this.skipContinuation()) {
-          continuation.note_continuation(cont_token);
           continue;
         }
       }
@@ -3854,14 +3680,10 @@ export class StataParser {
         depth = Math.max(0, depth - 1);
       }
       argument_tokens.push(my_token);
-      preceded_by_continuation.push(continuation.collect(my_token));
     }
 
     if (argument_tokens.length > 0) {
-      prefix.arguments = this.reconstruct_value_tokens(
-        argument_tokens,
-        preceded_by_continuation
-      ).trim();
+      prefix.arguments = this.reconstruct_value_tokens(argument_tokens).trim();
       prefix.arguments_range = this.makeRange(
         argument_tokens[0].range.start,
         argument_tokens[argument_tokens.length - 1].range.end
@@ -4107,7 +3929,9 @@ export class StataParser {
    * Keep the lines of the statement starting at token `start` as
    * written when a `///` in it has a note after it, so the AST printer
    * can keep the note on its line (`reg y x /// note` then `z`). A
-   * brace block keeps only its header, through `{`.
+   * brace block keeps only its header, through `{`. Slashes with code
+   * right before them (`reg y x, robust///`) are kept as written too:
+   * reprinting could space them out or drop them.
    */
   private keep_noted_lines(node: StataNode, start: number): void {
     let end = start;
@@ -4152,7 +3976,8 @@ export class StataParser {
     }
     const the_tokens = this.tokens.slice(start, end)
       .filter((my_token) => my_token.type !== 'STATEMENT_TERMINATOR');
-    if (the_tokens.some(is_noted_continuation)) {
+    if (the_tokens.some(is_noted_continuation) ||
+        has_adjacent_slashes(the_tokens)) {
       node.noted_lines = source_lines_of(the_tokens);
     }
   }
@@ -4452,8 +4277,6 @@ export class StataParser {
     // so delimiter modes produce the identical, source-faithful single-space
     // form (issue #306).
     const the_tokens: Token[] = [];
-    const preceded_by_continuation: boolean[] = [];
-    const continuation = new ContinuationTracker();
     let paren_depth = 0;
     let bracket_depth = 0;
     const start_pos = this.current;
@@ -4467,7 +4290,6 @@ export class StataParser {
 
       // Handle continuation tokens - skip them and continue parsing
       if (this.skipContinuation()) {
-        continuation.note_continuation(token);
         continue;
       }
 
@@ -4519,15 +4341,9 @@ export class StataParser {
 
       this.advance();
       the_tokens.push(token);
-      preceded_by_continuation.push(
-        continuation.collect(token)
-      );
     }
 
-    const expression = this.reconstruct_value_tokens(
-      the_tokens,
-      preceded_by_continuation
-    );
+    const expression = this.reconstruct_value_tokens(the_tokens);
 
     // Check for unbalanced parentheses (unclosed opening parentheses)
     if (paren_depth > 0) {
@@ -4630,8 +4446,6 @@ export class StataParser {
     // (issue #306). The stray-token state machine below is unchanged; only the
     // string it builds is collected here instead of appended inline.
     const the_tokens: Token[] = [];
-    const preceded_by_continuation: boolean[] = [];
-    const continuation = new ContinuationTracker();
     let paren_depth = 0;
     let bracket_depth = 0;  // Track subscript bracket depth
     const start_token = this.peek();
@@ -4705,7 +4519,6 @@ export class StataParser {
 
       // Handle continuation tokens - skip them and continue parsing
       if (this.skipContinuation()) {
-        continuation.note_continuation(token);
         continue;
       }
 
@@ -4837,9 +4650,6 @@ export class StataParser {
 
       this.advance();
       the_tokens.push(token);
-      preceded_by_continuation.push(
-        continuation.collect(token)
-      );
     }
 
     // Check for unbalanced parentheses
@@ -4847,10 +4657,7 @@ export class StataParser {
       this.addError(`Unbalanced parentheses in ${qualifier_type} qualifier: missing closing parenthesis`, start_token.range, ParseErrorCode.UNBALANCED_PARENTHESES);
     }
 
-    const trimmed_expression = this.reconstruct_value_tokens(
-      the_tokens,
-      preceded_by_continuation
-    ).trim();
+    const trimmed_expression = this.reconstruct_value_tokens(the_tokens).trim();
 
     // Check for empty expression (only for if-qualifiers)
     if (check_empty && trimmed_expression === '') {
@@ -5194,29 +5001,20 @@ export class StataParser {
    * Reconstruct a macro value from its tokens, collapsing any inter-token gap
    * to a single space and joining truly adjacent tokens directly.
    *
-   * A `///` continuation removes the `///` and the newline but keeps the next
-   * line's leading indentation as part of the value, so a continued token that
-   * starts at column 0 joins with NO space (`local x = ab///\ncd` ⇒ `"abcd"`,
-   * `1///\n+2` ⇒ `"1+2"`) while an indented continuation keeps a single space
-   * (`local x = 1 + ///\n    2` ⇒ `"1 + 2"`). A line break that is NOT a `///`
-   * continuation only occurs in `#delimit ;` mode, where a newline is ordinary
-   * whitespace; it always contributes a separator even when the next token
-   * starts at column 0 (`local xs a` \n `b ;` ⇒ `"a b"`, not `"ab"`). Unlike
-   * `reconstructTokensWithSpacing`, exact widths and indentation are collapsed,
-   * so values read cleanly.
+   * A line break between tokens is always a separator. A `///`
+   * continuation needs a space or tab before it (Stata 18 reads `b///` as
+   * text), and Stata keeps that whitespace and the next line's
+   * indentation, so `local x = 1 + ///` then `2` is `"1 + 2"`. Under
+   * `#delimit ;` a newline is ordinary whitespace (`local xs a` then `b ;`
+   * is `"a b"`). Unlike `reconstructTokensWithSpacing`, exact widths and
+   * indentation are collapsed, so values read cleanly.
    *
    * @param tokens - value tokens in order (CONTINUATION removed)
-   * @param preceded_by_continuation - parallel array; entry `i` is true when
-   *   `tokens[i]` was reached by crossing a `///` continuation
    */
-  private reconstruct_value_tokens(
-    tokens: Token[],
-    preceded_by_continuation: boolean[]
-  ): string {
+  private reconstruct_value_tokens(tokens: Token[]): string {
     const the_parts: string[] = [];
     let prev_token: Token | null = null;
-    for (let i = 0; i < tokens.length; i++) {
-      const my_token = tokens[i];
+    for (const my_token of tokens) {
       if (prev_token?.type === 'COMMENT_LINE') {
         // A `//` comment runs to the end of its line, so what followed
         // it (under `#delimit ;`, `(mean // c` then `x)`) stays on the
@@ -5224,20 +5022,9 @@ export class StataParser {
         the_parts.push('\n');
       } else if (prev_token !== null) {
         const same_line = prev_token.range.end.line === my_token.range.start.line;
-        let needs_separator: boolean;
-        if (same_line) {
-          // Same-line gap: separate only when there is whitespace between.
-          needs_separator =
-            my_token.range.start.character - prev_token.range.end.character > 0;
-        } else if (preceded_by_continuation[i]) {
-          // `///` continuation: the gap is the continued token's own
-          // indentation, so column 0 joins and an indented token separates.
-          needs_separator = my_token.range.start.character > 0;
-        } else {
-          // Raw newline (`#delimit ;` mode): ordinary whitespace separator,
-          // regardless of the next line's indentation.
-          needs_separator = true;
-        }
+        // Same-line gap: separate only when there is whitespace between.
+        const needs_separator = !same_line ||
+          my_token.range.start.character - prev_token.range.end.character > 0;
         if (needs_separator) {
           the_parts.push(' ');
         }

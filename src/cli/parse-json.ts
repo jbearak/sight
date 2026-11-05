@@ -636,41 +636,11 @@ class ParseDocumentBuilder {
 
     /**
      * The separator the parser uses between two value tokens: none when
-     * they touch or when `///` directly after `previous` joins `next` at
-     * the start of the following line, otherwise one space.
+     * they touch, otherwise one space. A `///` continuation always has a
+     * space or tab before it, so a line break is one space too.
      */
     private gap_between(previous: Token, next: Token): string {
-        if (is_adjacent(previous, next)) {
-            return '';
-        }
-        // A clean chain: `///` touching `previous`, then any number of
-        // lines that hold only `///` at column 0, then `next` at column 0
-        // of the line after the last one (the parser's ContinuationTracker
-        // rule).
-        let i = this.first_token_at(previous.range.end);
-        let continuation = this.tokens[i];
-        if (continuation?.type !== 'CONTINUATION' || !is_adjacent(previous, continuation)) {
-            return ' ';
-        }
-        for (;;) {
-            i++;
-            if (this.tokens[i]?.type === 'STATEMENT_TERMINATOR') {
-                i++; // the newline the `///` swallows
-            }
-            const following = this.tokens[i];
-            const expected_line = continuation.range.start.line + 1;
-            if (following === undefined || following.range.start.line !== expected_line ||
-                following.range.start.character !== 0) {
-                return ' ';
-            }
-            if (following === next) {
-                return '';
-            }
-            if (following.type !== 'CONTINUATION') {
-                return ' ';
-            }
-            continuation = following;
-        }
+        return is_adjacent(previous, next) ? '' : ' ';
     }
 
     /** Text and macro parts of a plain macro value, spaced like `value`. */

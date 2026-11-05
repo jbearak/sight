@@ -291,10 +291,14 @@ const simple_statement_body = fc.oneof(
     'local quoted = "value `foo\'"',
     'local compound = `"hello `foo\'"\'',
     'local n : word count a b c',
-    'local joined = a///\nb',
-    'local indented = a///\n    b',
+    // A `///` continues a line only after a space or tab. Without one
+    // (`a///`) Stata 18 reads it as text, and the next line is its own
+    // command in `cr` mode but more of the statement under `;`, so the
+    // two modes rightly differ there.
+    'local tabbed = a\t///\nb',
+    'local indented = a ///\n    b',
     'local spaced = a ///\nb',
-    'gen continued = a///\nb',
+    'gen continued = a\t///\nb',
     'gen continued_spaced = a ///\nb'
   )
 );
@@ -363,7 +367,7 @@ const while_condition = fc.oneof(
   fc.tuple(identifier, gap, binop, gap, term).map(([left, g1, op, g2, right]) =>
     `${left}${g1}${op}${g2}${right}`
   ),
-  fc.constantFrom('a///\nb', 'a ///\nb')
+  fc.constantFrom('a\t///\nb', 'a ///\n    b')
 );
 
 const while_statement = fc
@@ -387,7 +391,7 @@ const if_condition = fc.oneof(
   fc.tuple(identifier, gap, gap, gap, binop, gap, term).map(([name, g1, g2, g3, op, g4, right]) =>
     `${name}[${g1}_n${g2}-${g3}1]${g4}${op}${g4}${right}`
   ),
-  fc.constantFrom('a///\nb', 'a ///\nb')
+  fc.constantFrom('a\t///\nb', 'a ///\n    b')
 );
 
 const if_else_statement = fc

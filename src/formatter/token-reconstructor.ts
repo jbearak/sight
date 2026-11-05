@@ -1,6 +1,5 @@
 import { Token } from '../types';
 import { IndentationInfo } from './indentation-analyzer';
-import { find_tight_continuation_lines } from './alignment-detector';
 
 export interface TokenProcessingState {
     current_line: number;
@@ -38,7 +37,6 @@ export class TokenReconstructor {
         };
 
         const the_lines = original_source.split('\n');
-        const the_tight_lines = find_tight_continuation_lines(tokens);
 
         for (const my_token of tokens) {
             if (my_token.type === 'EOF') {
@@ -92,17 +90,13 @@ export class TokenReconstructor {
                         // while preserving the visual width
                         output_whitespace = this.normalize_whitespace(leading_whitespace, config);
                     }
-                    output_whitespace = this.keep_tight_join(
-                        output_whitespace, the_tight_lines.has(state.current_line), token_col);
                     state.output_parts.push(output_whitespace);
                     state.source_column = token_col; // Track original position for spacing extraction
                     state.output_column = this.calculate_visual_width(output_whitespace, config.indent_size);
                 } else {
                     // Generate new indentation
                     const indent_level = typeof indent_info === 'number' ? indent_info : (indent_info?.indent_level ?? 0);
-                    const indent_str = this.keep_tight_join(
-                        this.make_indent(indent_level, config),
-                        the_tight_lines.has(state.current_line), token_col);
+                    const indent_str = this.make_indent(indent_level, config);
                     state.output_parts.push(indent_str);
                     state.source_column = token_col; // Track original position for spacing extraction
                     state.output_column = this.calculate_visual_width(indent_str, config.indent_size);
@@ -147,22 +141,6 @@ export class TokenReconstructor {
         }
 
         return state.output_parts.join('');
-    }
-
-    /**
-     * Indentation for a line after a tight `///` (no space before it):
-     * the parser joins a column-0 line to the token before the `///`, so
-     * it stays at column 0, and an indented line keeps at least a space.
-     * Other lines take `indent` unchanged.
-     */
-    private keep_tight_join(indent: string, is_after_tight: boolean, source_column: number): string {
-        if (!is_after_tight) {
-            return indent;
-        }
-        if (source_column === 0) {
-            return '';
-        }
-        return indent === '' ? ' ' : indent;
     }
 
     /**

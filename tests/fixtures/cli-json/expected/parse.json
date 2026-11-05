@@ -4709,5 +4709,442 @@
       }
     ],
     "errors": []
+  },
+  {
+    "schema_version": 1,
+    "sight_version": "<VERSION>",
+    "path": "<ROOT>/tight-slashes.do",
+    "line_count": 13,
+    "statements": [
+      {
+        "kind": "macro",
+        "range": {
+          "start": {
+            "line": 2,
+            "character": 0
+          },
+          "end": {
+            "line": 2,
+            "character": 12
+          }
+        },
+        "text": "local a b///",
+        "delimit": "cr",
+        "comments": {
+          "leading": [
+            {
+              "style": "star",
+              "text": "* Stata 18 reads // and /// as a comment or a continuation only at the",
+              "range": {
+                "start": {
+                  "line": 0,
+                  "character": 0
+                },
+                "end": {
+                  "line": 0,
+                  "character": 70
+                }
+              },
+              "directive": null
+            },
+            {
+              "style": "star",
+              "text": "* start of a line or after a space or tab. Anything else makes them text.",
+              "range": {
+                "start": {
+                  "line": 1,
+                  "character": 0
+                },
+                "end": {
+                  "line": 1,
+                  "character": 73
+                }
+              },
+              "directive": null
+            }
+          ],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [],
+        "scope": "local",
+        "name": "a",
+        "form": "value",
+        "value": "b///",
+        "value_parts": [
+          {
+            "kind": "text",
+            "value": "b///",
+            "range": {
+              "start": {
+                "line": 2,
+                "character": 8
+              },
+              "end": {
+                "line": 2,
+                "character": 12
+              }
+            }
+          }
+        ],
+        "expression": null,
+        "extended": null,
+        "increment": null
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 3,
+            "character": 0
+          },
+          "end": {
+            "line": 3,
+            "character": 28
+          }
+        },
+        "text": "display \"a separate command\"",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "display",
+        "canonical_name": "display",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "\"a separate command\"",
+            "range": {
+              "start": {
+                "line": 3,
+                "character": 8
+              },
+              "end": {
+                "line": 3,
+                "character": 28
+              }
+            }
+          }
+        ],
+        "varlist": null,
+        "assignment": null,
+        "if": null,
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": []
+      },
+      {
+        "kind": "macro",
+        "range": {
+          "start": {
+            "line": 4,
+            "character": 0
+          },
+          "end": {
+            "line": 4,
+            "character": 16
+          }
+        },
+        "text": "local b b///note",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [],
+        "scope": "local",
+        "name": "b",
+        "form": "value",
+        "value": "b///note",
+        "value_parts": [
+          {
+            "kind": "text",
+            "value": "b///note",
+            "range": {
+              "start": {
+                "line": 4,
+                "character": 8
+              },
+              "end": {
+                "line": 4,
+                "character": 16
+              }
+            }
+          }
+        ],
+        "expression": null,
+        "extended": null,
+        "increment": null
+      },
+      {
+        "kind": "macro",
+        "range": {
+          "start": {
+            "line": 5,
+            "character": 0
+          },
+          "end": {
+            "line": 6,
+            "character": 5
+          }
+        },
+        "text": "local c b ///\n    c",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [
+            {
+              "style": "continuation",
+              "text": "///",
+              "range": {
+                "start": {
+                  "line": 5,
+                  "character": 10
+                },
+                "end": {
+                  "line": 5,
+                  "character": 13
+                }
+              },
+              "directive": null
+            }
+          ],
+          "block_end": []
+        },
+        "prefixes": [],
+        "scope": "local",
+        "name": "c",
+        "form": "value",
+        "value": "b c",
+        "value_parts": [
+          {
+            "kind": "text",
+            "value": "b c",
+            "range": {
+              "start": {
+                "line": 5,
+                "character": 8
+              },
+              "end": {
+                "line": 6,
+                "character": 5
+              }
+            }
+          }
+        ],
+        "expression": null,
+        "extended": null,
+        "increment": null
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 7,
+            "character": 0
+          },
+          "end": {
+            "line": 7,
+            "character": 51
+          }
+        },
+        "text": "use http://www.stata-press.com/data/r18/auto, clear",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "use",
+        "canonical_name": "use",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "http://www.stata-press.com/data/r18/auto",
+            "range": {
+              "start": {
+                "line": 7,
+                "character": 4
+              },
+              "end": {
+                "line": 7,
+                "character": 44
+              }
+            }
+          }
+        ],
+        "varlist": null,
+        "assignment": null,
+        "if": null,
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": [
+          {
+            "name": "clear",
+            "canonical_name": "clear",
+            "argument": null,
+            "argument_range": null,
+            "expression": null,
+            "range": {
+              "start": {
+                "line": 7,
+                "character": 46
+              },
+              "end": {
+                "line": 7,
+                "character": 51
+              }
+            }
+          }
+        ]
+      },
+      {
+        "kind": "delimit",
+        "range": {
+          "start": {
+            "line": 8,
+            "character": 0
+          },
+          "end": {
+            "line": 8,
+            "character": 10
+          }
+        },
+        "text": "#delimit ;",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "mode": "semicolon"
+      },
+      {
+        "kind": "macro",
+        "range": {
+          "start": {
+            "line": 9,
+            "character": 0
+          },
+          "end": {
+            "line": 10,
+            "character": 1
+          }
+        },
+        "text": "local d b///\nc",
+        "delimit": "semicolon",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [],
+        "scope": "local",
+        "name": "d",
+        "form": "value",
+        "value": "b/// c",
+        "value_parts": [
+          {
+            "kind": "text",
+            "value": "b/// c",
+            "range": {
+              "start": {
+                "line": 9,
+                "character": 8
+              },
+              "end": {
+                "line": 10,
+                "character": 1
+              }
+            }
+          }
+        ],
+        "expression": null,
+        "extended": null,
+        "increment": null
+      },
+      {
+        "kind": "delimit",
+        "range": {
+          "start": {
+            "line": 11,
+            "character": 0
+          },
+          "end": {
+            "line": 11,
+            "character": 11
+          }
+        },
+        "text": "#delimit cr",
+        "delimit": "semicolon",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "mode": "cr"
+      }
+    ],
+    "comments": [],
+    "errors": [
+      {
+        "source": "lexer",
+        "code": "CONTINUATION_NO_SPACE",
+        "message": "`///` is not a line continuation unless a space or tab comes before it; here the next line runs as a separate command. Add a space before `///`.",
+        "range": {
+          "start": {
+            "line": 2,
+            "character": 9
+          },
+          "end": {
+            "line": 2,
+            "character": 12
+          }
+        }
+      },
+      {
+        "source": "lexer",
+        "code": "CONTINUATION_NO_SPACE",
+        "message": "`///` is not a line continuation unless a space or tab comes before it; here the next line runs as a separate command. Add a space before `///`.",
+        "range": {
+          "start": {
+            "line": 4,
+            "character": 9
+          },
+          "end": {
+            "line": 4,
+            "character": 12
+          }
+        }
+      },
+      {
+        "source": "lexer",
+        "code": "CONTINUATION_NO_SPACE",
+        "message": "`///` is not a line continuation unless a space or tab comes before it; here the slashes and anything after them stay in the command. Add a space before `///`.",
+        "range": {
+          "start": {
+            "line": 9,
+            "character": 9
+          },
+          "end": {
+            "line": 9,
+            "character": 12
+          }
+        }
+      }
+    ]
   }
 ]

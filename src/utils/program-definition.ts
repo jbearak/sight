@@ -11,6 +11,9 @@ export const PROGRAM_SUBCOMMANDS: ReadonlySet<string> = new Set([
 
 const FIRST_WORD = /^[ \t]+([A-Za-z_][A-Za-z0-9_]*)/;
 const PLUGIN_WORD = /\bplugin\b/;
+// A `//` comment start: as in Stata 18, at the start of the text or
+// after a space or tab (`program p, rclass//x` has no comment).
+const LINE_COMMENT_START = /(?<=^|[ \t])\/\//;
 
 /**
  * `text` with each block comment that opens and closes on the line
@@ -58,10 +61,10 @@ export function is_program_definition_header(text_after_program: string): boolea
     if (my_match === null || PROGRAM_SUBCOMMANDS.has(my_match[1])) {
         return false;
     }
-    const my_comment_start = my_text.indexOf('//');
-    const my_code = my_comment_start === -1
+    const my_comment = LINE_COMMENT_START.exec(my_text);
+    const my_code = my_comment === null
         ? my_text
-        : my_text.slice(0, my_comment_start);
+        : my_text.slice(0, my_comment.index);
     // A `plugin` option: the word after the comma that starts options
     const my_comma = my_code.indexOf(',');
     return my_comma === -1 || !PLUGIN_WORD.test(my_code.slice(my_comma));

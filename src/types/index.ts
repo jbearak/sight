@@ -189,15 +189,13 @@ export interface ProgramSignature {
 /**
  * One line of a statement as written. Statements whose `///` has a note
  * after it keep their lines (see `noted_lines`), so the AST printer can
- * print the note where it was. `column` is where the line's first token
- * was in the source. `after_tight_continuation` marks a line after a
- * `///` with no space before it, whose indentation decides whether it
- * joins the token before the `///` (`b///` then `c` is `bc`).
+ * print the note where it was; so do statements with a `//` or `///`
+ * that has code right before it. `column` is where the line's first token
+ * was in the source.
  */
 export interface SourceLine {
   column: number;
   text: string;
-  after_tight_continuation?: true;
 }
 
 export interface SyntaxNode {
@@ -330,7 +328,8 @@ export interface CommandNode {
   // the prefixes (`quietly /* c */ {`).
   interiorTrivia?: TriviaNode[];
   // The statement's lines as written, kept when a `///` in it has a
-  // note after it (`reg y x /// note` then `z`). Not set on brace blocks.
+  // note after it (`reg y x /// note` then `z`) or when it has slashes
+  // with code right before them (`b///`). Not set on brace blocks.
   noted_lines?: SourceLine[];
   blockEndingTrivia?: TriviaNode[];
   trailingTrivia?: TriviaNode[];

@@ -73,39 +73,6 @@ export function find_delimit_continuation_runs(
   return the_runs;
 }
 
-/**
- * Lines after a `///` with no space before it. The parser joins such a
- * line to the token before the `///` when it starts at column 0 (`b///`
- * then `c` is `bc`) and separates it when indented, so re-indenting it
- * can change the statement. A `///` alone on its line carries the join
- * forward only from column 0, as ContinuationTracker reads it.
- */
-export function find_tight_continuation_lines(tokens: Token[]): Set<number> {
-  const the_lines = new Set<number>();
-  let previous: Token | undefined;
-  for (const my_token of tokens) {
-    if (my_token.type === 'WHITESPACE') {
-      continue;
-    }
-    if (my_token.type === 'CONTINUATION') {
-      const my_line = my_token.range.start.line;
-      // The newline a `///` swallows ends on the next line, so a
-      // terminator before this `///` means it is alone on its line.
-      const is_after_token = previous !== undefined &&
-        previous.type !== 'STATEMENT_TERMINATOR' &&
-        previous.range.end.line === my_line;
-      const is_tight = is_after_token
-        ? previous?.range.end.character === my_token.range.start.character
-        : the_lines.has(my_line) && my_token.range.start.character === 0;
-      if (is_tight) {
-        the_lines.add(my_line + 1);
-      }
-    }
-    previous = my_token;
-  }
-  return the_lines;
-}
-
 export class AlignmentDetector {
   private the_groups = new Map<number, ContinuationGroup>();
   private aligned_lines_set = new Set<number>();

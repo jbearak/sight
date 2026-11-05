@@ -1361,29 +1361,13 @@ describe('Loop macro expansion (integration)', () => {
         expect(xs?.value).not.toContain('\n');
     });
 
-    it('joins an unindented /// continuation in a loop specification', () => {
-        // Stata removes the `///` newline and keeps only indentation, so an
-        // unindented continuation joins: `foreach i in a///`\n`b {` is the single
-        // value `ab`. The expander must see one value `ab` (=> x_ab), not two
-        // values `a`/`b` (=> x_a/x_b).
+    it('separates an unindented /// continuation in a loop specification', () => {
+        // Stata keeps the space before `///` and drops the `///` and the
+        // newline, so `foreach i in a ///` then `b {` is two values, `a`
+        // and `b` (=> x_a/x_b), not one value `ab`.
         const source = [
-            'foreach i in a///',
+            'foreach i in a ///',
             'b {',
-            "    local x_`i'",
-            '}',
-        ].join('\n');
-        const { symbols } = analyze(source);
-        expect(symbols.localMacros.has('x_ab')).toBe(true);
-        expect(symbols.localMacros.has('x_a')).toBe(false);
-        expect(symbols.localMacros.has('x_b')).toBe(false);
-    });
-
-    it('separates an indented /// continuation in a loop specification', () => {
-        // An indented `///` continuation keeps a single separating space, so
-        // `foreach i in a///`\n`    b {` is two values `a` and `b` (=> x_a/x_b).
-        const source = [
-            'foreach i in a///',
-            '    b {',
             "    local x_`i'",
             '}',
         ].join('\n');
@@ -1391,5 +1375,19 @@ describe('Loop macro expansion (integration)', () => {
         expect(symbols.localMacros.has('x_a')).toBe(true);
         expect(symbols.localMacros.has('x_b')).toBe(true);
         expect(symbols.localMacros.has('x_ab')).toBe(false);
+    });
+
+    it('does not continue a loop specification after a /// with no space', () => {
+        // Stata 18 reads `a///` as text, so `b {` starts a new statement
+        // and the loop never sees `b`.
+        const source = [
+            'foreach i in a///',
+            'b {',
+            "    local x_`i'",
+            '}',
+        ].join('\n');
+        const { symbols } = analyze(source);
+        expect(symbols.localMacros.has('x_ab')).toBe(false);
+        expect(symbols.localMacros.has('x_b')).toBe(false);
     });
 });
