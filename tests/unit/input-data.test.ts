@@ -77,6 +77,23 @@ describe('input data', () => {
         }
     });
 
+    it('reads data after a prefixed input', () => {
+        const { parse_result } = parse('quietly input x\n1 2\nend\ndi 1\n');
+        expect(parse_result.ast.nodes.map((my_node) => my_node.type === 'command'
+            ? my_node.name : my_node.type)).toEqual(['input', 'di']);
+    });
+
+    it('discards the rest of the end line, so it opens nothing', () => {
+        // A `/*` or a quote after `end` is not read as code.
+        for (const tail of ['/*', '"']) {
+            const { lex_result, parse_result } = parse(
+                `input x\n1\nend ${tail}\ndisplay 1\n`);
+            expect(lex_result.errors).toEqual([]);
+            expect(parse_result.ast.nodes.map((my_node) => my_node.type === 'command'
+                ? my_node.name : my_node.type)).toEqual(['input', 'display']);
+        }
+    });
+
     it('has no data in a program definition, whose end it reaches', () => {
         const { parse_result } = parse('program p\n    input z\n    7\nend\n');
         const program = parse_result.ast.nodes[0];

@@ -245,15 +245,15 @@ export class StataLexer {
   }
 
   /**
-   * Note an `input` command (`inp` … `input`) first on its line, whose
-   * data starts on the next line. Inside a program definition there is
+   * Note an `input` command (`inp` … `input`) where a command starts,
+   * after any prefixes (`quietly input x`), whose data starts on the
+   * next line. Inside a program definition there is
    * no data: Stata ends the definition at the data's `end` (StataMP
    * 18). Under `#delimit ;` the lines are left as statements.
    */
-  private note_input_command_word(value: string, start_line: number): void {
+  private note_input_command_word(value: string): void {
     if (INPUT_COMMAND_NAMES.has(value) && !this.program_definition_open &&
-        this.state.delimiterMode === 'cr' &&
-        this.is_first_code_on_line(start_line)) {
+        this.state.delimiterMode === 'cr' && this.at_command_start) {
       this.input_data_pending = true;
     }
   }
@@ -261,33 +261,56 @@ export class StataLexer {
   /**
    * The data lines from the current position, the start of the line
    * after an `input` statement, up to the first line whose first word
-   * is `end`, as one INPUT_DATA token holding them as written (StataMP
-   * 18 reads them literally, without expanding macros). The token stops
-   * before the newline that ends the last data line, and is empty when
-   * `end` comes right after `input`. Null, consuming nothing, when no
+   * is `end`, and that `end` line. The data is one INPUT_DATA token
+   * holding the lines as written (StataMP 18 reads them literally,
+   * without expanding macros); it stops before the newline that ends
+   * the last data line, and is empty when `end` comes right after
+   * `input`. Then come that newline, the `end` word, and the rest of
+   * its line, which Stata discards, as a COMMENT_LINE token, so a `/*`
+   * or a quote there opens nothing. Null, consuming nothing, when no
    * such `end` line follows: the lines are then read as statements.
    */
-  private scan_input_data(): Token | null {
+  private scan_input_data(): Token[] | null {
     // From the newline just consumed, so `end` on the next line counts.
     INPUT_END_LINE.lastIndex = this.position - 1;
     const end_match = INPUT_END_LINE.exec(this.source);
     if (end_match === null) {
       return null;
     }
-    // Up to the newline that ends the last data line
+    const the_tokens: Token[] = [];
     const data_end = Math.max(this.position, end_match.index);
+    the_tokens.push(this.scan_raw_token('INPUT_DATA', data_end));
+    if (this.source[this.position] === '\n') {
+      the_tokens.push(this.scan_raw_token('STATEMENT_TERMINATOR', this.position + 1));
+    }
+    while (this.peek() === ' ' || this.peek() === '\t') {
+      this.advance();
+    }
+    the_tokens.push(this.scan_raw_token('WORD', this.position + 'end'.length));
+    while (this.peek() === ' ' || this.peek() === '\t') {
+      this.advance();
+    }
+    let line_end = this.source.indexOf('\n', this.position);
+    if (line_end < 0) {
+      line_end = this.source.length;
+    }
+    const tail = this.source.substring(this.position, line_end).trimEnd();
+    if (tail !== '') {
+      the_tokens.push(this.scan_raw_token('COMMENT_LINE', this.position + tail.length));
+    }
+    return the_tokens;
+  }
+
+  /** A token of `type` for the source from here up to offset `end`. */
+  private scan_raw_token(type: TokenType, end: number): Token {
     const start_line = this.line;
     const start_column = this.column;
-    while (this.position < data_end) {
+    const start = this.position;
+    while (this.position < end) {
       this.advance();
     }
     return this.makeToken(
-      'INPUT_DATA',
-      this.source.substring(
-        this.position_to_offset(start_line, start_column), data_end),
-      start_line,
-      start_column
-    );
+      type, this.source.substring(start, end), start_line, start_column);
   }
 
   /**
@@ -745,9 +768,9 @@ export class StataLexer {
         if (this.input_data_pending &&
             this.previous_token?.type !== 'CONTINUATION') {
           this.input_data_pending = false;
-          const data = this.scan_input_data();
-          if (data !== null) {
-            return [terminator, data];
+          const the_data_tokens = this.scan_input_data();
+          if (the_data_tokens !== null) {
+            return [terminator, ...the_data_tokens];
           }
         }
         return terminator;
@@ -1931,7 +1954,7 @@ export class StataLexer {
     
     if (my_current_context === LanguageContext.STATA) {
       this.note_program_definition_word(value, startLine);
-      this.note_input_command_word(value, startLine);
+      this.note_input_command_word(value);
       // Check for embedded language block starts (case-sensitive: Stata requires lowercase)
       if (this.is_mata_start_delimiter(value)) {
         // Check if previous token is a WORD - if so, "mata" is an argument, not a block start
