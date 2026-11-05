@@ -13,7 +13,8 @@ import {
     PrefixNode,
     OptionNode,
     EmbeddedLanguageBlockNode,
-    SyntaxNode
+    SyntaxNode,
+    SourceLine
 } from '../types';
 import { compare_positions } from '../utils/scope-position';
 import { format_expression_spacing } from './expression-spacing';
@@ -195,6 +196,9 @@ export class PrettyPrinter {
      * Print a command node.
      */
     private printCommand(node: CommandNode): string {
+        if (node.noted_lines) {
+            return this.printNotedLines(node.noted_lines);
+        }
         const the_parts: string[] = [];
 
         // Add indentation
@@ -474,6 +478,9 @@ export class PrettyPrinter {
      * Print a macro definition.
      */
     private printMacroDef(node: MacroDefNode): string {
+        if (node.noted_lines) {
+            return this.printNotedLines(node.noted_lines);
+        }
         const prefix_text = this.printPrefixes(node.prefix);
         const scope_keyword = `${prefix_text}${node.scope}`;
         
@@ -543,6 +550,26 @@ export class PrettyPrinter {
         // body: before `{`, or before an inline if's command. In the
         // condition or loop spec they would be read as operators.
         const comment_text = this.printInteriorComments(node);
+        if (node.type === 'if' && node.is_single_statement && node.noted_lines) {
+            // The lines hold the inline command too, but not the comments
+            // after it, which belong to the innermost inline statement.
+            let trailing = { same_line: '', own_line: '' };
+            let body_node: StataNode | undefined = node.body[0];
+            while (body_node !== undefined) {
+                const body_trailing = this.printTrailingTrivia(body_node);
+                trailing = {
+                    same_line: body_trailing.same_line + trailing.same_line,
+                    own_line: body_trailing.own_line + trailing.own_line,
+                };
+                body_node = body_node.type === 'if' && body_node.is_single_statement
+                    ? body_node.body[0]
+                    : undefined;
+            }
+            return {
+                code: this.printNotedLines(node.noted_lines) + trailing.same_line,
+                own_line: trailing.own_line,
+            };
+        }
         if (node.type === 'if' && node.is_single_statement) {
             const body_node = node.body[0];
             const body = body_node
@@ -586,6 +613,11 @@ export class PrettyPrinter {
         }
         header += `${comment_text}{`;
 
+        if (node.noted_lines) {
+            // The header as written, through `{`
+            header = this.printNotedLines(node.noted_lines);
+        }
+
         the_lines.push(header);
         the_lines.push(this.getStatementTerminator());
 
@@ -606,6 +638,35 @@ export class PrettyPrinter {
         the_lines.push(`${this.getIndent()}}`);
 
         return { code: the_lines.join(''), own_line: '' };
+    }
+
+    /**
+     * Print a statement, or a block's header, as written, because a
+     * `///` in it has a note after it. Each line moves with the
+     * statement's indentation and keeps its own relative to it. After
+     * a `///` with no space before it, whether a line is indented at
+     * all decides whether it joins the token before the `///` (`b///`
+     * then `c` is `bc`), so such a line at column 0 stays there and an
+     * indented one keeps at least one space.
+     */
+    private printNotedLines(the_lines: SourceLine[]): string {
+        const indent = this.getIndent();
+        const first_column = the_lines[0]?.column ?? 0;
+        return the_lines.map((my_line, i) => {
+            if (i === 0) {
+                return indent + my_line.text;
+            }
+            if (my_line.text === '') {
+                return '';
+            }
+            const is_tight = my_line.after_tight_continuation === true;
+            if (is_tight && my_line.column === 0) {
+                return my_line.text;
+            }
+            const leading = indent +
+                ' '.repeat(Math.max(0, my_line.column - first_column));
+            return (is_tight && leading === '' ? ' ' : leading) + my_line.text;
+        }).join('\n');
     }
 
     /**
@@ -666,6 +727,9 @@ export class PrettyPrinter {
      * would change it.
      */
     private printSyntax(node: SyntaxNode): string {
+        if (node.noted_lines) {
+            return this.printNotedLines(node.noted_lines);
+        }
         const prefix_text = (node.prefix ?? [])
             .map(p => `${this.printPrefix(p)} `)
             .join('');

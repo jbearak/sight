@@ -185,6 +185,20 @@ export interface ProgramSignature {
   syntaxRanges: Range[]; // Ranges of all syntax commands (for multiple syntax support)
 }
 
+/**
+ * One line of a statement as written. Statements whose `///` has a note
+ * after it keep their lines (see `noted_lines`), so the AST printer can
+ * print the note where it was. `column` is where the line's first token
+ * was in the source. `after_tight_continuation` marks a line after a
+ * `///` with no space before it, whose indentation decides whether it
+ * joins the token before the `///` (`b///` then `c` is `bc`).
+ */
+export interface SourceLine {
+  column: number;
+  text: string;
+  after_tight_continuation?: true;
+}
+
 export interface SyntaxNode {
   type: 'syntax';
   signature: ProgramSignature;
@@ -196,6 +210,7 @@ export interface SyntaxNode {
   range: Range;
   leadingTrivia?: TriviaNode[];
   interiorTrivia?: TriviaNode[];  // As on CommandNode
+  noted_lines?: SourceLine[];  // As on CommandNode
   trailingTrivia?: TriviaNode[];
 }
 
@@ -313,6 +328,9 @@ export interface CommandNode {
   // are not repeated here. On a brace block, only block comments among
   // the prefixes (`quietly /* c */ {`).
   interiorTrivia?: TriviaNode[];
+  // The statement's lines as written, kept when a `///` in it has a
+  // note after it (`reg y x /// note` then `z`). Not set on brace blocks.
+  noted_lines?: SourceLine[];
   blockEndingTrivia?: TriviaNode[];
   trailingTrivia?: TriviaNode[];
 }
@@ -356,6 +374,7 @@ export interface MacroDefNode {
   range: Range;
   leadingTrivia?: TriviaNode[];
   interiorTrivia?: TriviaNode[];  // As on CommandNode
+  noted_lines?: SourceLine[];  // As on CommandNode
   trailingTrivia?: TriviaNode[];
 }
 
@@ -376,6 +395,9 @@ export interface ControlFlowNode {
   loopSpec?: string;
   frameName?: string;
   body: StataNode[];
+  // As on CommandNode: the header's lines through `{`, or, for an
+  // inline `if`, the whole statement's.
+  noted_lines?: SourceLine[];
   range: Range;
   leadingTrivia?: TriviaNode[];
   // Block comments among the prefixes, e.g. `/* c */` in
