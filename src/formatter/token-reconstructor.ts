@@ -1,5 +1,6 @@
 import { Token } from '../types';
 import { IndentationInfo } from './indentation-analyzer';
+import { find_tight_continuation_lines } from './alignment-detector';
 
 export interface TokenProcessingState {
     current_line: number;
@@ -37,6 +38,7 @@ export class TokenReconstructor {
         };
 
         const the_lines = original_source.split('\n');
+        const the_tight_lines = find_tight_continuation_lines(tokens);
 
         for (const my_token of tokens) {
             if (my_token.type === 'EOF') {
@@ -77,22 +79,33 @@ export class TokenReconstructor {
                     
                     let output_whitespace: string;
                     if (indent_info.indent_delta !== 0) {
-                        output_whitespace = this.apply_indent_delta(leading_whitespace, indent_info.indent_delta, config);
+                        // Shift by the delta in visual columns, then write
+                        // the width in the configured style: adding a whole
+                        // tab for a smaller delta moved the line too far,
+                        // and mixed whitespace changed on a second format.
+                        const shifted_width = Math.max(0,
+                            this.calculate_visual_width(leading_whitespace, config.indent_size) +
+                            indent_info.indent_delta);
+                        output_whitespace = this.whitespace_of_width(shifted_width, config);
                     } else {
                         // Even with delta 0, normalize mixed whitespace to consistent style
                         // while preserving the visual width
                         output_whitespace = this.normalize_whitespace(leading_whitespace, config);
                     }
+                    output_whitespace = this.keep_tight_join(
+                        output_whitespace, the_tight_lines.has(state.current_line), token_col);
                     state.output_parts.push(output_whitespace);
                     state.source_column = token_col; // Track original position for spacing extraction
                     state.output_column = this.calculate_visual_width(output_whitespace, config.indent_size);
                 } else {
                     // Generate new indentation
                     const indent_level = typeof indent_info === 'number' ? indent_info : (indent_info?.indent_level ?? 0);
-                    const indent_str = this.make_indent(indent_level, config);
+                    const indent_str = this.keep_tight_join(
+                        this.make_indent(indent_level, config),
+                        the_tight_lines.has(state.current_line), token_col);
                     state.output_parts.push(indent_str);
                     state.source_column = token_col; // Track original position for spacing extraction
-                    state.output_column = indent_str.length; // Indent is all spaces or tabs
+                    state.output_column = this.calculate_visual_width(indent_str, config.indent_size);
                 }
                 state.at_line_start = false;
             } else if (!state.at_line_start && state.source_column < token_col) {
@@ -137,6 +150,22 @@ export class TokenReconstructor {
     }
 
     /**
+     * Indentation for a line after a tight `///` (no space before it):
+     * the parser joins a column-0 line to the token before the `///`, so
+     * it stays at column 0, and an indented line keeps at least a space.
+     * Other lines take `indent` unchanged.
+     */
+    private keep_tight_join(indent: string, is_after_tight: boolean, source_column: number): string {
+        if (!is_after_tight) {
+            return indent;
+        }
+        if (source_column === 0) {
+            return '';
+        }
+        return indent === '' ? ' ' : indent;
+    }
+
+    /**
      * Calculate the visual width of a string, accounting for tab stops.
      */
     private calculate_visual_width(str: string, tab_width: number): number {
@@ -153,43 +182,6 @@ export class TokenReconstructor {
         return visual_column;
     }
 
-    private apply_indent_delta(original_whitespace: string, delta: number, config: FormatterConfig): string {
-        if (delta === 0) return original_whitespace;
-        
-        if (delta > 0) {
-            // Positive delta: prepend spaces
-            const spaces_to_add = config.indent_style === 'tabs' ? '\t'.repeat(Math.ceil(delta / config.indent_size)) : ' '.repeat(delta);
-            return spaces_to_add + original_whitespace;
-        } else {
-            // Negative delta: remove leading spaces
-            // Use a simpler approach: count characters to remove without modifying loop variable
-            const spaces_to_remove = Math.abs(delta);
-            let chars_to_remove = 0;
-            let removed = 0;
-            
-            for (let i = 0; i < original_whitespace.length && removed < spaces_to_remove; i++) {
-                const char = original_whitespace[i];
-                if (char === ' ') {
-                    removed += 1;
-                    chars_to_remove++;
-                } else if (char === '\t') {
-                    const tab_value = config.indent_size;
-                    if (removed + tab_value <= spaces_to_remove) {
-                        removed += tab_value;
-                        chars_to_remove++;
-                    } else {
-                        // Tab would remove more than needed, stop here
-                        break;
-                    }
-                } else {
-                    // Non-whitespace character, stop
-                    break;
-                }
-            }
-            
-            return original_whitespace.substring(chars_to_remove);
-        }
-    }
 
     private make_indent(level: number, config: FormatterConfig): string {
         if (config.indent_style === 'tabs') {
@@ -215,18 +207,23 @@ export class TokenReconstructor {
             return whitespace;
         }
         
-        // Calculate the visual width of the original whitespace
-        const visual_width = this.calculate_visual_width(whitespace, config.indent_size);
-        
+        return this.whitespace_of_width(
+            this.calculate_visual_width(whitespace, config.indent_size),
+            config
+        );
+    }
+
+    /**
+     * Whitespace `visual_width` columns wide in the configured style:
+     * tabs then spaces, or all spaces.
+     */
+    private whitespace_of_width(visual_width: number, config: FormatterConfig): string {
         if (config.indent_style === 'tabs') {
-            // Convert to tabs + remaining spaces
             const full_tabs = Math.floor(visual_width / config.indent_size);
             const remaining_spaces = visual_width % config.indent_size;
             return '\t'.repeat(full_tabs) + ' '.repeat(remaining_spaces);
-        } else {
-            // Convert to all spaces
-            return ' '.repeat(visual_width);
         }
+        return ' '.repeat(visual_width);
     }
 
     /**

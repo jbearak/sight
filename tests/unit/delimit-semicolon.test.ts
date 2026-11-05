@@ -93,12 +93,7 @@ describe('the final newline under #delimit ;', () => {
 describe('a // comment inside a ;-terminated statement', () => {
     for_each_formatter_mode('keeps the code after it on the next line', mode => {
         const source = '#delimit ;\ndi 1 // c\n    2;\n';
-        // Source-preserving mode puts a `;`-mode continuation line at
-        // column 0, with or without a comment.
-        const expected = mode === 'ast'
-            ? source
-            : '#delimit ;\ndi 1 // c\n2;\n';
-        expect(format_stable(source, mode)).toBe(expected);
+        expect(format_stable(source, mode)).toBe(source);
     });
 
     for_each_formatter_mode('keeps the terminator out of the comment', mode => {
@@ -109,17 +104,12 @@ describe('a // comment inside a ;-terminated statement', () => {
             expect(format_stable(my_source, mode)).toBe(my_source);
         }
         const in_program = '#delimit ;\nprogram foo;\n    di 1 // c\n    ;\nend;\n';
-        expect(format_stable(in_program, mode)).toBe(mode === 'ast'
-            ? in_program
-            : '#delimit ;\nprogram foo;\n    di 1 // c\n;\nend;\n');
+        expect(format_stable(in_program, mode)).toBe(in_program);
     });
 
     for_each_formatter_mode('keeps every argument with several comments', mode => {
         const source = '#delimit ;\ndi 1 // a\n    // b\n    2;\n';
-        const expected = mode === 'ast'
-            ? source
-            : '#delimit ;\ndi 1 // a\n// b\n2;\n';
-        expect(format_stable(source, mode)).toBe(expected);
+        expect(format_stable(source, mode)).toBe(source);
     });
 
     for_each_formatter_mode('moves to the end of a value, still before its own line break', mode => {
@@ -140,7 +130,7 @@ describe('a // comment inside a ;-terminated statement', () => {
         const source = '#delimit ;\nprogram foo;\n    syntax varlist // c\n    [if];\nend;\n';
         expect(format_stable(source, mode)).toBe(mode === 'ast'
             ? '#delimit ;\nprogram foo;\n    syntax varlist [if] // c\n    ;\nend;\n'
-            : '#delimit ;\nprogram foo;\n    syntax varlist // c\n[if];\nend;\n');
+            : source);
     });
 
     for_each_formatter_mode('keeps its line break inside a parenthesized group', mode => {

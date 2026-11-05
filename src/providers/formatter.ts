@@ -22,6 +22,37 @@ import { StataLexer } from '../lexer';
 import { StataParser } from '../parser';
 
 /**
+ * The `;` that ends an inline embedded statement, with what may follow
+ * it on its last line: spaces and a trailing comment. Empty when the
+ * content doesn't end that way. One pass over the line: a regex for
+ * this backtracks polynomially on input such as `;//;//;//`.
+ */
+function inline_unit_terminator(content: string): string {
+    const line_start = content.lastIndexOf('\n') + 1;
+    const line_end = content.trimEnd().length;
+    const ends_with_block_comment = content.endsWith('*/', line_end) &&
+        line_end - line_start >= 2;
+    // A `*/` before the last one: a block comment from before it to the
+    // end of the line would have code in it (another inline statement).
+    const inner_close = line_end >= 3 ? content.lastIndexOf('*/', line_end - 3) : -1;
+    for (let i = content.indexOf(';', line_start);
+        i !== -1 && i < line_end;
+        i = content.indexOf(';', i + 1)) {
+        let rest_start = i + 1;
+        while (content[rest_start] === ' ' || content[rest_start] === '\t') {
+            rest_start++;
+        }
+        if (rest_start >= line_end ||
+            content.startsWith('//', rest_start) ||
+            (content.startsWith('/*', rest_start) && ends_with_block_comment &&
+                line_end - rest_start >= 4 && inner_close < rest_start + 2)) {
+            return content.slice(i);
+        }
+    }
+    return '';
+}
+
+/**
  * Code Formatter class with embedded language support.
  */
 export class CodeFormatter {
@@ -183,8 +214,16 @@ export class CodeFormatter {
             }
 
             const my_placeholder = `__EMBEDDED_BLOCK_${my_placeholder_counter}__`;
+            // An inline `mata:`/`python:` statement keeps its closing `;`
+            // after the placeholder, so under `#delimit ;` the placeholder
+            // is still a statement of its own, and the next statement isn't
+            // read as continuing it. Restoring puts the text back as it was.
+            const my_terminator = my_unit.range.is_single_line
+                ? inline_unit_terminator(my_unit.content)
+                : '';
             the_embedded_blocks.set(my_placeholder, {
-                content: my_unit.content,
+                content: my_unit.content.slice(
+                    0, my_unit.content.length - my_terminator.length),
                 range: my_unit.range
             });
 
@@ -192,7 +231,7 @@ export class CodeFormatter {
             my_modified_content = this.replace_range_in_content(
                 my_modified_content,
                 my_unit.actual_range,
-                my_placeholder
+                my_placeholder + my_terminator
             );
 
             my_placeholder_counter++;

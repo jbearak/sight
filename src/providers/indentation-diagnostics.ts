@@ -3,6 +3,7 @@ import { DocumentState } from '../document-store';
 import { LanguageContext } from '../context-tracker/types';
 import { StataDiagnosticCode, StataLSPConfig, StataNode, StataAST, Token } from '../types';
 import { diagnostic_code_description_fields } from '../utils/diagnostic-code-description';
+import { find_delimit_continuation_runs } from '../formatter/alignment-detector';
 
 const CONTROL_FLOW_RE = /^(if|foreach|while|program|mata|python)\b/;
 const FIRST_WORD_RE = /^(\w+)\b/;
@@ -75,6 +76,18 @@ export class IndentationDiagnosticAnalyzer {
     const continuation_lines = document.tokens
       ? this.compute_continuation_lines(document.tokens)
       : new Set<number>();
+    // The later lines of a statement under `#delimit ;`. The formatter
+    // indents them like lines after `///`, so they may sit deeper than
+    // their statement, but not shallower than its block.
+    const delimit_continuation_lines = new Set<number>();
+    for (const my_run of find_delimit_continuation_runs(document.tokens ?? [])) {
+      for (const my_line of my_run.continuation_lines) {
+        delimit_continuation_lines.add(my_line);
+      }
+    }
+    const all_continuation_lines = new Set([
+      ...continuation_lines, ...delimit_continuation_lines,
+    ]);
 
     // Lines whose AST-derived depth is untrustworthy because a structural
     // parse error corrupted the enclosing block's nesting. Range-independent,
@@ -82,14 +95,14 @@ export class IndentationDiagnosticAnalyzer {
     const structural_taint = this.compute_structural_taint(document);
 
     for (const range of stataRanges) {
-      diagnostics.push(...this.find_comment_indentation_issues(lines, range, block_comment_lines, indent_size));
-      diagnostics.push(...this.find_block_indentation_issues(document, lines, range, block_comment_lines, indent_size, continuation_lines));
+      diagnostics.push(...this.find_comment_indentation_issues(lines, range, block_comment_lines, indent_size, delimit_continuation_lines));
+      diagnostics.push(...this.find_block_indentation_issues(document, lines, range, block_comment_lines, indent_size, all_continuation_lines));
       
       // Compute expected depths from the AST and flag lines whose actual
       // indentation disagrees (too deep -> unnecessary, too shallow ->
       // missing).
       const expected_depths = this.compute_expected_depths(document, range);
-      diagnostics.push(...this.find_ast_depth_indentation_issues(lines, range, block_comment_lines, indent_size, expected_depths, continuation_lines, structural_taint));
+      diagnostics.push(...this.find_ast_depth_indentation_issues(lines, range, block_comment_lines, indent_size, expected_depths, continuation_lines, structural_taint, delimit_continuation_lines));
     }
 
     // Multiple producers can flag the same line with the same code; collapse
@@ -174,12 +187,17 @@ export class IndentationDiagnosticAnalyzer {
     return continuation_lines.has(lineIndex);
   }
 
-  private find_comment_indentation_issues(lines: string[], range: { start: number; end: number }, block_comment_lines: Set<number>, indent_size: number): Diagnostic[] {
+  private find_comment_indentation_issues(lines: string[], range: { start: number; end: number }, block_comment_lines: Set<number>, indent_size: number, delimit_continuation_lines: Set<number>): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
     
     for (let i = range.start; i < range.end && i < lines.length - 1; i++) {
       // Skip lines inside block comments (Requirements 1.1, 1.2, 1.3)
       if (block_comment_lines.has(i) || block_comment_lines.has(i + 1)) {
+        continue;
+      }
+      // A line that continues a `#delimit ;` statement may sit deeper
+      // than a comment inside the statement.
+      if (delimit_continuation_lines.has(i + 1)) {
         continue;
       }
       
@@ -681,7 +699,8 @@ export class IndentationDiagnosticAnalyzer {
    * guard changes nothing today; it documents intent and stays correct if
    * the default ever changes. The too-deep check keeps its default-0
    * behavior so top-level over-indentation of AST-unknown lines is still
-   * reported.
+   * reported. Lines in `deeper_allowed_lines` get only the too-shallow
+   * check.
    *
    * Requirements: 1.1, 2.1, 2.2
    */
@@ -692,7 +711,8 @@ export class IndentationDiagnosticAnalyzer {
     indent_size: number,
     expected_depths: Map<number, number>,
     continuation_lines: Set<number>,
-    structural_taint: Set<number>
+    structural_taint: Set<number>,
+    deeper_allowed_lines: Set<number> = new Set()
   ): Diagnostic[] {
     const diagnostics: Diagnostic[] = [];
 
@@ -716,6 +736,10 @@ export class IndentationDiagnosticAnalyzer {
       const expected_indent = expected_depth * indent_size;
 
       if (actual_indent > expected_indent) {
+        // A `#delimit ;` continuation line may be deeper.
+        if (deeper_allowed_lines.has(i)) {
+          continue;
+        }
         // Too deep: unnecessary indentation.
         diagnostics.push({
           severity: DiagnosticSeverity.Information,

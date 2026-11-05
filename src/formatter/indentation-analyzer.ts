@@ -1,5 +1,5 @@
 import { StataAST, StataNode, ControlFlowNode, ProgramNode, CommandNode, TriviaNode, Token } from '../types';
-import { ContinuationGroup } from './alignment-detector';
+import { ContinuationGroup, find_delimit_continuation_runs } from './alignment-detector';
 
 export interface IndentationInfo {
     line: number;
@@ -46,6 +46,7 @@ export class IndentationAnalyzer {
 
         if (tokens) {
             this.process_continuations(tokens);
+            this.process_delimit_continuations(tokens);
             this.process_comment_tokens(tokens);
         }
 
@@ -271,9 +272,12 @@ export class IndentationAnalyzer {
         let continuation_indent = 0;
         let in_continuation = false;
         let base_delta = 0;
+        // The line of the run's latest `///`.
+        let last_continuation_line = -1;
 
         for (const my_token of tokens) {
             if (my_token.type === 'CONTINUATION') {
+                last_continuation_line = my_token.range.start.line;
                 if (!in_continuation) {
                     const base_info = this.indentation_map.get(my_token.range.start.line);
                     continuation_indent = base_info ? base_info.indent_level + 1 : 1;
@@ -288,18 +292,37 @@ export class IndentationAnalyzer {
                     this.set_indentation(next_line, continuation_indent, true, false, false, false, base_delta, original_indent);
                 }
             } else if (my_token.type !== 'WHITESPACE') {
-                // Reset continuation state on non-whitespace, non-continuation token
-                // Check if we've moved to a new line that doesn't have a continuation marker
-                if (in_continuation) {
-                    const current_line = my_token.range.start.line;
-                    const previous_line = current_line - 1;
-                    const has_continuation_on_previous = tokens.some(t =>
-                        t.type === 'CONTINUATION' && t.range.start.line === previous_line
-                    );
-                    if (!has_continuation_on_previous) {
-                        in_continuation = false;
-                    }
+                // A token past the line the latest `///` continues ends
+                // the run. The newline a `///` swallows is on the `///`
+                // line itself, so it doesn't; ending the run there made
+                // each further `///` line one level deeper.
+                if (in_continuation &&
+                    my_token.range.start.line > last_continuation_line + 1) {
+                    in_continuation = false;
                 }
+            }
+        }
+    }
+
+    /**
+     * Indent the later lines of a statement under `#delimit ;` like the
+     * lines after a `///` in `#delimit cr`: one level in from the
+     * statement's first line, moved by as much as that line moved.
+     */
+    private process_delimit_continuations(tokens: Token[]): void {
+        for (const my_run of find_delimit_continuation_runs(tokens)) {
+            const base_info = this.indentation_map.get(my_run.start_line);
+            const continuation_indent = base_info ? base_info.indent_level + 1 : 1;
+            const base_delta = base_info ? base_info.indent_delta : 0;
+            for (const my_line of my_run.continuation_lines) {
+                // A line after a `///` inside the statement is set here
+                // too, from the statement's first line; a block opener
+                // keeps its own.
+                if (this.indentation_map.get(my_line)?.is_block_start) {
+                    continue;
+                }
+                const { original_indent } = this.calculate_indent_delta(my_line, continuation_indent);
+                this.set_indentation(my_line, continuation_indent, true, false, false, false, base_delta, original_indent);
             }
         }
     }

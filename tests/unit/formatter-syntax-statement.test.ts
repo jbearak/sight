@@ -107,7 +107,9 @@ describe('formatting a syntax statement', () => {
         const formatted = format_idempotent(source, mode);
         mode_specific_assertion(mode, {
             'source-preserving': () => {
-                expect(formatted).toContain('syntax varlist\n[if] [, Detail];');
+                // The second line continues the statement, so it is
+                // indented as a line after `///` would be.
+                expect(formatted).toContain('    syntax varlist\n    [if] [, Detail];');
             },
             'ast': () => {
                 expect(formatted).toBe([
