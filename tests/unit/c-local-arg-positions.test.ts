@@ -214,6 +214,14 @@ describe('c_local argument positions: extraction', () => {
             '    c_local `where\' 1',
             'end',
         ].join('\n'), 'setter')).toBeUndefined();
+        // A gettoken into a macro-named local, which may be `0`.
+        expect(positions_of([
+            'program define setter',
+            '    gettoken `target\' rest : other',
+            '    gettoken where 0 : 0',
+            '    c_local `where\' 1',
+            'end',
+        ].join('\n'), 'setter')).toBeUndefined();
         // An earlier conditional read from 0.
         expect(positions_of([
             'program define setter',

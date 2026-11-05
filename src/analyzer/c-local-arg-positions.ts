@@ -58,7 +58,8 @@ function is_macro_shift(node: CommandNode): boolean {
 
 /**
  * True if `node` itself (not its body) may change the program's `0`,
- * including `` local `name' ``, whose target is not known.
+ * including `` local `name' `` and `` gettoken `name' ``, whose target
+ * is not known.
  */
 function changes_zero(node: StataNode): boolean {
     if (node.type === 'macro_def') {
@@ -71,7 +72,9 @@ function changes_zero(node: StataNode): boolean {
         return first === '0' || (first?.includes('`') ?? false);
     }
     if (is_gettoken(node)) {
-        return (node.varlist ?? []).some((my_item) => my_item.name === '0');
+        return (node.varlist ?? []).some(
+            (my_item) => my_item.name === '0' || my_item.name.includes('`')
+        );
     }
     return is_macro_shift(node);
 }
