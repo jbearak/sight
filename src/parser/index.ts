@@ -2247,9 +2247,9 @@ export class StataParser {
           continue;
         }
       }
-      // A block comment with more of the spec after it is whitespace
+      // A comment with more of the spec after it is whitespace
       // (`syntax varlist /* c */ [if]`); other comments end the spec.
-      if (this.check('COMMENT_BLOCK') && this.statement_continues_after(this.current)) {
+      if (this.is_interior_comment(this.current)) {
         this.advance();
         continue;
       }

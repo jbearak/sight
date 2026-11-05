@@ -651,11 +651,16 @@ export class PrettyPrinter {
             .map(p => `${this.printPrefix(p)} `)
             .join('');
         const arguments_text = node.arguments ? ` ${node.arguments}` : '';
-        // Interior block comments go at the end, outside the spec.
-        const the_comments = (node.interiorTrivia ?? [])
-            .map(my_comment => ` ${this.printTrivia(my_comment)}`);
-        return `${this.getIndent()}${prefix_text}syntax${arguments_text}` +
-            the_comments.join('');
+        // Interior comments go at the end, outside the spec. Under
+        // `#delimit ;`, a `;` after a `//` comment goes on the next line.
+        const the_parts = [`${this.getIndent()}${prefix_text}syntax${arguments_text}`];
+        let at_line_start = false;
+        for (const my_comment of node.interiorTrivia ?? []) {
+            at_line_start = this.push_interior_comment(
+                the_parts, my_comment, at_line_start,
+                this.getTerminatorLineIndent());
+        }
+        return the_parts.join('');
     }
 
     /**

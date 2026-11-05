@@ -135,6 +135,14 @@ describe('a // comment inside a ;-terminated statement', () => {
         }
     });
 
+    for_each_formatter_mode('keeps the rest of a syntax spec', mode => {
+        // `[if]` after the comment had parsed as an `if` statement.
+        const source = '#delimit ;\nprogram foo;\n    syntax varlist // c\n    [if];\nend;\n';
+        expect(format_stable(source, mode)).toBe(mode === 'ast'
+            ? '#delimit ;\nprogram foo;\n    syntax varlist [if] // c\n    ;\nend;\n'
+            : '#delimit ;\nprogram foo;\n    syntax varlist // c\n[if];\nend;\n');
+    });
+
     for_each_formatter_mode('keeps its line break inside a parenthesized group', mode => {
         // A group keeps its comments in its text; `(mean // c) x;`
         // would put `) x;` in the comment.
