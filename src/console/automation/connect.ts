@@ -3,7 +3,10 @@
  *
  * Releasing a COM reference quits that Stata, so the console never
  * takes a reference it doesn't keep, and asks before taking over a
- * Stata the user already has open. One rule governs everything after
+ * Stata the user already has open. With several open, COM hands out
+ * one of them and Sight can't choose which, so the console says so
+ * before asking, and the window-title marker shows afterwards which
+ * one it got. One rule governs everything after
  * `CreateObject`: once a reference may exist, no timeout ends the
  * console (ending would close Stata); the user can, with Ctrl+C.
  *
@@ -38,6 +41,8 @@ export interface ConnectQuestion {
     text: string;
     /** Offer "send code from the editor instead" (editors only). */
     allow_send_instead: boolean;
+    /** How many open Statas a take-over could get (absent means one). */
+    stata_count?: number;
 }
 
 export interface ConnectDeps {
@@ -109,6 +114,22 @@ function describe_stata(process: StataProcess | undefined): string {
     return `the open Stata (${process.title})`;
 }
 
+/** The take-over question for one open Stata, or for several. */
+function take_over_text(the_open: StataProcess[]): string {
+    if (the_open.length === 1) {
+        return `sight console will take over ${describe_stata(the_open[0])}. It closes `
+            + 'when the console ends, so unsaved work in it would be lost then.';
+    }
+    const titles = the_open
+        .map((my_process) => my_process.title)
+        .filter((my_title) => my_title.length > 0);
+    const listed = titles.length > 0 ? ` (${titles.join('; ')})` : '';
+    return `sight console will take over one of the ${the_open.length} open Statas`
+        + `${listed}, and it can't choose which. The one it takes closes when the `
+        + 'console ends, so unsaved work in it would be lost then; save your work in '
+        + 'each first if needed.';
+}
+
 /** Fail on an error reply, except for the ones the caller handles. */
 function failure(reply: BridgeReply, what: string): ConnectResult {
     return { ok: false, exit_code: 1, message: `Error: ${what}: ${reply_text(reply)}` };
@@ -119,7 +140,7 @@ export async function connect_to_stata(deps: ConnectDeps): Promise<ConnectResult
 
     // Steps 1-3: decide with the user, connect, and re-decide if the
     // set of open Stata windows changed meanwhile.
-    let consented: StataProcess | null = null;
+    let consented: StataProcess[] = [];
     let before: StataProcess[] = [];
     let after: StataProcess[] = [];
     for (;;) {
@@ -135,22 +156,27 @@ export async function connect_to_stata(deps: ConnectDeps): Promise<ConnectResult
         if (!listing.ok) {
             return failure(listing, 'could not list Stata processes');
         }
+        // The listing leaves out Statas other consoles own (their pid
+        // files), so `open` counts only the user's own windows.
         const open = as_processes(listing.value.processes);
-        if (open.length >= 2) {
+        if (open.length >= 2 && deps.yes) {
+            // Nobody would see that Sight can't choose which one.
             return {
                 ok: false,
                 exit_code: EXIT_SEVERAL_STATA_OPEN,
-                message: `${open.length} Stata windows are open, and sight console can't choose `
-                    + 'among them. Close all but the one to use, or all of them for a new Stata.',
+                message: `${open.length} Stata windows that no sight console owns are open, and `
+                    + 'with --yes sight console won\'t take over one it can\'t choose. Close all '
+                    + 'but the one to use, or all of them for a new Stata, or run without --yes '
+                    + 'to be asked. Windows that other sight consoles own can stay open.',
             };
         }
-        consented = open[0] ?? null;
-        if (consented && !deps.yes) {
+        consented = open;
+        if (consented.length > 0 && !deps.yes) {
             const answer = await deps.ask({
                 kind: 'take_over',
-                text: `sight console will take over ${describe_stata(consented)}. It closes `
-                    + 'when the console ends, so unsaved work in it would be lost then.',
+                text: take_over_text(consented),
                 allow_send_instead: deps.from_editor,
+                stata_count: consented.length,
             });
             if (deps.from_editor && answer === 'send') {
                 return { ok: false, exit_code: EXIT_SEND_FROM_EDITOR, message: null };
@@ -159,7 +185,7 @@ export async function connect_to_stata(deps: ConnectDeps): Promise<ConnectResult
                 return { ok: false, exit_code: EXIT_TAKEOVER_DECLINED, message: null };
             }
         }
-        const expect = consented ? [consented.pid] : [];
+        const expect = consented.map((my_process) => my_process.pid);
         const connected = await bridge.request('connect', { expect, root: deps.root }, {
             slow_ms: CONNECT_SLOW_MS,
             on_slow: () => deps.say('Waiting for Stata to answer. Ctrl+C cancels; if Stata has '
@@ -178,21 +204,34 @@ export async function connect_to_stata(deps: ConnectDeps): Promise<ConnectResult
 
     // Step 4: work out which Stata answered.
     const before_pids = new Set(before.map((my_process) => my_process.pid));
+    const consented_by_pid = new Map(
+        consented.map((my_process) => [my_process.pid, my_process])
+    );
     const fresh = after.filter((my_process) => !before_pids.has(my_process.pid));
     const only_fresh = fresh.length === 1 ? fresh[0] : undefined;
+    const only_consented = consented.length === 1 ? consented[0] : undefined;
     let pid: number | null = null;
     let unconsented: StataProcess | null = null;
     let identified_unknown = false;
-    if (!consented && only_fresh && only_fresh.com_started) {
+    if (consented.length === 0 && only_fresh && only_fresh.com_started) {
         pid = only_fresh.pid;
-    } else if (consented && fresh.length === 0) {
-        pid = consented.pid;
-    } else if (consented && only_fresh && only_fresh.com_started) {
+    } else if (only_consented && fresh.length === 0) {
+        pid = only_consented.pid;
+    } else if (consented.length >= 2 && fresh.length === 0) {
+        // One of the consented Statas answered; step 6's title marker
+        // says which. If it can't, `pid` stays null and the console
+        // asks about "a Stata it couldn't identify".
+    } else if (consented.length > 0 && only_fresh && only_fresh.com_started) {
+        // COM started a new Stata, so every open one is held elsewhere.
+        const several = consented.length >= 2;
         return {
             ok: false,
             exit_code: EXIT_STATA_HELD_ELSEWHERE,
-            message: 'The open Stata is in use by another program (such as Jupyter); close that '
-                + 'program, or that Stata, and try again.',
+            message: several
+                ? 'The open Statas are in use by other programs (such as Jupyter); close '
+                    + 'those programs, or those Statas, and try again.'
+                : 'The open Stata is in use by another program (such as Jupyter); close that '
+                    + 'program, or that Stata, and try again.',
         };
     } else if (only_fresh) {
         unconsented = only_fresh;
@@ -255,8 +294,14 @@ export async function connect_to_stata(deps: ConnectDeps): Promise<ConnectResult
             pid = title_pid;
             identified_unknown = false;
             await bridge.request('write_pid', { dir: deps.dir, pid });
-            const is_consented = consented !== null && consented.pid === title_pid;
-            if (!is_consented && !asked.has(title_pid) && !deps.yes) {
+            const taken = consented_by_pid.get(title_pid);
+            if (taken && consented.length >= 2) {
+                // The title marker replaced the window's title, so name
+                // the one taken by its title from before.
+                deps.say(`sight console took over ${describe_stata(taken)}; its title now `
+                    + `shows "sight console ${short}".`);
+            }
+            if (!taken && !asked.has(title_pid) && !deps.yes) {
                 const known = after.find((my_process) => my_process.pid === title_pid) ?? null;
                 if (!await ask_after_the_fact(known)) {
                     return { ok: false, exit_code: 0, message: 'Closed that Stata.' };

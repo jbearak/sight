@@ -24,6 +24,8 @@ export interface ConsoleQuestion {
     kind: 'take_over' | 'keep';
     text: string;
     allow_send_instead: boolean;
+    /** How many open Statas a take-over could get (absent means one). */
+    stata_count?: number;
 }
 
 export interface EditorConsolePty {
@@ -241,7 +243,10 @@ export async function ask_with_dialog(
 ): Promise<ConsoleAnswer> {
     if (question.kind === 'take_over') {
         const take_over = 'Take over';
-        const send_instead = 'Send code to it instead';
+        // send-to-stata also picks one itself when several are open.
+        const send_instead = (question.stata_count ?? 1) > 1
+            ? 'Send code to one of them instead'
+            : 'Send code to it instead';
         const the_items = question.allow_send_instead
             ? [take_over, send_instead]
             : [take_over];
