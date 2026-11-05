@@ -85,6 +85,12 @@ describe('python: one-liner', () => {
         expect(comments_of('python: print(*[1, 2])\n')).toEqual([]);
         expect(comments_of('python: * x\n')).toEqual([]);
     });
+
+    it('reads * anywhere in the line as code, then resets', () => {
+        // Stata 18 hands `[*a, *b]` and `x = *a, *b` to Python as written
+        expect(comments_of('python: x = [*a, *b]\n* note\n')).toEqual(['* note']);
+        expect(comments_of('python: x = *a, *b\n')).toEqual([]);
+    });
 });
 
 describe('mata comments', () => {

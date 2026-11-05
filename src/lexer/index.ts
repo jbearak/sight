@@ -79,6 +79,8 @@ export class StataLexer {
   private command_word: string | null = null;
   // Inside a `mata:` one-liner, where `:*` multiplies.
   private in_mata_inline_statement = false;
+  // Inside a `python:` one-liner, where `*` is Python code.
+  private in_python_inline_statement = false;
   // Inside a `program define` body. Stata ends the definition at the
   // first line whose first word is `end`, even one inside a mata or
   // python block, so such an `end` also closes the block.
@@ -98,6 +100,7 @@ export class StataLexer {
     this.at_command_start = true;
     this.command_word = null;
     this.in_mata_inline_statement = false;
+    this.in_python_inline_statement = false;
     this.program_definition_open = false;
     this.state = initialState || {
       delimiterMode: 'cr',
@@ -434,6 +437,7 @@ export class StataLexer {
       }
       if (token.type !== 'LBRACE' && token.type !== 'RBRACE') {
         this.in_mata_inline_statement = false;
+        this.in_python_inline_statement = false;
       }
       this.at_command_start = true;
       this.command_word = null;
@@ -441,6 +445,9 @@ export class StataLexer {
     }
     if (token.type === 'MATA_INLINE') {
       this.in_mata_inline_statement = true;
+    }
+    if (token.type === 'PYTHON_INLINE') {
+      this.in_python_inline_statement = true;
     }
     if (token.type === 'COLON') {
       // `capture:` and `version 18:` start a command; `unab x :` and
@@ -475,8 +482,7 @@ export class StataLexer {
   private is_star_comment(start_line: number, start_column: number): boolean {
     // A `mata:` or `python:` one-liner is Mata or Python code, where
     // `*` never starts a comment (`mata: * note` is r(3499) in Stata 18).
-    if (this.in_mata_inline_statement ||
-        this.previous_code_token?.type === 'PYTHON_INLINE') {
+    if (this.in_mata_inline_statement || this.in_python_inline_statement) {
       return false;
     }
     // Rule 1: * at beginning of line (after optional whitespace) is a
