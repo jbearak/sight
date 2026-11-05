@@ -67,6 +67,7 @@ import {
     MacroCompletionContext
 } from './completion/macro-completion';
 import { get_line_text, get_line_count } from '../utils/line-utils';
+import { nested_statements } from '../utils/node-body';
 import { format_help_link } from '../utils/help-link';
 import {
     logical_statement_start,
@@ -3643,11 +3644,12 @@ export class CompletionProvider {
                 }
             }
 
-            // Recurse into nested structures
-            if (node.type === 'if' || node.type === 'else' ||
-                node.type === 'foreach' || node.type === 'forvalues' ||
-                node.type === 'while' || node.type === 'frame') {
-                const result = this.find_program_containing_position(node.body, position, scopes);
+            // Recurse into control flow and brace block bodies
+            const the_body = node.type === 'program'
+                ? undefined
+                : nested_statements(node);
+            if (the_body) {
+                const result = this.find_program_containing_position(the_body, position, scopes);
                 if (result) return result;
             }
         }

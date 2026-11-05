@@ -19,6 +19,7 @@ import {
     WorkspaceSymbolSource,
 } from '../types';
 import { get_line_text, get_line_count } from '../utils/line-utils';
+import { nested_statements } from '../utils/node-body';
 import { enumerate_scoped_local_macros } from '../utils/scoped-locals';
 import { extract_sections, RawSection } from './section-detector';
 import * as path from 'path';
@@ -632,18 +633,15 @@ export class SymbolProvider {
                 return my_node.range;
             }
 
-            // Recurse into control flow bodies (defensive - programs shouldn't
-            // be nested, but this handles edge cases)
-            if (
-                my_node.type === 'if' ||
-                my_node.type === 'else' ||
-                my_node.type === 'foreach' ||
-                my_node.type === 'forvalues' ||
-                my_node.type === 'while' ||
-                my_node.type === 'frame'
-            ) {
+            // Recurse into control flow and brace block bodies
+            // (defensive - programs shouldn't be nested, but this
+            // handles edge cases)
+            const the_body = my_node.type === 'program'
+                ? undefined
+                : nested_statements(my_node);
+            if (the_body) {
                 const my_result = this.find_program_range_in_nodes(
-                    my_node.body,
+                    the_body,
                     program_name
                 );
                 if (my_result) {
@@ -724,20 +722,13 @@ export class SymbolProvider {
 
         for (const my_node of nodes) {
             if (my_node.type === 'embedded_block') {
-                the_blocks.push(my_node as EmbeddedLanguageBlockNode);
-            } else if (my_node.type === 'program') {
-                // Recurse into program body
-                the_blocks.push(...this.extract_embedded_blocks(my_node.body));
-            } else if (
-                my_node.type === 'if' ||
-                my_node.type === 'else' ||
-                my_node.type === 'foreach' ||
-                my_node.type === 'forvalues' ||
-                my_node.type === 'while' ||
-                my_node.type === 'frame'
-            ) {
-                // Recurse into control flow body
-                the_blocks.push(...this.extract_embedded_blocks(my_node.body));
+                the_blocks.push(my_node);
+                continue;
+            }
+            // Recurse into program, control flow, and brace block bodies
+            const the_body = nested_statements(my_node);
+            if (the_body) {
+                the_blocks.push(...this.extract_embedded_blocks(the_body));
             }
         }
 

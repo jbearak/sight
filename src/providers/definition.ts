@@ -48,6 +48,7 @@ import * as path from 'path';
 import { URI } from 'vscode-uri';
 import { resolve_path_rich, resolve_forward_call_rich } from '../utils/file-path-utils';
 import { get_line_text } from '../utils/line-utils';
+import { nested_statements } from '../utils/node-body';
 import {
     classify_effective_local,
     is_cross_file_hidden_local,
@@ -1592,16 +1593,12 @@ export class DefinitionProvider {
                 }
             }
 
-            // Push child nodes (depth-first)
-            if (node.type === 'program' ||
-                node.type === 'if' ||
-                node.type === 'else' ||
-                node.type === 'foreach' ||
-                node.type === 'forvalues' ||
-                node.type === 'while' ||
-                node.type === 'frame') {
-                for (let i = 0; i < node.body.length; i++) {
-                    the_stack.push(node.body[i]);
+            // Push child nodes (depth-first), including a brace
+            // block's (`quietly { … }`)
+            const the_body = nested_statements(node);
+            if (the_body) {
+                for (let i = 0; i < the_body.length; i++) {
+                    the_stack.push(the_body[i]);
                 }
             }
         }
