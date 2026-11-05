@@ -50,10 +50,38 @@ export function strip_inline_block_comments(text: string): string {
 }
 
 /**
+ * The text from `start` in `source` to the end of its logical line: the
+ * rest of the physical line, and each following line that a `///`
+ * joins to it, in place of the `///` and the note after it. A `///`
+ * continues the line where a `//` comment could start (see
+ * LINE_COMMENT_START), as in Stata 18: `program ///` then `define foo`
+ * is `program define foo`. Block comments that close on their line are
+ * blanked.
+ */
+export function logical_line_text(source: string, start: number): string {
+    const the_parts: string[] = [];
+    let my_start = start;
+    for (;;) {
+        const my_newline = source.indexOf('\n', my_start);
+        const my_end = my_newline === -1 ? source.length : my_newline;
+        const my_line = strip_inline_block_comments(
+            source.slice(my_start, my_end).replace(/\r$/, ''));
+        const my_comment = LINE_COMMENT_START.exec(my_line);
+        if (my_newline === -1 || my_comment === null ||
+                !my_line.startsWith('///', my_comment.index)) {
+            the_parts.push(my_line);
+            return the_parts.join('');
+        }
+        the_parts.push(my_line.slice(0, my_comment.index), ' ');
+        my_start = my_newline + 1;
+    }
+}
+
+/**
  * Whether `program` followed by `text_after_program` (the rest of its
- * physical line) defines a program: a name or `define` follows, not a
- * subcommand (`program drop x`), and there is no `plugin` option (a
- * plugin declaration has no body or `end`).
+ * logical line, see logical_line_text) defines a program: a name or
+ * `define` follows, not a subcommand (`program drop x`), and there is
+ * no `plugin` option (a plugin declaration has no body or `end`).
  */
 export function is_program_definition_header(text_after_program: string): boolean {
     const my_text = strip_inline_block_comments(text_after_program);

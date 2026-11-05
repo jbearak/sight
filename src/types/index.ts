@@ -318,6 +318,8 @@ export interface CommandNode {
   weight?: WeightClause;
   using?: UsingClause;
   body?: StataNode[];  // For prefix command brace blocks (e.g., capture { })
+  // As on ControlFlowNode
+  closed_by_program_end?: boolean;
   range: Range;
   leadingTrivia?: TriviaNode[];
   // Comments between the statement's tokens, e.g. `/* c */` in
@@ -399,6 +401,10 @@ export interface ControlFlowNode {
   loopSpec?: string;
   frameName?: string;
   body: StataNode[];
+  // Stata ended the program around this block inside it, at a line
+  // whose first word is `end` (maybe a mata/python block's), so the
+  // block has no `}` and its range ends with its last statement.
+  closed_by_program_end?: boolean;
   // As on CommandNode: the header's lines through `{`, or, for an
   // inline `if`, the whole statement's.
   noted_lines?: SourceLine[];
@@ -679,6 +685,15 @@ export interface StataAST {
    * last statement's `trailingTrivia`.
    */
   trailingTrivia?: TriviaNode[];
+  /**
+   * Code the nodes do not hold as written, in source order: tokens the
+   * parser skipped to recover from an error (an orphan `}`, a
+   * statement it could not parse), and block headers with no `{`
+   * (`if x` alone, which Stata rejects with "{ required"). Printing the
+   * nodes would lose or invent code there, so AST formatting leaves a
+   * file with any of these to source-preserving formatting.
+   */
+  unprintable_ranges?: Range[];
 }
 
 export interface ParseResult {

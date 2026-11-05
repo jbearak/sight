@@ -27,6 +27,7 @@ import {
   UsingClause,
   PathNode,
   WeightClause,
+  StataAST,
 } from '../types';
 import { ContextTracker } from '../context-tracker';
 import { unwrap_macval } from '../utils/local-macro';
@@ -168,6 +169,12 @@ export class StataParser {
   private pending_trivia: TriviaNode[] = [];
   private context_tracker: ContextTracker | null = null;
   private inside_program: boolean = false;
+  // Where the program being parsed ended: Stata ends a program
+  // definition at the `end` of a mata/python block in its body, even one
+  // nested in a brace block. Every enclosing body stops there.
+  private program_end_at: Position | undefined;
+  // Code the AST does not hold as written (see StataAST)
+  private unprintable_ranges: Range[] = [];
   // The `#delimit` mode at the current statement
   private delimit_mode: 'cr' | 'semicolon' = 'cr';
   private if_brace_scan_end = -1;
@@ -190,20 +197,27 @@ export class StataParser {
     this.if_brace_scan_end = -1;
     this.if_brace_scan_result = false;
     this.delimit_mode = 'cr';
+    this.program_end_at = undefined;
+    this.unprintable_ranges = [];
     this.context_tracker = context_tracker || null;
 
     const nodes: StataNode[] = [];
 
     while (!this.isAtEnd()) {
+      const statement_start = this.peek().range.start;
       try {
         const node = this.parseStatement();
         if (node) {
           nodes.push(node);
         }
       } catch (error) {
-        // Error recovery: skip to next statement boundary
+        // Error recovery: skip to next statement boundary. The
+        // statement, and any block it was in, is not in the AST.
         this.synchronize();
         this.addError(`Parse error: ${error}`, this.peek().range);
+        this.note_unprintable(statement_start);
+        this.inside_program = false;
+        this.program_end_at = undefined;
       }
     }
 
@@ -225,10 +239,11 @@ export class StataParser {
       this.pending_trivia = [];
     }
 
-    return {
-      ast: eof_trivia ? { nodes, trailingTrivia: eof_trivia } : { nodes },
-      errors: this.errors,
-    };
+    const ast: StataAST = eof_trivia ? { nodes, trailingTrivia: eof_trivia } : { nodes };
+    if (this.unprintable_ranges.length > 0) {
+      ast.unprintable_ranges = this.unprintable_ranges;
+    }
+    return { ast, errors: this.errors };
   }
 
   /**
@@ -321,6 +336,7 @@ export class StataParser {
         }
         this.advance();
       }
+      this.note_unprintable(brace_token.range.start);
       this.pending_trivia = leading_trivia;
       return null;
     } else if (this.check('RBRACE')) {
@@ -331,13 +347,15 @@ export class StataParser {
         range: brace_token.range,
         code: ParseErrorCode.ORPHAN_CLOSE_BRACE,
       });
+      this.note_unprintable(brace_token.range.start);
       this.pending_trivia = leading_trivia;
       return null;
     } else if (has_adjacent_slashes(this.tokens.slice(this.current, this.current + 2))) {
       node = this.parse_slash_led_statement();
     } else {
       // Skip unknown tokens but preserve any leading trivia for the next statement.
-      this.advance();
+      const skipped_token = this.advance();
+      this.note_unprintable(skipped_token.range.start);
       this.pending_trivia = leading_trivia;
       return null;
     }
@@ -693,14 +711,11 @@ export class StataParser {
       const stmt = this.parseStatement();
       if (stmt) {
         body.push(stmt);
-        // Stata ends a program definition at the first line whose first
-        // word is `end`, so the `end` of a mata/python block in the body
-        // ends the program too.
-        if (stmt.type === 'embedded_block' && !stmt.is_single_line &&
-            stmt.end_command !== undefined && stmt.end_command !== '}') {
-          embedded_block_end = stmt.range.end;
-          break;
-        }
+        this.note_program_ending_block(stmt);
+      }
+      if (this.program_end_at !== undefined) {
+        embedded_block_end = this.program_end_at;
+        break;
       }
     }
 
@@ -709,6 +724,7 @@ export class StataParser {
       : undefined;
 
     this.inside_program = was_inside_program;
+    this.program_end_at = undefined;
 
     // Consume 'end'
     if (embedded_block_end !== undefined) {
@@ -717,6 +733,8 @@ export class StataParser {
       this.advance();
     } else {
       this.addError('Missing "end" for program definition', start_token.range);
+      // Printing the AST would add the missing closer
+      this.note_unprintable(start_token.range.start);
     }
 
     // Extract and merge signatures from syntax nodes
@@ -1213,12 +1231,19 @@ export class StataParser {
       const body: StataNode[] = [];
       const { body: my_body, blockEndingTrivia } = this.parseBraceBody();
       body.push(...my_body);
-      if (this.check('RBRACE')) {
+      let closed_by_program_end = false;
+      // After the program's end, a `}` is a statement of its own.
+      if (this.check('RBRACE') && !this.program_ended_in_block()) {
         const rbrace_index = this.current;
         const rbrace_token = this.advance(); // consume }
 
         // Validate close brace placement
         this.validate_close_brace(rbrace_token, rbrace_index);
+      } else if (this.program_ended_in_block()) {
+        closed_by_program_end = true;
+      } else {
+        // Printing the AST would add the missing closer
+        this.note_unprintable(start_token.range.start);
       }
 
       return {
@@ -1230,10 +1255,11 @@ export class StataParser {
         body,
         range: this.makeRange(
           start_token.range.start,
-          this.previous().range.end
+          this.brace_block_end()
         ),
         interiorTrivia: prefix_comments.length > 0 ? prefix_comments : undefined,
         blockEndingTrivia,
+        ...(closed_by_program_end ? { closed_by_program_end: true } : {}),
       };
     }
 
@@ -1651,7 +1677,9 @@ export class StataParser {
 
         options.push(option);
       } else {
-        this.advance(); // skip unknown tokens in options
+        // An option can't start here (`, robust/cluster`)
+        const skipped_token = this.advance();
+        this.note_unprintable(skipped_token.range.start);
       }
     }
   }
@@ -2070,8 +2098,6 @@ export class StataParser {
     command_token: Token,
     prefixes: PrefixNode[]
   ): CommandNode {
-    const start_pos = command_token.range.start;
-
     // Parse macro name
     this.skip_statement_whitespace();
     if (!this.check('WORD')) {
@@ -2079,7 +2105,18 @@ export class StataParser {
       throw new Error('Missing macro name in unab command');
     }
 
-    const macro_name_token = this.advance();
+    const unab_node = this.parse_unab_rest(command_token, this.advance());
+    unab_node.prefix = prefixes.length > 0 ? prefixes : undefined;
+    return unab_node;
+  }
+
+  /**
+   * The rest of `unab macroname : varlist [, options]` after the macro
+   * name. Tokens no name can start, as in `unab x : a/b`, are kept in
+   * `extra_args`: Stata reads them as part of the statement (and rejects
+   * them, r(198)), so they don't start a new command.
+   */
+  private parse_unab_rest(command_token: Token, macro_name_token: Token): CommandNode {
     const varlist: IdentifierNode[] = [
       {
         name: macro_name_token.value,
@@ -2134,52 +2171,55 @@ export class StataParser {
 
     }
 
+    const extra_args = this.collect_statement_tail(true);
+
     // Parse options (after comma) - same as regular commands
     const options: OptionNode[] = [];
     if (this.check('COMMA')) {
       this.advance(); // consume comma
-
-      while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
-        if (this.skipContinuation()) continue;
-        if (this.skip_interior_comments()) continue;
-        if (this.isTrivia()) break;
-        if (this.check('WORD')) {
-          const option_token = this.advance();
-          const option: OptionNode = {
-            type: 'option',
-            name: option_token.value,
-            fullName: option_token.value,
-            range: option_token.range,
-          };
-
-          // Check for option argument
-          if (this.check('LPAREN')) {
-            const parsed = this.parse_option_argument_inside_parens();
-            option.argument = parsed.argument;
-            option.argument_range = parsed.argument_range;
-            if (parsed.argument_unclosed) {
-              option.argument_unclosed = true;
-            }
-          }
-
-          options.push(option);
-        } else {
-          this.advance(); // skip unknown tokens in options
-        }
-      }
+      this.parse_command_options(options);
     }
 
-    return {
+    const node: CommandNode = {
       type: 'command',
-      prefix: prefixes.length > 0 ? prefixes : undefined,
       name: 'unab',
       fullName: 'unab',
       varlist,
       has_colon_before_varlist,
       options: options.length > 0 ? options : undefined,
       expression: undefined,
-      range: this.makeRange(start_pos, this.previous().range.end),
+      range: this.makeRange(command_token.range.start, this.previous().range.end),
     };
+    if (extra_args.length > 0) {
+      node.extra_args = extra_args;
+    }
+    return node;
+  }
+
+  /**
+   * The tokens from the current one up to the end of the statement (or,
+   * with `stop_at_comma`, up to the comma that starts its options), as
+   * `extra_args` items. Continuations and comments inside the statement
+   * are whitespace.
+   */
+  private collect_statement_tail(stop_at_comma: boolean): IdentifierNode[] {
+    const the_tokens: Token[] = [];
+    while (!this.isAtEnd()) {
+      if (this.skipContinuation()) {
+        continue;
+      }
+      if (this.is_interior_comment(this.current)) {
+        this.advance();
+        continue;
+      }
+      if (this.isTrivia() || this.check('STATEMENT_TERMINATOR') ||
+          (stop_at_comma && this.check('COMMA')) ||
+          this.check('LBRACE') || this.check('RBRACE')) {
+        break;
+      }
+      the_tokens.push(this.advance());
+    }
+    return this.group_adjacent_tokens(the_tokens);
   }
 
   /**
@@ -2193,27 +2233,36 @@ export class StataParser {
   ): CommandNode {
     const start_pos = command_token.range.start;
 
-    // Parse macro names - all WORD tokens until statement terminator or trivia
-    // Unlike regular commands, 'if' and 'in' are valid macro names here
+    // Macro names up to the end of the statement. Unlike regular
+    // commands, 'if' and 'in' are valid macro names here. Continuations
+    // and comments inside the statement are whitespace. From a token no
+    // name can start (`/note` in `args a/note`), the rest of the
+    // statement is kept in `extra_args`: Stata reads it as part of the
+    // statement (and rejects the name, r(198)).
     const varlist: IdentifierNode[] = [];
-
-    while (!this.check('STATEMENT_TERMINATOR') &&
-           !this.isAtEnd() && !this.isTrivia()) {
+    while (!this.isAtEnd()) {
+      if (this.skipContinuation()) {
+        continue;
+      }
+      if (this.is_interior_comment(this.current)) {
+        this.advance();
+        continue;
+      }
       const is_varlist_token = this.check('WORD') || this.check('STRING') ||
           this.check('MACRO_REF_LOCAL') || this.check('MACRO_REF_GLOBAL');
-      if (is_varlist_token) {
-        const var_token = this.advance();
-        varlist.push({
-          name: var_token.value,
-          range: var_token.range,
-        });
-      } else {
-        // Stop at other tokens
+      if (!is_varlist_token) {
         break;
       }
+      const var_token = this.advance();
+      varlist.push({
+        name: var_token.value,
+        range: var_token.range,
+      });
     }
+    // args has no options, so a comma is part of the tail too.
+    const extra_args = this.collect_statement_tail(false);
 
-    return {
+    const node: CommandNode = {
       type: 'command',
       prefix: prefixes.length > 0 ? prefixes : undefined,
       name: 'args',
@@ -2223,6 +2272,10 @@ export class StataParser {
       expression: undefined,
       range: this.makeRange(start_pos, this.previous().range.end),
     };
+    if (extra_args.length > 0) {
+      node.extra_args = extra_args;
+    }
+    return node;
   }
 
   private parseSyntaxCommand(): SyntaxNode {
@@ -2906,6 +2959,8 @@ export class StataParser {
     // Parse body
     const body: StataNode[] = [];
     let blockEndingTrivia: TriviaNode[] | undefined;
+    // The program around the block ended inside it (no `}`)
+    let closed_by_program_end = false;
     if (is_single_statement) {
       const statement = this.parseStatement(false);
       if (statement) body.push(statement);
@@ -2922,15 +2977,23 @@ export class StataParser {
       body.push(...my_body);
       blockEndingTrivia = my_block_ending_trivia;
 
-      if (this.check('RBRACE')) {
+      // After the program's end, a `}` is a statement of its own.
+      if (this.check('RBRACE') && !this.program_ended_in_block()) {
         const rbrace_index = this.current;
         const rbrace_token = this.advance(); // consume }
 
         // Validate close brace placement
         this.validate_close_brace(rbrace_token, rbrace_index);
+      } else if (this.program_ended_in_block()) {
+        closed_by_program_end = true;
       } else {
         this.addError('Missing closing brace for if statement', ifToken.range);
+        // Printing the AST would add the missing closer
+        this.note_unprintable(ifToken.range.start);
       }
+    } else {
+      // `if exp` with no `{` and no command: Stata stops, "{ required"
+      this.note_unprintable(ifToken.range.start);
     }
 
     return {
@@ -2944,10 +3007,11 @@ export class StataParser {
       range: this.makeRange(
         ifToken.range.start,
         is_single_statement && body.length > 0
-          ? body[body.length - 1].range.end : this.previous().range.end
+          ? body[body.length - 1].range.end : this.brace_block_end()
       ),
       ...(the_comments.length > 0 ? { interiorTrivia: the_comments } : {}),
       blockEndingTrivia,
+      ...(closed_by_program_end ? { closed_by_program_end: true } : {}),
     };
   }
 
@@ -2968,12 +3032,16 @@ export class StataParser {
         body: [ifNode],
         range: this.makeRange(elseToken.range.start, ifNode.range.end),
         ...comment_field,
+        // The program's end cut the `if` off, and with it this `else`
+        ...(ifNode.closed_by_program_end ? { closed_by_program_end: true } : {}),
       };
     }
 
     // Parse body
     const body: StataNode[] = [];
     let blockEndingTrivia: TriviaNode[] | undefined;
+    // The program around the block ended inside it (no `}`)
+    let closed_by_program_end = false;
     let is_brace_else = false;
     if (this.check('LBRACE')) {
       is_brace_else = true;
@@ -2989,20 +3057,29 @@ export class StataParser {
       body.push(...my_body);
       blockEndingTrivia = my_block_ending_trivia;
 
-      if (this.check('RBRACE')) {
+      // After the program's end, a `}` is a statement of its own.
+      if (this.check('RBRACE') && !this.program_ended_in_block()) {
         const rbrace_index = this.current;
         const rbrace_token = this.advance(); // consume }
 
         // Validate close brace placement
         this.validate_close_brace(rbrace_token, rbrace_index);
+      } else if (this.program_ended_in_block()) {
+        closed_by_program_end = true;
       } else {
         this.addError('Missing closing brace for else statement', elseToken.range);
+        // Printing the AST would add the missing closer
+        this.note_unprintable(elseToken.range.start);
       }
     } else {
       // Single statement else
       const stmt = this.parseStatement();
       if (stmt) {
         body.push(stmt);
+        // The program's end cut the body off, and with it this `else`
+        if ('closed_by_program_end' in stmt && stmt.closed_by_program_end === true) {
+          closed_by_program_end = true;
+        }
       }
     }
 
@@ -3015,7 +3092,7 @@ export class StataParser {
     const end_position =
       !is_brace_else && body.length > 0
         ? body[body.length - 1].range.end
-        : this.previous().range.end;
+        : this.brace_block_end();
 
     return {
       type: 'else',
@@ -3023,6 +3100,7 @@ export class StataParser {
       range: this.makeRange(elseToken.range.start, end_position),
       ...comment_field,
       blockEndingTrivia,
+      ...(closed_by_program_end ? { closed_by_program_end: true } : {}),
     };
   }
 
@@ -3095,6 +3173,8 @@ export class StataParser {
     // Parse body
     const body: StataNode[] = [];
     let blockEndingTrivia: TriviaNode[] | undefined;
+    // The program around the block ended inside it (no `}`)
+    let closed_by_program_end = false;
     if (this.check('LBRACE')) {
       const lbrace_index = this.current;
       const lbrace_token = this.advance(); // consume {
@@ -3108,15 +3188,23 @@ export class StataParser {
       body.push(...my_body);
       blockEndingTrivia = my_block_ending_trivia;
 
-      if (this.check('RBRACE')) {
+      // After the program's end, a `}` is a statement of its own.
+      if (this.check('RBRACE') && !this.program_ended_in_block()) {
         const rbrace_index = this.current;
         const rbrace_token = this.advance(); // consume }
 
         // Validate close brace placement
         this.validate_close_brace(rbrace_token, rbrace_index);
+      } else if (this.program_ended_in_block()) {
+        closed_by_program_end = true;
       } else {
         this.addError(`Missing closing brace for ${loopType} statement`, loopToken.range);
+        // Printing the AST would add the missing closer
+        this.note_unprintable(loopToken.range.start);
       }
+    } else {
+      // A loop header with no `{`: Stata stops, "{ required"
+      this.note_unprintable(loopToken.range.start);
     }
 
     return {
@@ -3124,9 +3212,10 @@ export class StataParser {
       loopVar,
       loopSpec,
       body,
-      range: this.makeRange(loopToken.range.start, this.previous().range.end),
+      range: this.makeRange(loopToken.range.start, this.brace_block_end()),
       ...(the_comments.length > 0 ? { interiorTrivia: the_comments } : {}),
       blockEndingTrivia,
+      ...(closed_by_program_end ? { closed_by_program_end: true } : {}),
     };
   }
 
@@ -3191,6 +3280,8 @@ export class StataParser {
     // Parse body
     const body: StataNode[] = [];
     let blockEndingTrivia: TriviaNode[] | undefined;
+    // The program around the block ended inside it (no `}`)
+    let closed_by_program_end = false;
     if (this.check('LBRACE')) {
       const lbrace_index = this.current;
       const lbrace_token = this.advance(); // consume {
@@ -3204,15 +3295,23 @@ export class StataParser {
       body.push(...my_body);
       blockEndingTrivia = my_block_ending_trivia;
 
-      if (this.check('RBRACE')) {
+      // After the program's end, a `}` is a statement of its own.
+      if (this.check('RBRACE') && !this.program_ended_in_block()) {
         const rbrace_index = this.current;
         const rbrace_token = this.advance(); // consume }
 
         // Validate close brace placement
         this.validate_close_brace(rbrace_token, rbrace_index);
+      } else if (this.program_ended_in_block()) {
+        closed_by_program_end = true;
       } else {
         this.addError('Missing closing brace for while statement', whileToken.range);
+        // Printing the AST would add the missing closer
+        this.note_unprintable(whileToken.range.start);
       }
+    } else {
+      // A while header with no `{`: Stata stops, "{ required"
+      this.note_unprintable(whileToken.range.start);
     }
 
     return {
@@ -3222,9 +3321,10 @@ export class StataParser {
         ? { condition_ast: parse_condition(condition_tokens, whileToken.range.end) }
         : {}),
       body,
-      range: this.makeRange(whileToken.range.start, this.previous().range.end),
+      range: this.makeRange(whileToken.range.start, this.brace_block_end()),
       ...(the_comments.length > 0 ? { interiorTrivia: the_comments } : {}),
       blockEndingTrivia,
+      ...(closed_by_program_end ? { closed_by_program_end: true } : {}),
     };
   }
 
@@ -3339,15 +3439,21 @@ export class StataParser {
 
     // Parse body
     const { body, blockEndingTrivia } = this.parseBraceBody();
+    let closed_by_program_end = false;
 
-    if (this.check('RBRACE')) {
+    // After the program's end, a `}` is a statement of its own.
+    if (this.check('RBRACE') && !this.program_ended_in_block()) {
       const rbrace_index = this.current;
       const rbrace_token = this.advance(); // consume }
 
       // Validate close brace placement
       this.validate_close_brace(rbrace_token, rbrace_index);
+    } else if (this.program_ended_in_block()) {
+      closed_by_program_end = true;
     } else {
       this.addError('Missing closing brace for frame block', frame_token.range);
+      // Printing the AST would add the missing closer
+      this.note_unprintable(frame_token.range.start);
     }
 
     // `frame f /* c */ {`: the comment is whitespace in the header.
@@ -3356,9 +3462,10 @@ export class StataParser {
       type: 'frame',
       frameName: frame_name,
       body,
-      range: this.makeRange(frame_token.range.start, this.previous().range.end),
+      range: this.makeRange(frame_token.range.start, this.brace_block_end()),
       ...(header_comments.length > 0 ? { interiorTrivia: header_comments } : {}),
       blockEndingTrivia,
+      ...(closed_by_program_end ? { closed_by_program_end: true } : {}),
     };
   }
 
@@ -3367,8 +3474,6 @@ export class StataParser {
    * unab macroname : varlist
    */
   private parseUnabCommandBody(command_token: Token): CommandNode {
-    const start_pos = command_token.range.start;
-
     // Parse macro name
     this.skip_statement_whitespace();
     if (!this.check('WORD')) {
@@ -3377,106 +3482,10 @@ export class StataParser {
         type: 'command',
         name: 'unab',
         fullName: 'unab',
-        range: this.makeRange(start_pos, this.previous().range.end),
+        range: this.makeRange(command_token.range.start, this.previous().range.end),
       };
     }
-
-    const macro_name_token = this.advance();
-    const varlist: IdentifierNode[] = [
-      {
-        name: macro_name_token.value,
-        range: macro_name_token.range,
-      }
-    ];
-
-    // Track whether we found a colon - stored in dedicated field, not varlist
-    // This keeps varlists pure (only variable names) while preserving syntax
-    let has_colon_before_varlist = false;
-
-    // Expect colon; a block comment or `///` before it is whitespace.
-    this.skip_statement_whitespace();
-    if (!this.check('COLON')) {
-      this.addError(
-        'Expected ":" after macro name in unab command',
-        this.peek().range
-      );
-    } else {
-      this.advance(); // consume colon
-      has_colon_before_varlist = true;
-    }
-
-    // Parse variable list after colon; a block comment or `///` between
-    // names is whitespace.
-    for (;;) {
-      this.skip_statement_whitespace();
-      if (!this.is_unab_varlist_token()) {
-        break;
-      }
-      const var_token = this.advance();
-      let name = var_token.value;
-      let end_range = var_token.range.end;
-
-      // Only coalesce wildcards for actual varlist tokens, not standalone wildcards
-      const is_varlist_token = var_token.type === 'WORD' || var_token.type === 'MACRO_REF_LOCAL' ||
-          var_token.type === 'MACRO_REF_GLOBAL';
-      if (is_varlist_token) {
-        // Coalesce adjacent wildcard tokens
-        while (!this.isAtEnd() && this.isWildcardToken(this.peek()) &&
-               this.isAdjacentToken(this.previous(), this.peek())) {
-          const wildcard_token = this.advance();
-          name += wildcard_token.value;
-          end_range = wildcard_token.range.end;
-        }
-      }
-
-      varlist.push({
-        name: name,
-        range: { start: var_token.range.start, end: end_range },
-      });
-
-    }
-
-    // Parse options (after comma)
-    const options: OptionNode[] = [];
-    if (this.check('COMMA')) {
-      this.advance();
-      while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
-        if (this.skipContinuation()) continue;
-        if (this.skip_interior_comments()) continue;
-        if (this.isTrivia()) break;
-        if (this.check('WORD')) {
-          const option_token = this.advance();
-          const option: OptionNode = {
-            type: 'option',
-            name: option_token.value,
-            fullName: option_token.value,
-            range: option_token.range,
-          };
-          if (this.check('LPAREN')) {
-            const parsed = this.parse_option_argument_inside_parens();
-            option.argument = parsed.argument;
-            option.argument_range = parsed.argument_range;
-            if (parsed.argument_unclosed) {
-              option.argument_unclosed = true;
-            }
-          }
-          options.push(option);
-        } else {
-          this.advance();
-        }
-      }
-    }
-
-    return {
-      type: 'command',
-      name: 'unab',
-      fullName: 'unab',
-      varlist,
-      has_colon_before_varlist,
-      options: options.length > 0 ? options : undefined,
-      expression: undefined,
-      range: this.makeRange(start_pos, this.previous().range.end),
-    };
+    return this.parse_unab_rest(command_token, this.advance());
   }
 
   // Helper methods
@@ -4058,17 +4067,81 @@ export class StataParser {
       if (this.check('RBRACE') || this.isAtEnd()) {
         break;
       }
+      // Stata ends a program definition at the first line whose first
+      // word is `end`, even in a brace block; the program takes it.
+      if (this.inside_program && this.checkWord('end')) {
+        break;
+      }
       const stmt = this.parseStatement();
       if (stmt) {
         body.push(stmt);
+        this.note_program_ending_block(stmt);
+      }
+      // The program ended inside this block, which has no `}`: Stata
+      // reads the lines after the program's end at the top level.
+      if (this.program_end_at !== undefined) {
+        break;
       }
     }
 
-    const blockEndingTrivia = this.check('RBRACE')
+    const blockEndingTrivia = this.check('RBRACE') && !this.program_ended_in_block()
       ? this.drainBlockEndingTrivia()
       : undefined;
 
     return { body, blockEndingTrivia };
+  }
+
+  /**
+   * Record that the code from `start` through the previous token is not
+   * in the AST as written: the parser skipped it to recover from an
+   * error, or a block header has no `{` (`if x` alone), so printing the
+   * AST would lose or invent code.
+   */
+  private note_unprintable(start: Position): void {
+    this.unprintable_ranges.push(this.makeRange(start, this.previous().range.end));
+  }
+
+  /**
+   * Where a brace block that just finished parsing ends: at its `}`, or,
+   * when the program around it ended inside it, at that block's `end`
+   * (the token before the cursor can be a terminator on the next line).
+   */
+  private brace_block_end(): Position {
+    if (this.program_end_at !== undefined) {
+      return this.program_end_at;
+    }
+    let my_index = this.current - 1;
+    if (this.program_ended_in_block()) {
+      // Before the `end`, not at the terminator ahead of it
+      while (my_index > 0 && this.tokens[my_index].type === 'STATEMENT_TERMINATOR') {
+        my_index--;
+      }
+    }
+    return this.tokens[my_index].range.end;
+  }
+
+  /**
+   * Did the program around the brace block that just finished parsing
+   * end inside it, at an embedded block's `end` or at an `end` line?
+   * Then the block has no `}`: Stata reads the lines after the
+   * program's end at the top level.
+   */
+  private program_ended_in_block(): boolean {
+    return this.program_end_at !== undefined ||
+      (this.inside_program && this.checkWord('end'));
+  }
+
+  /**
+   * Stata ends a program definition at the first line whose first word
+   * is `end`, so the `end` of a mata/python block in the body ends the
+   * program too, at any depth (`if 1 {` then `mata:` ... `end`).
+   */
+  private note_program_ending_block(stmt: StataNode): void {
+    if (this.inside_program && stmt.type === 'embedded_block' &&
+        !stmt.is_single_line && stmt.end_command !== undefined &&
+        stmt.end_command !== '}') {
+      this.program_end_at = stmt.range.end;
+    }
   }
 
   private drainBlockEndingTrivia(): TriviaNode[] | undefined {
@@ -4991,7 +5064,9 @@ export class StataParser {
     // This happens when the open brace is on its own line, like:
     // if (1 == 1)
     // {
-    if (!has_condition_before) {
+    // Under `#delimit ;` a line break doesn't end the header, so a `{`
+    // on the next line is still in it: Stata 18 runs `if 1` then `{;`.
+    if (!has_condition_before && this.delimit_mode === 'cr') {
       // Check if there's any code before the brace on the same line
       const code_before = this.find_code_before_on_same_line(brace_index, brace_line);
       if (!code_before) {

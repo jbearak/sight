@@ -82,9 +82,10 @@ const DEFAULT_PRINT_OPTIONS: PrintOptions = {
 export class PrettyPrinter {
     private options: PrintOptions;
     private current_indent: number = 0;
-    // Indent level for the `end` of the embedded block being printed,
-    // when that `end` also ends the enclosing program.
-    private embedded_end_indent_override: number | undefined;
+    // The embedded block whose `end` also ends the program being
+    // printed, and the indent level for that `end` (the program's).
+    private program_ending_block:
+        { node: EmbeddedLanguageBlockNode; indent: number } | undefined;
     private delimiter_mode: 'cr' | 'semicolon' = 'cr';
 
     constructor(options?: Partial<PrintOptions>) {
@@ -445,7 +446,12 @@ export class PrettyPrinter {
             // Decrease indent
             this.current_indent--;
 
-            // Print closing brace (without statement terminator - printNode adds it)
+            // Print closing brace (without statement terminator - printNode
+            // adds it), unless the program ended inside the block (see
+            // printControlFlow)
+            if (node.closed_by_program_end) {
+                return this.drop_final_terminator(the_parts.join(''));
+            }
             the_parts.push(`${this.getIndent()}}`);
         }
 
@@ -567,19 +573,24 @@ export class PrettyPrinter {
         this.current_indent++;
 
         // Print body statements. When Stata ended the program at the
-        // `end` of an embedded block (the last body node), that `end` is
-        // the program's: print it at the program's depth, and leave the
-        // terminator after it to the caller, as for a program's own `end`.
+        // `end` of an embedded block (the last statement, maybe inside
+        // the last node's brace block), that `end` is the program's:
+        // print it at the program's depth, and leave the terminator after
+        // it to the caller, as for a program's own `end`.
+        const my_ending_block = node.ends_at_embedded_block
+            ? last_embedded_block(node.body)
+            : undefined;
         node.body.forEach((my_stmt, my_index) => {
-            const my_ends_program = node.ends_at_embedded_block === true &&
-                my_index === node.body.length - 1;
-            if (!my_ends_program) {
+            if (my_ending_block === undefined || my_index !== node.body.length - 1) {
                 the_lines.push(this.print_node_text(my_stmt));
                 return;
             }
-            this.embedded_end_indent_override = this.current_indent - 1;
+            this.program_ending_block = {
+                node: my_ending_block,
+                indent: this.current_indent - 1,
+            };
             const my_parts = this.printNodeParts(my_stmt);
-            this.embedded_end_indent_override = undefined;
+            this.program_ending_block = undefined;
             the_lines.push(my_parts.code);
             // Comments on later lines follow their own terminator; the
             // caller adds the final one.
@@ -770,8 +781,10 @@ export class PrettyPrinter {
 
         // Print closing brace, unless an unclosed embedded block took the
         // rest of the file (closing brace included): one printed here
-        // would land inside the block, a new one on every pass.
-        if (ends_in_unclosed_embedded_block(node.body)) {
+        // would land inside the block, a new one on every pass. Nor when
+        // the program ended inside the block: Stata reads no further into
+        // it, so its `}` (if any) is a statement of its own.
+        if (node.closed_by_program_end || ends_in_unclosed_embedded_block(node.body)) {
             return { code: this.drop_final_terminator(the_lines.join('')), own_line: '' };
         }
         the_lines.push(`${this.getIndent()}}`);
@@ -885,8 +898,8 @@ export class PrettyPrinter {
                 node.language === 'python' && node.end_command === 'end'
                     ? ''
                     : this.getIndent();
-            if (this.embedded_end_indent_override !== undefined) {
-                my_end_indent = this.indent_for(this.embedded_end_indent_override);
+            if (this.program_ending_block?.node === node) {
+                my_end_indent = this.indent_for(this.program_ending_block.indent);
             }
             the_lines.push(`${my_end_indent}${node.end_command}`);
         }
@@ -1164,6 +1177,23 @@ export function print_node(node: StataNode, options?: Partial<PrintOptions>): st
 // Re-export expression spacing utility
 export { format_expression_spacing, find_protected_regions } from './expression-spacing';
 export type { ProtectedRegion } from './expression-spacing';
+
+/**
+ * The embedded block that is the last statement of `nodes`, looking
+ * into the last node's body (a brace block), if there is one.
+ */
+function last_embedded_block(nodes: StataNode[]): EmbeddedLanguageBlockNode | undefined {
+    const my_last = nodes[nodes.length - 1];
+    if (my_last === undefined) {
+        return undefined;
+    }
+    if (my_last.type === 'embedded_block') {
+        return my_last;
+    }
+    return 'body' in my_last && Array.isArray(my_last.body)
+        ? last_embedded_block(my_last.body)
+        : undefined;
+}
 
 /**
  * Whether `nodes` end inside a multi-line embedded block with no `end`,

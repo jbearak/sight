@@ -200,7 +200,11 @@ export class IndentationAnalyzer {
 
         this.current_depth--;
 
-        if (end_line !== start_line) {
+        // A block the program's end cut off has no `}`: its last line is
+        // its last statement's, which keeps that statement's depth.
+        const is_cut_off = node.type !== 'program' && node.closed_by_program_end === true;
+
+        if (end_line !== start_line && !is_cut_off) {
             const end_delta_info = this.calculate_indent_delta(end_line, this.current_depth);
             this.set_indentation(end_line, this.current_depth, false, false, true, false, end_delta_info.delta, end_delta_info.original_indent);
         }
@@ -258,8 +262,10 @@ export class IndentationAnalyzer {
         // Decrease depth back to original
         this.current_depth--;
 
-        // Set indentation for the end line (closing brace) at current depth
-        if (end_line !== start_line) {
+        // Set indentation for the end line (closing brace) at current
+        // depth, unless the program's end cut the block off (no `}`)
+        const is_cut_off = node.type === 'command' && node.closed_by_program_end === true;
+        if (end_line !== start_line && !is_cut_off) {
             const end_delta_info = this.calculate_indent_delta(end_line, this.current_depth);
             this.set_indentation(end_line, this.current_depth, false, false, true, false, end_delta_info.delta, end_delta_info.original_indent);
         }

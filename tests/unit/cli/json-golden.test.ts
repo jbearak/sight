@@ -12,7 +12,10 @@
  * and at end of file), with directives in them; tight-slashes.do has
  * `//` and `///` with code right before them, which Stata reads as text;
  * column0-slashes.do has `///` lines that start a statement and, under
- * `#delimit ;`, column-0 `//` and `///` after a statement's first line.
+ * `#delimit ;`, column-0 `//` and `///` after a statement's first line;
+ * program-ends.do has `args`/`unab` with a stray operator, a program
+ * that a nested mata block's `end` ends, a `///`-continued program
+ * header, and an `if` whose `{;` is on the next line under `#delimit ;`.
  * The expected JSON is in
  * tests/fixtures/cli-json/expected, with the fixture's absolute path
  * replaced by <ROOT> and the Sight version by <VERSION>.
@@ -45,6 +48,7 @@ const PARSE_FILES = [
     'comment-placement.do',
     'tight-slashes.do',
     'column0-slashes.do',
+    'program-ends.do',
 ];
 
 /** Replace machine-specific values so the output is stable. */

@@ -291,9 +291,10 @@ describe('unclosed embedded block: formatting', () => {
     }
 
     for_each_formatter_mode(
-        'still closes a plain missing brace',
+        'leaves a plain missing brace missing',
         (my_mode) => {
             const my_once = format_text('if 1 {\n    di 1\n', my_mode);
+            expect(my_once).toBe('if 1 {\n    di 1\n');
             expect(format_text(my_once, my_mode)).toBe(my_once);
         }
     );
