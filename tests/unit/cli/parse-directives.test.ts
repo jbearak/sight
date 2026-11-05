@@ -137,6 +137,19 @@ describe('sight parse --json comment directives', () => {
         });
     });
 
+    it('covers a brace block or prefixed loop header through its brace', () => {
+        const content = '// sight: ignore-next\ncapture foreach v in `a\' {\n    display `v\'\n}\n';
+        expect(directive_of(content, '// sight: ignore-next')).toEqual({
+            kind: 'ignore_next',
+            target_range: { start: { line: 1, character: 0 }, end: { line: 1, character: 26 } },
+        });
+        const block = '// sight: ignore-next\nquietly {\n    display `a\'\n}\n';
+        expect(directive_of(block, '// sight: ignore-next')).toEqual({
+            kind: 'ignore_next',
+            target_range: { start: { line: 1, character: 0 }, end: { line: 1, character: 9 } },
+        });
+    });
+
     it('covers a block header through its brace, never the body', () => {
         const content = '// sight: ignore-next\nforeach v in `a\' {\n    display `v\'\n}\n';
         expect(directive_of(content, '// sight: ignore-next')).toEqual({
@@ -299,6 +312,9 @@ describe('sight parse --json directives agree with the editor', () => {
         trailing_next: 'display `u\' // sight: ignore-next\ndisplay `u\' ///\n  `u\'\ndisplay `u\'\n',
         trailing_on_continuation: 'display `u\' ///\n    `u\' // sight: ignore\ndisplay `u\'\n',
         block_header: '// @lsp-ignore-next\nforeach v in `u\' {\n    display `u\'\n}\ndisplay `u\'\n',
+        // The ignore covers the header, so the body is still flagged.
+        brace_block_header: '// sight: ignore-next\nquietly {\n    display `u\'\n}\ndisplay `u\'\n',
+        prefixed_block_header: '// sight: ignore\ncapture foreach v in `u\' {\n    display `u\'\n}\ndisplay `u\'\n',
         before_closer: 'foreach v in a {\n    display `u\'\n    // sight: ignore\n}\ndisplay `u\'\ndisplay `u\'\n',
         nested_closers: 'program define p\n    if 1 {\n        display `u\'\n        // sight: ignore\n    }\nend\ndisplay `u\'\ndisplay `u\'\n',
         delimit: '#delimit ;\n// sight: ignore-next\ndisplay `u\'\n    `u\';\ndisplay `u\';\n#delimit cr\n',

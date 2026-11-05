@@ -90,6 +90,18 @@ describe('brace block bodies in analysis', () => {
         expect(the_found).toEqual([1]);
     });
 
+    it('lets an ignore on a block header cover the header, not the body', () => {
+        // Undefined variables are only checked by the AST pass, which
+        // used to skip the whole block under an ignored header.
+        for (const my_header of ['quietly {', 'foreach v in a {', 'capture foreach v in a {']) {
+            const source = `// sight: ignore-next\n${my_header}\n    summarize nosuchvar\n}\n`;
+            const the_found = analyze(source).diagnostics
+                .filter((d) => d.code === StataDiagnosticCode.UNDEFINED_VARIABLE)
+                .map((d) => d.range.start.line);
+            expect({ my_header, the_found }).toEqual({ my_header, the_found: [2] });
+        }
+    });
+
     it('keeps both passes aligned after a block', () => {
         // `list` operands are resolved by preorder index; if the
         // reference pass skipped the block's three statements, `a`
