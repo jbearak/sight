@@ -139,6 +139,39 @@ describe('formatting a syntax statement', () => {
         ].join('\n'));
     });
 
+    for_each_formatter_mode('keeps syntax after prefixes', mode => {
+        const the_statements = [
+            'capture syntax',
+            'capture syntax varlist',
+            'quietly syntax anything [, *]',
+            'capture noisily syntax varlist',
+            `cap noi ${SIGNATURE}`,
+            'version 14: syntax varlist',
+        ];
+        const source = ['program p', ...the_statements, 'end', ''].join('\n');
+        expect(format_idempotent(source, mode)).toBe([
+            'program p',
+            ...the_statements.map(my_statement => `    ${my_statement}`),
+            'end',
+            '',
+        ].join('\n'));
+    });
+
+    for_each_formatter_mode('keeps syntax whole after a comment between prefixes', mode => {
+        const source = 'program p\ncapture /* c */ noisily syntax varlist\nend\n';
+        const formatted = format_idempotent(source, mode);
+        mode_specific_assertion(mode, {
+            'source-preserving': () => {
+                expect(formatted).toBe(
+                    'program p\n    capture /* c */ noisily syntax varlist\nend\n');
+            },
+            'ast': () => {
+                expect(formatted).toBe(
+                    'program p\n    capture noisily syntax varlist /* c */\nend\n');
+            },
+        });
+    });
+
     for_each_formatter_mode('keeps a spec with strings and macros as written', mode => {
         const source =
             'syntax [anything(name=x id="a b")] using/ [, TItle(string asis) `opt\']\n';
@@ -181,6 +214,21 @@ describe('parsing a syntax statement with a block comment', () => {
         expect(syntax_node.signature.arguments.map(my_arg => my_arg.type))
             .toEqual(['varlist', 'if']);
         expect(syntax_node.arguments).toBe('varlist [if]');
+        expect(syntax_node.interiorTrivia?.map(my_comment => my_comment.content))
+            .toEqual(['/* c */']);
+    });
+
+    it('reads a comment between prefixes as whitespace', () => {
+        const parse_result = new StataParser().parse(new StataLexer()
+            .tokenize('capture /* c */ noisily syntax varlist\n').tokens);
+        expect(parse_result.ast.nodes.map(my_node => my_node.type))
+            .toEqual(['syntax']);
+        const syntax_node = parse_result.ast.nodes[0];
+        if (syntax_node?.type !== 'syntax') {
+            throw new Error('expected a syntax statement');
+        }
+        expect(syntax_node.prefix?.map(my_prefix => my_prefix.name))
+            .toEqual(['capture', 'noisily']);
         expect(syntax_node.interiorTrivia?.map(my_comment => my_comment.content))
             .toEqual(['/* c */']);
     });

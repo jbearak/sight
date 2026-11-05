@@ -471,10 +471,15 @@ describe('statement structure', () => {
         }
 
         it('finds the command after a /// continuation', () => {
-            // Before syntax the comment stays where it was, on the prefix.
             const nodes = parse_nodes('capture /* c */ noisily ///\n    syntax varlist');
-            expect(nodes.map((n) => n.type)).toEqual(['command', 'syntax']);
-            expect((nodes[0] as CommandNode).trailingTrivia?.map((t) => t.content))
+            expect(nodes).toHaveLength(1);
+            const syntax_node = nodes[0];
+            if (syntax_node?.type !== 'syntax') {
+                throw new Error('expected a syntax statement');
+            }
+            expect(syntax_node.prefix?.map((p) => p.fullName))
+                .toEqual(['capture', 'noisily']);
+            expect(syntax_node.interiorTrivia?.map((t) => t.content))
                 .toEqual(['/* c */']);
 
             const plain = parse_nodes('capture /* c */ noisily ///\n    gen x = 1');

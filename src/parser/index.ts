@@ -98,7 +98,7 @@ const COMMAND_NAME_TYPES: ReadonlySet<TokenType | undefined> = new Set<TokenType
 ]);
 // Commands after a prefix that parse to nodes without interior comments.
 const BODY_COMMANDS: ReadonlySet<string> = new Set([
-  'foreach', 'while', 'if', 'syntax',
+  'foreach', 'while', 'if',
 ]);
 /** Canonical names of the colon prefixes above. */
 const COLON_PREFIX_NAMES: ReadonlySet<string> = new Set(COLON_PREFIX_COMMANDS.values());
@@ -3750,8 +3750,8 @@ export class StataParser {
   }
 
   /**
-   * Is the statement from token `index` on a plain command or macro
-   * definition, not a loop, `if` command, `syntax`, brace block, or
+   * Is the statement from token `index` on a plain command, macro
+   * definition, or `syntax`, not a loop, `if` command, brace block, or
    * Mata/Python? Those nodes don't keep interior comments, so a comment
    * between prefixes is read as whitespace only before a plain command;
    * otherwise it stays where it was.
