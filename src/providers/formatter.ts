@@ -13,7 +13,7 @@ import {
 import { DocumentState } from '../document-store';
 import { SourcePreservingFormatter, FormatterConfig } from '../formatter';
 import { ContextRange, LanguageContext } from '../context-tracker/types';
-import { CommentFormattingConfig, StataLSPConfig } from '../types';
+import { CommentFormattingConfig, StataLSPConfig, StataNode } from '../types';
 import { CommentProcessor, CommentTransformation } from '../comment-processor/comment-processor';
 import { logger } from '../utils/logger';
 import { get_line_text, get_line_count, DocumentLike, compute_line_offsets } from '../utils/line-utils';
@@ -204,7 +204,8 @@ export class CodeFormatter {
         // leave a range's unique lines unprotected (mangling their layout).
         const the_replacement_units = this.coalesce_embedded_ranges(
             the_doc,
-            context_ranges
+            context_ranges,
+            program_ending_block_end_lines(document.ast?.nodes ?? [])
         );
 
         for (const my_unit of the_replacement_units) {
@@ -217,10 +218,16 @@ export class CodeFormatter {
             // An inline `mata:`/`python:` statement keeps its closing `;`
             // after the placeholder, so under `#delimit ;` the placeholder
             // is still a statement of its own, and the next statement isn't
-            // read as continuing it. Restoring puts the text back as it was.
-            const my_terminator = my_unit.range.is_single_line
-                ? inline_unit_terminator(my_unit.content)
-                : '';
+            // read as continuing it. So does a block whose `end` is followed
+            // by its own `;` (`end;` under `#delimit ;`). Restoring puts the
+            // text back as it was.
+            const my_end_delimiter = my_unit.range.end_delimiter;
+            const my_end_has_terminator = my_end_delimiter !== undefined &&
+                !my_end_delimiter.command.includes(';');
+            const my_terminator =
+                my_unit.range.is_single_line || my_end_has_terminator
+                    ? inline_unit_terminator(my_unit.content)
+                    : '';
             the_embedded_blocks.set(my_placeholder, {
                 content: my_unit.content.slice(
                     0, my_unit.content.length - my_terminator.length),
@@ -343,7 +350,8 @@ export class CodeFormatter {
      */
     private embedded_range_span(
         doc: DocumentLike,
-        context_range: ContextRange
+        context_range: ContextRange,
+        program_end_lines: ReadonlySet<number>
     ): { start_line: number; end_line: number } {
         if (context_range.is_single_line) {
             return {
@@ -354,6 +362,14 @@ export class CodeFormatter {
         const my_end_line = context_range.end_delimiter
             ? context_range.end_delimiter.range.start.line
             : context_range.range.end.line;
+        // A block whose `end` also ends a program leaves that line out,
+        // so the Stata formatter sees the program's `end`.
+        if (program_end_lines.has(my_end_line)) {
+            return {
+                start_line: context_range.range.start.line,
+                end_line: my_end_line - 1,
+            };
+        }
         return { start_line: context_range.range.start.line, end_line: my_end_line };
     }
 
@@ -373,13 +389,14 @@ export class CodeFormatter {
      */
     private coalesce_embedded_ranges(
         doc: DocumentLike,
-        context_ranges: ContextRange[]
+        context_ranges: ContextRange[],
+        program_end_lines: ReadonlySet<number>
     ): Array<{ content: string; range: ContextRange; actual_range: Range }> {
         // Group ranges that overlap or touch on a shared physical line.
         const the_spans = context_ranges
             .map((my_range) => ({
                 my_range,
-                span: this.embedded_range_span(doc, my_range),
+                span: this.embedded_range_span(doc, my_range, program_end_lines),
             }))
             .sort((a, b) => {
                 if (a.span.start_line !== b.span.start_line) {
@@ -415,7 +432,11 @@ export class CodeFormatter {
             actual_range: Range;
         }> = [];
         for (const my_group of the_groups) {
-            if (my_group.members.length === 1) {
+            const my_ends_program = my_group.members.some((my_range) =>
+                my_range.end_delimiter !== undefined &&
+                program_end_lines.has(my_range.end_delimiter.range.start.line)
+            );
+            if (my_group.members.length === 1 && !my_ends_program) {
                 // Lone range: preserve exact prior behavior.
                 const my_range = my_group.members[0];
                 const my_end_line_text = get_line_text(doc, my_group.end_line);
@@ -433,7 +454,8 @@ export class CodeFormatter {
                 continue;
             }
 
-            // Merged group: preserve the union of physical lines verbatim.
+            // Merged group, or a block whose `end` line is left out because
+            // it ends a program: preserve the physical lines verbatim.
             const my_lines: string[] = [];
             for (
                 let my_line = my_group.start_line;
@@ -771,4 +793,27 @@ export class CodeFormatter {
     private strip_trailing_whitespace(content: string): string {
         return content.split('\n').map(line => line.trimEnd()).join('\n');
     }
+}
+
+/**
+ * The lines (0-based) of the `end`s that close an embedded block and,
+ * with it, the program it sits in (Stata ends the definition there).
+ */
+function program_ending_block_end_lines(nodes: StataNode[]): Set<number> {
+    const the_lines = new Set<number>();
+    const visit = (my_nodes: StataNode[]): void => {
+        for (const my_node of my_nodes) {
+            if (my_node.type === 'program' && my_node.ends_at_embedded_block) {
+                const my_last = my_node.body[my_node.body.length - 1];
+                if (my_last !== undefined) {
+                    the_lines.add(my_last.range.end.line);
+                }
+            }
+            if ('body' in my_node && Array.isArray(my_node.body)) {
+                visit(my_node.body);
+            }
+        }
+    };
+    visit(nodes);
+    return the_lines;
 }

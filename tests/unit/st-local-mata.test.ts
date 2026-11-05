@@ -505,11 +505,20 @@ describe('st_local / st_global declarations in Mata', () => {
         expect(result.symbols.localMacros.has('outside')).toBe(false);
     });
 
-    it('does not treat `end =` as a #delimit ; block terminator', () => {
-        // `end` used as an operand (not a standalone statement) must not close
-        // the block, or a later in-block setter would be missed.
+    it('ends a #delimit ; block at `end = 1`, as Stata does', () => {
+        // StataMP 18 ends a Mata block at an `end` that begins its line,
+        // whatever follows, so the setter after it is Stata code, not
+        // Mata.
         const src =
             '#delimit ;\nmata ;\nend = 1 ;\nst_local("inside", "1") ;\nend ;';
+        expect(analyze(src).symbols.localMacros.has('inside')).toBe(false);
+    });
+
+    it('keeps a mid-line `end` inside a #delimit ; block', () => {
+        // `end` used as an operand later in a statement does not close
+        // the block, so a later in-block setter is still seen.
+        const src =
+            '#delimit ;\nmata ;\nx = end ;\nst_local("inside", "1") ;\nend ;';
         expect(analyze(src).symbols.localMacros.has('inside')).toBe(true);
     });
 

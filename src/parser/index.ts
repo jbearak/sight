@@ -33,6 +33,7 @@ import { unwrap_macval } from '../utils/local-macro';
 import { isFileCommand } from '../utils/file-path-utils';
 import { is_swallowed_continuation_terminator } from '../utils/continuation';
 import { compare_positions } from '../utils/scope-position';
+import { PROGRAM_SUBCOMMANDS } from '../utils/program-definition';
 import {
   COLON_PREFIX_COMMANDS,
   PREFIX_COMMANDS,
@@ -45,11 +46,6 @@ import {
   parse_path,
   parse_varlist,
 } from '../expression-parser';
-
-/** `program` subcommands other than define, with abbreviations. */
-const PROGRAM_SUBCOMMANDS: ReadonlySet<string> = new Set([
-  'di', 'dir', 'drop', 'l', 'li', 'lis', 'list',
-]);
 
 /** `define` and its abbreviations after `program`. */
 const PROGRAM_DEFINE_KEYWORDS: ReadonlySet<string> = new Set([
@@ -247,6 +243,8 @@ export class StataParser {
   private pending_trivia: TriviaNode[] = [];
   private context_tracker: ContextTracker | null = null;
   private inside_program: boolean = false;
+  // The `#delimit` mode at the current statement
+  private delimit_mode: 'cr' | 'semicolon' = 'cr';
   private if_brace_scan_end = -1;
   private if_brace_scan_result = false;
 
@@ -266,6 +264,7 @@ export class StataParser {
     this.pending_trivia = [];
     this.if_brace_scan_end = -1;
     this.if_brace_scan_result = false;
+    this.delimit_mode = 'cr';
     this.context_tracker = context_tracker || null;
 
     const nodes: StataNode[] = [];
@@ -469,6 +468,7 @@ export class StataParser {
     // The mode is the first thing after `#delimit`, as in the lexer:
     // `#delimit cr // c;` is cr.
     const mode = DELIMIT_SEMICOLON_PATTERN.test(token.value) ? 'semicolon' : 'cr';
+    this.delimit_mode = mode;
 
     return {
       type: 'directive',
@@ -486,6 +486,22 @@ export class StataParser {
     const is_single_line =
       start_token.type === 'MATA_INLINE' ||
       start_token.type === 'PYTHON_INLINE';
+
+    // Under `#delimit ;`, the `;` after `mata` / `python` ends the
+    // opener statement (`mata;`); it is not block content.
+    if (!is_single_line && this.delimit_mode === 'semicolon') {
+      let my_index = this.current;
+      while (this.tokens[my_index]?.type === 'WHITESPACE' &&
+          !this.tokens[my_index]?.value.includes('\n')) {
+        my_index++;
+      }
+      const my_token = this.tokens[my_index];
+      if (my_token !== undefined && my_token.type === 'EMBEDDED_CONTENT' &&
+          my_token.value === ';' &&
+          my_token.range.start.line === start_token.range.end.line) {
+        this.current = my_index + 1;
+      }
+    }
 
     const content_start_pos = this.current;
     let end_command: string | undefined;
@@ -742,6 +758,8 @@ export class StataParser {
 
     // Collect any leading trivia before re-checking `end`, mirroring
     // parseBraceBody (issue #301).
+    // Set when the program ends at an embedded block's `end`
+    let embedded_block_end: Position | undefined;
     while (!this.isAtEnd()) {
       const my_trivia = this.collectTrivia();
       if (my_trivia.length > 0) {
@@ -753,6 +771,14 @@ export class StataParser {
       const stmt = this.parseStatement();
       if (stmt) {
         body.push(stmt);
+        // Stata ends a program definition at the first line whose first
+        // word is `end`, so the `end` of a mata/python block in the body
+        // ends the program too.
+        if (stmt.type === 'embedded_block' && !stmt.is_single_line &&
+            stmt.end_command !== undefined && stmt.end_command !== '}') {
+          embedded_block_end = stmt.range.end;
+          break;
+        }
       }
     }
 
@@ -763,7 +789,9 @@ export class StataParser {
     this.inside_program = was_inside_program;
 
     // Consume 'end'
-    if (this.checkWord('end')) {
+    if (embedded_block_end !== undefined) {
+      // The block's `end` was the program's
+    } else if (this.checkWord('end')) {
       this.advance();
     } else {
       this.addError('Missing "end" for program definition', start_token.range);
@@ -779,9 +807,12 @@ export class StataParser {
       ...(define_options !== undefined ? { define_options } : {}),
       body,
       signature: merged_signature,
+      ...(embedded_block_end !== undefined
+        ? { ends_at_embedded_block: true }
+        : {}),
       range: this.makeRange(
         start_token.range.start,
-        this.previous().range.end
+        embedded_block_end ?? this.previous().range.end
       ),
       blockEndingTrivia: program_block_ending_trivia,
     };

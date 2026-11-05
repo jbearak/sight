@@ -96,6 +96,7 @@ Reported by the context tracker for Mata and Python block structure.
 | <a id="mismatched-end-python"></a>`MISMATCHED_END_PYTHON` | error | A Python block is closed with a mismatched delimiter. |
 | <a id="nested-block-error"></a>`NESTED_BLOCK_ERROR` | error | Embedded language block nesting is invalid. |
 | <a id="invalid-delimiter-position"></a>`INVALID_DELIMITER_POSITION` | error | A Mata or Python delimiter appears where it cannot start or end a valid block. |
+| <a id="embedded-block-ends-program"></a>`EMBEDDED_BLOCK_ENDS_PROGRAM` | error | A multi-line `mata` or `python` block sits inside a `program define` body. Stata ends the program definition at the block's `end` (the first line whose first word is `end`), so the lines after it run at the top level and the program's own `end` is unexpected. Move the block outside the program, or use one-line `mata:` / `python:` statements. |
 
 ## Semantic / scope diagnostics
 

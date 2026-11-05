@@ -603,9 +603,12 @@ export class IndentationDiagnosticAnalyzer {
           }
         }
         
-        // Set expected depth for the end line (closing brace)
+        // Set expected depth for the end line (closing brace). When
+        // Stata ended a program at an embedded block's `end`, that `end`
+        // is the program's, so it sits at the program's depth.
         if (end_line !== start_line && end_line >= range.start && end_line <= range.end) {
-          if (!expected_depths.has(end_line)) {
+          if (!expected_depths.has(end_line) ||
+              (node.type === 'program' && node.ends_at_embedded_block)) {
             expected_depths.set(end_line, depth);
           }
         }

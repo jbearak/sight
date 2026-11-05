@@ -91,6 +91,21 @@ const MATA_CASES: EndCase[] = [
     { name: 'end in a string', candidate: ['x = "end"'], ends_block: false },
     { name: 'End (case differs)', candidate: ['End'], ends_block: false },
     { name: 'end followed by .', candidate: ['end.'], ends_block: false },
+    // Any other tail still ends the block; Stata discards the tail.
+    { name: 'end then a word', candidate: ['end foo'], ends_block: true },
+    { name: 'end then ;', candidate: ['end;'], ends_block: true },
+    { name: 'end then (', candidate: ['end(1)'], ends_block: true },
+    { name: 'end = 1', candidate: ['end = 1'], ends_block: true },
+    { name: 'end then ,', candidate: ['end,'], ends_block: true },
+    { name: 'end then a string', candidate: ['end"x"'], ends_block: true },
+    { name: 'end mata', candidate: ['end mata'], ends_block: true },
+    { name: 'end python', candidate: ['end python'], ends_block: true },
+    {
+        name: 'end then a Stata command',
+        candidate: ['end display "RAN_TRAILING"'],
+        ends_block: true,
+    },
+    { name: 'end then a word and a comment', candidate: ['end foo // c'], ends_block: true },
 ].map((my_case) => ({ ...my_case, language: 'mata' as const }));
 
 const PYTHON_CASES: EndCase[] = [
@@ -221,6 +236,52 @@ describe('embedded block end rule', () => {
         expect(my_tracker.validate_context_structure()).toEqual([]);
     });
 
+    it('does not reopen a mata block at end mata', () => {
+        // Stata ends the block at `end mata` and discards `mata`; Sight
+        // used to read that `mata` as a new block opener.
+        const my_source = 'mata\nx = 1\nend mata\ndi 1\n';
+        const the_tokens = new StataLexer().tokenize(my_source).tokens;
+        expect(
+            the_tokens.filter((my_token) => my_token.type === 'MATA_START')
+        ).toHaveLength(1);
+        const my_end_token = the_tokens.find(
+            (my_token) => my_token.type === 'END_MATA'
+        );
+        expect(my_end_token?.value).toBe('end mata');
+
+        const my_ast = new StataParser().parse(the_tokens).ast;
+        expect(my_ast.nodes.map((my_node) => my_node.type)).toEqual([
+            'embedded_block',
+            'command',
+        ]);
+        expect(my_ast.nodes[1]?.range.start.line).toBe(3);
+    });
+
+    it('keeps the discarded tail of a mata end out of the Stata code', () => {
+        const my_source = 'mata\nx = 1\nend display "RAN_TRAILING"\ndi 1\n';
+        const the_tokens = new StataLexer().tokenize(my_source).tokens;
+        expect(
+            the_tokens.find((my_token) => my_token.type === 'END_MATA')?.value
+        ).toBe('end display "RAN_TRAILING"');
+        const my_ast = new StataParser().parse(the_tokens).ast;
+        expect(my_ast.nodes).toHaveLength(2);
+        expect(my_ast.nodes[1]?.range.start.line).toBe(3);
+    });
+
+    it('ends a mata block at end; under #delimit ;', () => {
+        // Stata 18 ends the block at `end;`; the `;` stays the
+        // statement terminator.
+        const my_source = '#delimit ;\nmata;\nx = 1;\nend;\ndi 1;\n';
+        const the_tokens = new StataLexer().tokenize(my_source).tokens;
+        const my_end_index = the_tokens.findIndex(
+            (my_token) => my_token.type === 'END_MATA'
+        );
+        expect(the_tokens[my_end_index]?.value).toBe('end');
+        expect(the_tokens[my_end_index]?.range.start.line).toBe(3);
+        expect(the_tokens[my_end_index + 1]?.type).toBe('STATEMENT_TERMINATOR');
+        expect(the_tokens[my_end_index + 1]?.value).toBe(';');
+    });
+
     it('ends a mata block under #delimit ; after a commented line', () => {
         // Under `#delimit ;` a newline lexes as whitespace, but it still
         // ends the physical line, so a block comment on the line above
@@ -274,6 +335,16 @@ describe('embedded block end rule: formatting', () => {
         (my_mode) => {
             const my_source =
                 'mata\nx = 1 // end\ny end\na=end\n#end\n1end\nz = 2\nend\ndi 1\n';
+            const my_once = format_text(my_source, my_mode);
+            expect(my_once).toBe(my_source);
+            expect(format_text(my_once, my_mode)).toBe(my_once);
+        }
+    );
+
+    for_each_formatter_mode(
+        'keeps a mata end with a tail as written',
+        (my_mode) => {
+            const my_source = 'mata\nx = 1\nend mata\ndi 1\n';
             const my_once = format_text(my_source, my_mode);
             expect(my_once).toBe(my_source);
             expect(format_text(my_once, my_mode)).toBe(my_once);

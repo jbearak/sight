@@ -615,7 +615,9 @@ generate x = 1`;
       expect(my_ranges[0].end_delimiter?.command).toBe('end');
     });
 
-    test('should not match end if followed by other code', () => {
+    test('should close a mata block at end followed by other code', () => {
+      // StataMP 18 ends a Mata block at `end` followed by anything
+      // but a word character or `.`, and discards the rest of the line.
       const my_source = `mata
 matrix A = (1, 2)
 end generate x = 1`;
@@ -623,8 +625,8 @@ end generate x = 1`;
       init_tracker_from_source(tracker, my_source);
       const my_ranges = tracker.get_all_context_ranges();
 
-      // Should not close the block because 'end' is not at statement boundary
-      expect(my_ranges[0].end_delimiter).toBeUndefined();
+      expect(my_ranges[0].end_delimiter?.command).toBe('end generate x = 1');
+      expect(my_ranges[0].end_delimiter?.range.start.line).toBe(2);
     });
 
     test('should handle single-line mata with statement terminator', () => {

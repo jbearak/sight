@@ -71,6 +71,9 @@ const DEFAULT_PRINT_OPTIONS: PrintOptions = {
 export class PrettyPrinter {
     private options: PrintOptions;
     private current_indent: number = 0;
+    // Indent level for the `end` of the embedded block being printed,
+    // when that `end` also ends the enclosing program.
+    private embedded_end_indent_override: number | undefined;
     private delimiter_mode: 'cr' | 'semicolon' = 'cr';
 
     constructor(options?: Partial<PrintOptions>) {
@@ -489,18 +492,45 @@ export class PrettyPrinter {
         // Increase indent for body
         this.current_indent++;
 
-        // Print body statements
-        for (const my_stmt of node.body) {
-            the_lines.push(this.printNode(my_stmt));
-        }
+        // Print body statements. When Stata ended the program at the
+        // `end` of an embedded block (the last body node), that `end` is
+        // the program's: print it at the program's depth, and leave the
+        // terminator after it to the caller, as for a program's own `end`.
+        node.body.forEach((my_stmt, my_index) => {
+            const my_ends_program = node.ends_at_embedded_block === true &&
+                my_index === node.body.length - 1;
+            if (!my_ends_program) {
+                the_lines.push(this.printNode(my_stmt));
+                return;
+            }
+            this.embedded_end_indent_override = this.current_indent - 1;
+            const my_parts = this.printNodeParts(my_stmt);
+            this.embedded_end_indent_override = undefined;
+            the_lines.push(my_parts.code);
+            // Comments on later lines follow their own terminator; the
+            // caller adds the final one.
+            if (my_parts.own_line !== '') {
+                const my_terminator = this.getStatementTerminator();
+                const my_own_line = my_parts.own_line.endsWith(my_terminator)
+                    ? my_parts.own_line.slice(0, -my_terminator.length)
+                    : my_parts.own_line;
+                the_lines.push(my_terminator + my_own_line);
+            }
+        });
 
         the_lines.push(this.printBlockEndingTrivia(node));
 
         // Decrease indent
         this.current_indent--;
 
-        // Print end
-        the_lines.push(`${this.getIndent()}end`);
+        // As for a closing brace (see printControlFlow), an unclosed
+        // embedded block took the program's `end` too.
+        if (ends_in_unclosed_embedded_block(node.body)) {
+            return this.drop_final_terminator(the_lines.join(''));
+        }
+        if (!node.ends_at_embedded_block) {
+            the_lines.push(`${this.getIndent()}end`);
+        }
 
         return the_lines.join('');
     }
@@ -664,7 +694,12 @@ export class PrettyPrinter {
         // Decrease indent
         this.current_indent--;
 
-        // Print closing brace
+        // Print closing brace, unless an unclosed embedded block took the
+        // rest of the file (closing brace included): one printed here
+        // would land inside the block, a new one on every pass.
+        if (ends_in_unclosed_embedded_block(node.body)) {
+            return { code: this.drop_final_terminator(the_lines.join('')), own_line: '' };
+        }
         the_lines.push(`${this.getIndent()}}`);
 
         return { code: the_lines.join(''), own_line: '' };
@@ -735,8 +770,9 @@ export class PrettyPrinter {
         // Print content unchanged (preserve embedded language code)
         the_lines.push(node.content);
 
-        // Ensure content ends with newline if not single-line
-        if (!node.content.endsWith('\n')) {
+        // Ensure content ends with newline if not single-line, before the
+        // end delimiter (an unclosed block has none)
+        if (node.end_command && !node.content.endsWith('\n')) {
             the_lines.push('\n');
         }
 
@@ -744,10 +780,13 @@ export class PrettyPrinter {
         if (node.end_command) {
             // Stata ends a Python block only at an `end` in column 0;
             // indenting it would leave the block open.
-            const my_end_indent =
+            let my_end_indent =
                 node.language === 'python' && node.end_command === 'end'
                     ? ''
                     : this.getIndent();
+            if (this.embedded_end_indent_override !== undefined) {
+                my_end_indent = this.indent_for(this.embedded_end_indent_override);
+            }
             the_lines.push(`${my_end_indent}${node.end_command}`);
         }
 
@@ -964,10 +1003,23 @@ export class PrettyPrinter {
      * Get the current indentation string.
      */
     private getIndent(): string {
+        return this.indent_for(this.current_indent);
+    }
+
+    /** `code` without the statement terminator it ends with, if any. */
+    private drop_final_terminator(code: string): string {
+        const my_terminator = this.getStatementTerminator();
+        return code.endsWith(my_terminator)
+            ? code.slice(0, -my_terminator.length)
+            : code;
+    }
+
+    /** The indentation text for `level` indent levels. */
+    private indent_for(level: number): string {
         const indent_char = this.options.indent_style === 'tabs' ? '\t' : ' ';
-        const indent_count = this.options.indent_style === 'tabs' 
-            ? this.current_indent 
-            : this.current_indent * this.options.indent_size;
+        const indent_count = this.options.indent_style === 'tabs'
+            ? level
+            : level * this.options.indent_size;
         return indent_char.repeat(indent_count);
     }
 
@@ -1010,3 +1062,19 @@ export function print_node(node: StataNode, options?: Partial<PrintOptions>): st
 // Re-export expression spacing utility
 export { format_expression_spacing, find_protected_regions } from './expression-spacing';
 export type { ProtectedRegion } from './expression-spacing';
+
+/**
+ * Whether `nodes` end inside a multi-line embedded block with no `end`,
+ * which runs to the end of the file.
+ */
+function ends_in_unclosed_embedded_block(nodes: StataNode[]): boolean {
+    const my_last = nodes[nodes.length - 1];
+    if (my_last === undefined) {
+        return false;
+    }
+    if (my_last.type === 'embedded_block') {
+        return !my_last.is_single_line && my_last.end_command === undefined;
+    }
+    return 'body' in my_last && Array.isArray(my_last.body) &&
+        ends_in_unclosed_embedded_block(my_last.body);
+}

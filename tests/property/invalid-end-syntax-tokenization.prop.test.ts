@@ -5,14 +5,14 @@ import { LanguageContext } from '../../src/types';
 
 describe('Invalid End Syntax Tokenization Property Tests', () => {
   /**
-   * Property 1: Invalid End Syntax Does Not Close Block
-   * For truly invalid end syntax (like "end xyz", "end invalid"),
-   * the lexer should NOT close the embedded block. The 'end' is treated
-   * as a regular word within the embedded context.
+   * Property 1: End followed by a word
+   * StataMP 18 ends a Mata block at `end xyz` and discards `xyz`, so
+   * the END_MATA token carries the tail. A Python block ends only at a
+   * line that is exactly `end`, so `end xyz` stays Python code.
    * Feature: lexer-end-delimiter-handling, Property 1: Invalid End Syntax Tokenization
    * Validates: Requirements 1.3, 1.4
    */
-  it('should not close block for invalid end syntax', () => {
+  it('should close a mata block, but not a python block, at end xyz', () => {
     fc.assert(
       fc.property(
         fc.oneof(fc.constant('mata'), fc.constant('python')),
@@ -36,22 +36,20 @@ end ${invalid_suffix}`;
           const my_start_tokens = my_result.tokens.filter(t => t.type === my_start_token_type);
           expect(my_start_tokens.length).toBe(1);
           
-          // Should NOT have END_* token - 'end xyz' is not a valid block terminator
           const my_end_mata_tokens = my_result.tokens.filter(t => t.type === 'END_MATA');
           const my_end_python_tokens = my_result.tokens.filter(t => t.type === 'END_PYTHON');
-          expect(my_end_mata_tokens.length).toBe(0);
           expect(my_end_python_tokens.length).toBe(0);
-          
-          // 'end' should be a WORD token (inside embedded context)
-          const my_end_word_tokens = my_result.tokens.filter(
-            t => t.type === 'WORD' && t.value === 'end'
-          );
-          expect(my_end_word_tokens.length).toBe(1);
-          
-          // Block should remain unclosed (still in embedded context)
-          expect(my_result.finalState.language_context).toBe(
-            block_type === 'mata' ? LanguageContext.MATA : LanguageContext.PYTHON
-          );
+          if (block_type === 'mata') {
+            expect(my_end_mata_tokens.map(t => t.value)).toEqual([`end ${invalid_suffix}`]);
+            expect(my_result.finalState.language_context).toBe(LanguageContext.STATA);
+          } else {
+            expect(my_end_mata_tokens.length).toBe(0);
+            // 'end' is a WORD inside the still-open python block
+            expect(
+              my_result.tokens.filter(t => t.type === 'WORD' && t.value === 'end')
+            ).toHaveLength(1);
+            expect(my_result.finalState.language_context).toBe(LanguageContext.PYTHON);
+          }
         }
       ),
       { numRuns: 40 }
@@ -189,29 +187,24 @@ end invalid`;
           expect(my_first_start_tokens.length).toBe(1);
           expect(my_second_start_tokens.length).toBe(1);
           
-          // Should have only ONE end token (from valid 'end')
-          // The 'end invalid' does NOT close the second block
+          // `end invalid` closes the second block only if it is Mata
+          // (Stata discards the tail); a Python block stays open.
           const my_end_tokens = my_result.tokens.filter(
             t => t.type === 'END_MATA' || t.type === 'END_PYTHON'
           );
-          expect(my_end_tokens.length).toBe(1);
-          expect(my_end_tokens[0].value).toBe('end');
-          
-          // Should have WORD tokens for 'end' and 'invalid' in the unclosed block
-          const my_end_word_tokens = my_result.tokens.filter(
-            t => t.type === 'WORD' && t.value === 'end'
-          );
-          expect(my_end_word_tokens.length).toBe(1);
-          
-          const my_invalid_tokens = my_result.tokens.filter(
-            t => t.type === 'WORD' && t.value === 'invalid'
-          );
-          expect(my_invalid_tokens.length).toBe(1);
-          
-          // Second block should remain unclosed
-          expect(my_result.finalState.language_context).toBe(
-            use_mata_first ? LanguageContext.PYTHON : LanguageContext.MATA
-          );
+          if (use_mata_first) {
+            expect(my_end_tokens.map(t => t.value)).toEqual(['end']);
+            expect(
+              my_result.tokens.filter(t => t.type === 'WORD' && t.value === 'end')
+            ).toHaveLength(1);
+            expect(
+              my_result.tokens.filter(t => t.type === 'WORD' && t.value === 'invalid')
+            ).toHaveLength(1);
+            expect(my_result.finalState.language_context).toBe(LanguageContext.PYTHON);
+          } else {
+            expect(my_end_tokens.map(t => t.value)).toEqual(['end', 'end invalid']);
+            expect(my_result.finalState.language_context).toBe(LanguageContext.STATA);
+          }
         }
       ),
       { numRuns: 20 }
