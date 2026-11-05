@@ -20,6 +20,21 @@ function as_document(the_lines: string[]): vscode.TextDocument {
 }
 
 /**
+ * Expect the cursor on each of `the_cursors` to send `bounds`.
+ */
+function expect_bounds(
+    the_lines: string[],
+    the_cursors: number[],
+    bounds: { start_line: number; end_line: number }
+): void {
+    const document = as_document(the_lines);
+    for (const cursor of the_cursors) {
+        expect({ cursor, ...detect_statement(document, cursor) })
+            .toEqual({ cursor, ...bounds });
+    }
+}
+
+/**
  * Expect the cursor on any line from `start_line` to `end_line` to
  * send exactly those lines.
  */
@@ -131,9 +146,7 @@ describe('Send to Stata: statements continued with ///', () => {
     test('/// inside a Mata block continues', () => {
         // Stata reads `x = 1 + 2`.
         const the_lines = ['mata:', 'x = 1 /// note', '  + 2', 'end'];
-        expect_statement(the_lines, 0, 0);
         expect_statement(the_lines, 1, 2);
-        expect_statement(the_lines, 3, 3);
     });
 
     test('a spaced /// with a note under #delimit ;', () => {
@@ -224,16 +237,15 @@ describe('Send to Stata: statements under #delimit ;', () => {
         expect_statement(['#delimit ;', '// c', '// d', 'di "x";'], 1, 3);
     });
 
-    test('a block header, its body, and its close are statements', () => {
+    test('a block runs from its header to its };', () => {
         const the_lines = [
             '#delimit ;',
             'foreach v in a b {;',
             '    di "`v\'";',
             '};',
         ];
-        expect_statement(the_lines, 1, 1);
+        expect_bounds(the_lines, [1, 3], { start_line: 1, end_line: 3 });
         expect_statement(the_lines, 2, 2);
-        expect_statement(the_lines, 3, 3);
     });
 
     test('a statement that starts after another on its line', () => {
@@ -253,5 +265,179 @@ describe('Send to Stata: statements under #delimit ;', () => {
         expect_statement(the_lines, 2, 2);
         expect_statement(the_lines, 3, 3);
         expect_statement(the_lines, 4, 4);
+    });
+});
+
+describe('Send to Stata: a block header or closer sends the block', () => {
+    // A header alone fails in Stata 18 (r(612) unexpected end of
+    // file), and so does a closer alone (r(199)).
+
+    test('a loop from its header or its closer', () => {
+        const the_lines = [
+            'di "before"',
+            'foreach v in a b {',
+            '    di "`v\'"',
+            '}',
+            'di "after"',
+        ];
+        expect_bounds(the_lines, [1, 3], { start_line: 1, end_line: 3 });
+        expect_statement(the_lines, 2, 2);
+        expect_statement(the_lines, 0, 0);
+        expect_statement(the_lines, 4, 4);
+        expect_bounds(
+            ['forvalues i = 1/3 {', '    di `i\'', '}'], [0, 2],
+            { start_line: 0, end_line: 2 });
+        expect_bounds(
+            ['while 0 {', '}'], [0, 1], { start_line: 0, end_line: 1 });
+    });
+
+    test('nested blocks: the cursor\'s own block', () => {
+        const the_lines = [
+            'foreach v in a b {',          // 0
+            '    forvalues i = 1/2 {',     // 1
+            '        di "`v\'`i\'"',       // 2
+            '    }',                       // 3
+            '    di "`v\'"',               // 4
+            '}',                           // 5
+        ];
+        expect_bounds(the_lines, [0, 5], { start_line: 0, end_line: 5 });
+        expect_bounds(the_lines, [1, 3], { start_line: 1, end_line: 3 });
+        expect_statement(the_lines, 2, 2);
+        expect_statement(the_lines, 4, 4);
+    });
+
+    test('an if and its else chain go together', () => {
+        // Sent on its own, an `else` runs even after a true `if`.
+        const the_lines = [
+            'if `x\' == 1 {',             // 0
+            '    di "one"',                // 1
+            '}',                           // 2
+            'else if `x\' == 2 {',        // 3
+            '    di "two"',                // 4
+            '}',                           // 5
+            'else {',                      // 6
+            '    di "other"',              // 7
+            '}',                           // 8
+            'di "after"',                  // 9
+        ];
+        expect_bounds(
+            the_lines, [0, 2, 3, 5, 6, 8], { start_line: 0, end_line: 8 });
+        expect_statement(the_lines, 1, 1);
+        expect_statement(the_lines, 4, 4);
+        expect_statement(the_lines, 7, 7);
+        expect_statement(the_lines, 9, 9);
+    });
+
+    test('an if without an else is its own block', () => {
+        const the_lines = ['if 1 {', '    di "y"', '}', 'di "after"'];
+        expect_bounds(the_lines, [0, 2], { start_line: 0, end_line: 2 });
+    });
+
+    test('an inline if and its inline else go together', () => {
+        const the_lines = ['if `x\' di "a"', 'else di "b"', 'di "c"'];
+        expect_bounds(the_lines, [0, 1], { start_line: 0, end_line: 1 });
+        expect_statement(the_lines, 2, 2);
+        // An inline if alone is one line, as before.
+        expect_statement(['if `x\' di "a"', 'di "c"'], 0, 0);
+    });
+
+    test('a program from define to end', () => {
+        const the_lines = [
+            'capture program drop foo',
+            'program define foo',
+            '    syntax varlist',
+            '    di "`varlist\'"',
+            'end',
+            'foo price',
+        ];
+        expect_statement(the_lines, 0, 0);
+        expect_bounds(the_lines, [1, 4], { start_line: 1, end_line: 4 });
+        expect_statement(the_lines, 2, 2);
+        expect_statement(the_lines, 5, 5);
+        expect_bounds(
+            ['program foo, rclass', '    return local a 1', 'end'], [0, 2],
+            { start_line: 0, end_line: 2 });
+    });
+
+    test('a prefix brace block', () => {
+        expect_bounds(
+            ['capture {', '    di 1', '}'], [0, 2],
+            { start_line: 0, end_line: 2 });
+        expect_bounds(
+            ['quietly {', '    di 1', '}'], [0, 2],
+            { start_line: 0, end_line: 2 });
+        expect_bounds(
+            ['capture noisily {', '    di 1', '}'], [0, 2],
+            { start_line: 0, end_line: 2 });
+    });
+
+    test('mata and python blocks', () => {
+        const the_mata = ['mata:', 'x = 1', 'x', 'end', 'di "after"'];
+        expect_bounds(the_mata, [0, 3], { start_line: 0, end_line: 3 });
+        expect_statement(the_mata, 1, 1);
+        expect_statement(the_mata, 4, 4);
+        expect_bounds(
+            ['python:', 'print(1)', 'end'], [0, 2],
+            { start_line: 0, end_line: 2 });
+        // A one-line `mata:` statement is not a block.
+        expect_statement(['mata: x = 1', 'di 1'], 0, 0);
+    });
+
+    test('a header continued with ///', () => {
+        const the_lines = [
+            'foreach v in ///', '    a b {', '    di "`v\'"', '}',
+        ];
+        expect_bounds(the_lines, [0, 1, 3], { start_line: 0, end_line: 3 });
+        expect_statement(the_lines, 2, 2);
+    });
+
+    test('braces in strings and comments don\'t count', () => {
+        const the_lines = [
+            'foreach v in a {',            // 0
+            '    di "} {"  // }',          // 1
+            '    /* { */',                 // 2
+            '}',                           // 3
+            'di "after"',                  // 4
+        ];
+        expect_bounds(the_lines, [0, 3], { start_line: 0, end_line: 3 });
+        expect_statement(the_lines, 1, 1);
+        expect_statement(the_lines, 4, 4);
+    });
+
+    test('an unclosed block sends only its header', () => {
+        expect_statement(['foreach v in a {', '    di "x"'], 0, 0);
+        expect_statement(['mata:', 'x = 1'], 0, 0);
+        // The chain's `else` is unclosed.
+        expect_statement(
+            ['if 1 {', '    di "y"', '}', 'else {', '    di "n"'], 0, 0);
+    });
+
+    test('an inline else if chain goes together', () => {
+        const the_lines = [
+            'if `x\' == 1 di "one"',
+            'else if `x\' == 2 di "two"',
+            'else di "other"',
+            'di "after"',
+        ];
+        expect_bounds(the_lines, [0, 1, 2], { start_line: 0, end_line: 2 });
+        expect_statement(the_lines, 3, 3);
+    });
+
+    test('an if and else chain under #delimit ;', () => {
+        const the_lines = [
+            '#delimit ;',                  // 0
+            'if 1 {;',                     // 1
+            '    di "y";',                 // 2
+            '};',                          // 3
+            'else {;',                     // 4
+            '    di "n";',                 // 5
+            '};',                          // 6
+            'program define bar;',         // 7
+            '    di "bar";',               // 8
+            'end;',                        // 9
+        ];
+        expect_bounds(the_lines, [1, 3, 4, 6], { start_line: 1, end_line: 6 });
+        expect_statement(the_lines, 2, 2);
+        expect_bounds(the_lines, [7, 9], { start_line: 7, end_line: 9 });
     });
 });

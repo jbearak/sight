@@ -1,10 +1,15 @@
 import * as vscode from 'vscode';
 import { StataLexer } from '../../../src/lexer/index.js';
+import { StataParser } from '../../../src/parser/index.js';
 import {
     SemicolonStatementTracker,
     delimit_directive_mode,
 } from '../../../src/utils/semicolon-statement.js';
-import type { Token, TokenType } from '../../../src/types/index.js';
+import type {
+    StataNode,
+    Token,
+    TokenType,
+} from '../../../src/types/index.js';
 
 export interface StatementBounds {
     start_line: number;  // 0-indexed, inclusive
@@ -29,6 +34,11 @@ export interface DocumentReading {
     joined_lines: Set<number>;
     /** The `#delimit` directives, in order. */
     delimit_directives: DelimitDirective[];
+    /**
+     * The lines of each closed block (or `if`/`else` chain), keyed by
+     * the lines of its headers and closers.
+     */
+    block_by_line: Map<number, StatementBounds>;
 }
 
 const COMMENT_TOKEN_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
@@ -38,6 +48,9 @@ const COMMENT_TOKEN_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
 // A `#delimit ;` line put before code sent from a `#delimit ;` region.
 // Stata goes back to `#delimit cr` when the sent do-file ends.
 const DELIMIT_SEMICOLON_LINE = '#delimit ;\n';
+
+// The `end` that closes a program, at the end of its last line.
+const PROGRAM_END_PATTERN = /(^|\s)end$/;
 
 /**
  * Read `text` with Sight's lexer, so the send commands follow the
@@ -121,7 +134,155 @@ export function read_document(text: string): DocumentReading {
             joined_lines.add(my_line);
         }
     }
-    return { joined_lines, delimit_directives };
+    return {
+        joined_lines,
+        delimit_directives,
+        block_by_line: find_blocks(text, the_tokens),
+    };
+}
+
+/**
+ * The lines of each closed block in the parsed document, keyed by the
+ * lines of its headers and closers: `foreach`, `forvalues`, `while`,
+ * `if`, `else`, and `frame` blocks, a prefix's brace block
+ * (`capture {`), a program, and a `mata` or `python` block.
+ *
+ * An `if` and the `else` nodes right after it are one chain: Stata runs
+ * an `else` sent on its own even after a true `if`, so they are sent
+ * together. That holds for `if x di "a"` / `else di "b"` too.
+ */
+function find_blocks(
+    text: string,
+    the_tokens: Token[]
+): Map<number, StatementBounds> {
+    const block_by_line = new Map<number, StatementBounds>();
+    let the_nodes: StataNode[];
+    try {
+        the_nodes = new StataParser().parse(the_tokens).ast.nodes;
+    } catch {
+        // Without blocks, Send statement sends the header's lines.
+        return block_by_line;
+    }
+    collect_blocks(the_nodes, text.split('\n'), block_by_line);
+    return block_by_line;
+}
+
+function collect_blocks(
+    the_nodes: StataNode[],
+    the_lines: string[],
+    block_by_line: Map<number, StatementBounds>
+): void {
+    for (let i = 0; i < the_nodes.length; i++) {
+        const the_chain = [the_nodes[i]];
+        if (the_nodes[i].type === 'if') {
+            while (the_nodes[i + 1]?.type === 'else') {
+                i++;
+                the_chain.push(the_nodes[i]);
+            }
+        }
+        const is_block = the_chain.length > 1 ||
+            is_closed_block(the_chain[0], the_lines);
+        if (is_block && the_chain.every((my_node) =>
+            is_complete(my_node, the_lines))) {
+            const my_bounds = {
+                start_line: the_chain[0].range.start.line,
+                end_line: the_chain[the_chain.length - 1].range.end.line,
+            };
+            for (const my_node of the_chain) {
+                add_block(block_by_line, my_node.range.start.line, my_bounds);
+                add_block(block_by_line, my_node.range.end.line, my_bounds);
+            }
+        }
+        for (const my_node of the_chain) {
+            collect_blocks(node_body(my_node), the_lines, block_by_line);
+        }
+    }
+}
+
+/** Key `bounds` by `line`, keeping the outer of two blocks there. */
+function add_block(
+    block_by_line: Map<number, StatementBounds>,
+    line: number,
+    bounds: StatementBounds
+): void {
+    const my_old = block_by_line.get(line);
+    if (my_old === undefined ||
+        bounds.end_line - bounds.start_line >
+            my_old.end_line - my_old.start_line) {
+        block_by_line.set(line, bounds);
+    }
+}
+
+function node_body(node: StataNode): StataNode[] {
+    switch (node.type) {
+        case 'program':
+        case 'if':
+        case 'else':
+        case 'foreach':
+        case 'forvalues':
+        case 'while':
+        case 'frame':
+            return node.body;
+        case 'command':
+            return node.body ?? [];
+        default:
+            return [];
+    }
+}
+
+/**
+ * Is `node`, a member of an `if`/`else` chain, complete: closed with
+ * its `}`, or a single command with no braces (`if x di "a"`,
+ * `else di "b"`)?
+ */
+function is_complete(node: StataNode, the_lines: string[]): boolean {
+    if (node.type === 'if' && node.is_single_statement === true) {
+        return true;
+    }
+    if (node.type === 'else') {
+        // `else di "b"` and `else if ...` have their body on the `else`
+        // line; `else {` has it on later lines.
+        const my_first = node.body[0];
+        if (my_first !== undefined &&
+            my_first.range.start.line === node.range.start.line) {
+            return my_first.type === 'if'
+                ? is_complete(my_first, the_lines)
+                : true;
+        }
+    }
+    return is_closed_block(node, the_lines);
+}
+
+/**
+ * Is `node` a block that the parser closed with its `}` or `end`? An
+ * unclosed one runs to the end of the file.
+ */
+function is_closed_block(node: StataNode, the_lines: string[]): boolean {
+    const end = node.range.end;
+    const my_last_text = (the_lines[end.line] ?? '')
+        .slice(0, end.character).trimEnd();
+    switch (node.type) {
+        case 'embedded_block':
+            return !node.is_single_line && node.end_command !== undefined;
+        case 'program':
+            return node.ends_at_embedded_block === true ||
+                PROGRAM_END_PATTERN.test(my_last_text);
+        case 'if':
+        case 'else':
+        case 'foreach':
+        case 'forvalues':
+        case 'while':
+        case 'frame':
+            return node.is_single_statement !== true &&
+                node.closed_by_program_end !== true &&
+                my_last_text.endsWith('}');
+        case 'command':
+            return node.body !== undefined &&
+                node.closed_by_program_end !== true &&
+                my_last_text.endsWith('}');
+        default:
+            return false;
+    }
 }
 
 /**
@@ -187,16 +348,25 @@ function find_statement_end(
     return end_line;
 }
 
-/** The statement the cursor's line is in. */
+/**
+ * The statement the cursor's line is in. On a block's header or
+ * closer, that is the whole block: a header alone can't run.
+ */
 export function statement_bounds(
     reading: DocumentReading,
     line: number,
     line_count: number
 ): StatementBounds {
-    return {
-        start_line: find_statement_start(reading.joined_lines, line),
-        end_line: find_statement_end(reading.joined_lines, line, line_count),
-    };
+    let start_line = find_statement_start(reading.joined_lines, line);
+    let end_line = find_statement_end(reading.joined_lines, line, line_count);
+    for (let my_line = start_line; my_line <= end_line; my_line++) {
+        const my_block = reading.block_by_line.get(my_line);
+        if (my_block !== undefined) {
+            start_line = Math.min(start_line, my_block.start_line);
+            end_line = Math.max(end_line, my_block.end_line);
+        }
+    }
+    return { start_line, end_line };
 }
 
 /** From the top to the end of the cursor's statement. */
