@@ -14,6 +14,11 @@
       "error": null
     },
     {
+      "path": "comment-placement.do",
+      "standalone": false,
+      "error": null
+    },
+    {
       "path": "directives.do",
       "standalone": false,
       "error": null
@@ -50,6 +55,7 @@
     }
   ],
   "entry_points": [
+    "comment-placement.do",
     "header-only.do",
     "main.do"
   ],

@@ -251,10 +251,11 @@ describe('sight parse --json comment directives', () => {
             ]);
         });
 
-        it('is empty when statements report every comment, including an EOF tail', () => {
+        it('holds an EOF tail, which no statement reports', () => {
             const content = '// head\ndisplay 1 // trail\n// tail\n/* tail */\n';
             const document = parse(content);
-            expect(document.comments).toEqual([]);
+            expect((document.comments as Comment[]).map((c) => c.text)).toEqual(
+                ['// tail', '/* tail */']);
             expect(all_comments(document).map((c) => c.text)).toEqual(
                 ['// head', '// trail', '// tail', '/* tail */']);
         });

@@ -162,6 +162,63 @@ describe('sight parse --json', () => {
         expect(loop.body[0].comments.interior).toEqual([]);
     });
 
+    describe('own-line comments the parser attaches as trailing', () => {
+        /** Each statement's comment lists as texts, then the document's. */
+        function comment_lists(source: string): string[] {
+            const document = build_parse_document({
+                path: '/x/test.do', content: source, sight_version: 'test',
+            });
+            const texts = (the_comments: Json[]) => the_comments.map((c) => c.text).join(',');
+            const walk = (the_statements: Json[]): string[] => the_statements.flatMap((s) => [
+                `${s.kind} L[${texts(s.comments.leading)}] T[${texts(s.comments.trailing)}]` +
+                    ` B[${texts(s.comments.block_end)}]`,
+                ...walk(s.body ?? []),
+            ]);
+            return [...walk(document.statements as Json[]),
+                `comments[${texts(document.comments as Json[])}]`];
+        }
+
+        it('reports a comment-only tail at end of file as no statement\'s', () => {
+            for (const [my_source, my_lists] of [
+                ['di 1\n* tail\n', ['command L[] T[] B[]', 'comments[* tail]']],
+                ['di 1\n\n/* tail */\n', ['command L[] T[] B[]', 'comments[/* tail */]']],
+                ['di 1 /* a\n b */ // c\n* tail\n',
+                    ['command L[] T[/* a\n b */,// c] B[]', 'comments[* tail]']],
+                ['program p\ndi 1\nend\n* tail\n',
+                    ['program L[] T[] B[]', 'command L[] T[] B[]', 'comments[* tail]']],
+                ['if 1 {\ndi 1\n}\n* tail\n',
+                    ['if L[] T[] B[]', 'command L[] T[] B[]', 'comments[* tail]']],
+                ['mata:\nx = 1\nend\n* tail\n', ['embedded L[] T[] B[]', 'comments[* tail]']],
+                ['mata {\nx = 1\n}\n* tail\n', ['embedded L[] T[] B[]', 'comments[* tail]']],
+            ] as const) {
+                expect(comment_lists(my_source)).toEqual([...my_lists]);
+            }
+        });
+
+        it('makes comments after #delimit ; lead the next statement', () => {
+            expect(comment_lists('#delimit ;\n* a\n* b\ndi 1;\n')).toEqual([
+                'delimit L[] T[] B[]', 'command L[* a,* b] T[] B[]', 'comments[]',
+            ]);
+            expect(comment_lists('program p\n#delimit ;\n* a\ndi 1;\n#delimit cr\nend\n')).toEqual([
+                'program L[] T[] B[]', 'delimit L[] T[] B[]', 'command L[* a] T[] B[]',
+                'delimit L[] T[] B[]', 'comments[]',
+            ]);
+        });
+
+        it('puts comments after a final #delimit ; before the closing end or brace', () => {
+            expect(comment_lists('program p\ndi 1\n#delimit ;\n* c\nend;\n')).toEqual([
+                'program L[] T[] B[* c]', 'command L[] T[] B[]', 'delimit L[] T[] B[]',
+                'comments[]',
+            ]);
+            expect(comment_lists('if 1 {\n#delimit ;\n* c\n};\n')).toEqual([
+                'if L[] T[] B[* c]', 'delimit L[] T[] B[]', 'comments[]',
+            ]);
+            expect(comment_lists('di 1\n#delimit ;\n* c\n')).toEqual([
+                'command L[] T[] B[]', 'delimit L[] T[] B[]', 'comments[* c]',
+            ]);
+        });
+    });
+
     it('reads a block comment inside an expression as whitespace', () => {
         const [gen, keep, reg] = statements(
             'gen x = a /* c */ + b\nkeep if a /* c */ & b\nreg y x [aw = w /* c */ * 2]\n');
