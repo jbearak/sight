@@ -165,10 +165,15 @@ When set to "none", manual CD commands appear in the toolbar menu for quick dire
 
 ## Statement Detection
 
-The extension intelligently detects complete Stata statements:
-- Handles multi-line statements with `///` continuation markers
-- When the cursor is on a continuation line, includes the entire statement from the beginning
-- When the cursor is on a line ending with `///`, includes all continuation lines
+With no selection, the send commands send the whole statement the cursor is in, from its first line to its last. A statement goes on to the next line where Stata 18 reads the two together:
+
+- A `///` with a space or tab before it, or at the start of a line, continues the statement, with or without a note after it (`reg y x /// controls`).
+- A `///` with code right before it (`local a b///`) is text, so the next line is its own command. A `///` inside a string, a block comment, or a `//` comment doesn't continue either.
+- A `*` comment continued with `///`, and a block comment that spans lines, keep their lines together.
+
+Send Upward Lines ends at the end of the cursor's statement, and Send Downward Lines starts at its first line.
+
+Under `#delimit ;`, a statement ends at its `;`, but the extension still sends only the lines joined as above, and Stata runs them under `#delimit cr`. Select the statement, with a `#delimit ;` line before it, to send it.
 
 ## Editor Toolbar
 

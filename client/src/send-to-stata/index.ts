@@ -13,7 +13,7 @@ export type SendTarget = 'app' | 'terminal';
 // Module exports
 export {
     StatementBounds,
-    ends_with_continuation,
+    find_joined_lines,
     detect_statement,
     get_statement_text,
     get_upward_bounds,
