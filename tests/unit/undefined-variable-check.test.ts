@@ -23,10 +23,17 @@ function undefined_variables(source: string): string[] {
         .map((my_diagnostic) => my_diagnostic.message);
 }
 
-async function check_output(source: string, config: string | null): Promise<string> {
+async function check_output(
+    source: string,
+    config: string | null,
+    the_other_files: Record<string, string> = {}
+): Promise<string> {
     const root = fs.mkdtempSync(path.join(os.tmpdir(), 'sight-undefined-variable-'));
     try {
         fs.writeFileSync(path.join(root, 'main.do'), source);
+        for (const [my_name, my_text] of Object.entries(the_other_files)) {
+            fs.writeFileSync(path.join(root, my_name), my_text);
+        }
         const the_args = ['--workspace', root, '--quiet', '--color', 'never'];
         if (config === null) {
             the_args.push('--no-config');
@@ -54,6 +61,16 @@ describe('the undefinedVariable setting', () => {
         );
         expect(output).toContain('weight may not be defined');
         expect(output).not.toContain('price may not be defined');
+    });
+
+    it('accepts an abbreviation of a variable an included file defines', async () => {
+        const output = await check_output(
+            'include "defs.do"\nsu pri\nsu zz\n',
+            '[diagnostics.severity]\nundefinedVariable = "information"\n',
+            { 'defs.do': 'gen price = 1\n' }
+        );
+        expect(output).not.toContain('pri may not be defined');
+        expect(output).toContain('zz may not be defined');
     });
 
     it('reports nothing with the default (off)', async () => {

@@ -169,6 +169,27 @@ export interface DiagnosticsConnection {
  * - Semantic Analyzer: undefined macros, undefined variables (heuristic)
  * - Context Tracker: unclosed mata/python blocks, mismatched delimiters
  */
+/**
+ * True when another file defines the variable `name`, or one whose name
+ * starts with it: Stata accepts an abbreviation of a variable name
+ * (`su pri` for `price`), as the analyzer does for a file's own.
+ */
+function has_external_variable(
+    symbols: SymbolTable,
+    name: string,
+    is_external_symbol: (symbol: { sourceUri?: string } | undefined) => boolean
+): boolean {
+    if (is_external_symbol(symbols.variables.get(name))) {
+        return true;
+    }
+    for (const [my_name, my_symbol] of symbols.variables) {
+        if (my_name.startsWith(name) && is_external_symbol(my_symbol)) {
+            return true;
+        }
+    }
+    return false;
+}
+
 export class DiagnosticsProvider {
     private connection: DiagnosticsConnection;
     private debounce_manager: DocumentDebounceManager | null = null;
@@ -1579,7 +1600,7 @@ export class DiagnosticsProvider {
             if (reference_kind !== 'variable') {
                 return false;
             }
-            return is_external_symbol(symbols.variables.get(symbol_name));
+            return has_external_variable(symbols, symbol_name, is_external_symbol);
         }
         return false;
     }
@@ -1706,7 +1727,7 @@ export class DiagnosticsProvider {
             if (reference_kind !== 'variable') {
                 return false;
             }
-            return is_external_symbol(symbols.variables.get(symbol_name));
+            return has_external_variable(symbols, symbol_name, is_external_symbol);
         }
         return false;
     }
