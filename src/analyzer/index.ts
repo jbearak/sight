@@ -3,7 +3,10 @@ import {
     find_enclosing_scope,
     program_body_start_line,
 } from '../utils/scope-position';
-import { assemble_visible_scopes } from '../utils/scoped-locals';
+import {
+    assemble_visible_scopes,
+    macro_resolves_at_position,
+} from '../utils/scoped-locals';
 import {
     format_undefined_macro_message,
     format_undefined_variable_message,
@@ -3164,40 +3167,13 @@ export class SemanticAnalyzer {
         return false;
     }
 
-    private is_reference_before_macro_definition(
-        macro: MacroSymbol,
-        reference_range?: Range
-    ): boolean {
-        if (reference_range === undefined) {
-            return false;
-        }
-        // The same-line character ordering is only meaningful when the
-        // macro's effective `definition_line` coincides with its physical
-        // location — then the location's character marks where it becomes
-        // visible on that line. Macros whose `definition_line` is
-        // deliberately earlier than their location, notably `args` macros
-        // (`definition_line === 0`, visible from the start of scope), are
-        // already in scope on the reference's line and must not be treated as
-        // a same-line forward reference.
-        const definition_line =
-            macro.definition_line ?? macro.location.range.start.line;
-        if (definition_line !== macro.location.range.start.line) {
-            return false;
-        }
-        return (
-            macro.location.range.start.line === reference_range.start.line &&
-            this.compare_ranges(reference_range, macro.location.range) < 0
-        );
-    }
-
     /**
      * Forward-visibility check shared by the local- and global-macro branches
      * of `is_macro_defined`: given a macro found in the symbol table, is it
-     * visible at the reference? A Mata setter's `visibility_start` is the
-     * authoritative answer when present (the macro is visible only after its
-     * inline unit ends); otherwise fall back to preorder-index, line-number,
-     * and same-line forward-reference checks. Identical for both scopes — the
-     * scope-specific lookups and fallbacks stay in `is_macro_defined`.
+     * visible at the reference? The visibility_start, line, and same-line
+     * rules are `macro_resolves_at_position`'s, which the providers use
+     * too, so navigation and diagnostics agree on whether a reference
+     * resolves. Only the preorder-index check is the analyzer's own.
      *
      * Only the PRIMARY definition is consulted: `inject_expanded_macro` keeps
      * the primary as the EARLIEST definition (line/index/location), so an
@@ -3205,13 +3181,6 @@ export class SemanticAnalyzer {
      * turn a genuine forward reference into a resolved one — see the
      * "Consumers read the PRIMARY definition markers" invariant in
      * `inject_expanded_macro`.
-     *
-     * LOCKSTEP: `macro_resolves_at_position` in utils/scoped-locals.ts
-     * is the providers' position-only mirror of this method (minus the
-     * preorder-index check, which has no position equivalent). Any
-     * change to the visibility_start / line / same-line rules here
-     * must be applied there too, or navigation and diagnostics will
-     * disagree about whether a reference resolves.
      */
     private macro_resolves_at_reference(
         macro: MacroSymbol,
@@ -3219,63 +3188,28 @@ export class SemanticAnalyzer {
         reference_line?: number,
         reference_range?: Range
     ): boolean {
-        if (macro.visibility_start !== undefined) {
-            return !this.is_reference_before_visibility_start(
-                macro,
-                reference_line,
-                reference_range
-            );
-        }
-        // Forward reference by preorder index.
+        // Forward reference by preorder index, which a position cannot
+        // express. A Mata setter's `visibility_start` overrides it.
         if (
+            macro.visibility_start === undefined &&
             reference_index !== undefined &&
             macro.definition_index !== undefined &&
             macro.definition_index > reference_index
         ) {
             return false;
         }
-        // Forward reference by line number.
-        if (
-            reference_line !== undefined &&
-            macro.definition_line !== undefined &&
-            macro.definition_line > reference_line
-        ) {
-            return false;
-        }
-        // Same-line forward reference.
-        if (this.is_reference_before_macro_definition(macro, reference_range)) {
-            return false;
-        }
-        return true;
-    }
-
-    /**
-     * For a Mata setter with a `visibility_start` (the end of its inline
-     * `mata:` unit), is the reference before that point — i.e. still inside
-     * the same Mata unit, where the macro is not yet defined? Uses the precise
-     * reference position when available, else the line.
-     */
-    private is_reference_before_visibility_start(
-        macro: MacroSymbol,
-        reference_line?: number,
-        reference_range?: Range
-    ): boolean {
-        const visibility_start = macro.visibility_start;
-        if (visibility_start === undefined) {
-            return false;
-        }
         if (reference_range !== undefined) {
-            return (
-                this.compare_positions(
-                    reference_range.start,
-                    visibility_start
-                ) < 0
-            );
+            return macro_resolves_at_position(macro, reference_range.start);
         }
         if (reference_line !== undefined) {
-            return reference_line < visibility_start.line;
+            // Only the line is known: compare as if at its end, so the
+            // line rules apply and no same-line ordering does.
+            return macro_resolves_at_position(macro, {
+                line: reference_line,
+                character: Number.MAX_SAFE_INTEGER,
+            });
         }
-        return false;
+        return true;
     }
 
     /**

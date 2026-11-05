@@ -58,9 +58,9 @@ export function assemble_visible_scopes(
 }
 
 /**
- * Has `symbol` already been defined at `position`? Line/position
- * mirror of the analyzer's `macro_resolves_at_reference` (which also
- * has a preorder-index check unavailable here): a Mata setter's
+ * Has `symbol` already been defined at `position`? The analyzer's
+ * `macro_resolves_at_reference` applies these same rules after its
+ * own preorder-index check. A Mata setter's
  * `visibility_start` is authoritative when present; otherwise the
  * primary definition line must be at-or-before the position, with a
  * same-line reference-before-definition check. Only the PRIMARY
@@ -68,9 +68,6 @@ export function assemble_visible_scopes(
  * earliest definition, so `additional_definitions` can never turn a
  * forward reference into a resolved one. Permissive when the symbol
  * carries no position markers.
- *
- * LOCKSTEP: any change to these rules must also be applied to the
- * analyzer's `macro_resolves_at_reference`, and vice versa.
  */
 export function macro_resolves_at_position(
     symbol: MacroSymbol,
@@ -86,9 +83,8 @@ export function macro_resolves_at_position(
         return false;
     }
     // Same-line forward reference: only when the definition's
-    // execution-order line matches its source location (mirrors
-    // is_reference_before_macro_definition; sentinel lines like the
-    // `args` 0-line mean "in scope from the start").
+    // execution-order line matches its source location (sentinel
+    // lines like the `args` 0-line mean "in scope from the start").
     const definition_line =
         symbol.definition_line ?? symbol.location?.range?.start?.line;
     if (
