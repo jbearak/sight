@@ -63,10 +63,25 @@ const MATA_CASES: EndCase[] = [
     { name: 'end after a number', candidate: ['1end'], ends_block: false },
     { name: 'end after ;', candidate: ['x = 1; end'], ends_block: false },
     { name: 'end after ; with no space', candidate: ['x = 1;end'], ends_block: false },
+    {
+        name: 'two block comments then end',
+        candidate: ['/* a', 'b */ /* c */ end'],
+        ends_block: true,
+    },
     { name: 'end joined by ///', candidate: ['x = 1 ///', 'end'], ends_block: false },
+    {
+        name: 'block comment then end joined by ///',
+        candidate: ['x = 1 ///', '/* c */ end'],
+        ends_block: false,
+    },
     {
         name: 'end after code and a multi-line block comment',
         candidate: ['x = 1 /* a', 'b */ end'],
+        ends_block: false,
+    },
+    {
+        name: 'end after code and two block comments',
+        candidate: ['x = 1 /* a', 'b */ /* c */ end'],
         ends_block: false,
     },
     { name: 'end in a // comment', candidate: ['x = 1 // end'], ends_block: false },

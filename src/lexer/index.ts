@@ -47,6 +47,12 @@ export class StataLexer {
   // The previous token other than whitespace or a comment, so
   // `a /* c */ * b` reads `*` after `a`.
   private previous_code_token: Token | null = null;
+  // Start line of the run of block comments since previous_code_token
+  // (null if none), so `x /* a<newline>b */ /* c */ end` is mid-line.
+  private comment_run_start_line: number | null = null;
+  // Whether a `///` joins the current line to the one above (no code
+  // since the `///` other than the newline it continues).
+  private joined_to_previous_line = false;
 
   tokenize(source: string, initialState?: LexerState): LexerResult {
     this.source = source;
@@ -56,6 +62,8 @@ export class StataLexer {
     this.line_offsets = [0]; // First line starts at offset 0
     this.previous_token = null;
     this.previous_code_token = null;
+    this.comment_run_start_line = null;
+    this.joined_to_previous_line = false;
     this.state = initialState || {
       delimiterMode: 'cr',
       line: 0,
@@ -211,7 +219,6 @@ export class StataLexer {
    */
   private is_mata_block_end(start_line: number): boolean {
     return (
-      !this.state.in_continuation &&
       this.is_first_code_on_line(start_line) &&
       this.is_end_at_statement_boundary()
     );
@@ -243,35 +250,31 @@ export class StataLexer {
   }
 
   /**
-   * Whether no code token precedes position `start_line` on its line.
-   * A block comment that closes on this line counts from the line it
-   * opened on, so `end` after `x = 1` plus a block comment that
-   * spans lines is still mid-line, while `end` after only such a
-   * comment is not.
+   * Whether no code token precedes the word starting on `start_line`
+   * on its logical line. Block comments do not count as code, but a
+   * run of them that opened on an earlier line counts from there, so
+   * `end` after `x = 1` plus a block comment that spans lines is still
+   * mid-line, while `end` after only such a comment is not. A `///`
+   * joins the line to the one above.
    */
   private is_first_code_on_line(start_line: number): boolean {
-    let my_line = start_line;
-    const my_prev = this.previous_token;
-    if (
-      my_prev !== null &&
-      my_prev.type === 'COMMENT_BLOCK' &&
-      my_prev.range.end.line === start_line
-    ) {
-      my_line = my_prev.range.start.line;
+    if (this.joined_to_previous_line) {
+      return false;
     }
     const my_prev_code = this.previous_code_token;
     if (my_prev_code === null) {
       return true;
     }
-    // A newline terminator's range ends on the next line; it belongs
-    // to the line it terminates.
-    const my_prev_code_line =
+    if (
       my_prev_code.type === 'STATEMENT_TERMINATOR' &&
       my_prev_code.value === '\n'
-        ? my_prev_code.range.start.line
-        : my_prev_code.range.end.line;
-    return my_prev_code_line < my_line;
+    ) {
+      return true;
+    }
+    const my_line = this.comment_run_start_line ?? start_line;
+    return my_prev_code.range.end.line < my_line;
   }
+
 
   /**
    * Check if the rest of the current line contains only whitespace or comments.
@@ -371,11 +374,26 @@ export class StataLexer {
     if (token.type === 'WHITESPACE') {
       return;
     }
-    this.previous_token = token;
-    if (!COMMENT_TOKEN_TYPES.has(token.type)) {
+    if (token.type === 'COMMENT_BLOCK') {
+      this.comment_run_start_line ??= token.range.start.line;
+    }
+    if (token.type === 'CONTINUATION') {
+      this.joined_to_previous_line = true;
+    } else if (!COMMENT_TOKEN_TYPES.has(token.type)) {
+      // The newline right after a `///` stays joined; any other code
+      // starts a fresh logical line.
+      const my_is_joined_newline =
+        token.type === 'STATEMENT_TERMINATOR' &&
+        token.value === '\n' &&
+        this.previous_token?.type === 'CONTINUATION';
+      this.joined_to_previous_line =
+        this.joined_to_previous_line && my_is_joined_newline;
+      this.comment_run_start_line = null;
       this.previous_code_token = token;
     }
+    this.previous_token = token;
   }
+
 
   /**
    * Determines if a * character should be treated as a comment or multiplication.
