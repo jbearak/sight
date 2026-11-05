@@ -94,6 +94,34 @@ describe('formatting a syntax statement', () => {
         expect(formatted).toContain('Level(real 95)');
     });
 
+    for_each_formatter_mode('keeps a multi-line signature under #delimit ;', mode => {
+        const source = [
+            '#delimit ;',
+            'program p;',
+            'syntax varlist',
+            '[if] [, Detail];',
+            'end;',
+            '#delimit cr',
+            '',
+        ].join('\n');
+        const formatted = format_idempotent(source, mode);
+        mode_specific_assertion(mode, {
+            'source-preserving': () => {
+                expect(formatted).toContain('syntax varlist\n[if] [, Detail];');
+            },
+            'ast': () => {
+                expect(formatted).toBe([
+                    '#delimit ;',
+                    'program p;',
+                    '    syntax varlist [if] [, Detail];',
+                    'end;',
+                    '#delimit cr',
+                    '',
+                ].join('\n'));
+            },
+        });
+    });
+
     for_each_formatter_mode('keeps prefixes and comments', mode => {
         const source = [
             'program p',
