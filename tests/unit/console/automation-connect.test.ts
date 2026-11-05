@@ -39,6 +39,7 @@ interface Script {
 
 class ScriptedBridge implements Bridge {
     ops: string[] = [];
+    connect_expects: number[][] = [];
     sync_commands: string[] = [];
     private listing_index = 0;
     private busy_left: number;
@@ -58,7 +59,9 @@ class ScriptedBridge implements Bridge {
             case 'list_stata':
                 return ok({ processes: this.listing() });
             case 'connect': {
-                const expect = (params.expect as number[]).join(',');
+                const expected_pids = params.expect as number[];
+                this.connect_expects.push([...expected_pids]);
+                const expect = expected_pids.join(',');
                 this.listing_index++;
                 const now = this.listing().map((my_process) => my_process.pid).join(',');
                 if (this.listing_index < this.script.open.length && now !== expect) {
@@ -192,6 +195,8 @@ describe('connect_to_stata', () => {
         const { deps: d, questions, said } = deps(bridge, ['y']);
         const result = await connect_to_stata(d);
         expect(result).toMatchObject({ ok: true, pid: 2 });
+        // The bridge rechecks the listing against every consented PID.
+        expect(bridge.connect_expects).toEqual([[1, 2]]);
         // Consent covered either one: no second question.
         expect(questions.length).toBe(1);
         expect(said).toContain(
