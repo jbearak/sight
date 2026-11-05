@@ -12,7 +12,7 @@ async function option_completions(
     code: string,
     line: number,
     character: number
-): Promise<Array<{ label: string; documentation: string }>> {
+): Promise<Array<{ label: string; documentation: string; insertText?: string }>> {
     const store = new DocumentStore();
     await store.open('file:///test.do', code, 1);
     const document = store.get('file:///test.do');
@@ -21,6 +21,7 @@ async function option_completions(
         .get_completions_for_user_program_call('p', document, { line, character })
         .map((my_item) => ({
             label: my_item.label,
+            insertText: my_item.insertText,
             documentation: typeof my_item.documentation === 'string'
                 ? my_item.documentation
                 : my_item.documentation?.value ?? '',
@@ -51,5 +52,27 @@ describe('user program option completion', () => {
             // The whole name is the minimum, so no abbreviation shows.
             expect(my_item.documentation).not.toContain('Abbreviation');
         }
+    });
+
+    describe('options declared with capitals', () => {
+        // StataMP 18 takes `syntax [, DETail Level(real 95)]` options as
+        // `det` … `detail` and `l(…)` … `level(…)`, and rejects
+        // `DETail` and `Level(…)` as typed.
+        const DECLARED = [
+            'program define p',
+            '    syntax [, DETail Level(real 95)]',
+            'end',
+        ].join('\n');
+
+        it('keeps offering an option as more of it is typed', async () => {
+            const the_items = await option_completions(`${DECLARED}\np, deta`, 3, 7);
+            expect(the_items.map((my_item) => my_item.label)).toEqual(['DETail']);
+        });
+
+        it('inserts the spelling Stata accepts', async () => {
+            const the_items = await option_completions(`${DECLARED}\np, `, 3, 3);
+            expect(the_items.map((my_item) => my_item.insertText).sort())
+                .toEqual(['detail', 'level()']);
+        });
     });
 });

@@ -52,6 +52,7 @@ import {
 } from '../scope-resolver';
 import { create_empty_symbol_table, merge_symbol_tables } from '../analyzer';
 import { syntax_locals } from '../analyzer/command-macro-writes';
+import { syntax_option_spelling } from '../utils/syntax-option-name';
 import { isPathDirective, isFileCommand, hasStataExtension } from '../utils/file-path-utils';
 import { DIRECTIVE_BODY_PREFIX_PATTERN } from '../utils/directives';
 import { is_cursor_in_block_comment } from '../utils/comment-utils';
@@ -3074,13 +3075,13 @@ export class CompletionProvider {
         // Compute disambiguated abbreviations across all options
         const my_abbrev_map = this.compute_disambiguated_abbreviations(my_options);
 
-        // Filter options by partial abbreviation and format completions
+        // Offer each option whose spelling begins with what is typed,
+        // exactly as Stata reads it: `de` for `Detail`, never `De`.
         for (const my_option of my_options) {
             const my_min_abbrev = my_abbrev_map.get(my_option.name) || my_option.minAbbreviation;
-
-            // Check if option matches the partial abbreviation
-            if (my_partial_option === '' || 
-                my_min_abbrev.toLowerCase().startsWith(my_partial_option.toLowerCase())) {
+            const my_full = syntax_option_spelling(
+                my_option.name, my_option.hasArgument === true).full;
+            if (my_full.startsWith(my_partial_option)) {
                 the_completions.push(
                     this.format_option_completion(my_option, my_min_abbrev, my_signature.allowsArbitraryOptions)
                 );
@@ -3104,39 +3105,11 @@ export class CompletionProvider {
         document: DocumentState,
         position: Position
     ): CompletionItem[] {
-        const the_completions: CompletionItem[] = [];
-
-        // Look up program in symbol table
         const my_program = document.symbols.programs.get(program_name);
-        if (!my_program || !my_program.signature) {
-            return the_completions;
-        }
-
-        const my_signature = my_program.signature;
-
-        // Extract partial option being typed
-        const my_partial_option = this.get_partial_option_at_position(document, position);
-
-        // Get all options from the signature
-        const my_options = my_signature.options;
-
-        // Compute disambiguated abbreviations across all options
-        const my_abbrev_map = this.compute_disambiguated_abbreviations(my_options);
-
-        // Filter options by partial abbreviation and format completions
-        for (const my_option of my_options) {
-            const my_min_abbrev = my_abbrev_map.get(my_option.name) || my_option.minAbbreviation;
-
-            // Check if option matches the partial abbreviation
-            if (my_partial_option === '' || 
-                my_min_abbrev.toLowerCase().startsWith(my_partial_option.toLowerCase())) {
-                the_completions.push(
-                    this.format_option_completion(my_option, my_min_abbrev, my_signature.allowsArbitraryOptions)
-                );
-            }
-        }
-
-        return the_completions;
+        return my_program
+            ? this.get_completions_for_user_program_call_with_program(
+                my_program, document, position)
+            : [];
     }
 
     /**
@@ -3264,18 +3237,21 @@ export class CompletionProvider {
         // Generate description from type
         const my_description = this.generate_option_description(option);
 
-        // Determine insert text (with placeholders if has argument)
-        let my_insert_text = option.name;
-        if (option.argumentType) {
-            my_insert_text = `${option.name}()`;
-        }
+        // The label shows the option as declared, whose capitals mark
+        // its abbreviation; the option is matched and inserted as Stata
+        // takes it, in full: `detail` for `DETail` (Stata rejects
+        // `DETail`), with `()` if it takes an argument.
+        const has_argument =
+            option.hasArgument === true || option.argumentType !== undefined;
+        const my_full = syntax_option_spelling(option.name, has_argument).full;
 
         // Create completion item
         const my_completion: CompletionItem = {
             label: option.name,
             kind: CompletionItemKind.Property,
             detail: my_description,
-            insertText: my_insert_text,
+            filterText: my_full,
+            insertText: has_argument ? `${my_full}()` : my_full,
             documentation: this.generate_option_documentation(option, min_abbrev),
             sortText: (option.isRequired ? '0' : '1') + option.name,
         };
