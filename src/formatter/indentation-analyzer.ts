@@ -91,8 +91,10 @@ export class IndentationAnalyzer {
         // Process leading trivia before the node
         this.process_node_trivia(node);
 
-        // Handle embedded_block nodes specially (Mata/Python blocks)
-        if (node.type === 'embedded_block') {
+        // Handle embedded_block nodes specially (Mata/Python blocks), and
+        // `input` with its data lines, which are kept as written
+        if (node.type === 'embedded_block' ||
+            (node.type === 'command' && node.input_data !== undefined)) {
             this.process_embedded_block_node(node);
             return;
         }

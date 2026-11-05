@@ -464,6 +464,21 @@ describe('Send to Stata: a block header or closer sends the block', () => {
         expect_bounds(the_lines, [7, 9], { start_line: 7, end_line: 9 });
     });
 
+    test('input with its data, from its header or its end', () => {
+        // `input x` sent alone has no data to read; StataMP 18 reads
+        // the lines after it up to `end`.
+        const the_lines = [
+            'clear',          // 0
+            'input x',        // 1
+            '1',              // 2
+            '2',              // 3
+            'end',            // 4
+            'list',           // 5
+        ];
+        expect_bounds(the_lines, [1, 4], { start_line: 1, end_line: 4 });
+        expect_statement(the_lines, 5, 5);
+    });
+
     test('a block after a mata { } block', () => {
         // From Stata's _bmapredict_mean_std.ado. A `mata {` block ends
         // with `}`, not `end`, so the blocks after it are still found.

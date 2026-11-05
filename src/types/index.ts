@@ -69,6 +69,8 @@ export type TokenType =
   | 'END_MATA'
   | 'END_PYTHON'
   | 'EMBEDDED_CONTENT'
+  // The data lines after `input`, as written, up to its `end` line
+  | 'INPUT_DATA'
   | 'EOF';
 
 export interface Token {
@@ -329,6 +331,9 @@ export interface CommandNode {
   // As on ControlFlowNode
   closed_by_program_end?: boolean;
   closed_by_brace?: boolean;
+  // The data lines of an `input` statement, as written, which its `end`
+  // line closes; the node's range runs through that `end`.
+  input_data?: { content: string; content_range: Range };
   range: Range;
   leadingTrivia?: TriviaNode[];
   // Comments between the statement's tokens, e.g. `/* c */` in
