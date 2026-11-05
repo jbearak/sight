@@ -99,6 +99,8 @@ const THE_CONCATENATION_CASES: string[] = [
     'local z = `n\'`m\' + 1',
     'by `a\'_g: di 1',
     'foreach v of varlist x`i\' `a\'_b {\n    di "`v\'"\n}',
+    'program define p\n    syntax varlist [, title(string)]\n' +
+        '    args a`i\' b\n    di "`title\'=`a`i\'\'"\nend',
 ];
 
 /** Arguments separated by a space in the source keep it. */
