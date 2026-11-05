@@ -30,12 +30,20 @@ function is_macro_item(item: IdentifierNode): boolean {
         || (item.name.startsWith('`') && !item.name.startsWith('`"'));
 }
 
+/** `"` or the compound-quote opener `` `" ``: either ends a name. */
+function is_quote_opener(item: IdentifierNode): boolean {
+    return item.name.startsWith('"') || item.name.startsWith('`"');
+}
+
 function touches(a: Range, b: Range): boolean {
     return a.end.line === b.start.line
         && a.end.character === b.start.character;
 }
 
-/** Join items that touch a macro reference into words. */
+/**
+ * Join items that touch a macro reference into words. A quote never
+ * joins the word before it: `` c_local `n'"v" `` names `` `n' ``.
+ */
 export function group_name_words(
     items: readonly IdentifierNode[]
 ): NameWord[] {
@@ -47,6 +55,7 @@ export function group_name_words(
             last !== undefined
             && previous !== undefined
             && touches(previous.range, my_item.range)
+            && !is_quote_opener(my_item)
             && (is_macro_item(previous) || is_macro_item(my_item))
         ) {
             last.items.push(my_item);

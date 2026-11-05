@@ -110,6 +110,24 @@ describe('c_local name joined to a macro', () => {
         expect(undefined_macros(result)).toEqual([]);
     });
 
+    it('reads c_local `opt\' followed by a quote as option-named', () => {
+        for (const my_value of ['"x"', '`"x"\'']) {
+            const result = analyze([
+                'program define setter',
+                '    syntax [, Local(string)]',
+                `    c_local \`local'${my_value}`,
+                'end',
+                'setter, local(rhs)',
+                'display "`rhs\'"',
+            ].join('\n'));
+            expect(
+                result.symbols.programs.get('setter')
+                    ?.macro_creating_local_options
+            ).toEqual(['local']);
+            expect(undefined_macros(result)).toEqual([]);
+        }
+    });
+
     it('does not define the prefix from a workspace program', () => {
         const ado = analyze(
             setter('foo`x\'').join('\n'),
