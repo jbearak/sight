@@ -10,6 +10,7 @@ import { CommandDatabase } from '../../src/commands';
 import { DocumentState } from '../../src/document-store';
 import { SymbolTable, ProgramNode, ArgumentSpec, ProgramSignature } from '../../src/types';
 import { parse_and_analyze } from '../property/helpers/document-utils';
+import { syntax_locals } from '../../src/analyzer/command-macro-writes';
 
 /**
  * Helper to create a minimal document state for testing.
@@ -36,8 +37,20 @@ function create_test_document(content: string, symbols?: Partial<SymbolTable>): 
  * Generator for valid Stata argument types
  */
 const argument_type_gen = fc.constantFrom(
-    'varlist', 'varname', 'newvarname', 'anything', 'if', 'in', 'using', 'exp', 'name'
+    'varlist', 'varname', 'newvarname', 'anything', 'if', 'in', 'using', 'exp', 'name',
+    'weight', 'fweight', 'aweight', 'pweight', 'iweight'
 );
+
+const WEIGHT_ARGUMENT_TYPES = new Set([
+    'weight', 'fweight', 'aweight', 'pweight', 'iweight',
+]);
+
+/** The locals Stata's `syntax` defines for one argument. */
+function expected_argument_locals(arg_spec: ArgumentSpec): string[] {
+    if (arg_spec.type === 'anything' && arg_spec.name) return [arg_spec.name];
+    if (WEIGHT_ARGUMENT_TYPES.has(arg_spec.type)) return ['weight', 'exp'];
+    return [arg_spec.type];
+}
 
 /**
  * Generator for argument specifications
@@ -79,48 +92,33 @@ const program_signature_gen = fc.record({
 });
 
 describe('Program Argument Completions', () => {
-    describe('get_argument_local_name', () => {
+    describe('syntax_locals', () => {
         it('should map argument types to local names correctly', () => {
             fc.assert(fc.property(argument_spec_gen, (arg_spec) => {
-                const provider = new CompletionProvider(new CommandDatabase());
-                const local_name = (provider as any).get_argument_local_name(arg_spec);
-                
-                if (arg_spec.type === 'anything' && arg_spec.name) {
-                    expect(local_name).toBe(arg_spec.name);
-                } else {
-                    expect(local_name).toBe(arg_spec.type);
-                }
-            }));
-        });
+                const signature: ProgramSignature = {
+                    arguments: [arg_spec],
+                    options: [],
+                    allowsArbitraryOptions: false,
+                    syntaxRanges: [],
+                };
+                const the_names = syntax_locals(signature)
+                    .map((my_local) => my_local.name);
 
-        it('should return null for invalid argument specs', () => {
-            const provider = new CompletionProvider(new CommandDatabase());
-            
-            // Test with null/undefined
-            expect((provider as any).get_argument_local_name(null)).toBe(null);
-            expect((provider as any).get_argument_local_name(undefined)).toBe(null);
+                expect(the_names).toEqual(expected_argument_locals(arg_spec));
+            }));
         });
     });
 
     describe('extract_program_arguments', () => {
-        it('should extract all argument local names from signature', () => {
+        it('should extract each argument local name once', () => {
             fc.assert(fc.property(program_signature_gen, (signature) => {
                 const provider = new CompletionProvider(new CommandDatabase());
                 const extracted_args = (provider as any).extract_program_arguments(signature);
-                
-                // Should extract exactly the expected number of arguments
-                const expected_count = signature.arguments.filter(arg => {
-                    if (arg.type === 'anything' && arg.name) return true;
-                    return arg.type !== null && arg.type !== undefined;
-                }).length;
-                
-                expect(extracted_args.length).toBe(expected_count);
-                
-                // Each extracted argument should be a valid local name
-                for (const arg_name of extracted_args) {
-                    expect(typeof arg_name).toBe('string');
-                    expect(arg_name.length).toBeGreaterThan(0);
-                }
+
+                const expected = new Set(
+                    signature.arguments.flatMap(expected_argument_locals)
+                );
+                expect(extracted_args).toEqual([...expected]);
             }));
         });
 

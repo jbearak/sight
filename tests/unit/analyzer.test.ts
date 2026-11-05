@@ -139,14 +139,17 @@ end`;
             expect(program?.macro_creating_global_options).toContain('global');
         });
 
-        it('should lower-case macro-creating syntax options at call sites', () => {
+        it('should match macro-creating syntax options at call sites in lowercase only', () => {
+            // StataMP 18: `myprog, Cache(r)` fails with "option cache()
+            // required" and defines nothing; `myprog, cache(r)` works.
             const source = `program define myprog
     syntax, Cache(string)
     c_local \`cache' "value"
 end
 
-myprog, Cache(result)
+myprog, cache(result)
 display \`result'
+myprog, Cache(other)
 `;
 
             const result = analyze(source);
@@ -154,6 +157,7 @@ display \`result'
             const program = result.symbols.programs.get('myprog');
             expect(program?.macro_creating_local_options).toEqual(['cache']);
             expect(result.symbols.localMacros.has('result')).toBe(true);
+            expect(result.symbols.localMacros.has('other')).toBe(false);
             expect(result.diagnostics.find(
                 d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
                     d.message.includes('result')

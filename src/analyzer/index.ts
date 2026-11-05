@@ -41,14 +41,17 @@ import {
     scan_macro_refs,
     BindingFrame,
 } from './loop-expander';
-import { find_macro_creating_command, matches_option } from './macro-creating-commands';
-import { parse_option_argument, is_valid_identifier } from './option-argument-parser';
-import { NameWord, group_name_words, whole_word_item } from '../utils/name-words';
+import { is_valid_identifier } from './option-argument-parser';
+import { whole_word_item } from '../utils/name-words';
+import { extract_c_local_arg_positions } from './c-local-arg-positions';
 import {
-    type CLocalArgName,
-    extract_c_local_arg_positions,
-    resolve_c_local_arg_names,
-} from './c-local-arg-positions';
+    type MacroWrite,
+    type MacroWriteContext,
+    command_macro_writes,
+    semantic_words,
+    syntax_locals,
+    syntax_option_local_name,
+} from './command-macro-writes';
 import {
     declaration_directive_of,
     ignore_directive_of,
@@ -196,7 +199,6 @@ export const STATA_SYSTEM_GLOBALS = new Set<string>([
  * - Macros and variables are case-sensitive
  */
 // Weight argument types constant
-const WEIGHT_TYPES = ['weight', 'fweight', 'fw', 'aweight', 'aw', 'pweight', 'pw', 'iweight', 'iw'] as const;
 
 // Per Stata `help data_types`. Storage types are case-sensitive.
 // `double` may be abbreviated to `dou`, `doub`, `doubl`; `float` to `floa`.
@@ -357,19 +359,26 @@ function is_stata_storage_type(name: string): boolean {
     return false;
 }
 
+// Moved to command-macro-writes; re-exported for existing importers.
+export { syntax_option_local_name };
+
 /**
- * The local a `syntax` option defines. Stata lowercases the name, and
- * for an option without an argument drops a lowercase `no` prefix:
- * `noCONStant`, `nolog` and `noTE` define `constant`, `log` and `te`,
- * while `NODetail` defines `nodetail` and `notable(string)` defines
- * `notable` (checked in StataMP 18).
+ * The placeholder value the analyzer stores for a macro a command
+ * writes, which stands for a value known only at run time. A
+ * `c_local` write has no value.
  */
-export function syntax_option_local_name(opt: OptionSpec): string {
-    if (opt.hasArgument !== true && opt.name.length > 2 &&
-        opt.name.startsWith('no')) {
-        return opt.name.slice(2).toLowerCase();
+function macro_write_placeholder(write: MacroWrite): string | undefined {
+    switch (write.kind) {
+        case 'temp_name': return `__tempvar_${write.name}__`;
+        case 'unab': return `__unab_${write.name}__`;
+        case 'args': return `__args_${write.name}__`;
+        case 'gettoken': return `__gettoken_${write.name}__`;
+        case 'file_read': return `__file_read_${write.name}__`;
+        case 'option': return `__option_${write.scope}_${write.name}__`;
+        case 'c_local':
+        case 'c_local_argument':
+            return undefined;
     }
-    return opt.name.toLowerCase();
 }
 
 export class SemanticAnalyzer {
@@ -1120,14 +1129,6 @@ export class SemanticAnalyzer {
     }
 
     /**
-     * `semantic_varlist` joined into words as Stata splits them, so a
-     * name such as `` foo`x' `` is one word, not `foo` and `` `x' ``.
-     */
-    private semantic_words(node: CommandNode): NameWord[] {
-        return group_name_words(this.semantic_varlist(node));
-    }
-
-    /**
      * Extract static c_local macro names from program body.
      * Only extracts names that are literal identifiers (not macro
      * expansions). A name joined to a macro (`` c_local foo`x' ``)
@@ -1137,7 +1138,7 @@ export class SemanticAnalyzer {
         const c_locals: string[] = [];
         for (const node of nodes) {
             if (node.type === 'command' && node.fullName === 'c_local') {
-                const name_item = whole_word_item(this.semantic_words(node)[0]);
+                const name_item = whole_word_item(semantic_words(node)[0]);
                 if (name_item && is_valid_identifier(name_item.name)) {
                     c_locals.push(name_item.name);
                 }
@@ -1190,7 +1191,7 @@ export class SemanticAnalyzer {
             if (node.type === 'command') {
                 // The name must be the macro alone: `` c_local `local'_x ``
                 // names a local other than the option's value.
-                const name_item = whole_word_item(this.semantic_words(node)[0]);
+                const name_item = whole_word_item(semantic_words(node)[0]);
                 // Check for c_local `local' pattern (case-sensitive)
                 if (node.fullName === 'c_local' && name_item) {
                     const macro_name = name_item.name;
@@ -1452,63 +1453,23 @@ export class SemanticAnalyzer {
         symbols: SymbolTable,
         node_index: number
     ): void {
-        const register_implicit = (name: string, range: Range): void => {
+        for (const my_local of syntax_locals(signature)) {
             this.register_local_macro(
                 current_scope,
                 symbols,
-                name,
+                my_local.name,
                 node_index,
-                range,
+                my_local.range,
                 () => ({
-                    name,
+                    name: my_local.name,
                     scope: 'local',
-                    location: { uri: this.uri, range },
+                    location: { uri: this.uri, range: my_local.range },
                     sourceUri: this.uri,
                     definition_index: node_index,
-                    definition_line: range.start.line,
+                    definition_line: my_local.range.start.line,
                 })
             );
-        };
-
-        // Register each argument as an implicit local
-        for (const arg of signature.arguments) {
-            const arg_name = this.get_implicit_local_name(arg);
-            if (arg_name) {
-                register_implicit(arg_name, arg.range);
-
-                // For weight types, also register 'exp' as implicit local
-                if ((WEIGHT_TYPES as readonly string[]).includes(arg.type)) {
-                    register_implicit('exp', arg.range);
-                }
-            }
         }
-
-        // Register each option as an implicit local. Stata's `syntax` command
-        // uses uppercase letters in option names to declare a minimum
-        // abbreviation (e.g. `Cache(string)`), but the implicit local Stata
-        // creates at runtime is always lowercased.
-        for (const opt of signature.options) {
-            register_implicit(syntax_option_local_name(opt), opt.range);
-        }
-    }
-
-    /**
-     * Get the implicit local name for an argument.
-     * For most types, it's the type name (e.g., 'varlist', 'if', 'in').
-     * For 'anything(name=...)', it's the specified name.
-     * For weight types, it's always 'weight' (Stata uses the same macro name regardless of weight type).
-     */
-    private get_implicit_local_name(arg: ArgumentSpec): string | null {
-        if (arg.type === 'anything' && arg.name) {
-            return arg.name;
-        }
-        
-        // Weight types all create a 'weight' implicit local
-        if ((WEIGHT_TYPES as readonly string[]).includes(arg.type)) {
-            return 'weight';
-        }
-        
-        return arg.type;
     }
 
     /**
@@ -1785,101 +1746,80 @@ export class SemanticAnalyzer {
             this.extract_scalar_symbol(node, symbols, node_index);
         } else if (cmd_name === 'matrix') {
             this.extract_matrix_symbol(node, symbols, node_index);
-        } else if (
-            cmd_name === 'tempvar' || cmd_name === 'tempfile'
-            || cmd_name === 'tempname' || cmd_name === 'marksample'
-        ) {
-            // tempvar/tempfile/tempname/marksample create LOCAL MACROs
-            this.extract_tempvar_macro(node, symbols, current_scope, node_index);
-        } else if (cmd_name === 'unab') {
-            // unab creates a local macro containing variable names
-            // Syntax: unab macname : varlist
-            this.extract_unab_macro(node, symbols, current_scope, node_index);
-        } else if (cmd_name === 'args') {
-            // args creates local macros for positional arguments
-            // Syntax: args name1 [name2 ...]
-            this.extract_args_macros(node, symbols, current_scope, node_index);
-        } else if (cmd_name === 'gettoken' || cmd_name === 'gettok') {
-            // gettoken extracts the first token from a string and optionally stores the remainder
-            // Syntax: gettoken macname1 [macname2] : macname3 [, options]
-            this.extract_gettoken_macros(node, symbols, current_scope, node_index);
-        } else if (cmd_name === 'file' || cmd_name === 'fil' || cmd_name === 'fi') {
-            // file read stores a line from a file into a local macro
-            // Syntax: file read handle macroname
-            this.extract_file_read_macro(node, symbols, current_scope, node_index);
         }
 
-        // Extract macros from local() and global() options
-        this.extract_macro_creating_options(node, symbols, current_scope, node_index);
-
-        // Check if command is a known program with c_locals or macro-creating options
-        // First check symbols.programs.get(cmd_name), then this.workspace_symbols?.programs.get(cmd_name)
-        let program = symbols.programs.get(cmd_name);
-        if (!program && this.workspace_symbols) {
-            program = this.workspace_symbols.programs.get(cmd_name);
-        }
-        
-        if (program?.c_locals) {
-            // c_local writes into the CALLER's scope (real Stata semantics:
-            // the called program sets locals in its caller's frame), so the
-            // registration deliberately targets `current_scope` at the call
-            // site. The call is the definition, as for the argument names
-            // below: location and sourceUri are both this file, even when
-            // the program lives elsewhere. A call adds a definition and
-            // keeps the earlier ones, like any other redefinition.
-            for (const macro_name of new Set(program.c_locals)) {
-                this.register_local_macro(
-                    current_scope,
-                    symbols,
-                    macro_name,
-                    node_index,
-                    node.range,
-                    () => ({
-                        name: macro_name,
-                        scope: 'local',
-                        location: { uri: this.uri, range: node.range },
-                        sourceUri: this.uri,
-                        definition_index: node_index,
-                        definition_line: node.range.start.line,
-                    })
-                );
-            }
-        }
-
-        // c_local names the caller passes as arguments (`_getrhs rhs`).
-        // Each is defined at its argument word, so go-to-definition and
-        // find references land on the name the caller wrote.
-        for (const my_created of this.get_program_c_local_arg_names(node, program)) {
-            this.register_local_macro(
-                current_scope,
-                symbols,
-                my_created.name,
-                node_index,
-                my_created.range,
-                () => ({
-                    name: my_created.name,
-                    scope: 'local',
-                    location: { uri: this.uri, range: my_created.range },
-                    sourceUri: this.uri,
-                    definition_index: node_index,
-                    definition_line: node.range.start.line,
-                })
+        const the_macro_writes = command_macro_writes(
+            node, this.macro_write_context(symbols)
+        );
+        for (const my_write of the_macro_writes.writes) {
+            this.register_macro_write(
+                my_write, node, symbols, current_scope, node_index
             );
         }
     }
 
+    /** What `command_macro_writes` needs from this analysis. */
+    private macro_write_context(symbols: SymbolTable): MacroWriteContext {
+        return {
+            file_programs: symbols.programs,
+            workspace_programs: this.workspace_symbols?.programs,
+            tokens: this.tokens,
+        };
+    }
+
     /**
-     * Caller locals that a call to `program` creates through `c_local`
-     * names taken from its positional arguments. Empty without a token
-     * stream, which the argument split needs.
+     * Register a macro a command writes as a definition. A local goes
+     * into `current_scope`; for `c_local` that is the caller's scope,
+     * as in Stata, where the called program sets locals in its
+     * caller's frame. A call adds a definition and keeps earlier ones,
+     * like any other redefinition.
      */
-    private get_program_c_local_arg_names(
+    private register_macro_write(
+        write: MacroWrite,
         node: CommandNode,
-        program: ProgramSymbol | undefined
-    ): CLocalArgName[] {
-        const the_positions = program?.c_local_arg_positions;
-        if (!the_positions || !this.tokens) return [];
-        return resolve_c_local_arg_names(node, this.tokens, the_positions);
+        symbols: SymbolTable,
+        current_scope: ScopeInfo,
+        node_index: number
+    ): void {
+        // `args` names the program's parameters, so they are valid
+        // from the start of the scope rather than from the statement.
+        const is_parameter = write.kind === 'args';
+        const value = macro_write_placeholder(write);
+        const create_primary = (): MacroSymbol => ({
+            name: write.name,
+            scope: write.scope,
+            location: { uri: this.uri, range: write.range },
+            sourceUri: this.uri,
+            ...(value === undefined ? {} : { value }),
+            containingScope: current_scope.type,
+            definition_index: is_parameter ? 0 : node_index,
+            definition_line: is_parameter ? 0 : node.range.start.line,
+        });
+        if (write.scope === 'local') {
+            this.register_local_macro(
+                current_scope,
+                symbols,
+                write.name,
+                node_index,
+                write.range,
+                create_primary
+            );
+            return;
+        }
+        // Globals are file-wide: the first definition is primary.
+        const existing_macro = symbols.globalMacros.get(write.name);
+        if (!existing_macro) {
+            symbols.globalMacros.set(write.name, create_primary());
+            return;
+        }
+        if (!existing_macro.additional_definitions) {
+            existing_macro.additional_definitions = [];
+        }
+        existing_macro.additional_definitions.push({
+            index: node_index,
+            line: write.range.start.line,
+            location: { uri: this.uri, range: write.range },
+        });
     }
 
     /**
@@ -1894,7 +1834,7 @@ export class SemanticAnalyzer {
     ): void {
         // `` scalar sc`x' = 1 `` names `sc` followed by the value of
         // `x`, which Sight cannot know.
-        const name_item = whole_word_item(this.semantic_words(node)[0]);
+        const name_item = whole_word_item(semantic_words(node)[0]);
         if (!name_item) {
             return;
         }
@@ -1926,7 +1866,7 @@ export class SemanticAnalyzer {
         node_index: number
     ): void {
         // Words, so `` matrix m`i' = ... `` names no matrix `m`
-        const the_words = this.semantic_words(node);
+        const the_words = semantic_words(node);
         const first_item = whole_word_item(the_words[0]);
         const name_item = first_item?.name === 'define'
             ? whole_word_item(the_words[1])
@@ -1962,7 +1902,7 @@ export class SemanticAnalyzer {
     private pick_new_variable(node: CommandNode): IdentifierNode | undefined {
         // Words, so `` gen v`i' = 1 `` names no variable `v`: a word
         // joined to a macro is known only at run time.
-        const the_words = this.semantic_words(node);
+        const the_words = semantic_words(node);
         const first_item = whole_word_item(the_words[0]);
         if (the_words.length === 0) {
             return undefined;
@@ -2033,7 +1973,7 @@ export class SemanticAnalyzer {
      * Syntax: input varlist
      */
     private extract_input_variables(node: CommandNode, symbols: SymbolTable): void {
-        for (const my_word of this.semantic_words(node)) {
+        for (const my_word of semantic_words(node)) {
             // A word joined to a macro (`` v`i' ``) is known only at
             // run time
             const var_node = whole_word_item(my_word);
@@ -2111,7 +2051,7 @@ export class SemanticAnalyzer {
     private extract_rename_variables(node: CommandNode, symbols: SymbolTable): void {
         // A name joined to a macro (`` rename v`i' w`i' ``) is known
         // only at run time, so the rename registers nothing.
-        if (this.semantic_words(node).some(
+        if (semantic_words(node).some(
             (my_word) => whole_word_item(my_word) === undefined)) {
             return;
         }
@@ -2246,7 +2186,7 @@ export class SemanticAnalyzer {
         }
         // `` confirm variable v`i' `` names `v` followed by the value of
         // `i`, which Sight cannot know.
-        if (whole_word_item(this.semantic_words(node)[1]) === undefined) {
+        if (whole_word_item(semantic_words(node)[1]) === undefined) {
             return;
         }
 
@@ -2272,564 +2212,6 @@ export class SemanticAnalyzer {
         };
 
         symbols.variables.set(var_node.name, var_symbol);
-    }
-
-    /**
-     * Words a temporary-name command defines as locals:
-     * `tempvar`/`tempname`/`tempfile name [name ...]` name one local
-     * per word, and `marksample name [, options]` names one tempvar
-     * local (its options never change the name). `marksample a b`
-     * fails in Stata ("varlist not allowed") and defines nothing.
-     * Empty for any other command.
-     */
-    private temp_name_words(node: CommandNode): NameWord[] {
-        const cmd_name = node.fullName;
-        if (
-            cmd_name === 'tempvar' || cmd_name === 'tempfile'
-            || cmd_name === 'tempname'
-        ) {
-            return this.semantic_words(node);
-        }
-        if (cmd_name === 'marksample') {
-            const the_words = this.semantic_words(node);
-            return the_words.length === 1 ? the_words : [];
-        }
-        return [];
-    }
-
-    /**
-     * Extract macros from tempvar/tempname/tempfile/marksample.
-     * Each creates a local macro containing a generated name; see
-     * `temp_name_words` for which words name locals.
-     */
-    private extract_tempvar_macro(
-        node: CommandNode,
-        symbols: SymbolTable,
-        current_scope: ScopeInfo,
-        node_index: number
-    ): void {
-        // A name joined to a macro (`` tempvar tv`i' ``,
-        // `` marksample tt`i' ``) is known only at run time.
-        for (const my_word of this.temp_name_words(node)) {
-            const var_node = whole_word_item(my_word);
-            if (!var_node) continue;
-            this.register_local_macro(
-                current_scope,
-                symbols,
-                var_node.name,
-                node_index,
-                var_node.range,
-                () => ({
-                    name: var_node.name,
-                    scope: 'local',
-                    location: { uri: this.uri, range: var_node.range },
-                    sourceUri: this.uri,
-                    value: `__tempvar_${var_node.name}__`, // Placeholder value
-                    definition_index: node_index,
-                    definition_line: node.range.start.line,
-                })
-            );
-        }
-    }
-
-    /**
-     * Extract macro from unab command.
-     * unab creates a local macro containing variable names.
-     * Syntax: unab macname : varlist
-     */
-    private extract_unab_macro(
-        node: CommandNode,
-        symbols: SymbolTable,
-        current_scope: ScopeInfo,
-        node_index: number
-    ): void {
-        // For unab command, the first argument is the macro name
-        // The syntax is: unab macname : varlist
-        const macro_node = whole_word_item(this.semantic_words(node)[0]);
-        if (macro_node) {
-            const macro_name = macro_node.name;
-            this.register_local_macro(
-                current_scope,
-                symbols,
-                macro_name,
-                node_index,
-                macro_node.range,
-                () => ({
-                    name: macro_name,
-                    scope: 'local',
-                    location: { uri: this.uri, range: macro_node.range },
-                    sourceUri: this.uri,
-                    value: `__unab_${macro_name}__`, // Placeholder value
-                    definition_index: node_index,
-                    definition_line: node.range.start.line,
-                })
-            );
-        }
-    }
-
-    /**
-     * Extract macros from args command.
-     * args creates local macros for positional arguments passed to a program.
-     * Syntax: args name1 [name2 ...]
-     * Each name becomes a local macro containing the corresponding positional
-     * argument value.
-     */
-    private extract_args_macros(
-        node: CommandNode,
-        symbols: SymbolTable,
-        current_scope: ScopeInfo,
-        node_index: number
-    ): void {
-        // For args command, each argument in the varlist becomes a local macro
-        // The syntax is: args name1 name2 name3 ...
-        // A name joined to a macro (`` args a`i' ``) is known only at
-        // run time.
-        for (const my_word of this.semantic_words(node)) {
-            const my_var_node = whole_word_item(my_word);
-            if (my_var_node) {
-                const macro_name = my_var_node.name;
-                // Use definition_index: 0 and definition_line: 0 because args
-                // macros represent parameters passed into the program/file.
-                // Unlike regular `local` definitions, they should be valid
-                // from the start of the scope to avoid false "undefined local
-                // macro" warnings for forward references.
-                this.register_local_macro(
-                    current_scope,
-                    symbols,
-                    macro_name,
-                    node_index,
-                    my_var_node.range,
-                    () => ({
-                        name: macro_name,
-                        scope: 'local',
-                        location: { uri: this.uri, range: my_var_node.range },
-                        sourceUri: this.uri,
-                        value: `__args_${macro_name}__`, // Placeholder value
-                        definition_index: 0,
-                        definition_line: 0,
-                    })
-                );
-            }
-        }
-    }
-
-    /**
-     * Extract macros from gettoken command.
-     * gettoken extracts the first token from a string and optionally stores the remainder.
-     * Syntax: gettoken macname1 [macname2] : macname3 [, options]
-     * 
-     * @param node - The command node for gettoken
-     * @param symbols - The symbol table to update
-     * @param current_scope - The current scope info
-     * @param node_index - The preorder traversal index for forward reference detection
-     */
-    private extract_gettoken_macros(
-        node: CommandNode,
-        symbols: SymbolTable,
-        current_scope: ScopeInfo,
-        node_index: number
-    ): void {
-        // For gettoken command, the varlist contains macro names before the colon
-        // The syntax is: gettoken macname1 [macname2] : macname3 [, options]
-        // - If varlist has 1 element: single output macro (macname1)
-        // - If varlist has 2 elements: two output macros (macname1, macname2)
-        // Words, not items: `` gettoken a`i' rest : s `` names `rest`
-        // second, and the first name is known only at run time.
-        const the_words = this.semantic_words(node);
-
-        // Extract up to 2 macro names from the varlist (before the colon)
-        const max_macros = Math.min(the_words.length, 2);
-        for (let i = 0; i < max_macros; i++) {
-            const my_var_node = whole_word_item(the_words[i]);
-            const macro_name = my_var_node?.name;
-
-            // Skip invalid identifiers (e.g., macro references like `name')
-            if (!my_var_node || !macro_name || !is_valid_identifier(macro_name)) {
-                continue;
-            }
-
-            this.register_local_macro(
-                current_scope,
-                symbols,
-                macro_name,
-                node_index,
-                my_var_node.range,
-                () => ({
-                    name: macro_name,
-                    scope: 'local',
-                    location: { uri: this.uri, range: my_var_node.range },
-                    sourceUri: this.uri,
-                    value: `__gettoken_${macro_name}__`, // Placeholder value
-                    definition_index: node_index,
-                    definition_line: node.range.start.line,
-                })
-            );
-        }
-    }
-
-    /**
-     * Extract macro from file read command.
-     * Syntax: file read handle macroname
-     *
-     * varlist layout: [0]=subcommand, [1]=handle, [2]=macroname
-     * Only the exact subcommand spelling "read" creates a local
-     * macro.
-     *
-     * Note: this layout assumes 'file' is NOT in FILE_COMMANDS
-     * (file-path-utils.ts), so the parser does not coalesce the
-     * first argument as a file path.
-     */
-    private extract_file_read_macro(
-        node: CommandNode,
-        symbols: SymbolTable,
-        current_scope: ScopeInfo,
-        node_index: number
-    ): void {
-        // Require at least 3 words: subcommand, handle, macroname.
-        // A name joined to a macro (`` fr`i' ``) is known only at run
-        // time.
-        const the_words = this.semantic_words(node);
-        if (the_words.length < 3) {
-            return;
-        }
-
-        // Only "read" subcommand creates a local macro (exact match)
-        if (whole_word_item(the_words[0])?.name !== 'read') {
-            return;
-        }
-
-        const macro_node = whole_word_item(the_words[2]);
-        const macro_name = macro_node?.name;
-
-        if (!macro_node || !macro_name || !is_valid_identifier(macro_name)) {
-            return;
-        }
-
-        this.register_local_macro(
-            current_scope,
-            symbols,
-            macro_name,
-            node_index,
-            macro_node.range,
-            () => ({
-                name: macro_name,
-                scope: 'local',
-                location: { uri: this.uri, range: macro_node.range },
-                sourceUri: this.uri,
-                value: `__file_read_${macro_name}__`,
-                definition_index: node_index,
-                definition_line: node.range.start.line,
-            })
-        );
-    }
-
-    /**
-     * Get macro-creating options for a user-defined program.
-     * Checks current file symbols first, then workspace symbols.
-     * Returns undefined if program not found or has no macro-creating options.
-     */
-    private get_program_macro_creating_options(program_name: string, symbols: SymbolTable): { local_options: string[], global_options: string[] } | undefined {
-        // Check current file symbols first (higher precedence)
-        let program = symbols.programs.get(program_name);
-        if (program && (program.macro_creating_local_options || program.macro_creating_global_options)) {
-            return {
-                local_options: program.macro_creating_local_options || [],
-                global_options: program.macro_creating_global_options || []
-            };
-        }
-
-        // Check workspace symbols (lower precedence)
-        if (this.workspace_symbols) {
-            program = this.workspace_symbols.programs.get(program_name);
-            if (program && (program.macro_creating_local_options || program.macro_creating_global_options)) {
-                return {
-                    local_options: program.macro_creating_local_options || [],
-                    global_options: program.macro_creating_global_options || []
-                };
-            }
-        }
-
-        return undefined;
-    }
-
-    /**
-     * Extract macros created by local() and global() options.
-     * Supports allowlisted built-in commands (e.g., levelsof, glevelsof) and
-     * user-defined programs with macro-creating options.
-     */
-    private extract_macro_creating_options(
-        node: CommandNode,
-        symbols: SymbolTable,
-        current_scope: ScopeInfo,
-        node_index: number
-    ): void {
-        for (const my_created of this.get_command_created_macros(node, symbols)) {
-            const my_range = my_created.argument_range ?? node.range;
-            const create_primary = (): MacroSymbol => ({
-                name: my_created.name,
-                scope: my_created.scope,
-                location: { uri: this.uri, range: my_range },
-                sourceUri: this.uri,
-                value: `__option_${my_created.scope}_${my_created.name}__`,
-                containingScope: current_scope.type,
-                definition_index: node_index,
-                definition_line: node.range.start.line,
-            });
-
-            if (my_created.scope === 'local') {
-                this.register_local_macro(
-                    current_scope,
-                    symbols,
-                    my_created.name,
-                    node_index,
-                    my_range,
-                    create_primary
-                );
-                continue;
-            }
-
-            // Globals are file-wide: flat identity, unchanged semantics.
-            const existing_macro = symbols.globalMacros.get(my_created.name);
-            if (existing_macro) {
-                // Add to additional_definitions array (first definition wins)
-                if (!existing_macro.additional_definitions) {
-                    existing_macro.additional_definitions = [];
-                }
-                existing_macro.additional_definitions.push({
-                    index: node_index,
-                    line: my_range.start.line,
-                    location: { uri: this.uri, range: my_range },
-                });
-            } else {
-                symbols.globalMacros.set(my_created.name, create_primary());
-            }
-        }
-    }
-
-    /**
-     * Read-only detection of the macros a command statement creates via
-     * macro-creating options: built-in commands (`levelsof ..., local(x)`,
-     * `glevelsof`) and user-defined programs with `local()`/`global()` options.
-     * Returns the concrete (literal) created names with scope and the option's
-     * argument range. Constructed/dynamic option arguments (e.g. `local(`j')`)
-     * are skipped — their concrete name is not statically known.
-     *
-     * Shared by `extract_macro_creating_options` (which registers the symbols)
-     * and the loop expander (which uses it to poison a helper that a loop body
-     * reassigns via such a command before a later constructed name interpolates
-     * it). Keeping ONE detection path guarantees the expander poisons exactly
-     * the set of names the analyzer treats as command-created.
-     */
-    /**
-     * Literal LOCAL-macro names a command (re)defines through a POSITIONAL
-     * target (not a `local()`/`global()` option): `tempvar`/`tempname`/
-     * `tempfile`, `marksample`, `args`, `unab`, `gettoken`, and `file read`. Mirrors the
-     * target positions used by the corresponding `extract_*` methods. Used by
-     * the loop expander to poison such a target in execution order, so a
-     * constructed name AFTER e.g. `` gettoken suffix rest : x `` no longer folds
-     * the helper's stale pre-loop value. Dynamic targets (a macro-ref name like
-     * `` `i' ``) are intentionally skipped — that is a documented out-of-scope
-     * limitation (the (re)defined macro's name is not statically known).
-     */
-    /**
-     * True if a macro-creating command (built-in or user program) has a matched
-     * `local()`/`global()` option whose argument is NOT a literal identifier —
-     * so the created macro's name is determined at runtime (e.g.
-     * `` levelsof x, local(`i') ``). Such a redefinition has an unknown target.
-     */
-    private command_creates_dynamic_macro(
-        node: CommandNode,
-        symbols: SymbolTable
-    ): boolean {
-        if (!node.options) return false;
-        const builtin_cmd = find_macro_creating_command(node.fullName);
-        const program_options =
-            this.get_program_macro_creating_options(node.fullName, symbols);
-        if (!builtin_cmd && !program_options) return false;
-        for (const my_option of node.options) {
-            if (my_option.argument_unclosed) {
-                continue;
-            }
-            let matches = false;
-            if (builtin_cmd) {
-                for (const opt of builtin_cmd.local_options) {
-                    if (matches_option(my_option.name, opt)) matches = true;
-                }
-                for (const opt of builtin_cmd.global_options) {
-                    if (matches_option(my_option.name, opt)) matches = true;
-                }
-            } else if (program_options) {
-                const my_lower = my_option.name.toLowerCase();
-                matches =
-                    program_options.local_options.some((o) => o.toLowerCase() === my_lower)
-                    || program_options.global_options.some((o) => o.toLowerCase() === my_lower);
-            }
-            if (matches) {
-                const parsed = parse_option_argument(my_option.argument);
-                if (!parsed.is_literal || !parsed.identifier) return true;
-            }
-        }
-        return false;
-    }
-
-    /**
-     * Targets of a `macro drop`/`mac drop` command, which clears GLOBAL macros.
-     * Literal names are returned for poisoning; `_all` or a name with a `*`/`?`
-     * wildcard makes the set of dropped macros unknown.
-     */
-    private get_macro_drop_targets(
-        node: CommandNode
-    ): { names: string[]; unknown: boolean } {
-        if (node.fullName !== 'macro' && node.fullName !== 'mac') {
-            return { names: [], unknown: false };
-        }
-        const the_args = this.semantic_varlist(node);
-        // First varlist item is the `drop` subcommand (allow abbreviations).
-        if (the_args.length < 2 || !/^dr(o(p)?)?$/.test(the_args[0].name)) {
-            return { names: [], unknown: false };
-        }
-        const names: string[] = [];
-        let unknown = false;
-        for (const my_arg of the_args.slice(1)) {
-            const my_name = my_arg.name;
-            if (my_name === '_all' || /[*?]/.test(my_name)) {
-                unknown = true;
-            } else if (is_valid_identifier(my_name)) {
-                names.push(my_name);
-            }
-        }
-        return { names, unknown };
-    }
-
-    /**
-     * Names a call to a known user program writes back into the CALLER scope via
-     * `c_local` (mirrors the c_local registration in `process_command`). Used by
-     * the loop expander to poison those caller locals in execution order.
-     */
-    private get_program_c_local_names(
-        node: CommandNode,
-        symbols: SymbolTable
-    ): string[] {
-        let program = symbols.programs.get(node.fullName);
-        if (!program && this.workspace_symbols) {
-            program = this.workspace_symbols.programs.get(node.fullName);
-        }
-        const the_names = program?.c_locals ? [...program.c_locals] : [];
-        for (const my_created of this.get_program_c_local_arg_names(node, program)) {
-            the_names.push(my_created.name);
-        }
-        return the_names;
-    }
-
-    private get_command_redefined_macro_names(node: CommandNode): string[] {
-        const cmd_name = node.fullName;
-        const names: string[] = [];
-        // Mirrors the extractors: a word joined to a macro names no
-        // literal local.
-        const push_literal = (word: NameWord | undefined): void => {
-            const name = whole_word_item(word)?.name;
-            if (name && is_valid_identifier(name)) names.push(name);
-        };
-        if (cmd_name === 'args') {
-            for (const my_word of this.semantic_words(node)) push_literal(my_word);
-        } else if (
-            cmd_name === 'tempvar' || cmd_name === 'tempfile'
-            || cmd_name === 'tempname' || cmd_name === 'marksample'
-        ) {
-            for (const my_word of this.temp_name_words(node)) push_literal(my_word);
-        } else if (cmd_name === 'unab') {
-            push_literal(this.semantic_words(node)[0]);
-        } else if (cmd_name === 'gettoken' || cmd_name === 'gettok') {
-            const the_words = this.semantic_words(node);
-            const max_macros = Math.min(the_words.length, 2);
-            for (let i = 0; i < max_macros; i++) {
-                push_literal(the_words[i]);
-            }
-        } else if (cmd_name === 'file' || cmd_name === 'fil' || cmd_name === 'fi') {
-            // `file read handle macroname` — only the "read" subcommand creates
-            // a macro, the third word (see extract_file_read_macro).
-            const the_words = this.semantic_words(node);
-            if (
-                the_words.length >= 3
-                && whole_word_item(the_words[0])?.name === 'read'
-            ) {
-                push_literal(the_words[2]);
-            }
-        }
-        return names;
-    }
-
-    private get_command_created_macros(
-        node: CommandNode,
-        symbols: SymbolTable
-    ): Array<{ scope: 'local' | 'global'; name: string; argument_range?: Range }> {
-        if (!node.options) {
-            return [];
-        }
-
-        // Built-in macro-creating command, or a user-defined program with
-        // macro-creating options.
-        const builtin_cmd = find_macro_creating_command(node.fullName);
-        const program_options =
-            this.get_program_macro_creating_options(node.fullName, symbols);
-        if (!builtin_cmd && !program_options) {
-            return [];
-        }
-
-        // Pre-build Sets of matching option names to avoid O(n²) complexity.
-        const local_option_names = new Set<string>();
-        const global_option_names = new Set<string>();
-        if (builtin_cmd) {
-            for (const option of node.options) {
-                for (const opt of builtin_cmd.local_options) {
-                    if (matches_option(option.name, opt)) {
-                        local_option_names.add(option.name.toLowerCase());
-                    }
-                }
-                for (const opt of builtin_cmd.global_options) {
-                    if (matches_option(option.name, opt)) {
-                        global_option_names.add(option.name.toLowerCase());
-                    }
-                }
-            }
-        } else if (program_options) {
-            for (const option_name of program_options.local_options) {
-                local_option_names.add(option_name.toLowerCase());
-            }
-            for (const option_name of program_options.global_options) {
-                global_option_names.add(option_name.toLowerCase());
-            }
-        }
-
-        const the_created: Array<{
-            scope: 'local' | 'global';
-            name: string;
-            argument_range?: Range;
-        }> = [];
-        for (const option of node.options) {
-            if (option.argument_unclosed) {
-                continue;
-            }
-            const parse_result = parse_option_argument(option.argument);
-            if (!parse_result.is_literal || !parse_result.identifier) {
-                continue;
-            }
-            const option_name = option.name.toLowerCase();
-            if (local_option_names.has(option_name)) {
-                the_created.push({
-                    scope: 'local',
-                    name: parse_result.identifier,
-                    argument_range: option.argument_range,
-                });
-            } else if (global_option_names.has(option_name)) {
-                the_created.push({
-                    scope: 'global',
-                    name: parse_result.identifier,
-                    argument_range: option.argument_range,
-                });
-            }
-        }
-        return the_created;
     }
 
     /**
@@ -2978,33 +2360,20 @@ export class SemanticAnalyzer {
                         if (statement.type !== 'command') {
                             return mata_redefs;
                         }
-                        names.push(
-                            ...this.get_command_created_macros(statement, symbols)
-                                .map((m) => ({ scope: m.scope, name: m.name }))
+                        const the_writes = command_macro_writes(
+                            statement, this.macro_write_context(symbols)
                         );
-                        // Positional macro-creating commands (gettoken/unab/
-                        // args/tempvar/file read) reassign LOCAL macros that the
-                        // option-based path above does not cover.
-                        for (const my_name of this.get_command_redefined_macro_names(statement)) {
-                            names.push({ scope: 'local', name: my_name });
+                        for (const my_write of the_writes.writes) {
+                            names.push({ scope: my_write.scope, name: my_write.name });
                         }
-                        // A call to a user program that `c_local`s names back into
-                        // the caller reassigns those caller locals.
-                        for (const my_name of this.get_program_c_local_names(statement, symbols)) {
-                            names.push({ scope: 'local', name: my_name });
-                        }
-                        // `macro drop` clears global macros (literal names poison;
-                        // `_all`/wildcards are unknown).
-                        const the_drop = this.get_macro_drop_targets(statement);
-                        for (const my_name of the_drop.names) {
+                        // `macro drop` clears global macros.
+                        for (const my_name of the_writes.dropped_globals) {
                             names.push({ scope: 'global', name: my_name });
                         }
-                        // A macro-creating command with a DYNAMIC target name
-                        // (`` local(`i') ``) reassigns an unknown macro.
+                        // A write or drop whose target name is known only
+                        // at run time (`` local(`i') ``, `macro drop _all`).
                         const unknown =
-                            mata_redefs.unknown ||
-                            the_drop.unknown
-                            || this.command_creates_dynamic_macro(statement, symbols);
+                            mata_redefs.unknown || the_writes.unknown_target;
                         return { names, unknown };
                     },
                     { allow_maybe_unexecuted_ranges: this.nonexec_range_stack },
