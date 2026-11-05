@@ -49,7 +49,6 @@ const INVALID_SOURCES: Array<[string, string, number[]]> = [
     ['lines that start with an operator', '= 1\n) x\ndi 1\n', [0, 1]],
     // The `}` is left over after giving up on the block
     ['a statement the parser gives up on, in a block', 'if 1 {\n    unab , x\n    di 1\n}\ndi 2\n', [0, 3]],
-    ['an option that is not a name', 'reg y x, robust/cluster\n', [0]],
     // A missing closer: printing the AST would add it
     ['an if with no }', 'if 1 {\n    di 1\n', [0]],
     ['an if with no }; under #delimit ;', '#delimit ;\nif 1 {;\ndi 1;\ndi 2;\n', [1]],

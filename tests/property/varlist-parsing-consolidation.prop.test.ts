@@ -16,6 +16,15 @@ import { CommandNode } from '../../src/types';
 import { FILE_COMMANDS } from '../../src/utils/file-path-utils';
 import { arbitrary_non_reserved_identifier } from './generators';
 
+// `display` and its abbreviations have no options: a comma in them is an
+// argument (`di 1, 2` shows `1 2` in Stata 18).
+const DISPLAY_NAMES = new Set(['di', 'dis', 'disp', 'displ', 'displa', 'display']);
+
+/** A command name whose comma starts its options. */
+function arbitrary_option_command(): fc.Arbitrary<string> {
+    return arbitrary_non_reserved_identifier().filter((my_name) => !DISPLAY_NAMES.has(my_name));
+}
+
 /**
  * Parse source code and return the first command node.
  */
@@ -129,7 +138,7 @@ describe('Feature: varlist-parsing-consolidation', () => {
         it('should parse commands with options correctly', () => {
             fc.assert(
                 fc.property(
-                    arbitrary_non_reserved_identifier(),
+                    arbitrary_option_command(),
                     arbitrary_non_reserved_identifier(),
                     arbitrary_non_reserved_identifier(),
                     (cmd_name, var_name, opt_name) => {
@@ -153,7 +162,7 @@ describe('Feature: varlist-parsing-consolidation', () => {
         it('should parse commands with option arguments correctly', () => {
             fc.assert(
                 fc.property(
-                    arbitrary_non_reserved_identifier(),
+                    arbitrary_option_command(),
                     arbitrary_non_reserved_identifier(),
                     arbitrary_non_reserved_identifier(),
                     arbitrary_non_reserved_identifier(),
@@ -325,7 +334,7 @@ describe('Feature: varlist-parsing-consolidation', () => {
             fc.assert(
                 fc.property(
                     arbitrary_non_reserved_identifier(),
-                    arbitrary_non_reserved_identifier(),
+                    arbitrary_option_command(),
                     arbitrary_non_reserved_identifier(),
                     arbitrary_non_reserved_identifier(),
                     (frame_name, cmd_name, var_name, opt_name) => {

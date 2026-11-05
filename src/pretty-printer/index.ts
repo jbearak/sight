@@ -253,7 +253,7 @@ export class PrettyPrinter {
         // Print trailing trivia (comments after the node). Comments on the
         // node's last line go before the terminator; comments from later
         // lines go after it, on lines of their own.
-        const trailing = this.printTrailingTrivia(node);
+        const trailing = this.printTrailingTrivia(node, result);
         result += trailing.same_line;
 
         return { code: result, own_line: body_own_line + trailing.own_line };
@@ -392,6 +392,22 @@ export class PrettyPrinter {
             const the_option_strs = node.options.map(o => this.printOption(o));
             the_parts.push(the_option_strs.join(' '));
         }
+
+        // The rest of the statement after the options, as written (`||
+        // line y x` in `twoway scatter y x, mcolor(red) || line y x`, or
+        // a bare trailing comma, which goes right after the code before
+        // it). Items with no gap in the source stay together.
+        const the_tail = node.options_tail ?? [];
+        the_tail.forEach((my_item, my_index) => {
+            const my_previous = the_tail[my_index - 1];
+            const is_glued = my_previous === undefined
+                ? my_item.name.startsWith(',')
+                : is_source_adjacent(my_previous, my_item);
+            if (!is_glued) {
+                the_parts.push(' ');
+            }
+            the_parts.push(my_item.name);
+        });
 
         // Under `#delimit ;`, a `;` after a `//` comment goes on the
         // next line.
@@ -700,6 +716,16 @@ export class PrettyPrinter {
         const comment_text = this.printInteriorComments(node);
         const keyword_lead = (keyword: string): string =>
             this.printAfterLineComments(this.getIndent() + prefix_text + keyword, node);
+        const else_if_node = node.type === 'else' && node.is_else_if ? node.body[0] : undefined;
+        if (else_if_node !== undefined) {
+            // `else if`, as written: the `if` follows on the same line at
+            // the same depth, and its `}` closes both.
+            const if_parts = this.printNodeParts(else_if_node);
+            return {
+                code: `${keyword_lead('else')}${comment_text}${if_parts.code.trimStart()}`,
+                own_line: if_parts.own_line,
+            };
+        }
         if (node.type === 'if' && node.is_single_statement && node.noted_lines) {
             // The lines hold the inline command too, but not the comments
             // after it, which belong to the innermost inline statement.
@@ -961,32 +987,55 @@ export class PrettyPrinter {
      * which has no terminator token. Those keep their own lines: after
      * code, a `*` comment would read as multiplication.
      */
-    private printTrailingTrivia(node: StataNode): { same_line: string; own_line: string } {
+    private printTrailingTrivia(
+        node: StataNode,
+        code = ''
+    ): { same_line: string; own_line: string } {
         if (!this.hasTrivia(node) || !node.trailingTrivia) {
             return { same_line: '', own_line: '' };
         }
 
+        const is_semicolon = this.delimiter_mode === 'semicolon' &&
+            node.type !== 'directive';
         const the_trivia = node.trailingTrivia;
-        let own_line_index = 0;
-        let previous_end_line = node.range.end.line;
         const the_parts: string[] = [];
+        // The indentation of the line being printed when it has nothing on
+        // it yet, as after an interior `//` comment moved the rest of the
+        // statement to the next line; null in the middle of a line.
+        let line_indent: string | null = /\n([ \t]*)$/.exec(code)?.[1] ?? null;
+        let previous_end_line = node.range.end.line;
+        let own_line_index = 0;
         for (const my_trivia of the_trivia) {
-            if (my_trivia.range.start.line > previous_end_line) {
+            const is_own_line = my_trivia.range.start.line > previous_end_line;
+            // Under `#delimit ;` a comment on a line of its own stays
+            // before the `;` when it was before it.
+            if (is_own_line && !(is_semicolon && my_trivia.before_terminator)) {
                 break;
             }
-            the_parts.push(' ');
-            the_parts.push(this.printTrivia(my_trivia));
+            if (is_own_line && line_indent === null) {
+                the_parts.push('\n', this.getIndent());
+                line_indent = this.getIndent();
+            }
+            const text = this.printTrivia(my_trivia);
+            if (line_indent === null) {
+                the_parts.push(' ');
+            } else if (line_indent === '' && is_semicolon && text.startsWith('//')) {
+                // At column 0 a later `//` line of the statement would be
+                // code under `#delimit ;`.
+                the_parts.push(this.indent_for(1));
+            }
+            the_parts.push(text);
             previous_end_line = my_trivia.range.end.line;
             own_line_index++;
-        }
-        // Under `#delimit ;` the `;` after a `//` comment would be part
-        // of it, so it goes on the next line. `#delimit` ends at the end
-        // of its own line.
-        const last = the_trivia[own_line_index - 1];
-        if (last !== undefined && last.style !== 'block' &&
-            node.type !== 'directive' &&
-            this.delimiter_mode === 'semicolon') {
-            the_parts.push('\n', this.getIndent());
+            // Under `#delimit ;` the `;` after a `//` comment would be part
+            // of it, so it goes on the next line. `#delimit` ends at the
+            // end of its own line.
+            if (my_trivia.style !== 'block' && is_semicolon) {
+                the_parts.push('\n', this.getIndent());
+                line_indent = this.getIndent();
+            } else {
+                line_indent = null;
+            }
         }
 
         return {

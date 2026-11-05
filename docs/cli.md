@@ -392,7 +392,7 @@ unquoted paths all give the same object.
   "varlist": {"kind": "varlist", "items": []},
   "assignment": {"text": "_n", "expression": {"kind": "system_variable", "name": "_n"}},
   "if": {"text": "inc > 0", "expression": {"kind": "binary", "op": ">"}},
-  "in": null, "weight": null, "using": null, "options": []
+  "in": null, "weight": null, "using": null, "options": [], "options_tail": []
 }
 ```
 
@@ -438,6 +438,12 @@ unquoted paths all give the same object.
   has a number and `absorb(firm year)` has null. `canonical_name` is the
   full name of the command's built-in option that `name` abbreviates, or
   null.
+- `options_tail`: the rest of the statement after the comma from a token
+  no option can start, as `{"text", "range"}` like `args`, or `[]`. So
+  `twoway scatter y x, mcolor(red) || line y x` has `||`, `line`, `y`,
+  `x`. An option that touches that token goes with it (`robust/cluster`).
+  With no option before it, the comma is the first item, so `reg y x,`
+  has `[","]`. `display` has no options: a comma in it is in `args`.
 
 The qualifiers may appear in any order in the source, as Stata allows.
 
@@ -475,7 +481,8 @@ The qualifiers may appear in any order in the source, as Stata allows.
   and `macro_ref` parts.
 - `embedded`: a Mata or Python block, kept opaque: `language` (`mata` or
   `python`), `inline` (true for `mata: ...` on one line), `prefixes`,
-  `content: {"text", "range"}`.
+  `content: {"text", "range"}`. For a block, `text` is its lines as
+  written, each with its indentation.
 - `delimit`: `mode` (`cr` or `semicolon`), the mode from the next statement
   on.
 - `frame`: `frame name { ... }`: `frame`, `body`.
