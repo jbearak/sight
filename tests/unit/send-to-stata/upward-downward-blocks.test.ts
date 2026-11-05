@@ -159,6 +159,20 @@ describe('Send Downward Lines widens to whole blocks', () => {
     });
 });
 
+describe('A bare { } block', () => {
+    const the_lines = ['{', '    di "bare"', '}', 'di "after"'];
+
+    test('is widened to whole, like the others', () => {
+        expect_upward(the_lines, [0, 1], 2);
+        expect_downward(the_lines, [1, 2], 0);
+        for (const my_line of [0, 2]) {
+            expect(find_code_to_send(
+                as_document(the_lines), 'statement', my_line, null
+            ).code).toBe(the_lines.slice(0, 3).join('\n'));
+        }
+    });
+});
+
 describe('Send selection', () => {
     test('a selection that cuts a block is sent as it is', () => {
         const my_text = LOOP.slice(2, 5).join('\n');

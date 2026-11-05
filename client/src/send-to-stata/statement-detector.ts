@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { StataLexer } from '../../../src/lexer/index.js';
 import { StataParser } from '../../../src/parser/index.js';
+import { nested_statements } from '../../../src/utils/node-body.js';
 import {
     SemicolonStatementTracker,
     delimit_directive_mode,
@@ -291,7 +292,8 @@ function collect_blocks(
         }
         for (const my_node of the_chain) {
             collect_blocks(
-                node_body(my_node), closers, block_by_line, the_blocks);
+                nested_statements(my_node) ?? [],
+                closers, block_by_line, the_blocks);
         }
     }
 }
@@ -307,23 +309,6 @@ function add_block(
         bounds.end_line - bounds.start_line >
             my_old.end_line - my_old.start_line) {
         block_by_line.set(line, bounds);
-    }
-}
-
-function node_body(node: StataNode): StataNode[] {
-    switch (node.type) {
-        case 'program':
-        case 'if':
-        case 'else':
-        case 'foreach':
-        case 'forvalues':
-        case 'while':
-        case 'frame':
-            return node.body;
-        case 'command':
-            return node.body ?? [];
-        default:
-            return [];
     }
 }
 
