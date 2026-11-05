@@ -171,7 +171,7 @@ With no selection, the send commands send the whole statement the cursor is in, 
 - A `///` with code right before it (`local a b///`) is text, so the next line is its own command. A `///` inside a string, a block comment, or a `//` comment doesn't continue either.
 - A `*` comment continued with `///`, and a block comment that spans lines, keep their lines together.
 
-Send Upward Lines ends at the end of the cursor's statement, and Send Downward Lines starts at its first line.
+Send Upward Lines ends at the end of the cursor's statement, and Send Downward Lines starts at its first line. Neither cuts a block in half (see [Blocks](#blocks)).
 
 ### Blocks
 
@@ -179,7 +179,14 @@ A block's header can't run without its body and closer: Stata stops with "unexpe
 
 An `if` and the `else` and `else if` parts after it go together, from any of their headers or closers. Stata runs an `else` sent on its own even after a true `if`, so sending them apart would run both branches. That holds for one-line `if x di "a"` / `else di "b"` too.
 
-A block with no closer (a `foreach` header with no `}`, or a `mata:` with no `end`) sends only its header's lines, as before.
+Send Upward Lines and Send Downward Lines widen to whole blocks too:
+
+- Send Upward Lines runs from the top through the end of the cursor's statement. If that leaves a block open, such as from a header or a line in a body, it runs on through the block's closer: the outermost block's, when blocks are nested, or the last `else`'s, for an `if`/`else` chain.
+- Send Downward Lines runs from the start of the cursor's statement to the end of the file. If that starts inside a block, such as from a body line or a closer, it starts at the block's header instead: the outermost block's, when blocks are nested, or the `if`, for an `if`/`else` chain. Earlier statements in that body run again.
+
+A block with no closer (a `foreach` header with no `}`, or a `mata:` with no `end`) isn't widened: Send statement sends only its header's lines, as before.
+
+A selection is sent as you made it, even if it cuts a block. A cut could be mended by taking in the rest of the block or by leaving out the part that's in it, and a selection can start or end in the middle of a line, so the extension doesn't guess.
 
 ### `#delimit ;`
 

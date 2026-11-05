@@ -1,6 +1,7 @@
 import * as vscode from 'vscode';
 import { StataLexer } from '../../../src/lexer/index.js';
 import { StataParser } from '../../../src/parser/index.js';
+import { nested_statements } from '../../../src/utils/node-body.js';
 import {
     SemicolonStatementTracker,
     delimit_directive_mode,
@@ -40,6 +41,8 @@ export interface DocumentReading {
      * the lines of its headers and closers.
      */
     block_by_line: Map<number, StatementBounds>;
+    /** The lines of every closed block and `if`/`else` chain. */
+    the_blocks: StatementBounds[];
 }
 
 const COMMENT_TOKEN_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
@@ -136,7 +139,7 @@ export function read_document(text: string): DocumentReading {
     return {
         joined_lines,
         delimit_directives,
-        block_by_line: find_blocks(the_tokens),
+        ...find_blocks(the_tokens),
     };
 }
 
@@ -150,17 +153,22 @@ export function read_document(text: string): DocumentReading {
  * an `else` sent on its own even after a true `if`, so they are sent
  * together. That holds for `if x di "a"` / `else di "b"` too.
  */
-function find_blocks(the_tokens: Token[]): Map<number, StatementBounds> {
+function find_blocks(the_tokens: Token[]): {
+    block_by_line: Map<number, StatementBounds>;
+    the_blocks: StatementBounds[];
+} {
     const block_by_line = new Map<number, StatementBounds>();
+    const the_blocks: StatementBounds[] = [];
     let the_nodes: StataNode[];
     try {
         the_nodes = new StataParser().parse(the_tokens).ast.nodes;
     } catch {
         // Without blocks, Send statement sends the header's lines.
-        return block_by_line;
+        return { block_by_line, the_blocks };
     }
-    collect_blocks(the_nodes, find_closers(the_tokens), block_by_line);
-    return block_by_line;
+    collect_blocks(
+        the_nodes, find_closers(the_tokens), block_by_line, the_blocks);
+    return { block_by_line, the_blocks };
 }
 
 /** A `{` token, and where its matching `}` ends, if it has one. */
@@ -257,7 +265,8 @@ function find_open_after(
 function collect_blocks(
     the_nodes: StataNode[],
     closers: BlockClosers,
-    block_by_line: Map<number, StatementBounds>
+    block_by_line: Map<number, StatementBounds>,
+    the_blocks: StatementBounds[]
 ): void {
     for (let i = 0; i < the_nodes.length; i++) {
         const the_chain = [the_nodes[i]];
@@ -279,9 +288,12 @@ function collect_blocks(
                 add_block(block_by_line, my_node.range.start.line, my_bounds);
                 add_block(block_by_line, my_node.range.end.line, my_bounds);
             }
+            the_blocks.push(my_bounds);
         }
         for (const my_node of the_chain) {
-            collect_blocks(node_body(my_node), closers, block_by_line);
+            collect_blocks(
+                nested_statements(my_node) ?? [],
+                closers, block_by_line, the_blocks);
         }
     }
 }
@@ -297,23 +309,6 @@ function add_block(
         bounds.end_line - bounds.start_line >
             my_old.end_line - my_old.start_line) {
         block_by_line.set(line, bounds);
-    }
-}
-
-function node_body(node: StataNode): StataNode[] {
-    switch (node.type) {
-        case 'program':
-        case 'if':
-        case 'else':
-        case 'foreach':
-        case 'forvalues':
-        case 'while':
-        case 'frame':
-            return node.body;
-        case 'command':
-            return node.body ?? [];
-        default:
-            return [];
     }
 }
 
@@ -468,28 +463,56 @@ export function statement_bounds(
     return { start_line, end_line };
 }
 
-/** From the top to the end of the cursor's statement. */
+/**
+ * From the top to the end of the cursor's statement. If that would
+ * leave a block open, it runs on to the block's closer, since a header
+ * without its closer can't run.
+ */
 export function upward_bounds(
     reading: DocumentReading,
     line: number,
     line_count: number
 ): StatementBounds {
-    return {
-        start_line: 0,
-        end_line: find_statement_end(reading.joined_lines, line, line_count),
-    };
+    let end_line = find_statement_end(reading.joined_lines, line, line_count);
+    let is_widened = true;
+    while (is_widened) {
+        is_widened = false;
+        for (const my_block of reading.the_blocks) {
+            if (my_block.start_line <= end_line &&
+                end_line < my_block.end_line) {
+                end_line = find_statement_end(
+                    reading.joined_lines, my_block.end_line, line_count);
+                is_widened = true;
+            }
+        }
+    }
+    return { start_line: 0, end_line };
 }
 
-/** From the start of the cursor's statement to the end. */
+/**
+ * From the start of the cursor's statement to the end. If that would
+ * start inside a block, it starts at the block's header instead, since
+ * a closer without its header can't run.
+ */
 export function downward_bounds(
     reading: DocumentReading,
     line: number,
     line_count: number
 ): StatementBounds {
-    return {
-        start_line: find_statement_start(reading.joined_lines, line),
-        end_line: line_count - 1,
-    };
+    let start_line = find_statement_start(reading.joined_lines, line);
+    let is_widened = true;
+    while (is_widened) {
+        is_widened = false;
+        for (const my_block of reading.the_blocks) {
+            if (my_block.start_line < start_line &&
+                start_line <= my_block.end_line) {
+                start_line = find_statement_start(
+                    reading.joined_lines, my_block.start_line);
+                is_widened = true;
+            }
+        }
+    }
+    return { start_line, end_line: line_count - 1 };
 }
 
 /** Text the user selected, and where it starts. */
