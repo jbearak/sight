@@ -110,8 +110,17 @@ jobs:
         run: bun run check:line-endings
       - name: Typecheck
         run: bun run typecheck
+      # helper-pty.test.ts runs in its own process. On Bun 1.3.x (CI
+      # pins 1.3.13), a child spawned with an extra stdio pipe (fd 3,
+      # sight-pty's control channel) has that pipe's fd closed once when
+      # the child exits and again when the stream is garbage-collected.
+      # The second close hits whatever reused the number: in one process
+      # with console-pty.test.ts that was its terminal (a blank screen,
+      # then a 5 s timeout) or an epoll fd (EBADF). Bun 1.4.0 fixed it.
       - name: Tests
-        run: bun test
+        run: bun test --path-ignore-patterns='tests/integration/console/helper-pty.test.ts'
+      - name: sight-pty helper tests
+        run: bun test ./tests/integration/console/helper-pty.test.ts
 
   data-browser-bench:
     # Report-only: numbers go to the job summary and never fail CI. Runs

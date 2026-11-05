@@ -8,6 +8,13 @@
  * Skipped without a C compiler, or where pseudo-terminals can't be
  * opened (some sandboxes), and on Windows. A helper that doesn't
  * compile fails.
+ *
+ * CI runs this file in its own `bun test` process (see the Tests step
+ * in .github/workflows/ci.yml). Bun 1.3.x closes the fd of an extra
+ * stdio pipe (the helper's fd-3 control pipe) when the child exits and
+ * again when the stream is garbage-collected, so a later test that
+ * reused the number loses it: console-pty.test.ts's terminal went
+ * blank or `await proc.exited` threw EBADF. Fixed in Bun 1.4.0.
  */
 
 import { afterAll, describe, expect, it } from 'bun:test';
