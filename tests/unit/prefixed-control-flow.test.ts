@@ -223,6 +223,18 @@ describe('formatting prefixed control flow', () => {
         }
     });
 
+    for_each_formatter_mode('keeps a // comment among prefixes before a block', (mode) => {
+        // Under `#delimit ;`, loops, if, and brace blocks keep only block
+        // comments, so a `//` comment there still ends the prefix chain,
+        // as on main, rather than being read as whitespace and lost.
+        for (const my_source of [
+            '#delimit ;\ncapture // c\nwhile 1 {;\n    di 1;\n};\n',
+            '#delimit ;\nquietly // c\n{;\n    di 1;\n};\n',
+        ]) {
+            expect(format(my_source, mode)).toContain('// c');
+        }
+    });
+
     for_each_formatter_mode('indents and keeps an unindented prefixed body', (mode) => {
         const formatted = format('capture while 1 {\ndi 1\n}\n', mode);
         expect(formatted).toBe('capture while 1 {\n    di 1\n}\n');
