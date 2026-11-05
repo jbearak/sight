@@ -392,7 +392,7 @@ export class StataParser {
     const is_string_statement = this.tokens[statement_start]?.type === 'STRING';
     if (node !== null && !is_string_statement &&
         ((node.type === 'command' && node.body === undefined) ||
-         node.type === 'macro_def')) {
+         node.type === 'macro_def' || node.type === 'syntax')) {
       // A parenthesized varlist group such as `(mean /* c */)` keeps
       // its comments in its text. Items and comments are both in source
       // order, so one sweep finds the item around each comment.
@@ -2229,6 +2229,12 @@ export class StataParser {
           continue;
         }
       }
+      // A block comment with more of the spec after it is whitespace
+      // (`syntax varlist /* c */ [if]`); other comments end the spec.
+      if (this.check('COMMENT_BLOCK') && this.statement_continues_after(this.current)) {
+        this.advance();
+        continue;
+      }
       if (this.check('COMMENT_LINE') || this.check('COMMENT_BLOCK')) {
         break;
       }
@@ -2321,7 +2327,7 @@ export class StataParser {
       syntaxRanges: [start_token.range],
     };
 
-    return {
+    const syntax_node: SyntaxNode = {
       type: 'syntax',
       signature,
       range: this.makeRange(
@@ -2331,6 +2337,13 @@ export class StataParser {
           : start_token.range.end
       ),
     };
+    if (syntax_tokens.length > 0) {
+      syntax_node.arguments = this.reconstruct_value_tokens(
+        syntax_tokens,
+        preceded_by_continuation
+      );
+    }
+    return syntax_node;
   }
 
   private parse_argument_spec(
