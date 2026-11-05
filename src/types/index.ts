@@ -37,6 +37,7 @@ export enum ContextErrorCode {
   MISMATCHED_END_PYTHON = 'MISMATCHED_END_PYTHON',
   NESTED_BLOCK_ERROR = 'NESTED_BLOCK_ERROR',
   INVALID_DELIMITER_POSITION = 'INVALID_DELIMITER_POSITION',
+  EMBEDDED_BLOCK_ENDS_PROGRAM = 'EMBEDDED_BLOCK_ENDS_PROGRAM',
 }
 
 // Token Types
@@ -342,6 +343,9 @@ export interface ProgramNode {
   define_options?: string;  // Raw text after the comma, e.g. 'rclass'
   body: StataNode[];
   signature?: ProgramSignature; // Extracted from syntax command
+  // Stata ended the definition at the `end` of a mata/python block in
+  // the body (the last body node), so the program has no `end` of its own.
+  ends_at_embedded_block?: boolean;
   range: Range;
   leadingTrivia?: TriviaNode[];
   blockEndingTrivia?: TriviaNode[];

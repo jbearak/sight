@@ -156,13 +156,14 @@ ${end_indent(language, '    ')}end
     /**
      * Property 1: End delimiter indentation correctness (inside program)
      * 
-     * For any Mata or Python block inside a program, the `end` statement
-     * should have expected depth 1 (same as the opening keyword inside the program).
+     * For any Mata or Python block inside a program, StataMP 18 ends the
+     * program definition at the block's `end`, so that `end` is the
+     * program's and has expected depth 0.
      * 
      * Feature: mata-block-end-handling, Property 1: End delimiter indentation correctness
      * Validates: Requirements 1.1, 1.2, 1.3, 1.4
      */
-    it('Property 1: Embedded block inside program has end at depth 1', () => {
+    it('Property 1: Embedded block inside program has end at the program depth', () => {
         fc.assert(
             fc.property(
                 language_arb,
@@ -183,11 +184,12 @@ end`;
                     // Line 1 (mata/python): depth 1 (inside program)
                     expect(expected_depths.get(1) ?? 0).toBe(1);
                     
-                    // Line 3 (end for mata/python): depth 1 (same as
-                    // opening keyword), or 0 for Python
-                    expect(expected_depths.get(3) ?? 0).toBe(end_depth(language, 1));
+                    // Line 3 (end for mata/python): Stata ends the program
+                    // definition here (the first line whose first word is
+                    // `end`), so it is the program's `end`: depth 0
+                    expect(expected_depths.get(3) ?? 0).toBe(0);
                     
-                    // Line 4 (end for program): depth 0
+                    // Line 4 (the program's own end, now unexpected): depth 0
                     expect(expected_depths.get(4) ?? 0).toBe(0);
 
                     return true;

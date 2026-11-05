@@ -2,7 +2,11 @@ import { init_tracker_from_source } from '../test-context-helper';
 import { describe, it, expect, beforeEach } from 'bun:test';
 import * as fc from 'fast-check';
 import { ContextTracker } from '../../src/context-tracker';
-import { LanguageContext, ContextErrorCode } from '../../src/context-tracker/types';
+import {
+    LanguageContext,
+    ContextErrorCode,
+    ContextDiagnostic,
+} from '../../src/context-tracker/types';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import {
@@ -25,6 +29,31 @@ import {
  * terminators ('end') for embedded language blocks and handles nested structures
  * without generating false positive diagnostics.
  */
+/**
+ * The (line, code) of each block-structure diagnostic, in line order.
+ */
+function block_end_codes(
+    diagnostics: ContextDiagnostic[]
+): Array<[number, ContextErrorCode]> {
+    const BLOCK_CODES = new Set([
+        ContextErrorCode.UNCLOSED_MATA_BLOCK,
+        ContextErrorCode.UNCLOSED_PYTHON_BLOCK,
+        ContextErrorCode.UNEXPECTED_END,
+        ContextErrorCode.EMBEDDED_BLOCK_ENDS_PROGRAM,
+    ]);
+    return diagnostics
+        .filter((my_diag) => BLOCK_CODES.has(my_diag.code))
+        .map((my_diag): [number, ContextErrorCode] => [my_diag.range.start.line, my_diag.code])
+        .sort((a, b) => a[0] - b[0]);
+}
+
+/** The lines (0-based) that are a bare `end`. */
+function end_lines(document: string): number[] {
+    return document
+        .split('\n')
+        .flatMap((my_line, my_index) => (my_line.trim() === 'end' ? [my_index] : []));
+}
+
 describe('Valid Block Terminators Property Tests', () => {
     let context_tracker: ContextTracker;
     let lexer: StataLexer;
@@ -228,13 +257,13 @@ end`;
                     init_tracker_from_source(context_tracker, my_document);
                     const my_diagnostics = context_tracker.validate_context_structure();
 
-                    // Should have no block-related diagnostics for valid nested structure
-                    const my_block_errors = my_diagnostics.filter(
-                        (my_diag) => my_diag.code === ContextErrorCode.UNCLOSED_MATA_BLOCK ||
-                            my_diag.code === ContextErrorCode.UNCLOSED_PYTHON_BLOCK ||
-                            my_diag.code === ContextErrorCode.UNEXPECTED_END
-                    );
-                    expect(my_block_errors.length).toBe(0);
+                    // Stata ends the program definition at the block's
+                    // `end`, so the program's own `end` is unexpected.
+                    const [my_block_end, my_program_end] = end_lines(my_document);
+                    expect(block_end_codes(my_diagnostics)).toEqual([
+                        [my_block_end, ContextErrorCode.EMBEDDED_BLOCK_ENDS_PROGRAM],
+                        [my_program_end, ContextErrorCode.UNEXPECTED_END],
+                    ]);
 
                     // Should correctly identify only the embedded block (program blocks are not tracked as context ranges)
                     const my_ranges = context_tracker.get_all_context_ranges();
@@ -290,13 +319,16 @@ end`;
                     init_tracker_from_source(context_tracker, my_document);
                     const my_diagnostics = context_tracker.validate_context_structure();
 
-                    // Should have no block-related diagnostics for valid nested structures
-                    const my_block_errors = my_diagnostics.filter(
-                        (my_diag) => my_diag.code === ContextErrorCode.UNCLOSED_MATA_BLOCK ||
-                            my_diag.code === ContextErrorCode.UNCLOSED_PYTHON_BLOCK ||
-                            my_diag.code === ContextErrorCode.UNEXPECTED_END
-                    );
-                    expect(my_block_errors.length).toBe(0);
+                    // Stata ends each program definition at its block's
+                    // `end`, so each program's own `end` is unexpected.
+                    const my_codes = block_end_codes(my_diagnostics);
+                    expect(my_codes.filter(
+                        ([, my_code]) => my_code === ContextErrorCode.EMBEDDED_BLOCK_ENDS_PROGRAM
+                    )).toHaveLength(my_programs.length);
+                    expect(my_codes.filter(
+                        ([, my_code]) => my_code === ContextErrorCode.UNEXPECTED_END
+                    )).toHaveLength(my_programs.length);
+                    expect(my_codes).toHaveLength(2 * my_programs.length);
 
                     // Should correctly identify all embedded blocks (program blocks are not tracked as context ranges)
                     const my_ranges = context_tracker.get_all_context_ranges();
@@ -349,13 +381,14 @@ end`;
                     init_tracker_from_source(context_tracker, my_document);
                     const my_diagnostics = context_tracker.validate_context_structure();
 
-                    // Should have no block-related diagnostics for valid mixed nested structure
-                    const my_block_errors = my_diagnostics.filter(
-                        (my_diag) => my_diag.code === ContextErrorCode.UNCLOSED_MATA_BLOCK ||
-                            my_diag.code === ContextErrorCode.UNCLOSED_PYTHON_BLOCK ||
-                            my_diag.code === ContextErrorCode.UNEXPECTED_END
-                    );
-                    expect(my_block_errors.length).toBe(0);
+                    // Stata ends each program definition at its block's
+                    // `end`, so each program's own `end` is unexpected.
+                    expect(block_end_codes(my_diagnostics)).toEqual([
+                        [3, ContextErrorCode.EMBEDDED_BLOCK_ENDS_PROGRAM],
+                        [4, ContextErrorCode.UNEXPECTED_END],
+                        [9, ContextErrorCode.EMBEDDED_BLOCK_ENDS_PROGRAM],
+                        [10, ContextErrorCode.UNEXPECTED_END],
+                    ]);
 
                     // Should correctly identify both embedded blocks
                     const my_ranges = context_tracker.get_all_context_ranges();

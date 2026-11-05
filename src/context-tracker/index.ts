@@ -9,6 +9,7 @@ import { ContextErrorCode, Token, TokenType } from '../types';
 import { get_line_text, get_line_count, compute_line_offsets } from '../utils/line-utils';
 import { block_comment_lines } from '../utils/block-comment-utils';
 import { inline_embedded_statement_end } from '../utils/statement-span';
+import { is_program_definition_header } from '../utils/program-definition';
 
 // Token types that carry no live code. A line whose only tokens are
 // these (and that the lexer placed inside a block comment) is safe to
@@ -492,29 +493,9 @@ export class ContextTracker implements IContextTracker {
    * Handles various forms: 'program define name', 'program name', 'program def name'
    */
   private is_program_block_start(line: string): boolean {
-    const my_code_part = this.extract_code_before_comment(line);
-    const my_code_trimmed = my_code_part.trim();
-    
-    if (!my_code_trimmed.startsWith('program ')) {
-      return false;
-    }
-    
-    const my_words = my_code_trimmed.split(/\s+/);
-    if (my_words.length < 2) {
-      return false;
-    }
-    
-    // 'program define name' or 'program def name'
-    if (my_words[1] === 'define' || my_words[1] === 'def') {
-      return my_words.length >= 3;
-    }
-    
-    // 'program name' (implicit define)
-    if (my_words.length === 2) {
-      return true;
-    }
-    
-    return false;
+    const my_code_trimmed = this.extract_code_before_comment(line).trim();
+    return my_code_trimmed.startsWith('program') &&
+      is_program_definition_header(my_code_trimmed.slice('program'.length));
   }
 
   /**
@@ -531,11 +512,26 @@ export class ContextTracker implements IContextTracker {
     let my_in_input_block = false;
     const my_line_count = get_line_count(doc);
     const my_embedded_lines = this.embedded_block_lines(my_line_count);
+    const my_embedded_end_lines = this.embedded_block_end_lines();
     
     for (let my_line_number = 0; my_line_number < my_line_count; my_line_number++) {
       // Lines inside a multi-line block comment are not live code, so
       // they neither open nor close program/embedded blocks.
       if (this.block_comment_continuation_lines.has(my_line_number)) {
+        continue;
+      }
+      // Stata ends a program definition at the first line whose first
+      // word is `end`, so a mata/python block's `end` inside a program
+      // ends the program as well.
+      const my_end_context = my_embedded_end_lines.get(my_line_number);
+      if (my_end_context !== undefined && my_program_stack.length > 0) {
+        my_program_stack.pop();
+        my_valid_end_lines.add(my_line_number);
+        this.report_embedded_block_ends_program(
+          get_line_text(doc, my_line_number),
+          my_line_number,
+          my_end_context
+        );
         continue;
       }
       // Lines of a Mata/Python block are not Stata commands.
@@ -573,6 +569,53 @@ export class ContextTracker implements IContextTracker {
     }
     
     return my_valid_end_lines;
+  }
+
+  /**
+   * The line (0-based) of each multi-line Mata/Python block's closing
+   * `end`, with the block's language. A brace-style block closes with
+   * `}`, which does not end a program.
+   */
+  private embedded_block_end_lines(): Map<number, LanguageContext> {
+    const my_lines = new Map<number, LanguageContext>();
+    for (const my_range of this.context_ranges) {
+      if (
+        my_range.is_single_line ||
+        my_range.end_delimiter === undefined ||
+        my_range.end_delimiter.command === '}' ||
+        (my_range.context !== LanguageContext.MATA &&
+          my_range.context !== LanguageContext.PYTHON)
+      ) {
+        continue;
+      }
+      my_lines.set(my_range.end_delimiter.range.start.line, my_range.context);
+    }
+    return my_lines;
+  }
+
+  /**
+   * Report a mata/python block whose `end` also ends the enclosing
+   * program definition, as it does in Stata.
+   */
+  private report_embedded_block_ends_program(
+    line_text: string,
+    line_number: number,
+    context: LanguageContext
+  ): void {
+    const my_language = context === LanguageContext.PYTHON ? 'python' : 'mata';
+    const my_start = line_text.length - line_text.trimStart().length;
+    this.diagnostics.push({
+      message:
+        `Stata ends the program definition at this "end", so a ${my_language} ` +
+        `block cannot be inside a program. Move the block outside the ` +
+        `program, or use one-line "${my_language}:" statements.`,
+      range: {
+        start: { line: line_number, character: my_start },
+        end: { line: line_number, character: line_text.trimEnd().length },
+      },
+      severity: 'error',
+      code: ContextErrorCode.EMBEDDED_BLOCK_ENDS_PROGRAM,
+    });
   }
 
   /**
@@ -870,6 +913,15 @@ export class ContextTracker implements IContextTracker {
         );
         my_suggestions.push(
           'Ensure block delimiters are at statement boundaries'
+        );
+        break;
+
+      case ContextErrorCode.EMBEDDED_BLOCK_ENDS_PROGRAM:
+        my_suggestions.push(
+          'Move the mata or python block after the program\'s "end"'
+        );
+        my_suggestions.push(
+          'Inside a program, use one-line "mata:" or "python:" statements'
         );
         break;
 

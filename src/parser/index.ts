@@ -33,6 +33,7 @@ import { unwrap_macval } from '../utils/local-macro';
 import { isFileCommand } from '../utils/file-path-utils';
 import { is_swallowed_continuation_terminator } from '../utils/continuation';
 import { compare_positions } from '../utils/scope-position';
+import { PROGRAM_SUBCOMMANDS } from '../utils/program-definition';
 import {
   COLON_PREFIX_COMMANDS,
   PREFIX_COMMANDS,
@@ -45,11 +46,6 @@ import {
   parse_path,
   parse_varlist,
 } from '../expression-parser';
-
-/** `program` subcommands other than define, with abbreviations. */
-const PROGRAM_SUBCOMMANDS: ReadonlySet<string> = new Set([
-  'di', 'dir', 'drop', 'l', 'li', 'lis', 'list',
-]);
 
 /** `define` and its abbreviations after `program`. */
 const PROGRAM_DEFINE_KEYWORDS: ReadonlySet<string> = new Set([
@@ -742,6 +738,8 @@ export class StataParser {
 
     // Collect any leading trivia before re-checking `end`, mirroring
     // parseBraceBody (issue #301).
+    // Set when the program ends at an embedded block's `end`
+    let embedded_block_end: Position | undefined;
     while (!this.isAtEnd()) {
       const my_trivia = this.collectTrivia();
       if (my_trivia.length > 0) {
@@ -753,6 +751,14 @@ export class StataParser {
       const stmt = this.parseStatement();
       if (stmt) {
         body.push(stmt);
+        // Stata ends a program definition at the first line whose first
+        // word is `end`, so the `end` of a mata/python block in the body
+        // ends the program too.
+        if (stmt.type === 'embedded_block' && !stmt.is_single_line &&
+            stmt.end_command !== undefined && stmt.end_command !== '}') {
+          embedded_block_end = stmt.range.end;
+          break;
+        }
       }
     }
 
@@ -763,7 +769,9 @@ export class StataParser {
     this.inside_program = was_inside_program;
 
     // Consume 'end'
-    if (this.checkWord('end')) {
+    if (embedded_block_end !== undefined) {
+      // The block's `end` was the program's
+    } else if (this.checkWord('end')) {
       this.advance();
     } else {
       this.addError('Missing "end" for program definition', start_token.range);
@@ -779,9 +787,12 @@ export class StataParser {
       ...(define_options !== undefined ? { define_options } : {}),
       body,
       signature: merged_signature,
+      ...(embedded_block_end !== undefined
+        ? { ends_at_embedded_block: true }
+        : {}),
       range: this.makeRange(
         start_token.range.start,
-        this.previous().range.end
+        embedded_block_end ?? this.previous().range.end
       ),
       blockEndingTrivia: program_block_ending_trivia,
     };

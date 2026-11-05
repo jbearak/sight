@@ -9,6 +9,7 @@ import {
   LanguageContext,
 } from '../types';
 import { is_swallowed_continuation_terminator } from '../utils/continuation';
+import { is_program_definition_header } from '../utils/program-definition';
 import {
   COLON_PREFIX_COMMANDS,
   PREFIX_COMMANDS,
@@ -78,6 +79,10 @@ export class StataLexer {
   private command_word: string | null = null;
   // Inside a `mata:` one-liner, where `:*` multiplies.
   private in_mata_inline_statement = false;
+  // Inside a `program define` body. Stata ends the definition at the
+  // first line whose first word is `end`, even one inside a mata or
+  // python block, so such an `end` also closes the block.
+  private program_definition_open = false;
 
   tokenize(source: string, initialState?: LexerState): LexerResult {
     this.source = source;
@@ -93,6 +98,7 @@ export class StataLexer {
     this.at_command_start = true;
     this.command_word = null;
     this.in_mata_inline_statement = false;
+    this.program_definition_open = false;
     this.state = initialState || {
       delimiterMode: 'cr',
       line: 0,
@@ -181,25 +187,48 @@ export class StataLexer {
   }
 
   /**
-   * Whether the `end` just scanned (starting at `start_line`) closes a
-   * plain `mata` block. Stata 18 ends a Mata block at an `end` that
+   * Whether the `end` just scanned (starting at `start_line`) begins
+   * its logical line, which is where Stata ends a plain `mata` block
+   * and a program definition. Stata 18 ends a Mata block at an `end` that
    * begins its logical line: leading blanks and a block comment may
    * precede it, but code may not (`y end`, `a=end`, `x = 1; end`), and
    * neither may a `///` that joins it to the line above. Anything but
    * a word character or `.` may follow (`end foo`, `end;`, `end(1)`,
    * `end mata`); Stata discards that tail.
    */
-  private is_mata_block_end(start_line: number): boolean {
+  private is_end_at_line_start(start_line: number): boolean {
     return this.peek() !== '.' && this.is_first_code_on_line(start_line);
   }
 
   /**
-   * Consume the tail Stata discards after a Mata block's `end`, up to
+   * Track whether a program definition is open, from a Stata-context
+   * word starting on `start_line`: `program` first on its line opens
+   * one (see is_program_definition_header, shared with the parser and
+   * the context tracker), and `end` first on its line closes it.
+   */
+  private note_program_definition_word(value: string, start_line: number): void {
+    if (value === 'program' && !this.program_definition_open &&
+        this.is_first_code_on_line(start_line)) {
+      const my_line_end = this.source.indexOf('\n', this.position);
+      const my_rest = this.source.slice(
+        this.position,
+        my_line_end === -1 ? this.source.length : my_line_end
+      );
+      this.program_definition_open = is_program_definition_header(my_rest);
+    } else if (value === 'end' && this.program_definition_open &&
+        this.is_end_at_line_start(start_line)) {
+      this.program_definition_open = false;
+    }
+  }
+
+  /**
+   * Consume the tail Stata discards after an `end` that closes a Mata
+   * block (or, inside a program definition, any block), up to
    * a comment, the end of the line, or (under `#delimit ;`) the `;`
    * that ends the statement. Trailing blanks are left to be lexed as
    * whitespace.
    */
-  private consume_mata_end_tail(): void {
+  private consume_end_tail(): void {
     let my_pos = this.position;
     let my_tail_end = this.position;
     while (my_pos < this.source.length) {
@@ -1751,6 +1780,7 @@ export class StataLexer {
     const my_current_context = this.get_current_context();
     
     if (my_current_context === LanguageContext.STATA) {
+      this.note_program_definition_word(value, startLine);
       // Check for embedded language block starts (case-sensitive: Stata requires lowercase)
       if (this.is_mata_start_delimiter(value)) {
         // Check if previous token is a WORD - if so, "mata" is an argument, not a block start
@@ -1849,10 +1879,11 @@ export class StataLexer {
     } else if (my_current_context === LanguageContext.MATA) {
       // In Mata context, check for end delimiter (case-sensitive)
       // But NOT if we're in a brace-style block (mata { ... })
-      // And only where Stata ends the block (see is_mata_block_end)
+      // And only where Stata ends the block (see is_end_at_line_start)
       if (this.is_end_delimiter(value) && this.state.embedded_brace_depth === undefined) {
-        if (this.is_mata_block_end(startLine)) {
-          this.consume_mata_end_tail();
+        if (this.is_end_at_line_start(startLine)) {
+          this.consume_end_tail();
+          this.program_definition_open = false;
           this.pop_context();
           this.state.embedded_block_start_line = undefined;
           return {
@@ -1869,14 +1900,22 @@ export class StataLexer {
     } else if (my_current_context === LanguageContext.PYTHON) {
       // In Python context, check for end delimiter (case-sensitive)
       // But NOT if we're in a brace-style block (python { ... })
-      // And only where Stata ends the block (see is_python_block_end)
+      // And only where Stata ends the block (see is_python_block_end),
+      // or where it ends an enclosing program definition
       if (this.is_end_delimiter(value) && this.state.embedded_brace_depth === undefined) {
-        if (this.is_python_block_end(startColumn)) {
+        const my_ends_program = this.program_definition_open &&
+          this.is_end_at_line_start(startLine);
+        if (my_ends_program || this.is_python_block_end(startColumn)) {
+          this.consume_end_tail();
+          this.program_definition_open = false;
           this.pop_context();
           this.state.embedded_block_start_line = undefined;
           return {
             type: 'END_PYTHON',
-            value,
+            value: this.source.substring(
+              this.position_to_offset(startLine, startColumn),
+              this.position
+            ),
             range: this.makeRange(startLine, startColumn, this.line, this.column),
           };
         }
