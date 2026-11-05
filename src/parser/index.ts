@@ -18,6 +18,7 @@ import {
   IdentifierNode,
   EmbeddedLanguageBlockNode,
   SyntaxNode,
+  SourceLine,
   ProgramSignature,
   ArgumentSpec,
   OptionSpec,
@@ -142,6 +143,46 @@ class ContinuationTracker {
     this.chain_clean = true;
     return follows_continuation;
   }
+}
+
+/** Is `token` a `///` continuation with a note after it? */
+function is_noted_continuation(token: Token): boolean {
+  return token.type === 'CONTINUATION' && token.value.slice(3).trim() !== '';
+}
+
+/**
+ * The lines of `tokens` as written (see SourceLine). Tokens on one line
+ * keep their gaps; a token's own line breaks (a multi-line comment)
+ * stay in its text.
+ */
+function source_lines_of(tokens: Token[]): SourceLine[] {
+  const the_lines: SourceLine[] = [];
+  const start_column = tokens[0]?.range.start.character ?? 0;
+  let the_parts: string[] = [];
+  let indent = 0;
+  let previous: Token | undefined;
+  for (const my_token of tokens) {
+    if (previous !== undefined) {
+      const line_gap = my_token.range.start.line - previous.range.end.line;
+      if (line_gap === 0) {
+        const gap = my_token.range.start.character - previous.range.end.character;
+        if (gap > 0) {
+          the_parts.push(' '.repeat(gap));
+        }
+      } else {
+        the_lines.push({ indent, text: the_parts.join('') });
+        for (let i = 1; i < line_gap; i++) {
+          the_lines.push({ indent: 0, text: '' });
+        }
+        the_parts = [];
+        indent = Math.max(0, my_token.range.start.character - start_column);
+      }
+    }
+    the_parts.push(my_token.value);
+    previous = my_token;
+  }
+  the_lines.push({ indent, text: the_parts.join('') });
+  return the_lines;
 }
 
 /** Placeholder for a qualifier or `=` with nothing after it. */
@@ -380,6 +421,9 @@ export class StataParser {
       if (interior_trivia.length > 0) {
         node.interiorTrivia = interior_trivia;
       }
+    }
+    if (node !== null && !is_string_statement) {
+      this.keep_noted_lines(node, statement_start);
     }
 
     const trailing_trivia = this.collectTrivia();
@@ -2988,7 +3032,9 @@ export class StataParser {
 
     // Check for 'if' (else if)
     if (this.checkWord('if')) {
+      const if_start = this.current;
       const ifNode = this.parseIfStatement();
+      this.keep_noted_lines(ifNode, if_start);
       return {
         type: 'else',
         body: [ifNode],
@@ -4048,6 +4094,60 @@ export class StataParser {
   private block_comments_between(start: number, end: number): TriviaNode[] {
     return this.comments_between(start, end)
       .filter((my_comment) => my_comment.style === 'block');
+  }
+
+  /**
+   * Keep the lines of the statement starting at token `start` as
+   * written when a `///` in it has a note after it, so the AST printer
+   * can keep the note on its line (`reg y x /// note` then `z`). A
+   * brace block keeps only its header, through `{`.
+   */
+  private keep_noted_lines(node: StataNode, start: number): void {
+    let end = start;
+    switch (node.type) {
+      case 'command':
+      case 'macro_def':
+      case 'syntax':
+      case 'if':
+      case 'foreach':
+      case 'forvalues':
+      case 'while':
+      case 'frame':
+        break;
+      default:
+        return;
+    }
+    if (node.type === 'command' && node.body !== undefined) {
+      return;
+    }
+    const is_block = node.type !== 'command' && node.type !== 'macro_def' &&
+      node.type !== 'syntax' && !(node.type === 'if' && node.is_single_statement);
+    if (is_block) {
+      // The header ends at `{`, which is on its last line.
+      for (;;) {
+        const my_token = this.tokens[end];
+        if (my_token === undefined || my_token.type === 'EOF' ||
+            (my_token.type === 'STATEMENT_TERMINATOR' &&
+             !is_swallowed_continuation_terminator(
+               my_token, this.tokens[end - 1]?.type === 'CONTINUATION'))) {
+          return;
+        }
+        end++;
+        if (my_token.type === 'LBRACE') {
+          break;
+        }
+      }
+    } else {
+      while (end < this.tokens.length &&
+          compare_positions(this.tokens[end].range.start, node.range.end) < 0) {
+        end++;
+      }
+    }
+    const the_tokens = this.tokens.slice(start, end)
+      .filter((my_token) => my_token.type !== 'STATEMENT_TERMINATOR');
+    if (the_tokens.some(is_noted_continuation)) {
+      node.noted_lines = source_lines_of(the_tokens);
+    }
   }
 
   /**
