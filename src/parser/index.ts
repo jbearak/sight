@@ -50,6 +50,7 @@ import {
   parse_varlist,
 } from '../expression-parser';
 import { is_macro_piece, joins_name } from '../utils/name-words';
+import { syntax_option_spelling } from '../utils/syntax-option-name';
 
 /** Tokens that can be part of a macro name joined across macros. */
 const NAME_PIECE_TOKEN_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
@@ -157,9 +158,6 @@ const NEXT_STATEMENT_SKIP_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
 ]);
 // `#delimit ;`, with the `;` as the first thing after the keyword.
 const DELIMIT_SEMICOLON_PATTERN = /^#delimit[ \t]*;/;
-// A negatable `syntax` option such as `noCONStant`.
-const NO_PREFIXED_OPTION_RE = /^no[A-Z]/;
-const UPPERCASE_LETTER_RE = /[A-Z]/;
 
 /**
  * Does `token` end its statement? Under `#delimit ;` a `*` comment runs
@@ -2843,7 +2841,8 @@ export class StataParser {
       current_idx++;
     }
 
-    const min_abbrev = this.compute_min_abbreviation(option_name);
+    const min_abbrev = syntax_option_spelling(
+      option_name, has_argument).min_abbreviation;
 
     const spec: OptionSpec = {
       name: option_name,
@@ -2859,22 +2858,6 @@ export class StataParser {
     }
 
     return { spec, next_idx: current_idx };
-  }
-
-  /**
-   * How much of a `syntax` option must be typed: its leading capitals
-   * in lowercase (`Detail` takes `d`, `NOLOg` takes `nolo`, `CACHE`
-   * takes `cache`), after the `no` of `noCONStant` (`nocons`). Without
-   * leading capitals, the whole name as written: `cache`, and
-   * `myOption`, which Stata accepts only as `myOption` (StataMP 18).
-   */
-  private compute_min_abbreviation(name: string): string {
-    const start = NO_PREFIXED_OPTION_RE.test(name) ? 2 : 0;
-    let end = start;
-    while (end < name.length && UPPERCASE_LETTER_RE.test(name[end])) {
-      end++;
-    }
-    return end === start ? name : name.slice(0, end).toLowerCase();
   }
 
   /** Can the current token be a name in unab's varlist? */

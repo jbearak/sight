@@ -40,6 +40,7 @@ import {
 import { parse_option_argument, is_valid_identifier } from './option-argument-parser';
 import { NameWord, group_name_words, whole_word_item } from '../utils/name-words';
 import { resolve_c_local_arg_names } from './c-local-arg-positions';
+import { syntax_option_spelling } from '../utils/syntax-option-name';
 
 /** How a command writes a macro. */
 export type MacroWriteKind =
@@ -89,7 +90,6 @@ export interface MacroWriteContext {
 
 const MACRO_DROP_RE = /^dr(o(p)?)?$/;
 const WILDCARD_RE = /[*?]/;
-const UPPERCASE_RE = /[A-Z]/;
 const WEIGHT_TYPES: ReadonlySet<string> = new Set([
     'weight', 'fweight', 'fw', 'aweight', 'aw', 'pweight', 'pw',
     'iweight', 'iw',
@@ -171,19 +171,6 @@ function find_program(
 }
 
 /**
- * How much of a `syntax` option name must be typed: its leading
- * capitals (`LOCal` takes `loc`), or all of it when it has none or is
- * all capitals (checked in StataMP 18).
- */
-function syntax_option_min_length(spec_name: string): number {
-    let length = 0;
-    while (length < spec_name.length && UPPERCASE_RE.test(spec_name[length])) {
-        length++;
-    }
-    return length === 0 ? spec_name.length : length;
-}
-
-/**
  * A program's macro-creating options as `matches_option` reads them.
  * `names` are the lowercase locals its `syntax` defines; the minimum
  * abbreviation comes from the `syntax` option that defines each, and
@@ -197,8 +184,9 @@ function program_option_specs(
     for (const my_option of program.signature?.options ?? []) {
         const local_name = syntax_option_local_name(my_option);
         if (!the_min_lengths.has(local_name)) {
-            the_min_lengths.set(
-                local_name, syntax_option_min_length(my_option.name));
+            const spelling = syntax_option_spelling(
+                my_option.name, my_option.hasArgument === true);
+            the_min_lengths.set(local_name, spelling.min_abbreviation.length);
         }
     }
     return names.map((my_name) => ({
