@@ -114,11 +114,12 @@ export class PrettyPrinter {
     }
 
     /**
-     * Indent each marked `//` comment line that Stata 18 would read as
-     * code at column 0 (see find_mid_statement_slash_lines), and drop
-     * the marks. Under `#delimit ;` a comment doesn't end a statement,
-     * so `// c` then `// d` at column 0 is code on the second line; one
-     * indent there keeps it a comment.
+     * Indent each marked `//` comment line that is not the first line of
+     * its statement, and drop the marks. Under `#delimit ;` a comment
+     * doesn't end a statement, so `// c` then `// d` at column 0 is code
+     * on the second line (see find_mid_statement_slash_lines); one
+     * indent there keeps it a comment. The marked lines are read
+     * indented, as the comments they are, so a `;` in one doesn't count.
      */
     private indent_mid_statement_comments(
         text: string, start_mode: 'cr' | 'semicolon'
@@ -126,15 +127,17 @@ export class PrettyPrinter {
         if (!text.includes(COLUMN0_COMMENT_MARK)) {
             return text;
         }
+        const indent = this.indent_for(1);
         const the_lines = text.split('\n');
         const marked_lines = new Set<number>();
         for (let i = 0; i < the_lines.length; i++) {
             const my_line = the_lines[i];
             if (my_line.startsWith(COLUMN0_COMMENT_MARK)) {
                 marked_lines.add(i);
+                the_lines[i] = indent + my_line;
             }
             if (my_line.includes(COLUMN0_COMMENT_MARK)) {
-                the_lines[i] = my_line.split(COLUMN0_COMMENT_MARK).join('');
+                the_lines[i] = the_lines[i].split(COLUMN0_COMMENT_MARK).join('');
             }
         }
         const { tokens } = new StataLexer().tokenize(the_lines.join('\n'), {
@@ -144,11 +147,10 @@ export class PrettyPrinter {
             language_context: LanguageContext.STATA,
             context_stack: [LanguageContext.STATA],
         });
-        const { code_lines } = find_mid_statement_slash_lines(tokens, start_mode);
-        const indent = this.indent_for(1);
+        const { comment_lines } = find_mid_statement_slash_lines(tokens, start_mode);
         for (const my_line of marked_lines) {
-            if (code_lines.has(my_line)) {
-                the_lines[my_line] = indent + the_lines[my_line];
+            if (!comment_lines.has(my_line)) {
+                the_lines[my_line] = the_lines[my_line].slice(indent.length);
             }
         }
         return the_lines.join('\n');

@@ -254,6 +254,8 @@ describe('formatting slash comments under #delimit ;', () => {
         '#delimit ;\n// c\n    /// d\n    // e\ndi "x";\n',
         '#delimit ;\n    local a b///\n    // x\n    c;\n',
         '#delimit ;\nif 1 {;\n    // c\n    // d\n    di "x";\n};\n',
+        // A `;` in a comment doesn't end the statement.
+        '#delimit ;\n// c\n    // d;\n    // e\ndi 1;\n',
     ];
 
     for_each_formatter_mode('never moves a // line to column 0 mid-statement', (mode) => {
@@ -305,7 +307,7 @@ describe('formatting slash comments under #delimit ;', () => {
         '// c', '    // d', '\t// e', '/// f', '    /// g', '/* b */',
         '/* b */ // h', '* s;', 'di "x";', 'local a b', 'c;', '    c;',
         'di "y"; // i', '', 'local e b ///', '    f /// note',
-        'reg y x, robust///',
+        'reg y x, robust///', '    // j;', '// k;',
     );
 
     for_each_formatter_mode_property(
