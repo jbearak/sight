@@ -35,6 +35,11 @@ import {
 } from '../utils/out-of-scope-message';
 import { undefined_symbol_data_fields } from '../utils/undefined-symbol-diagnostic';
 import { diagnostic_code_description_fields } from '../utils/diagnostic-code-description';
+import { resolve_diagnostic_severity } from '../utils/diagnostic-severity';
+import {
+    lexer_error_severity,
+    parser_error_severity,
+} from '../utils/syntax-error-severity';
 import { host_is_case_sensitive } from '../utils/file-path-utils';
 import {
     has_ignore_directive,
@@ -952,29 +957,14 @@ export class DiagnosticsProvider {
      * Convert a lexer error to an LSP Diagnostic.
      */
     private convert_lexer_error(error: LexerError): Diagnostic {
-        let severity: DiagnosticSeverity;
-
-        // Lexer diagnostics have fixed severities.
-        switch (error.code) {
-            case LexerErrorCode.UNBALANCED_QUOTES:
-            case LexerErrorCode.UNBALANCED_BLOCK_COMMENT:
-            case LexerErrorCode.UNTERMINATED_STATEMENT:
-                severity = DiagnosticSeverity.Error;
-                break;
-            // A `///` with no space before it is text, so the next line
-            // runs as its own command: not a matter of style.
-            case LexerErrorCode.CONTINUATION_NO_SPACE:
-            case LexerErrorCode.BLOCK_COMMENT_IN_STAR_COMMENT:
-                severity = DiagnosticSeverity.Warning;
-                break;
-            default:
-                severity = DiagnosticSeverity.Error;
-        }
-
+        // Lexer diagnostics have fixed severities, shared with
+        // `sight parse --json`.
         return {
             range: error.range,
             message: error.message,
-            severity,
+            severity: resolve_diagnostic_severity(
+                lexer_error_severity(error.code),
+                DiagnosticSeverity.Error),
             code: error.code,
             source: 'sight',
             ...diagnostic_code_description_fields(error.code),
@@ -1001,19 +991,14 @@ export class DiagnosticsProvider {
         error: ParseError,
         _config: StataLSPConfig
     ): Diagnostic | null {
-        let severity: DiagnosticSeverity = DiagnosticSeverity.Error;
-
-        // CODE_AFTER_OPEN_BRACE is a warning since Stata runs the code but ignores the content
-        // REDUNDANT_MACRO_SUFFIX is also a warning
-        if (error.code === ParseErrorCode.CODE_AFTER_OPEN_BRACE ||
-            error.code === ParseErrorCode.REDUNDANT_MACRO_SUFFIX) {
-            severity = DiagnosticSeverity.Warning;
-        }
-
+        // Parser diagnostics have fixed severities, shared with
+        // `sight parse --json`.
         return {
             range: error.range,
             message: error.message,
-            severity,
+            severity: resolve_diagnostic_severity(
+                parser_error_severity(error.code),
+                DiagnosticSeverity.Error),
             code: error.code,
             source: 'sight',
             ...diagnostic_code_description_fields(error.code),

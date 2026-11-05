@@ -15,15 +15,24 @@ import { CommandDatabase } from '../command-database';
 import { parse_expression, parse_varlist } from '../expression-parser';
 import { StataLexer } from '../lexer';
 import { StataParser } from '../parser';
+import {
+    lexer_error_severity,
+    parser_error_severity,
+    SyntaxErrorSeverity,
+} from '../utils/syntax-error-severity';
 import { CommentDirectives, comment_key } from './parse-directives';
 import {
     CommandNode,
     ControlFlowNode,
     ExpressionNode,
     IdentifierNode,
+    LexerError,
+    LexerErrorCode,
     MacroDefNode,
     MacroRefExpressionNode,
     OptionNode,
+    ParseError,
+    ParseErrorCode,
     PrefixNode,
     ProgramNode,
     ProgramSignature,
@@ -42,6 +51,38 @@ import {
 export const PARSE_SCHEMA_VERSION = 1;
 
 type Json = Record<string, unknown>;
+
+/** One entry of the document's `errors` list. */
+export interface ParseErrorEntry {
+    source: 'lexer' | 'parser';
+    code: LexerErrorCode | ParseErrorCode;
+    /** The severity the editor shows for this code. */
+    severity: SyntaxErrorSeverity;
+    message: string;
+    range: Range;
+}
+
+/** The `errors` entry for a lexer error. */
+export function lexer_error_entry(error: LexerError): ParseErrorEntry {
+    return {
+        source: 'lexer',
+        code: error.code,
+        severity: lexer_error_severity(error.code),
+        message: error.message,
+        range: error.range,
+    };
+}
+
+/** The `errors` entry for a parser error. */
+export function parser_error_entry(error: ParseError): ParseErrorEntry {
+    return {
+        source: 'parser',
+        code: error.code,
+        severity: parser_error_severity(error.code),
+        message: error.message,
+        range: error.range,
+    };
+}
 
 /** `foreach ... of <type>` list types (exact case). */
 const FOREACH_LIST_TYPES: ReadonlySet<string> = new Set([
@@ -210,18 +251,8 @@ class ParseDocumentBuilder {
         const statements = this.serialize_nodes(parse_result.ast.nodes);
         const comments = this.unreported_comments();
         const errors = [
-            ...lex_result.errors.map((my_error) => ({
-                source: 'lexer',
-                code: my_error.code,
-                message: my_error.message,
-                range: my_error.range,
-            })),
-            ...parse_result.errors.map((my_error) => ({
-                source: 'parser',
-                code: my_error.code,
-                message: my_error.message,
-                range: my_error.range,
-            })),
+            ...lex_result.errors.map(lexer_error_entry),
+            ...parse_result.errors.map(parser_error_entry),
         ].sort((a, b) => compare_positions(a.range.start, b.range.start));
 
         return {

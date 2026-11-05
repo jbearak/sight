@@ -5103,6 +5103,7 @@
       {
         "source": "lexer",
         "code": "CONTINUATION_NO_SPACE",
+        "severity": "warning",
         "message": "`///` is not a line continuation unless a space or tab comes before it; here the next line runs as a separate command. Add a space before `///`.",
         "range": {
           "start": {
@@ -5118,6 +5119,7 @@
       {
         "source": "lexer",
         "code": "CONTINUATION_NO_SPACE",
+        "severity": "warning",
         "message": "`///` is not a line continuation unless a space or tab comes before it; here the next line runs as a separate command. Add a space before `///`.",
         "range": {
           "start": {
@@ -5133,6 +5135,7 @@
       {
         "source": "lexer",
         "code": "CONTINUATION_NO_SPACE",
+        "severity": "warning",
         "message": "`///` is not a line continuation unless a space or tab comes before it; here the slashes and anything after them stay in the command. Add a space before `///`.",
         "range": {
           "start": {
