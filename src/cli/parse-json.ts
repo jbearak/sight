@@ -261,6 +261,7 @@ class ParseDocumentBuilder {
         return the_carried;
     }
 
+    /** The trivia `place_comments` gave `node` to report. */
     private trivia_reported_by(node: StataNode): StatementTrivia {
         return this.statement_trivia.get(node) ??
             { leading: [], trailing: [], block_end: [] };
@@ -881,6 +882,7 @@ function trivia_of(node: StataNode, field: TriviaField): TriviaNode[] {
     }
 }
 
+/** The statements in a node's body, or none. */
 function body_of(node: StataNode): StataNode[] {
     return 'body' in node && Array.isArray(node.body) ? node.body : [];
 }
