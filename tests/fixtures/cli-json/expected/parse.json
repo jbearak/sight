@@ -5619,6 +5619,7 @@
       {
         "source": "lexer",
         "code": "SLASHES_MID_STATEMENT",
+        "severity": "warning",
         "message": "Under `#delimit ;`, `//` at the start of a line is a comment only on the first line of a statement. This statement began on an earlier line (a comment does not end it), so Stata reads these slashes as code. Indent the line, or end the statement with `;` first.",
         "range": {
           "start": {
@@ -5634,6 +5635,7 @@
       {
         "source": "lexer",
         "code": "SLASHES_MID_STATEMENT",
+        "severity": "warning",
         "message": "Under `#delimit ;`, `//` at the start of a line is a comment only on the first line of a statement. This statement began on an earlier line (a comment does not end it), so Stata reads these slashes as code. Indent the line, or end the statement with `;` first.",
         "range": {
           "start": {
