@@ -36,7 +36,8 @@ export const CONSOLE_OFFER_REASONS: ReadonlyMap<number, string | null> =
         [
             CONSOLE_EXIT_TAKE_OVER_DECLINED,
             'you chose to keep your open Stata to yourself. '
-            + 'send-to-stata sends to it without taking it over.',
+            + 'send-to-stata sends to it without taking it over; with '
+            + 'several open, it picks one.',
         ],
         [CONSOLE_EXIT_SEND_FROM_EDITOR, null],
         [

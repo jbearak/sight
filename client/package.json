@@ -421,7 +421,7 @@
           "description": "Where to send Stata commands. Run \"Sight: Choose Where to Send Code\" to change it from a menu.",
           "enumDescriptions": [
             "Ask: the first send in a window asks whether to use the Stata pane or the Stata app, for this session or every session. In remote sessions (SSH, WSL, Dev Container, Tunnel) and on Linux, where only the Stata pane works, it uses the pane without asking. (\"auto\", the older name, means the same.)",
-            "Always use the Stata pane: Stata in VS Code's integrated terminal, running sight console (on macOS and Linux, around console Stata; see sight.sendToStata.console). On Windows sight console drives the Stata app; if the console can't use Stata (for example, several Stata windows are open, or you keep your open Stata to yourself), Sight offers to send code to the open Stata window instead.",
+            "Always use the Stata pane: Stata in VS Code's integrated terminal, running sight console (on macOS and Linux, around console Stata; see sight.sendToStata.console). On Windows sight console drives the Stata app; if the console can't use Stata (for example, the open Stata is in use by another program, or you keep your open Stata to yourself), Sight offers to send code to the open Stata window instead.",
             "Always use the external Stata GUI application (macOS and Windows only; not available in remote sessions or on Linux)"
           ]
         },

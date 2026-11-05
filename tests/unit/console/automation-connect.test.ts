@@ -1,7 +1,8 @@
 /**
  * Connect-sequence tests for sight console on Windows, with a scripted
  * fake bridge. They pin the ownership rules: no COM call before
- * consent, a refusal when several Statas are open, ending at once when
+ * consent, asking (or, with --yes, refusing) when several Statas are
+ * open and naming the one taken, ending at once when
  * the open Stata is held elsewhere, asking after the fact when an
  * unexpected Stata answered, and keeping the mutex when this console's
  * Stata can't be identified.
@@ -141,27 +142,93 @@ describe('connect_to_stata', () => {
         ]);
     });
 
-    it('refuses when two or more Statas are open, before any COM call', async () => {
+    it('with --yes, refuses when two or more Statas are open, before any COM call', async () => {
         const bridge = new ScriptedBridge({ open: [[stata(1), stata(2)]] });
-        const result = await connect_to_stata(deps(bridge).deps);
+        const { deps: d, questions } = deps(bridge, [], { yes: true });
+        const result = await connect_to_stata(d);
         expect(result).toMatchObject({ ok: false, exit_code: EXIT_SEVERAL_STATA_OPEN });
+        expect(questions).toEqual([]);
         expect(bridge.ops).not.toContain('connect');
-    });
-
-    it('counts only Statas no console owns in the refusal', async () => {
-        // The listing already leaves out other consoles' Statas, so the
-        // message must not read as a count of every Stata window.
-        const bridge = new ScriptedBridge({ open: [[stata(1), stata(2)]] });
-        const result = await connect_to_stata(deps(bridge).deps);
         if (result.ok) {
             throw new Error('expected a refusal');
         }
+        // The listing already leaves out other consoles' Statas, so the
+        // message must not read as a count of every Stata window.
         expect(result.message).toContain(
             '2 Stata windows that no sight console owns are open'
         );
-        expect(result.message).toContain(
-            'Windows that other sight consoles own can stay open.'
+        expect(result.message).toContain('run without --yes to be asked');
+    });
+
+    it('asks once before taking over one of several, saying it can\'t choose', async () => {
+        const bridge = new ScriptedBridge({ open: [[stata(1), stata(2)]] });
+        const { deps: d, questions } = deps(bridge, ['n']);
+        const result = await connect_to_stata(d);
+        expect(result).toMatchObject({ ok: false, exit_code: EXIT_TAKEOVER_DECLINED });
+        expect(questions.length).toBe(1);
+        expect(questions[0]).toMatchObject({ kind: 'take_over', stata_count: 2 });
+        expect(questions[0]?.text).toContain('one of the 2 open Statas');
+        expect(questions[0]?.text).toContain('Stata/MP 18.0 #1; Stata/MP 18.0 #2');
+        expect(questions[0]?.text).toContain('can\'t choose which');
+        expect(bridge.ops).not.toContain('connect');
+    });
+
+    it('offers s for several from the editor', async () => {
+        const bridge = new ScriptedBridge({ open: [[stata(1), stata(2)]] });
+        const { deps: d } = deps(bridge, ['s'], { from_editor: true });
+        expect(await connect_to_stata(d)).toMatchObject({
+            ok: false, exit_code: EXIT_SEND_FROM_EDITOR,
+        });
+        expect(bridge.ops).not.toContain('connect');
+    });
+
+    it('takes whichever of several answered, and names it', async () => {
+        const bridge = new ScriptedBridge({
+            open: [[stata(1), stata(2)]],
+            before: [stata(1), stata(2)],
+            after: [stata(1), stata(2)],
+            title_pid: 2,
+        });
+        const { deps: d, questions, said } = deps(bridge, ['y']);
+        const result = await connect_to_stata(d);
+        expect(result).toMatchObject({ ok: true, pid: 2 });
+        // Consent covered either one: no second question.
+        expect(questions.length).toBe(1);
+        expect(said).toContain(
+            'sight console took over the open Stata (Stata/MP 18.0 #2); its title now '
+            + 'shows "sight console abcdef01".'
         );
+        expect(bridge.ops).toContain('release_mutex');
+    });
+
+    it('asks about one of several it can\'t identify, and keeps the mutex', async () => {
+        const bridge = new ScriptedBridge({
+            open: [[stata(1), stata(2)]],
+            before: [stata(1), stata(2)],
+            after: [stata(1), stata(2)],
+            title_rc: 198,
+        });
+        const { deps: d, questions } = deps(bridge, ['y', 'y']);
+        const result = await connect_to_stata(d);
+        expect(result).toMatchObject({ ok: true, pid: null });
+        expect(questions.map((my_question) => my_question.kind)).toEqual(['take_over', 'keep']);
+        expect(questions[1]?.text).toContain('couldn\'t identify');
+        expect(bridge.ops).not.toContain('release_mutex');
+    });
+
+    it('ends at once when COM started a new Stata past several held ones', async () => {
+        const bridge = new ScriptedBridge({
+            open: [[stata(1), stata(2)]],
+            before: [stata(1), stata(2)],
+            after: [stata(1), stata(2), stata(11, { com_started: true })],
+        });
+        const result = await connect_to_stata(deps(bridge, ['y']).deps);
+        expect(result).toMatchObject({ ok: false, exit_code: EXIT_STATA_HELD_ELSEWHERE });
+        if (result.ok) {
+            throw new Error('expected a refusal');
+        }
+        expect(result.message).toContain('The open Statas are in use');
+        expect(bridge.ops).not.toContain('do_sync');
     });
 
     it('asks before taking over the open Stata, and stops on no', async () => {
@@ -170,6 +237,7 @@ describe('connect_to_stata', () => {
         const result = await connect_to_stata(d);
         expect(result).toMatchObject({ ok: false, exit_code: EXIT_TAKEOVER_DECLINED });
         expect(questions[0]).toMatchObject({ kind: 'take_over', allow_send_instead: false });
+        expect(questions[0]?.text).toContain('take over the open Stata (Stata/MP 18.0 #5)');
         expect(bridge.ops).not.toContain('connect');
     });
 

@@ -1190,11 +1190,25 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
         call.answer.resolve('Send code to it instead');
         expect(await take_over).toBe('send');
 
+        // With several open, send-to-stata picks one too.
+        const take_one = fake.host.ask({
+            kind: 'take_over',
+            text: 'sight console will take over one of the 2 open Statas.',
+            allow_send_instead: true,
+            stata_count: 2,
+        });
+        const several_call = harness.vscode_state.the_warning_calls[1];
+        expect(several_call.the_items).toEqual([
+            'Take over', 'Send code to one of them instead',
+        ]);
+        several_call.answer.resolve('Send code to one of them instead');
+        expect(await take_one).toBe('send');
+
         const keep = fake.host.ask({
             kind: 'keep', text: 'Keep using it here?',
             allow_send_instead: false,
         });
-        const keep_call = harness.vscode_state.the_warning_calls[1];
+        const keep_call = harness.vscode_state.the_warning_calls[2];
         expect(keep_call.the_items).toEqual(['Keep using it']);
         // Dismissing a modal (Cancel) counts as no.
         keep_call.answer.resolve(undefined);
