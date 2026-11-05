@@ -55,6 +55,21 @@ describe('Embedded Block End Delimiter Indentation Properties', () => {
     );
 
     /**
+     * Indentation of a block's `end` line. Stata 18 accepts leading
+     * blanks before a Mata `end`, but ends a Python block only at an
+     * `end` in column 0 (an indented `end` is passed to Python and the
+     * block stays open, even inside `if 1 { ... }`), so a nested Python
+     * `end` stays at depth 0.
+     */
+    function end_indent(language: string, indent: string): string {
+        return language === 'python' ? '' : indent;
+    }
+
+    function end_depth(language: string, depth: number): number {
+        return language === 'python' ? 0 : depth;
+    }
+
+    /**
      * Property 1: End delimiter indentation correctness (top-level)
      * 
      * For any Mata or Python block at the top level, the `end` statement
@@ -108,7 +123,7 @@ end`;
                     const source = `if 1 {
     ${language}
     ${content}
-    end
+${end_indent(language, '    ')}end
     ${after_stmt}
 }`;
                     const doc = create_document_state(source);
@@ -121,8 +136,9 @@ end`;
                     // Line 1 (mata/python): depth 1 (inside if)
                     expect(expected_depths.get(1) ?? 0).toBe(1);
                     
-                    // Line 3 (end): depth 1 (same as opening keyword)
-                    expect(expected_depths.get(3) ?? 0).toBe(1);
+                    // Line 3 (end): depth 1 (same as opening keyword),
+                    // or 0 for Python
+                    expect(expected_depths.get(3) ?? 0).toBe(end_depth(language, 1));
                     
                     // Line 4 (statement after end): depth 1 (still inside if)
                     expect(expected_depths.get(4) ?? 0).toBe(1);
@@ -155,7 +171,7 @@ end`;
                     const source = `program define test
     ${language}
     ${content}
-    end
+${end_indent(language, '    ')}end
 end`;
                     const doc = create_document_state(source);
                     const range = { start: 0, end: source.split('\n').length - 1 };
@@ -167,8 +183,9 @@ end`;
                     // Line 1 (mata/python): depth 1 (inside program)
                     expect(expected_depths.get(1) ?? 0).toBe(1);
                     
-                    // Line 3 (end for mata/python): depth 1 (same as opening keyword)
-                    expect(expected_depths.get(3) ?? 0).toBe(1);
+                    // Line 3 (end for mata/python): depth 1 (same as
+                    // opening keyword), or 0 for Python
+                    expect(expected_depths.get(3) ?? 0).toBe(end_depth(language, 1));
                     
                     // Line 4 (end for program): depth 0
                     expect(expected_depths.get(4) ?? 0).toBe(0);
@@ -198,7 +215,7 @@ end`;
                     const source = `foreach x in a b c {
     ${language}
     ${content}
-    end
+${end_indent(language, '    ')}end
 }`;
                     const doc = create_document_state(source);
                     const range = { start: 0, end: source.split('\n').length - 1 };
@@ -210,8 +227,9 @@ end`;
                     // Line 1 (mata/python): depth 1 (inside foreach)
                     expect(expected_depths.get(1) ?? 0).toBe(1);
                     
-                    // Line 3 (end): depth 1 (same as opening keyword)
-                    expect(expected_depths.get(3) ?? 0).toBe(1);
+                    // Line 3 (end): depth 1 (same as opening keyword),
+                    // or 0 for Python
+                    expect(expected_depths.get(3) ?? 0).toBe(end_depth(language, 1));
                     
                     // Line 4 (closing brace): depth 0
                     expect(expected_depths.get(4) ?? 0).toBe(0);
@@ -243,7 +261,7 @@ end`;
                     const source = `if 1 {
     ${language}
     ${content}
-    end
+${end_indent(language, '    ')}end
     ${after_stmt}
 }`;
                     const doc = create_document_state(source);
@@ -285,7 +303,7 @@ end`;
     foreach x in a b {
         ${language}
         ${content}
-        end
+${end_indent(language, '        ')}end
     }
 }`;
                     const doc = create_document_state(source);
@@ -301,8 +319,9 @@ end`;
                     // Line 2 (mata/python): depth 2 (inside if > foreach)
                     expect(expected_depths.get(2) ?? 0).toBe(2);
                     
-                    // Line 4 (end): depth 2 (same as opening keyword)
-                    expect(expected_depths.get(4) ?? 0).toBe(2);
+                    // Line 4 (end): depth 2 (same as opening keyword),
+                    // or 0 for Python
+                    expect(expected_depths.get(4) ?? 0).toBe(end_depth(language, 2));
                     
                     // Line 5 (foreach closing brace): depth 1
                     expect(expected_depths.get(5) ?? 0).toBe(1);

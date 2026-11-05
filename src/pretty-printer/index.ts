@@ -607,7 +607,13 @@ export class PrettyPrinter {
 
         // Print end delimiter if present
         if (node.end_command) {
-            the_lines.push(`${this.getIndent()}${node.end_command}`);
+            // Stata ends a Python block only at an `end` in column 0;
+            // indenting it would leave the block open.
+            const my_end_indent =
+                node.language === 'python' && node.end_command === 'end'
+                    ? ''
+                    : this.getIndent();
+            the_lines.push(`${my_end_indent}${node.end_command}`);
         }
 
         return the_lines.join('');

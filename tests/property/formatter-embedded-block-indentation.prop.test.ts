@@ -94,6 +94,22 @@ describe('Formatter Embedded Block Indentation Properties', () => {
     }
 
     /**
+     * Indentation of a block's `end` line in the source, and the
+     * indentation the formatter must give it. Stata 18 accepts leading
+     * blanks before a Mata `end`, but ends a Python block only at an
+     * `end` in column 0: an indented `end` is passed to Python and the
+     * block stays open, even inside `if 1 { ... }`. So a Python `end`
+     * is written, and kept, at column 0 at any nesting depth.
+     */
+    function end_indent(language: string, indent: string): string {
+        return language === 'python' ? '' : indent;
+    }
+
+    function expected_end_indent(language: string, spaces: number): number {
+        return language === 'python' ? 0 : spaces;
+    }
+
+    /**
      * Helper to make indentation string.
      */
     function make_indent(spaces: number): string {
@@ -159,7 +175,8 @@ end
         'Property 3: Formatter corrects under-indented closing delimiter',
         fc.tuple(language_arb, embedded_content_arb),
         (mode: FormatterMode, [language, content]) => {
-            // Closing delimiter has NO indentation (should be 4 spaces)
+            // Closing delimiter has NO indentation (should be 4 spaces
+            // for Mata; column 0 is already right for Python)
             const source = `if 1 {
     ${language}
     ${content}
@@ -170,8 +187,9 @@ end
             const edits = formatter.format(doc, DEFAULT_FORMATTING_OPTIONS, config);
 
             if (edits.length === 0) {
-                // No edits is a failure - the formatter should have corrected the indentation
-                return false;
+                // No edits is a failure for Mata - the formatter should have
+                // corrected the indentation
+                return language === 'python';
             }
 
             const formatted = edits[0].newText;
@@ -191,9 +209,10 @@ end
             }
             expect(end_line).not.toBeNull();
 
-            // End should be corrected to 4 spaces (depth 1, same as opening)
-            const end_indent = count_leading_spaces(end_line!.line);
-            expect(end_indent).toBe(4);
+            // End should be corrected to 4 spaces (depth 1, same as
+            // opening); a Python end stays at column 0
+            const end_spaces = count_leading_spaces(end_line!.line);
+            expect(end_spaces).toBe(expected_end_indent(language, 4));
 
             return true;
         },
@@ -219,7 +238,7 @@ end
             const source = `if 1 {
 ${indent_str}${language}
 ${indent_str}${content}
-${indent_str}end
+${end_indent(language, indent_str)}end
 }`;
             const doc = create_document_state(source);
             const config = create_formatter_config(mode);
@@ -256,9 +275,10 @@ ${indent_str}end
             }
             expect(end_line).not.toBeNull();
 
-            // Closing delimiter should also be at 4 spaces (depth 1)
-            const end_indent = count_leading_spaces(end_line!.line);
-            expect(end_indent).toBe(4);
+            // Closing delimiter should also be at 4 spaces (depth 1);
+            // a Python end stays at column 0
+            const end_spaces = count_leading_spaces(end_line!.line);
+            expect(end_spaces).toBe(expected_end_indent(language, 4));
 
             return true;
         },
@@ -322,7 +342,7 @@ end`;
             const source = `if 1 {
     ${language}
     ${content}
-    end
+${end_indent(language, '    ')}end
     ${after_stmt}
 }`;
             const doc = create_document_state(source);
@@ -365,7 +385,7 @@ end`;
             const source = `if 1 {
     ${language}
     ${content}
-    end
+${end_indent(language, '    ')}end
 }`;
             const doc = create_document_state(source);
             const config = create_formatter_config(mode);
@@ -393,10 +413,11 @@ end`;
             }
             expect(end_line).not.toBeNull();
 
-            // Both should have the same indentation
+            // Both should have the same indentation, except that a
+            // Python end stays at column 0
             const lang_indent = count_leading_spaces(lang_line!.line);
-            const end_indent = count_leading_spaces(end_line!.line);
-            expect(end_indent).toBe(lang_indent);
+            const end_spaces = count_leading_spaces(end_line!.line);
+            expect(end_spaces).toBe(expected_end_indent(language, lang_indent));
 
             return true;
         },
@@ -421,7 +442,7 @@ end`;
     foreach x in a b {
         ${language}
         ${content}
-        end
+${end_indent(language, '        ')}end
     }
 }`;
             const doc = create_document_state(source);
@@ -464,7 +485,7 @@ end`;
             const source = `program define test
     ${language}
     ${content}
-    end
+${end_indent(language, '    ')}end
 end`;
             const doc = create_document_state(source);
             const config = create_formatter_config(mode);
@@ -509,7 +530,7 @@ end`;
             const source = `if 1 {
     ${language}
     ${content}
-    end
+${end_indent(language, '    ')}end
     ${after_stmt}
 }`;
             const doc = create_document_state(source);
@@ -572,7 +593,7 @@ end`;
             const source = `foreach x in a b c {
     ${language}
     ${content}
-    end
+${end_indent(language, '    ')}end
 }`;
             const doc = create_document_state(source);
             const config = create_formatter_config(mode);

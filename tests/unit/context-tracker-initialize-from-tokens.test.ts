@@ -47,7 +47,7 @@ matrix A = (1, 2)
 end
 python
 x = 5
-end python
+end
 mata
 matrix B = (3, 4)
 end`;

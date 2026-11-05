@@ -549,13 +549,19 @@ export class IndentationDiagnosticAnalyzer {
       }
       
       // Handle embedded_block nodes (Mata/Python blocks)
-      // The end delimiter should be at the same depth as the start delimiter
+      // The end delimiter should be at the same depth as the start delimiter,
+      // except a Python block's `end`: Stata ends a Python block only at an
+      // `end` in column 0, so it is always at depth 0.
       // Don't recurse into embedded block content (it's a different language)
       if (node.type === 'embedded_block') {
         // Set expected depth for the end line (containing 'end')
         if (end_line !== start_line && end_line >= range.start && end_line <= range.end) {
           if (!expected_depths.has(end_line)) {
-            expected_depths.set(end_line, depth);
+            const my_end_depth =
+              node.language === 'python' && node.end_command === 'end'
+                ? 0
+                : depth;
+            expected_depths.set(end_line, my_end_depth);
           }
         }
         // Don't recurse into embedded block content

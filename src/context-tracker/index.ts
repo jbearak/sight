@@ -521,18 +521,25 @@ export class ContextTracker implements IContextTracker {
    * Find line numbers where 'end' commands are valid block terminators
    * (program or input blocks). Uses stack-based tracking to handle nested
    * blocks correctly. Mata/python block ends are validated separately via
-   * context ranges.
+   * context ranges, and the lines those ranges cover (opener through
+   * closer) are skipped here, so this scan agrees with the lexer on
+   * where each embedded block ends.
    */
   private find_valid_end_lines(doc: { content: string; line_offsets: number[] }): Set<number> {
     const my_valid_end_lines = new Set<number>();
     const my_program_stack: number[] = []; // Stack of program start line numbers
-    const my_embedded_stack: ('mata' | 'python' | 'input')[] = []; // Stack of embedded language blocks
+    let my_in_input_block = false;
     const my_line_count = get_line_count(doc);
+    const my_embedded_lines = this.embedded_block_lines(my_line_count);
     
     for (let my_line_number = 0; my_line_number < my_line_count; my_line_number++) {
       // Lines inside a multi-line block comment are not live code, so
       // they neither open nor close program/embedded blocks.
       if (this.block_comment_continuation_lines.has(my_line_number)) {
+        continue;
+      }
+      // Lines of a Mata/Python block are not Stata commands.
+      if (my_embedded_lines[my_line_number] === 1) {
         continue;
       }
       const my_line = get_line_text(doc, my_line_number);
@@ -545,24 +552,17 @@ export class ContextTracker implements IContextTracker {
         my_program_stack.push(my_line_number);
       }
       
-      // Check for embedded language block start
-      if (my_first_word === 'mata' && my_code_trimmed === 'mata') {
-        my_embedded_stack.push('mata');
-      } else if (my_first_word === 'python' && my_code_trimmed === 'python') {
-        my_embedded_stack.push('python');
-      } else if (my_first_word === 'input' && my_embedded_stack.length === 0) {
-        my_embedded_stack.push('input');
+      // Check for input block start
+      if (my_first_word === 'input' && !my_in_input_block) {
+        my_in_input_block = true;
       }
 
       // Check for 'end' command
       if (my_code_trimmed === 'end') {
-        // If we're in an embedded language block, this 'end' closes that block
-        if (my_embedded_stack.length > 0) {
-          const my_popped = my_embedded_stack.pop();
-          // input block ends are valid (mata/python validated separately via context ranges)
-          if (my_popped === 'input') {
-            my_valid_end_lines.add(my_line_number);
-          }
+        // If we're in an input block, this 'end' closes that block
+        if (my_in_input_block) {
+          my_in_input_block = false;
+          my_valid_end_lines.add(my_line_number);
         }
         // Otherwise, if we have program blocks, this 'end' closes a program block
         else if (my_program_stack.length > 0) {
@@ -573,6 +573,36 @@ export class ContextTracker implements IContextTracker {
     }
     
     return my_valid_end_lines;
+  }
+
+  /**
+   * Mark the lines (0-based) of each multi-line Mata/Python block,
+   * from its opener through its closing delimiter (or to the end of
+   * the document if it is unclosed), as found by the lexer.
+   */
+  private embedded_block_lines(line_count: number): Uint8Array {
+    const my_lines = new Uint8Array(line_count);
+    for (const my_range of this.context_ranges) {
+      if (
+        my_range.is_single_line ||
+        (my_range.context !== LanguageContext.MATA &&
+          my_range.context !== LanguageContext.PYTHON)
+      ) {
+        continue;
+      }
+      const my_first_line = my_range.start_delimiter.range.start.line;
+      const my_last_line = my_range.end_delimiter
+        ? my_range.end_delimiter.range.start.line
+        : line_count - 1;
+      for (
+        let my_line = my_first_line;
+        my_line <= my_last_line && my_line < line_count;
+        my_line++
+      ) {
+        my_lines[my_line] = 1;
+      }
+    }
+    return my_lines;
   }
 
   /**
