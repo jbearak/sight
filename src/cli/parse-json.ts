@@ -20,6 +20,7 @@ import {
     parser_error_severity,
     SyntaxErrorSeverity,
 } from '../utils/syntax-error-severity';
+import { program_args_commands } from '../utils/node-body';
 import { CommentDirectives, comment_key } from './parse-directives';
 import {
     CommandNode,
@@ -601,11 +602,11 @@ class ParseDocumentBuilder {
 
     private serialize_program(node: ProgramNode): Json {
         const the_args: Json[] = [];
-        for (const my_child of node.body) {
-            if (my_child.type === 'command' && my_child.name === 'args') {
-                for (const my_item of my_child.varlist ?? []) {
-                    the_args.push({ name: my_item.name, range: my_item.range });
-                }
+        // Top-level `args`, or a lone one in brace blocks, as for the
+        // signature (program_args_commands)
+        for (const my_child of program_args_commands(node.body)) {
+            for (const my_item of my_child.varlist ?? []) {
+                the_args.push({ name: my_item.name, range: my_item.range });
             }
         }
         const common = this.common('program', node);

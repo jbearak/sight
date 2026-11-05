@@ -468,7 +468,12 @@ The qualifiers may appear in any order in the source, as Stata allows.
 - `program`: `name`, `define_options` (raw text after the comma, such as
   `rclass`, or null), `args` (`{"name", "range"}` from the program's `args`
   statements), `syntax`, `body`. `syntax` is the parsed `syntax` signature
-  or null: `{"arguments": [{"type", "name", "optional", "range"}],
+  or null. Both come from the statements at the top of the program body,
+  or, when the body has exactly one `args` (or `syntax`) in all and it is
+  inside brace or `frame` blocks (`quietly { args a b }`), from that one;
+  with several and any nested (one per `if`/`else` branch, say), from the
+  top-level ones only. The signature is
+  `{"arguments": [{"type", "name", "optional", "range"}],
   "options": [{"name", "min_abbreviation", "required", "optional",
   "argument_type", "default", "range"}], "allows_arbitrary_options"}`.
 - `syntax`: `prefixes`, `signature` (as above).
