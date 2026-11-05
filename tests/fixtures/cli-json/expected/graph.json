@@ -4,6 +4,11 @@
   "root": "<ROOT>",
   "files": [
     {
+      "path": "brace-blocks.do",
+      "standalone": false,
+      "error": null
+    },
+    {
       "path": "code/clean.do",
       "standalone": false,
       "error": null
@@ -70,6 +75,7 @@
     }
   ],
   "entry_points": [
+    "brace-blocks.do",
     "column0-slashes.do",
     "comment-placement.do",
     "header-only.do",

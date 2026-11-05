@@ -40,8 +40,12 @@ const PARSER_ERROR_SEVERITIES: Readonly<
     [ParseErrorCode.MISSING_PROGRAM_END]: 'error',
     [ParseErrorCode.OPEN_BRACE_ALONE]: 'error',
     [ParseErrorCode.UNCLOSED_BLOCK]: 'error',
-    // Stata runs the code but ignores what follows the `{`.
+    // After an `if` header, Stata runs the block but ignores what
+    // follows the `{`.
     [ParseErrorCode.CODE_AFTER_OPEN_BRACE]: 'warning',
+    // After any other header, Stata stops: "code follows on the same
+    // line as open brace" (r(198)).
+    [ParseErrorCode.CODE_FOLLOWS_OPEN_BRACE]: 'error',
     [ParseErrorCode.FORVALUES_SYNTAX]: 'error',
     [ParseErrorCode.REDUNDANT_MACRO_SUFFIX]: 'warning',
     [ParseErrorCode.MISSING_EXPRESSION_AFTER_EQUALS]: 'error',

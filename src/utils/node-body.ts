@@ -1,4 +1,4 @@
-import { StataNode } from '../types';
+import { StataNode, SyntaxNode } from '../types';
 
 /**
  * The statements nested directly in `node`, or undefined when it has
@@ -24,4 +24,45 @@ export function nested_statements(node: StataNode): StataNode[] | undefined {
         default:
             return undefined;
     }
+}
+
+/**
+ * The `syntax` statements a program's signature comes from: those at
+ * the top of `body`, or, when the body has exactly one `syntax` in
+ * all and it is inside brace blocks (`quietly { syntax … }`), that one.
+ * With several `syntax` statements and any of them nested (say one per
+ * if/else branch), it stays the top-level ones, which may be none, as
+ * which branch runs is not known.
+ */
+export function program_signature_syntax_nodes(body: StataNode[]): SyntaxNode[] {
+    const the_top_level: SyntaxNode[] = [];
+    for (const my_node of body) {
+        if (my_node.type === 'syntax') {
+            the_top_level.push(my_node);
+        }
+    }
+    let my_syntax_count = 0;
+    let my_in_brace_block: SyntaxNode | undefined;
+    const visit = (the_nodes: StataNode[], in_brace_blocks_only: boolean): void => {
+        for (const my_node of the_nodes) {
+            if (my_node.type === 'syntax') {
+                my_syntax_count++;
+                if (in_brace_blocks_only) {
+                    my_in_brace_block = my_node;
+                }
+                continue;
+            }
+            const the_body = my_node.type === 'program'
+                ? undefined
+                : nested_statements(my_node);
+            if (the_body) {
+                visit(the_body, in_brace_blocks_only && my_node.type === 'command');
+            }
+        }
+    };
+    visit(body, true);
+    if (my_syntax_count === 1 && my_in_brace_block !== undefined) {
+        return [my_in_brace_block];
+    }
+    return the_top_level;
 }

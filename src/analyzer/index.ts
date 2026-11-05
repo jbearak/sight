@@ -55,7 +55,10 @@ import {
 } from '../directive-parser/comment-directives';
 import { LineSpan } from '../utils/statement-span';
 import { is_swallowed_continuation_terminator } from '../utils/continuation';
-import { nested_statements } from '../utils/node-body';
+import {
+    nested_statements,
+    program_signature_syntax_nodes,
+} from '../utils/node-body';
 
 // Diagnostic interface for semantic errors
 export interface SemanticDiagnostic {
@@ -1400,14 +1403,9 @@ export class SemanticAnalyzer {
         _program_scope: ScopeInfo,
         _symbols: SymbolTable
     ): void {
-        const syntax_nodes: SyntaxNode[] = [];
-
-        // Find all syntax nodes in program body
-        for (const node of program_node.body) {
-            if (node.type === 'syntax') {
-                syntax_nodes.push(node);
-            }
-        }
+        // The syntax statements the signature comes from: top-level
+        // ones, or a lone one in brace blocks (`quietly { syntax … }`)
+        const syntax_nodes = program_signature_syntax_nodes(program_node.body);
 
         if (syntax_nodes.length === 0) {
             return; // No syntax command in this program

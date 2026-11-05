@@ -49,6 +49,7 @@ const PARSE_FILES = [
     'tight-slashes.do',
     'column0-slashes.do',
     'program-ends.do',
+    'brace-blocks.do',
 ];
 
 /** Replace machine-specific values so the output is stable. */
