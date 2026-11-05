@@ -217,10 +217,12 @@ export class PrettyPrinter {
         // rules; extra args, already grouped by adjacency, are attached only
         // where the source had no gap (`gen x:lbl = 1`).
         // For unab commands with has_colon_before_varlist, emit colon after macro name
-        // An interior block comment goes back before the argument that
+        // An interior comment goes back before the argument that
         // followed it in the source. One after the last argument goes at
         // the end of the statement, outside the expression, qualifiers,
-        // and options, which are printed from strings.
+        // and options, which are printed from strings. A `//` comment
+        // (interior only under `#delimit ;`) ends its line, so the rest
+        // of the statement goes on the next one.
         const the_comments = node.interiorTrivia ?? [];
         let comment_index = 0;
         const the_items = [
@@ -236,15 +238,20 @@ export class PrettyPrinter {
             const my_entry = the_items[i];
             const previous = the_items[i - 1];
             let after_comment = false;
+            let at_line_start = false;
             while (comment_index < the_comments.length &&
                 compare_positions(
                     the_comments[comment_index].range.end,
                     my_entry.item.range.start) <= 0) {
-                the_parts.push(' ', this.printTrivia(the_comments[comment_index]));
+                at_line_start = this.push_interior_comment(
+                    the_parts, the_comments[comment_index], at_line_start,
+                    this.getContinuationIndent());
                 comment_index++;
                 after_comment = true;
             }
-            if (previous === undefined || after_comment) {
+            if (at_line_start) {
+                // The comment's line break and indentation separate them.
+            } else if (previous === undefined || after_comment) {
                 the_parts.push(' ');
             } else {
                 const is_attached =
@@ -298,8 +305,13 @@ export class PrettyPrinter {
             the_parts.push(the_option_strs.join(' '));
         }
 
+        // Under `#delimit ;`, a `;` after a `//` comment goes on the
+        // next line.
+        let at_line_start = false;
         for (const my_comment of the_comments.slice(comment_index)) {
-            the_parts.push(' ', this.printTrivia(my_comment));
+            at_line_start = this.push_interior_comment(
+                the_parts, my_comment, at_line_start,
+                this.getTerminatorLineIndent());
         }
 
         // Handle prefix command brace blocks (e.g., capture { }, quietly { })
@@ -474,10 +486,16 @@ export class PrettyPrinter {
             statement = `${this.getIndent()}${scope_keyword} ${name_text} ${value}`.trimEnd();
         }
 
-        // Interior block comments go at the end, outside the value.
-        const the_comments = (node.interiorTrivia ?? [])
-            .map(my_comment => ` ${this.printTrivia(my_comment)}`);
-        return statement + the_comments.join('');
+        // Interior comments go at the end, outside the value. Under
+        // `#delimit ;`, a `;` after a `//` comment goes on the next line.
+        const the_parts = [statement];
+        let at_line_start = false;
+        for (const my_comment of node.interiorTrivia ?? []) {
+            at_line_start = this.push_interior_comment(
+                the_parts, my_comment, at_line_start,
+                this.getTerminatorLineIndent());
+        }
+        return the_parts.join('');
     }
 
     /**
@@ -652,11 +670,16 @@ export class PrettyPrinter {
             return '';
         }
 
+        // A comment is not a statement and takes no terminator. Under
+        // `#delimit ;` a `*` comment runs to the next `;`, which the
+        // lexer keeps in the comment (`* c;`); after a `//` comment a
+        // `;` would be part of it. Either way, an added `;` would grow
+        // by one on each format.
         const the_parts: string[] = [];
         for (const my_trivia of node.leadingTrivia) {
             the_parts.push(this.getIndent());
             the_parts.push(this.printTrivia(my_trivia));
-            the_parts.push(this.getStatementTerminator());
+            the_parts.push('\n');
         }
 
         return the_parts.join('');
@@ -687,6 +710,15 @@ export class PrettyPrinter {
             the_parts.push(this.printTrivia(my_trivia));
             previous_end_line = my_trivia.range.end.line;
             own_line_index++;
+        }
+        // Under `#delimit ;` the `;` after a `//` comment would be part
+        // of it, so it goes on the next line. `#delimit` ends at the end
+        // of its own line.
+        const last = the_trivia[own_line_index - 1];
+        if (last !== undefined && last.style !== 'block' &&
+            node.type !== 'directive' &&
+            this.delimiter_mode === 'semicolon') {
+            the_parts.push('\n', this.getIndent());
         }
 
         return {
@@ -745,6 +777,39 @@ export class PrettyPrinter {
     }
 
     /**
+     * Append a comment from inside a statement to `the_parts`. A block
+     * comment stays on the line. A `//` comment ends it: what follows
+     * starts on a new line at `next_line_indent`, or, when that is
+     * null, the statement's own line break follows. Returns whether
+     * the parts now end at the start of a line.
+     */
+    private push_interior_comment(
+        the_parts: string[],
+        comment: TriviaNode,
+        at_line_start: boolean,
+        next_line_indent: string | null
+    ): boolean {
+        if (!at_line_start) {
+            the_parts.push(' ');
+        }
+        the_parts.push(this.printTrivia(comment));
+        if (comment.style === 'block' || next_line_indent === null) {
+            return false;
+        }
+        the_parts.push('\n', next_line_indent);
+        return true;
+    }
+
+    /**
+     * Indentation of the line a statement's `;` moves to after a `//`
+     * comment, or null under `#delimit cr`, where the terminator is
+     * the line break itself.
+     */
+    private getTerminatorLineIndent(): string | null {
+        return this.delimiter_mode === 'semicolon' ? this.getIndent() : null;
+    }
+
+    /**
      * Print a trivia node (comment).
      */
     private printTrivia(trivia: TriviaNode): string {
@@ -783,6 +848,14 @@ export class PrettyPrinter {
             ? this.current_indent 
             : this.current_indent * this.options.indent_size;
         return indent_char.repeat(indent_count);
+    }
+
+    /** Indentation of a statement's continuation lines: one level in. */
+    private getContinuationIndent(): string {
+        this.current_indent++;
+        const indent = this.getIndent();
+        this.current_indent--;
+        return indent;
     }
 
     /**

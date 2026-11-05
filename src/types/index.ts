@@ -302,11 +302,12 @@ export interface CommandNode {
   body?: StataNode[];  // For prefix command brace blocks (e.g., capture { })
   range: Range;
   leadingTrivia?: TriviaNode[];
-  // Block comments between the statement's tokens, e.g. `/* c */` in
-  // `reg y /* c */ x`, in source order. Stata reads them as whitespace,
-  // and the fields above leave them out, except that a parenthesized
-  // varlist group keeps its comments in its text; those are not
-  // repeated here. Not set on brace blocks.
+  // Comments between the statement's tokens, e.g. `/* c */` in
+  // `reg y /* c */ x`, or a `//` comment with more of the statement on
+  // the next line under `#delimit ;`, in source order. Stata reads them
+  // as whitespace, and the fields above leave them out, except that a
+  // parenthesized varlist group keeps its comments in its text; those
+  // are not repeated here. Not set on brace blocks.
   interiorTrivia?: TriviaNode[];
   blockEndingTrivia?: TriviaNode[];
   trailingTrivia?: TriviaNode[];

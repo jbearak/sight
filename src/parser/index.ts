@@ -100,6 +100,9 @@ const COMMAND_NAME_TYPES: ReadonlySet<TokenType | undefined> = new Set<TokenType
 const BODY_COMMANDS: ReadonlySet<string> = new Set([
   'foreach', 'while', 'if',
 ]);
+// `#delimit ;`, with the `;` as the first thing after the keyword.
+const DELIMIT_SEMICOLON_PATTERN = /^#delimit[ \t]*;/;
+
 /** Canonical names of the colon prefixes above. */
 const COLON_PREFIX_NAMES: ReadonlySet<string> = new Set(COLON_PREFIX_COMMANDS.values());
 
@@ -398,7 +401,7 @@ export class StataParser {
       // order, so one sweep finds the item around each comment.
       const the_items = node.type === 'command' ? node.varlist ?? [] : [];
       let item_index = 0;
-      const interior_trivia = this.block_comments_between(
+      const interior_trivia = this.comments_between(
         statement_start, this.current
       ).filter((my_comment) => {
         while (item_index < the_items.length &&
@@ -430,8 +433,9 @@ export class StataParser {
   private parseDelimitDirective(): DirectiveNode {
     const token = this.advance(); // consume DELIMIT_DIRECTIVE
 
-    // Extract mode from token value
-    const mode = token.value.includes(';') ? 'semicolon' : 'cr';
+    // The mode is the first thing after `#delimit`, as in the lexer:
+    // `#delimit cr // c;` is cr.
+    const mode = DELIMIT_SEMICOLON_PATTERN.test(token.value) ? 'semicolon' : 'cr';
 
     return {
       type: 'directive',
@@ -867,10 +871,10 @@ export class StataParser {
         }
       }
 
-      // A block comment with more of the value after it is whitespace;
-      // other comments end the value (continuations are handled above).
+      // A comment with more of the value after it is whitespace; other
+      // comments end the value (continuations are handled above).
       const token_type = this.peek().type;
-      if (token_type === 'COMMENT_BLOCK' && this.statement_continues_after(this.current)) {
+      if (this.is_interior_comment(this.current)) {
         this.advance();
         continue;
       }
@@ -972,9 +976,9 @@ export class StataParser {
         }
       }
 
-      // A block comment with more arguments after it is whitespace;
-      // other comments end the arguments (continuations are handled above).
-      if (this.check('COMMENT_BLOCK') && this.statement_continues_after(this.current)) {
+      // A comment with more arguments after it is whitespace; other
+      // comments end the arguments (continuations are handled above).
+      if (this.is_interior_comment(this.current)) {
         this.advance();
         continue;
       }
@@ -1426,8 +1430,8 @@ export class StataParser {
       if (this.skipContinuation()) {
         continue;
       }
-      if (this.check('COMMENT_BLOCK') && this.statement_continues_after(this.current)) {
-        this.advance(); // a block comment inside the statement is whitespace
+      if (this.is_interior_comment(this.current)) {
+        this.advance(); // a comment inside the statement is whitespace
         continue;
       }
       if (this.isTrivia() || this.check('STATEMENT_TERMINATOR') ||
@@ -1500,7 +1504,7 @@ export class StataParser {
       if (this.skipContinuation()) {
         continue;
       }
-      if (this.check('COMMENT_BLOCK') && this.statement_continues_after(this.current)) {
+      if (this.is_interior_comment(this.current)) {
         this.advance();
         continue;
       }
@@ -1597,13 +1601,13 @@ export class StataParser {
 
   /**
    * Parse command options after the comma. Continuations join option
-   * lines and block comments inside the statement are whitespace;
-   * other comments end the options.
+   * lines and comments inside the statement are whitespace; other
+   * comments end the options.
    */
   private parse_command_options(options: OptionNode[]): void {
     while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
       if (this.skipContinuation()) continue;
-      if (this.check('COMMENT_BLOCK') && this.statement_continues_after(this.current)) {
+      if (this.is_interior_comment(this.current)) {
         this.advance();
         continue;
       }
@@ -1653,14 +1657,18 @@ export class StataParser {
 
   /**
    * Does the statement have more code after the comment(s) at `index`?
-   * A block comment followed by code is whitespace inside the
-   * statement; one at the end of the line is trailing trivia.
+   * A comment followed by code is whitespace inside the statement; one
+   * at the end of the statement is trailing trivia. A `//` comment can
+   * be followed by code only under `#delimit ;`, where its line break
+   * doesn't end the statement: `di 1 // c` then `2;` displays 12
+   * (Stata 18).
    */
   private statement_continues_after(index: number): boolean {
     let i = index;
     for (;;) {
       const my_token = this.tokens[i];
-      if (my_token?.type === 'COMMENT_BLOCK' || my_token?.type === 'CONTINUATION') {
+      if (my_token?.type === 'COMMENT_BLOCK' || my_token?.type === 'COMMENT_LINE' ||
+          my_token?.type === 'CONTINUATION') {
         i++;
         continue;
       }
@@ -1676,8 +1684,14 @@ export class StataParser {
     const next = this.tokens[i];
     return next !== undefined &&
       next.type !== 'STATEMENT_TERMINATOR' &&
-      next.type !== 'EOF' &&
-      next.type !== 'COMMENT_LINE';
+      next.type !== 'EOF';
+  }
+
+  /** Is the token at `index` a comment with more of the statement after it? */
+  private is_interior_comment(index: number): boolean {
+    const type = this.tokens[index]?.type;
+    return (type === 'COMMENT_BLOCK' || type === 'COMMENT_LINE') &&
+      this.statement_continues_after(index);
   }
 
   /**
@@ -1783,7 +1797,7 @@ export class StataParser {
         flush();
         continue;
       }
-      if (this.check('COMMENT_BLOCK') && this.statement_continues_after(this.current)) {
+      if (this.is_interior_comment(this.current)) {
         flush();
         this.advance();
         continue;
@@ -2047,7 +2061,7 @@ export class StataParser {
     const start_pos = command_token.range.start;
 
     // Parse macro name
-    this.skip_interior_block_comments();
+    this.skip_interior_comments();
     if (!this.check('WORD')) {
       this.addError('Expected macro name after unab', this.peek().range);
       throw new Error('Missing macro name in unab command');
@@ -2065,8 +2079,8 @@ export class StataParser {
     // This keeps varlists pure (only variable names) while preserving syntax
     let has_colon_before_varlist = false;
 
-    // Expect colon; a block comment before it is whitespace.
-    this.skip_interior_block_comments();
+    // Expect colon; a comment before it is whitespace.
+    this.skip_interior_comments();
     if (!this.check('COLON')) {
       this.addError(
         'Expected ":" after macro name in unab command',
@@ -2077,10 +2091,10 @@ export class StataParser {
       has_colon_before_varlist = true;
     }
 
-    // Parse variable list after colon; a block comment between names is
+    // Parse variable list after colon; a comment between names is
     // whitespace.
     for (;;) {
-      this.skip_interior_block_comments();
+      this.skip_interior_comments();
       if (!this.is_unab_varlist_token()) {
         break;
       }
@@ -2115,7 +2129,7 @@ export class StataParser {
 
       while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
         if (this.skipContinuation()) continue;
-        if (this.skip_interior_block_comments()) continue;
+        if (this.skip_interior_comments()) continue;
         if (this.isTrivia()) break;
         if (this.check('WORD')) {
           const option_token = this.advance();
@@ -3347,7 +3361,7 @@ export class StataParser {
     const start_pos = command_token.range.start;
 
     // Parse macro name
-    this.skip_interior_block_comments();
+    this.skip_interior_comments();
     if (!this.check('WORD')) {
       this.addError('Expected macro name after unab', this.peek().range);
       return {
@@ -3370,8 +3384,8 @@ export class StataParser {
     // This keeps varlists pure (only variable names) while preserving syntax
     let has_colon_before_varlist = false;
 
-    // Expect colon; a block comment before it is whitespace.
-    this.skip_interior_block_comments();
+    // Expect colon; a comment before it is whitespace.
+    this.skip_interior_comments();
     if (!this.check('COLON')) {
       this.addError(
         'Expected ":" after macro name in unab command',
@@ -3382,10 +3396,10 @@ export class StataParser {
       has_colon_before_varlist = true;
     }
 
-    // Parse variable list after colon; a block comment between names is
+    // Parse variable list after colon; a comment between names is
     // whitespace.
     for (;;) {
-      this.skip_interior_block_comments();
+      this.skip_interior_comments();
       if (!this.is_unab_varlist_token()) {
         break;
       }
@@ -3419,7 +3433,7 @@ export class StataParser {
       this.advance();
       while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
         if (this.skipContinuation()) continue;
-        if (this.skip_interior_block_comments()) continue;
+        if (this.skip_interior_comments()) continue;
         if (this.isTrivia()) break;
         if (this.check('WORD')) {
           const option_token = this.advance();
@@ -3480,14 +3494,15 @@ export class StataParser {
    */
   private parse_prefix_chain(prefixes: PrefixNode[]): void {
     for (;;) {
-      // A `///` continuation, or block comments before the next word of
-      // a plain command (`capture /* c */ noisily`, `quietly: /* c */
-      // gen`), may separate prefixes; other comments end the chain so
-      // they stay attached to the statement as trivia.
+      // A `///` continuation, or comments before the next word of a
+      // plain command (`capture /* c */ noisily`, `quietly: /* c */
+      // gen`, or a `//` comment under `#delimit ;`), may separate
+      // prefixes; other comments end the chain so they stay attached to
+      // the statement as trivia.
       while (this.skipContinuation()) {
         // skip
       }
-      const word_index = this.index_after_block_comments(this.current);
+      const word_index = this.index_after_comments(this.current);
       if (word_index > this.current &&
           COMMAND_NAME_TYPES.has(this.tokens[word_index]?.type) &&
           this.is_plain_command_from(word_index)) {
@@ -3538,9 +3553,9 @@ export class StataParser {
     }
 
     // Consume colon after any prefix command (quietly:, capture:, by g:,
-    // etc.). A block comment before it is whitespace before a plain
-    // command: `quietly /* c */ : gen x = 1`.
-    const colon_index = this.index_after_block_comments(this.current);
+    // etc.). A comment before it is whitespace before a plain command:
+    // `quietly /* c */ : gen x = 1`.
+    const colon_index = this.index_after_comments(this.current);
     if (colon_index > this.current &&
         this.tokens[colon_index]?.type === 'COLON' &&
         this.is_plain_command_from(colon_index + 1)) {
@@ -3813,14 +3828,15 @@ export class StataParser {
   }
 
   /**
-   * Index of the first token from `index` on that isn't a block comment
-   * or a `///` continuation with its swallowed newline.
+   * Index of the first token from `index` on that isn't a comment or a
+   * `///` continuation with its swallowed newline.
    */
   private index_after_statement_trivia(index: number): number {
     let i = index;
     for (;;) {
       const my_token = this.tokens[i];
-      if (my_token?.type === 'COMMENT_BLOCK' || my_token?.type === 'CONTINUATION') {
+      if (my_token?.type === 'COMMENT_BLOCK' || my_token?.type === 'COMMENT_LINE' ||
+          my_token?.type === 'CONTINUATION') {
         i++;
       } else if (my_token !== undefined && i > 0 &&
           is_swallowed_continuation_terminator(
@@ -3832,22 +3848,26 @@ export class StataParser {
     }
   }
 
-  /** Index of the first token from `index` on that isn't a block comment. */
-  private index_after_block_comments(index: number): number {
+  /**
+   * Index of the first token from `index` on that isn't a comment. A
+   * `//` comment is followed by code only under `#delimit ;`.
+   */
+  private index_after_comments(index: number): number {
     let i = index;
-    while (this.tokens[i]?.type === 'COMMENT_BLOCK') {
+    while (this.tokens[i]?.type === 'COMMENT_BLOCK' ||
+        this.tokens[i]?.type === 'COMMENT_LINE') {
       i++;
     }
     return i;
   }
 
   /**
-   * Skip block comments that have more of the statement after them; a
+   * Skip comments that have more of the statement after them; a
    * comment there is whitespace. Returns true if any were skipped.
    */
-  private skip_interior_block_comments(): boolean {
+  private skip_interior_comments(): boolean {
     let skipped = false;
-    while (this.check('COMMENT_BLOCK') && this.statement_continues_after(this.current)) {
+    while (this.is_interior_comment(this.current)) {
       this.advance();
       skipped = true;
     }
@@ -3926,15 +3946,22 @@ export class StataParser {
     return trivia;
   }
 
-  /** Block comments among the tokens from `start` up to `end`. */
-  private block_comments_between(start: number, end: number): TriviaNode[] {
+  /**
+   * Comments among the tokens from `start` up to `end`. Inside a
+   * statement these are block comments, `//` comments with code after
+   * them under `#delimit ;`, and any comment a clause consumed (such as
+   * one after an unclosed option argument).
+   */
+  private comments_between(start: number, end: number): TriviaNode[] {
     const the_comments: TriviaNode[] = [];
     for (let i = start; i < end; i++) {
       const my_token = this.tokens[i];
-      if (my_token?.type === 'COMMENT_BLOCK') {
+      if (my_token?.type === 'COMMENT_BLOCK' || my_token?.type === 'COMMENT_LINE') {
         the_comments.push({
           type: 'comment',
-          style: 'block',
+          style: my_token.type === 'COMMENT_BLOCK'
+            ? 'block'
+            : my_token.value.startsWith('*') ? 'star' : 'slash',
           content: my_token.value,
           range: my_token.range,
         });
@@ -4233,10 +4260,9 @@ export class StataParser {
         continue;
       }
 
-      // A block comment with more of the statement after it is
-      // whitespace; one at the end of the line is trailing trivia.
-      if (token.type === 'COMMENT_BLOCK' &&
-          this.statement_continues_after(this.current)) {
+      // A comment with more of the statement after it is whitespace;
+      // one at the end of the statement is trailing trivia.
+      if (this.is_interior_comment(this.current)) {
         this.advance();
         continue;
       }
@@ -4510,11 +4536,10 @@ export class StataParser {
         }
       }
 
-      // A block comment with more of the statement after it is
-      // whitespace; other comments end the qualifier (continuations are
-      // handled above).
-      if (token.type === 'COMMENT_BLOCK' &&
-          this.statement_continues_after(this.current)) {
+      // A comment with more of the statement after it is whitespace;
+      // other comments end the qualifier (continuations are handled
+      // above).
+      if (this.is_interior_comment(this.current)) {
         this.advance();
         continue;
       }

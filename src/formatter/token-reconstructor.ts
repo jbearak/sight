@@ -39,7 +39,17 @@ export class TokenReconstructor {
         const the_lines = original_source.split('\n');
 
         for (const my_token of tokens) {
-            if (my_token.type === 'EOF') continue;
+            if (my_token.type === 'EOF') {
+                // Under `#delimit ;` a line break is whitespace, not a
+                // token, so the file's trailing line breaks exist only
+                // as the distance to EOF. Emit them; in `cr` mode the
+                // terminator tokens have already reached EOF's line.
+                while (state.current_line < my_token.range.start.line) {
+                    state.output_parts.push('\n');
+                    state.current_line++;
+                }
+                continue;
+            }
 
             const token_line = my_token.range.start.line;
             const token_col = my_token.range.start.character;
