@@ -135,13 +135,17 @@ export async function connect_to_stata(deps: ConnectDeps): Promise<ConnectResult
         if (!listing.ok) {
             return failure(listing, 'could not list Stata processes');
         }
+        // The listing leaves out Statas other consoles own (their pid
+        // files), so `open` counts only the user's own windows.
         const open = as_processes(listing.value.processes);
         if (open.length >= 2) {
             return {
                 ok: false,
                 exit_code: EXIT_SEVERAL_STATA_OPEN,
-                message: `${open.length} Stata windows are open, and sight console can't choose `
-                    + 'among them. Close all but the one to use, or all of them for a new Stata.',
+                message: `${open.length} Stata windows that no sight console owns are open, and `
+                    + 'sight console can\'t choose among them. Close all but the one to use, or '
+                    + 'all of them for a new Stata. Windows that other sight consoles own can '
+                    + 'stay open.',
             };
         }
         consented = open[0] ?? null;

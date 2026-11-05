@@ -148,6 +148,22 @@ describe('connect_to_stata', () => {
         expect(bridge.ops).not.toContain('connect');
     });
 
+    it('counts only Statas no console owns in the refusal', async () => {
+        // The listing already leaves out other consoles' Statas, so the
+        // message must not read as a count of every Stata window.
+        const bridge = new ScriptedBridge({ open: [[stata(1), stata(2)]] });
+        const result = await connect_to_stata(deps(bridge).deps);
+        if (result.ok) {
+            throw new Error('expected a refusal');
+        }
+        expect(result.message).toContain(
+            '2 Stata windows that no sight console owns are open'
+        );
+        expect(result.message).toContain(
+            'Windows that other sight consoles own can stay open.'
+        );
+    });
+
     it('asks before taking over the open Stata, and stops on no', async () => {
         const bridge = new ScriptedBridge({ open: [[stata(5)]] });
         const { deps: d, questions } = deps(bridge, ['n']);
