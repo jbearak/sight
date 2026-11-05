@@ -733,6 +733,8 @@ export class StataParser {
       this.advance();
     } else {
       this.addError('Missing "end" for program definition', start_token.range);
+      // Printing the AST would add the missing closer
+      this.note_unprintable(start_token.range.start);
     }
 
     // Extract and merge signatures from syntax nodes
@@ -1239,6 +1241,9 @@ export class StataParser {
         this.validate_close_brace(rbrace_token, rbrace_index);
       } else if (this.program_ended_in_block()) {
         closed_by_program_end = true;
+      } else {
+        // Printing the AST would add the missing closer
+        this.note_unprintable(start_token.range.start);
       }
 
       return {
@@ -2983,6 +2988,8 @@ export class StataParser {
         closed_by_program_end = true;
       } else {
         this.addError('Missing closing brace for if statement', ifToken.range);
+        // Printing the AST would add the missing closer
+        this.note_unprintable(ifToken.range.start);
       }
     } else {
       // `if exp` with no `{` and no command: Stata stops, "{ required"
@@ -3061,6 +3068,8 @@ export class StataParser {
         closed_by_program_end = true;
       } else {
         this.addError('Missing closing brace for else statement', elseToken.range);
+        // Printing the AST would add the missing closer
+        this.note_unprintable(elseToken.range.start);
       }
     } else {
       // Single statement else
@@ -3186,6 +3195,8 @@ export class StataParser {
         closed_by_program_end = true;
       } else {
         this.addError(`Missing closing brace for ${loopType} statement`, loopToken.range);
+        // Printing the AST would add the missing closer
+        this.note_unprintable(loopToken.range.start);
       }
     } else {
       // A loop header with no `{`: Stata stops, "{ required"
@@ -3291,6 +3302,8 @@ export class StataParser {
         closed_by_program_end = true;
       } else {
         this.addError('Missing closing brace for while statement', whileToken.range);
+        // Printing the AST would add the missing closer
+        this.note_unprintable(whileToken.range.start);
       }
     } else {
       // A while header with no `{`: Stata stops, "{ required"
@@ -3435,6 +3448,8 @@ export class StataParser {
       closed_by_program_end = true;
     } else {
       this.addError('Missing closing brace for frame block', frame_token.range);
+      // Printing the AST would add the missing closer
+      this.note_unprintable(frame_token.range.start);
     }
 
     // `frame f /* c */ {`: the comment is whitespace in the header.

@@ -6,6 +6,9 @@
  * r(100)), at a lone `}` ("} is not a valid command name", r(199)), and
  * passes the `{` of `b {` to `b` as an argument.
  *
+ * A block with no `}` (or a program with no `end`) is listed too:
+ * printing it would add the missing closer.
+ *
  * The parser now lists such code in `StataAST.unprintable_ranges`, and
  * AST formatting leaves a file with any to source-preserving
  * formatting, which keeps every statement as written.
@@ -47,6 +50,11 @@ const INVALID_SOURCES: Array<[string, string, number[]]> = [
     // The `}` is left over after giving up on the block
     ['a statement the parser gives up on, in a block', 'if 1 {\n    unab , x\n    di 1\n}\ndi 2\n', [0, 3]],
     ['an option that is not a name', 'reg y x, robust/cluster\n', [0]],
+    // A missing closer: printing the AST would add it
+    ['an if with no }', 'if 1 {\n    di 1\n', [0]],
+    ['an if with no }; under #delimit ;', '#delimit ;\nif 1 {;\ndi 1;\ndi 2;\n', [1]],
+    ['a capture block with no }', 'capture {\n    di 1\n', [0]],
+    ['a program with no end', 'program p\n    di 1\n', [0]],
 ];
 
 describe('code the AST does not hold', () => {

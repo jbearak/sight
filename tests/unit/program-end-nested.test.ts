@@ -260,6 +260,17 @@ describe('program ends at an end nested in a brace block: formatting', () => {
     );
 
     for_each_formatter_mode(
+        'ends a program at end; inside an if under #delimit ;',
+        (my_mode) => {
+            const my_source = '#delimit ;\nprogram p;\nif 1 {;\ndi 1;\nend;\ndi 2;\n';
+            const my_once = format_text(my_source, my_mode);
+            expect(my_once).toBe(
+                '#delimit ;\nprogram p;\n    if 1 {;\n        di 1;\nend;\ndi 2;\n');
+            expect(format_text(my_once, my_mode)).toBe(my_once);
+        }
+    );
+
+    for_each_formatter_mode(
         'adds no } to an else if cut off by the program end',
         (my_mode) => {
             const my_source =
