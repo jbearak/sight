@@ -55,6 +55,7 @@ import {
 } from '../directive-parser/comment-directives';
 import { LineSpan } from '../utils/statement-span';
 import { is_swallowed_continuation_terminator } from '../utils/continuation';
+import { nested_statements } from '../utils/node-body';
 
 // Diagnostic interface for semantic errors
 export interface SemanticDiagnostic {
@@ -812,6 +813,14 @@ export class SemanticAnalyzer {
 
             case 'command':
                 this.process_command(node, symbols, current_scope, node_index);
+                // A brace block (`quietly { … }`, `capture { … }`, a
+                // bare `{ … }`) runs its body in the same scope, so the
+                // body's definitions are visible after the block.
+                // `detect_undefined_references` recurses at the same
+                // point, keeping the preorder indices aligned.
+                if (node.body) {
+                    this.build_symbols_in_body(node.body, symbols, current_scope, all_scopes);
+                }
                 break;
 
             case 'syntax':
@@ -1018,9 +1027,11 @@ export class SemanticAnalyzer {
                         c_locals.push(name);
                     }
                 }
-            } else if (this.is_control_flow(node)) {
-                // Recurse into control flow bodies
-                c_locals.push(...this.extract_c_locals(node.body));
+            }
+            // Recurse into control flow and brace block bodies
+            const the_body = node.type === 'program' ? undefined : nested_statements(node);
+            if (the_body) {
+                c_locals.push(...this.extract_c_locals(the_body));
             }
         }
         return c_locals;
@@ -1040,9 +1051,10 @@ export class SemanticAnalyzer {
                 for (const opt of node.signature.options) {
                     option_names.add(opt.name.toLowerCase());
                 }
-            } else if (this.is_control_flow(node)) {
-                // Recurse into control flow bodies
-                for (const name of this.extract_syntax_option_names(node.body)) {
+            } else if (node.type !== 'program') {
+                // Recurse into control flow and brace block bodies
+                const the_body = nested_statements(node) ?? [];
+                for (const name of this.extract_syntax_option_names(the_body)) {
                     option_names.add(name);
                 }
             }
@@ -1089,9 +1101,11 @@ export class SemanticAnalyzer {
                         }
                     }
                 }
-            } else if (this.is_control_flow(node)) {
-                // Recurse into control flow bodies
-                const nested = this.extract_macro_creating_option_patterns(node.body, syntax_option_names);
+            }
+            // Recurse into control flow and brace block bodies
+            const the_body = node.type === 'program' ? undefined : nested_statements(node);
+            if (the_body) {
+                const nested = this.extract_macro_creating_option_patterns(the_body, syntax_option_names);
                 for (const opt of nested.local_options) local_set.add(opt);
                 for (const opt of nested.global_options) global_set.add(opt);
             }
@@ -3106,10 +3120,49 @@ export class SemanticAnalyzer {
         node_index: number,
         current_scope: ScopeInfo
     ): void {
-        // Check if this line should be ignored
-        if (this.config.ignored_lines.has(node.range.start.line)) {
+        // An ignore directive covers only the node's own first line,
+        // never a block's body: the body is still walked, which also
+        // keeps the preorder indices aligned with `build_symbols`.
+        if (!this.config.ignored_lines.has(node.range.start.line)) {
+            this.check_own_references(node, symbols, diagnostics, reported_ranges, node_index, current_scope);
+        }
+
+        if (node.type === 'program') {
+            // Recurse into the program body with ITS scope. Both passes
+            // traverse the same AST object graph, and `process_program`
+            // stores `range: node.range` by reference, so range object
+            // identity recovers exactly the ScopeInfo built for this
+            // body. If the match ever fails, keeping the enclosing
+            // scope reproduces the pre-split (suppressive) behavior —
+            // a miss, never a false positive.
+            const program_scope = this.current_scopes.find(
+                my_scope =>
+                    my_scope.type === 'program' &&
+                    my_scope.range === node.range
+            ) ?? current_scope;
+            this.detect_undefined_references(node.body, symbols, diagnostics, reported_ranges, program_scope);
             return;
         }
+
+        // Control flow and brace blocks (`quietly { … }`) do not create
+        // scope in Stata, so their bodies keep the current scope.
+        const the_body = nested_statements(node);
+        if (the_body) {
+            this.detect_undefined_references(the_body, symbols, diagnostics, reported_ranges, current_scope);
+        }
+    }
+
+    /**
+     * Check the references in `node` itself, not in its body.
+     */
+    private check_own_references(
+        node: StataNode,
+        symbols: SymbolTable,
+        diagnostics: SemanticDiagnostic[],
+        reported_ranges: Set<string>,
+        node_index: number,
+        current_scope: ScopeInfo
+    ): void {
         const inside_program = current_scope.type === 'program';
 
         switch (node.type) {
@@ -3144,34 +3197,6 @@ export class SemanticAnalyzer {
 
             case 'command':
                 this.check_command_references(node, symbols, diagnostics);
-                break;
-
-            case 'program': {
-                // Recurse into the program body with ITS scope. Both passes
-                // traverse the same AST object graph, and `process_program`
-                // stores `range: node.range` by reference, so range object
-                // identity recovers exactly the ScopeInfo built for this
-                // body. If the match ever fails, keeping the enclosing
-                // scope reproduces the pre-split (suppressive) behavior —
-                // a miss, never a false positive.
-                const program_scope = this.current_scopes.find(
-                    my_scope =>
-                        my_scope.type === 'program' &&
-                        my_scope.range === node.range
-                ) ?? current_scope;
-                this.detect_undefined_references(node.body, symbols, diagnostics, reported_ranges, program_scope);
-                break;
-            }
-
-            case 'foreach':
-            case 'forvalues':
-            case 'if':
-            case 'else':
-            case 'while':
-            case 'frame':
-                // Recurse into control flow body, preserving the scope
-                // (control flow does not create scope in Stata).
-                this.detect_undefined_references(node.body, symbols, diagnostics, reported_ranges, current_scope);
                 break;
 
             default:
@@ -5305,16 +5330,6 @@ export class SemanticAnalyzer {
     }
 
     // Helper methods
-
-    private is_control_flow(node: StataNode): node is ControlFlowNode {
-        return (
-            node.type === 'if' ||
-            node.type === 'else' ||
-            node.type === 'foreach' ||
-            node.type === 'forvalues' ||
-            node.type === 'while'
-        );
-    }
 
     private get_full_range(ast: StataAST): Range {
         if (ast.nodes.length === 0) {
