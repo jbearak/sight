@@ -255,6 +255,9 @@ export class PrettyPrinter {
         // lines go after it, on lines of their own.
         const trailing = this.printTrailingTrivia(node, result);
         result += trailing.same_line;
+        if (node.type === 'command' && node.input_data !== undefined) {
+            result += this.printInputData(node.input_data.content);
+        }
 
         return { code: result, own_line: body_own_line + trailing.own_line };
     }
@@ -273,6 +276,16 @@ export class PrettyPrinter {
     /**
      * Print a command node.
      */
+    /**
+     * The data lines of an `input` statement, as written, and the `end`
+     * that closes them at the statement's indentation.
+     */
+    private printInputData(content: string): string {
+        const terminator = this.getStatementTerminator();
+        const data = content === '' ? '' : content + terminator;
+        return `${terminator}${data}${this.getIndent()}end`;
+    }
+
     private printCommand(node: CommandNode): string {
         if (node.noted_lines) {
             return this.printNotedLines(node.noted_lines);

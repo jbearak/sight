@@ -518,8 +518,42 @@ export class StataParser {
     if (consume_terminator && this.check('STATEMENT_TERMINATOR')) {
       this.advance();
     }
+    if (node?.type === 'command' && this.check('INPUT_DATA')) {
+      this.read_input_data(node);
+    }
 
     return node;
+  }
+
+  /**
+   * Attach the data lines after an `input` statement (one INPUT_DATA
+   * token, from the lexer) and consume the `end` line that closes them.
+   * Stata discards the rest of that line (`end foo`, `end // c`), which
+   * the AST does not keep, so printing it would lose that text.
+   */
+  private read_input_data(node: CommandNode): void {
+    const data_token = this.advance();
+    if (this.check('STATEMENT_TERMINATOR')) {
+      this.advance(); // the newline ending the last data line
+    }
+    if (!this.checkWord('end')) {
+      return;
+    }
+    const end_token = this.advance();
+    node.input_data = {
+      content: data_token.value,
+      content_range: data_token.range,
+    };
+    node.range = this.makeRange(node.range.start, end_token.range.end);
+    if (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
+      while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
+        this.advance();
+      }
+      this.note_unprintable(end_token.range.start);
+    }
+    if (this.check('STATEMENT_TERMINATOR')) {
+      this.advance();
+    }
   }
 
   private parseDelimitDirective(): DirectiveNode {

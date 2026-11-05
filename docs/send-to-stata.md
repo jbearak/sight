@@ -175,7 +175,7 @@ Send Upward Lines ends at the end of the cursor's statement, and Send Downward L
 
 ### Blocks
 
-A block's header can't run without its body and closer: Stata stops with "unexpected end of file" (r(612)). So with the cursor on the header or on the closer, Send statement sends the whole block, from the header through its `}` (or `};` under `#delimit ;`), or through `end` for `program define` and `mata` or `python` blocks. That covers `foreach`, `forvalues`, `while`, `if`, `else`, `frame`, a prefix's block (`capture {`, `quietly {`, `capture noisily {`), `program`, `mata`, and `python`, with blocks nested inside them. With the cursor on a line inside the body, it sends just that statement, or a nested block if the line is its header or closer.
+A block's header can't run without its body and closer: Stata stops with "unexpected end of file" (r(612)). So with the cursor on the header or on the closer, Send statement sends the whole block, from the header through its `}` (or `};` under `#delimit ;`), or through `end` for `program define` and `mata` or `python` blocks. That covers `foreach`, `forvalues`, `while`, `if`, `else`, `frame`, a prefix's block (`capture {`, `quietly {`, `capture noisily {`), `program`, `mata`, and `python`, with blocks nested inside them, and `input` with its data lines through their `end`. With the cursor on a line inside the body, it sends just that statement, or a nested block if the line is its header or closer.
 
 An `if` and the `else` and `else if` parts after it go together, from any of their headers or closers. Stata runs an `else` sent on its own even after a true `if`, so sending them apart would run both branches. That holds for one-line `if x di "a"` / `else di "b"` too.
 

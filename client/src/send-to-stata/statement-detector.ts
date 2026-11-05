@@ -146,7 +146,8 @@ export function read_document(text: string): DocumentReading {
  * The lines of each closed block in the parsed document, keyed by the
  * lines of its headers and closers: `foreach`, `forvalues`, `while`,
  * `if`, `else`, and `frame` blocks, a prefix's brace block
- * (`capture {`), a program, and a `mata` or `python` block.
+ * (`capture {`), a program, a `mata` or `python` block, and `input`
+ * with its data.
  *
  * An `if` and the `else` nodes right after it are one chain: Stata runs
  * an `else` sent on its own even after a true `if`, so they are sent
@@ -248,13 +249,16 @@ function is_closed_block(node: StataNode): boolean {
         case 'program':
             return node.ends_at_embedded_block === true ||
                 node.closed_by_end === true;
+        case 'command':
+            // `input` with its data lines, closed by its `end`
+            return node.closed_by_brace === true ||
+                node.input_data !== undefined;
         case 'if':
         case 'else':
         case 'foreach':
         case 'forvalues':
         case 'while':
         case 'frame':
-        case 'command':
             return node.closed_by_brace === true;
         default:
             return false;

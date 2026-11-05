@@ -398,6 +398,10 @@ unquoted paths all give the same object.
 
 (Ranges and some nested fields are omitted above.)
 
+An `input` statement outside a program reads the lines after it as data,
+up to a line whose first word is `end`. Its `range` and `text` run
+through that `end`, and the data lines are not statements.
+
 - `name` is the command as written. `canonical_name` is the full name of a
   built-in command that `name` abbreviates (`reg` is `regress`), or null for
   anything else, such as user programs and community commands.
