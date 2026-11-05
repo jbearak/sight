@@ -45,7 +45,10 @@ const INVALID_SOURCES: Array<[string, string, number[]]> = [
     ['an if with no brace or command', 'if 1\ndi 2\n', [0]],
     ['a loop with no brace', 'foreach i in 1 2\ndi 1\nwhile 1\ndi 2\n', [0, 2]],
     ['an orphan close brace', 'di 1\n}\ndi 2\n', [1]],
-    ['a brace block alone', 'di 1\n{\n    di 3\n}\ndi 2\n', [1]],
+    ['a brace block after a command on its line', 'di 1 {\n    di 3\n}\ndi 2\n', [0]],
+    // Stata stops at `{ di 1` ("code follows on the same line as open
+    // brace", r(198)); printing would move `di 1` to a line of its own
+    ['code after a block\'s {', '{ di 1\n    di 2\n}\n', [0]],
     ['lines that start with an operator', '= 1\n) x\ndi 1\n', [0, 1]],
     // The `}` is left over after giving up on the block
     ['a statement the parser gives up on, in a block', 'if 1 {\n    unab , x\n    di 1\n}\ndi 2\n', [0, 3]],
@@ -66,6 +69,8 @@ describe('code the AST does not hold', () => {
     it('lists nothing for valid code', () => {
         expect(unprintable_lines('if 1 {\n    di 1\n}\nelse di 2\nforeach i in 1 {\n}\n'))
             .toEqual([]);
+        // Stata 18 runs a standalone block
+        expect(unprintable_lines('di 1\n{\n    di 3\n}\ndi 2\n')).toEqual([]);
     });
 });
 

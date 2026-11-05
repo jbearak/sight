@@ -69,6 +69,11 @@ const COMMAND_NAME_TYPES: ReadonlySet<TokenType | undefined> = new Set<TokenType
 const PREFIX_CHAIN_BLOCK_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
   'LBRACE', 'MATA_START', 'MATA_INLINE', 'PYTHON_START', 'PYTHON_INLINE',
 ]);
+// Tokens between the end of one statement and the start of the next.
+const NEXT_STATEMENT_SKIP_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
+  'STATEMENT_TERMINATOR', 'COMMENT_LINE', 'COMMENT_BLOCK', 'CONTINUATION',
+  'WHITESPACE',
+]);
 // `#delimit ;`, with the `;` as the first thing after the keyword.
 const DELIMIT_SEMICOLON_PATTERN = /^#delimit[ \t]*;/;
 
@@ -325,12 +330,23 @@ export class StataParser {
       // The lexer splits compound strings with macros into multiple tokens,
       // so we need to collect all tokens until the statement terminator
       node = this.parseStringStatement();
+    } else if (this.check('LBRACE') && this.at_statement_start()) {
+      // A standalone `{ ... }` block. Stata 18 runs one at the top
+      // level, in a program, after another block, and nested, and
+      // locals defined in it stay defined after it. parseCommand reads
+      // it as a block with no prefix. A header or prefix that ended
+      // just before it (`if 1` then `{` on the next line) reports
+      // OPEN_BRACE_ALONE itself.
+      node = this.parseCommand();
     } else if (this.check('LBRACE')) {
-      // Standalone open brace - this is an error in Stata
-      // The brace should be on the same line as a condition/statement
+      // A `{` after a command on its line (`b {`), where the command's
+      // arguments stopped. Stata 18 passes it to `b` as an argument,
+      // and the `}` that was to close it is "not a valid command name"
+      // (r(199)).
       const brace_token = this.advance();
       this.errors.push({
-        message: 'open brace must be on the same line as the condition',
+        message: 'open brace does not open a block here: Stata passes ' +
+          'it to the command before it',
         range: brace_token.range,
         code: ParseErrorCode.OPEN_BRACE_ALONE,
       });
@@ -1248,7 +1264,14 @@ export class StataParser {
       // has_condition_before is true if brace is on same line as prefix command
       const has_condition_before =
           lbrace_token.range.start.line === command_start_line;
-      this.validate_open_brace(lbrace_token, lbrace_index, has_condition_before);
+      const has_code_after = this.validate_open_brace(
+        lbrace_token, lbrace_index, has_condition_before);
+      // Stata 18 stops at `{ di 1` and `quietly { di 1` ("code follows
+      // on the same line as open brace", r(198)); printing the AST
+      // would move `di 1` onto its own line, where it runs.
+      if (has_code_after) {
+        this.note_unprintable(lbrace_token.range.start);
+      }
 
       const body: StataNode[] = [];
       const { body: my_body, blockEndingTrivia } = this.parseBraceBody();
@@ -1289,6 +1312,11 @@ export class StataParser {
       // `capture`, `quietly:`, and `capture: * note` are valid Stata.
       if (!this.at_statement_end()) {
         this.addError('Expected command name', this.peek().range);
+      } else {
+        // `capture` alone then `{` on the next line: Stata 18 runs the
+        // block without the prefix (an error in it is not captured).
+        this.report_brace_after_statement(
+          start_token, 'here the block runs without it');
       }
       // This point is only reachable after consuming one or more prefix
       // commands (a zero-prefix entry always starts on a WORD/macro_ref), so
@@ -3051,6 +3079,7 @@ export class StataParser {
       }
     } else {
       // `if exp` with no `{` and no command: Stata stops, "{ required"
+      this.report_header_without_brace(ifToken, true);
       this.note_unprintable(ifToken.range.start);
     }
 
@@ -3131,6 +3160,15 @@ export class StataParser {
         this.note_unprintable(elseToken.range.start);
       }
     } else {
+      // `else` alone on its line is a statement of its own to Stata
+      // 18, so a `{` on the next line opens a block that always runs.
+      // Printing the AST would turn the `else` into `else {` `}`,
+      // hiding which block the `{` was meant for.
+      if (this.at_statement_end() &&
+          this.report_brace_after_statement(
+            elseToken, 'here the block runs whatever the `if` found')) {
+        this.note_unprintable(elseToken.range.start);
+      }
       // Single statement else
       const stmt = this.parseStatement();
       if (stmt) {
@@ -3263,6 +3301,7 @@ export class StataParser {
       }
     } else {
       // A loop header with no `{`: Stata stops, "{ required"
+      this.report_header_without_brace(loopToken, false);
       this.note_unprintable(loopToken.range.start);
     }
 
@@ -3370,6 +3409,7 @@ export class StataParser {
       }
     } else {
       // A while header with no `{`: Stata stops, "{ required"
+      this.report_header_without_brace(whileToken, false);
       this.note_unprintable(whileToken.range.start);
     }
 
@@ -5107,6 +5147,116 @@ export class StataParser {
   }
 
   /**
+   * The `{` that starts the statement after the current one, or
+   * undefined. Called at the end of a statement (a terminator, a
+   * comment that ends it, or the end of the file); skips blank lines
+   * and comments.
+   */
+  private next_statement_open_brace(): Token | undefined {
+    for (let i = this.current; i < this.tokens.length; i++) {
+      const my_token = this.tokens[i];
+      if (!NEXT_STATEMENT_SKIP_TYPES.has(my_token.type)) {
+        return my_token.type === 'LBRACE' ? my_token : undefined;
+      }
+    }
+    return undefined;
+  }
+
+  /**
+   * Does the current token start a statement? Only comments (and
+   * whitespace) may come between it and the end of the previous
+   * statement, or the start of the file. A `///` joins the lines
+   * around it into one statement. In cr mode a `//` comment ends at a
+   * terminator, which this reaches first.
+   */
+  private at_statement_start(): boolean {
+    for (let i = this.current - 1; i >= 0; i--) {
+      const my_token = this.tokens[i];
+      if (my_token.type === 'COMMENT_BLOCK' || my_token.type === 'COMMENT_LINE' ||
+          my_token.type === 'WHITESPACE') {
+        continue;
+      }
+      if (my_token.type === 'STATEMENT_TERMINATOR') {
+        return !is_swallowed_continuation_terminator(
+          my_token, this.tokens[i - 1]?.type === 'CONTINUATION');
+      }
+      return my_token.type === 'DELIMIT_DIRECTIVE';
+    }
+    return true;
+  }
+
+  /**
+   * After a statement that needed its `{` on its own line (`else` or a
+   * prefix like `capture`, alone), report OPEN_BRACE_ALONE on a `{`
+   * that starts the next statement. Stata 18 runs that `{` as a block
+   * of its own; `consequence` says what that means. Returns whether it
+   * reported.
+   */
+  private report_brace_after_statement(
+    keyword_token: Token,
+    consequence: string
+  ): boolean {
+    const brace_token = this.next_statement_open_brace();
+    if (brace_token === undefined) {
+      return false;
+    }
+    this.push_open_brace_alone(brace_token, keyword_token.value, consequence);
+    return true;
+  }
+
+  /**
+   * A block header (`if exp`, `foreach`, `forvalues`, `while`) ended
+   * with no `{`, and for `if` no command. Stata 18 stops there with
+   * "{ required" (r(100)), also under `#delimit ;` and after a
+   * prefix (`capture if 1` sets `_rc` to 100). When the next statement
+   * is a `{`, it was meant to open the block, so the error goes on it
+   * as OPEN_BRACE_ALONE; otherwise MISSING_OPEN_BRACE goes on the
+   * header.
+   */
+  private report_header_without_brace(
+    keyword_token: Token,
+    takes_command: boolean
+  ): void {
+    const keyword = keyword_token.value;
+    const brace_token = this.next_statement_open_brace();
+    if (brace_token !== undefined) {
+      this.push_open_brace_alone(
+        brace_token, keyword, 'Stata stops with "{ required"');
+      return;
+    }
+    // A loop header Sight could not read (`foreach v bogus`) stops
+    // short of its end; leave that to the loop's own checks.
+    if (!this.at_statement_end()) {
+      return;
+    }
+    const the_options = takes_command ? 'a command or a {' : 'a {';
+    const where = this.delimit_mode === 'cr' ? 'line' : 'statement';
+    this.errors.push({
+      message: `{ required: \`${keyword}\` needs ${the_options} ` +
+        `at the end of its ${where}`,
+      range: this.makeRange(
+        keyword_token.range.start, this.previous().range.end),
+      code: ParseErrorCode.MISSING_OPEN_BRACE,
+    });
+  }
+
+  /** Report OPEN_BRACE_ALONE on a `{` meant for the `keyword` before it. */
+  private push_open_brace_alone(
+    brace_token: Token,
+    keyword: string,
+    consequence: string
+  ): void {
+    const placement = this.delimit_mode === 'cr'
+      ? `on the same line as \`${keyword}\``
+      : `before the ; that ends the \`${keyword}\``;
+    this.errors.push({
+      message: `open brace must be ${placement}; ${consequence}`,
+      range: brace_token.range,
+      code: ParseErrorCode.OPEN_BRACE_ALONE,
+    });
+  }
+
+  /**
    * Validate open brace placement and emit diagnostics if invalid.
    * Checks for:
    * - Brace alone on line (no condition before) → emit OPEN_BRACE_ALONE
@@ -5115,8 +5265,9 @@ export class StataParser {
    * @param brace_token The opening brace token to validate
    * @param brace_index The index of the brace token in the tokens array
    * @param has_condition_before Whether there is a condition/statement before the brace on the same line
+   * @returns Whether code follows the brace on its line
    */
-  validate_open_brace(brace_token: Token, brace_index: number, has_condition_before: boolean): void {
+  validate_open_brace(brace_token: Token, brace_index: number, has_condition_before: boolean): boolean {
     const brace_line = brace_token.range.start.line;
 
     // Check if brace is alone on line (no condition before)
@@ -5151,6 +5302,7 @@ export class StataParser {
         code: ParseErrorCode.CODE_AFTER_OPEN_BRACE,
       });
     }
+    return code_after !== null;
   }
 
   /**

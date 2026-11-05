@@ -49,6 +49,8 @@ const PARSER_ERROR_SEVERITIES: Readonly<
     [ParseErrorCode.ORPHAN_CLOSE_BRACE]: 'error',
     [ParseErrorCode.STRAY_TOKEN_IN_CONDITION]: 'error',
     [ParseErrorCode.SPLIT_LITERAL_IN_CONDITION]: 'error',
+    // Stata stops with "{ required" (r(100)).
+    [ParseErrorCode.MISSING_OPEN_BRACE]: 'error',
 };
 
 /**
