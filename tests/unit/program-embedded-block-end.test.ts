@@ -180,6 +180,16 @@ describe('program definition ends at an embedded block end', () => {
         ]);
     });
 
+    it('opens a program with a nested block comment in its header', () => {
+        const my_source =
+            'program /* outer /* inner */ */ define foo\npython:\n    end\ndi 1\nend\n';
+        expect(end_token_lines(my_source)).toEqual([2]);
+        expect(context_codes(my_source)).toEqual([
+            [2, ContextErrorCode.EMBEDDED_BLOCK_ENDS_PROGRAM],
+            [4, ContextErrorCode.UNEXPECTED_END],
+        ]);
+    });
+
     it('closes a program with options at its own end', () => {
         // `program foo, rclass` used to be missed, so its `end` was
         // reported as unexpected.

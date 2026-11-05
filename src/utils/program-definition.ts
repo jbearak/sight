@@ -10,15 +10,40 @@ export const PROGRAM_SUBCOMMANDS: ReadonlySet<string> = new Set([
 ]);
 
 const FIRST_WORD = /^[ \t]+([A-Za-z_][A-Za-z0-9_]*)/;
-const PLUGIN_OPTION = /,.*\bplugin\b/;
-const INLINE_BLOCK_COMMENT = /\/\*.*?\*\//g;
+const PLUGIN_WORD = /\bplugin\b/;
 
 /**
  * `text` with each block comment that opens and closes on the line
- * replaced by a blank, as the parser reads it.
+ * replaced by a blank, as the parser reads it. Block comments nest,
+ * as in Stata; an unclosed one is left as written. One linear scan.
  */
 export function strip_inline_block_comments(text: string): string {
-    return text.replace(INLINE_BLOCK_COMMENT, ' ');
+    const the_parts: string[] = [];
+    let my_depth = 0;
+    let my_kept_from = 0;
+    let my_comment_start = 0;
+    let i = 0;
+    while (i < text.length) {
+        if (text[i] === '/' && text[i + 1] === '*') {
+            if (my_depth === 0) {
+                the_parts.push(text.slice(my_kept_from, i));
+                my_comment_start = i;
+            }
+            my_depth++;
+            i += 2;
+        } else if (my_depth > 0 && text[i] === '*' && text[i + 1] === '/') {
+            my_depth--;
+            i += 2;
+            if (my_depth === 0) {
+                the_parts.push(' ');
+                my_kept_from = i;
+            }
+        } else {
+            i++;
+        }
+    }
+    the_parts.push(text.slice(my_depth > 0 ? my_comment_start : my_kept_from));
+    return the_parts.join('');
 }
 
 /**
@@ -37,5 +62,7 @@ export function is_program_definition_header(text_after_program: string): boolea
     const my_code = my_comment_start === -1
         ? my_text
         : my_text.slice(0, my_comment_start);
-    return !PLUGIN_OPTION.test(my_code);
+    // A `plugin` option: the word after the comma that starts options
+    const my_comma = my_code.indexOf(',');
+    return my_comma === -1 || !PLUGIN_WORD.test(my_code.slice(my_comma));
 }
