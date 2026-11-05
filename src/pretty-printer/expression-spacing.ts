@@ -70,6 +70,14 @@ const UNARY_OPERATORS = new Set(['!', '~']);
 const EXPRESSION_KEYWORDS = new Set(['of', 'in']);
 
 /**
+ * Token categories that are part of a word: Stata reads touching
+ * tokens of these kinds as one word.
+ */
+const WORD_CATEGORIES = new Set<TokenCategory>([
+    'identifier', 'number', 'keyword', 'macro_ref', 'string',
+]);
+
+/**
  * Find all protected regions in an expression.
  * Content within these regions is preserved exactly as-is.
  *
@@ -487,6 +495,15 @@ function needs_space_before(
 
     const my_curr = current.category;
     const my_prev = previous.category;
+
+    // A macro and a word it touches are one Stata word, as in `a'_b,
+    // x`i', or `n'`m': a space between them would split it.
+    const is_touching_macro =
+        current.start === previous.end &&
+        (my_curr === 'macro_ref' || my_prev === 'macro_ref') &&
+        WORD_CATEGORIES.has(my_curr) &&
+        WORD_CATEGORIES.has(my_prev);
+    if (is_touching_macro) return false;
 
     // Binary operators need space before
     if (my_curr === 'binary_operator') return true;

@@ -7,6 +7,7 @@ import {
     MacroRefNode,
     ControlFlowNode,
     StringLiteralNode,
+    IdentifierNode,
     DirectiveNode,
     TriviaNode,
     PrefixNode,
@@ -18,25 +19,25 @@ import { compare_positions } from '../utils/scope-position';
 import { format_expression_spacing } from './expression-spacing';
 
 /**
- * Determines if a space should be omitted between two adjacent varlist tokens.
- * Returns true when tokens are string delimiters that should "stick" together,
- * when the next token is a colon qualifier, or when dealing with wildcard patterns.
+ * Determines if a space should be omitted between two varlist items
+ * that had a gap between them in the source. Items with no gap are
+ * always printed together; see printCommand.
  */
 function should_omit_space(current: string, next: string): boolean {
     // Whitespace already present
     if (/\s$/.test(current) || /^\s/.test(next)) return true;
-    
-    // Compound string delimiters: `" and "'
-    if (current.endsWith('`"') || next.startsWith(`"'`)) return true;
-    
-    // Double-quote delimiter adjacent to content
-    if (current === '"' || next === '"') return true;
-    
+
     // Wildcard patterns - no space before * or ? when they follow a word-like token
     // This handles patterns like var*, x?, _*
     if ((next === '*' || next === '?') && /^[a-zA-Z0-9_]+$/.test(current)) return true;
-    
+
     return false;
+}
+
+/** True when `previous` ends where `next` starts in the source. */
+function is_source_adjacent(previous: IdentifierNode, next: IdentifierNode): boolean {
+    return previous.range.end.line === next.range.start.line &&
+        previous.range.end.character === next.range.start.character;
 }
 
 /**
@@ -213,9 +214,12 @@ export class PrettyPrinter {
         // Print the arguments in source order: varlist items, and argument
         // tokens after the varlist (e.g. `> 0` in `assert x > 0`). A `using`
         // clause after them is appended to the varlist, so sort by position
-        // (`infix id 1-3 using f`). Varlist neighbors keep their spacing
-        // rules; extra args, already grouped by adjacency, are attached only
-        // where the source had no gap (`gen x:lbl = 1`).
+        // (`infix id 1-3 using f`). Items with no gap between them in the
+        // source stay together: Stata splits arguments at whitespace, and
+        // the lexer splits one argument into several items, as in the
+        // pieces of `"n=`n'"` around its macro or in `` `p'`i' `` and
+        // `gen x:lbl = 1`. Varlist items that had a gap keep their
+        // spacing rules.
         // For unab commands with has_colon_before_varlist, emit colon after macro name
         // An interior comment goes back before the argument that
         // followed it in the source. One after the last argument goes at
@@ -254,12 +258,10 @@ export class PrettyPrinter {
             } else if (previous === undefined || after_comment) {
                 the_parts.push(' ');
             } else {
-                const is_attached =
-                    previous.item.range.end.line === my_entry.item.range.start.line &&
-                    previous.item.range.end.character === my_entry.item.range.start.character;
-                const omit_space = my_entry.is_extra || previous.is_extra
-                    ? is_attached
-                    : should_omit_space(previous.item.name, my_entry.item.name);
+                const omit_space =
+                    is_source_adjacent(previous.item, my_entry.item) ||
+                    (!my_entry.is_extra && !previous.is_extra &&
+                        should_omit_space(previous.item.name, my_entry.item.name));
                 if (!omit_space) {
                     the_parts.push(' ');
                 }
