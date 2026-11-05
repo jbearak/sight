@@ -21,6 +21,10 @@ import { PrettyPrinter } from '../pretty-printer';
 import { StataLexer } from '../lexer';
 import { StataParser } from '../parser';
 
+// The `;` that ends an inline embedded statement, with any spaces
+// after it.
+const INLINE_UNIT_TERMINATOR_PATTERN = /;[ \t]*$/;
+
 /**
  * Code Formatter class with embedded language support.
  */
@@ -183,8 +187,16 @@ export class CodeFormatter {
             }
 
             const my_placeholder = `__EMBEDDED_BLOCK_${my_placeholder_counter}__`;
+            // An inline `mata:`/`python:` statement keeps its closing `;`
+            // after the placeholder, so under `#delimit ;` the placeholder
+            // is still a statement of its own, and the next statement isn't
+            // read as continuing it. Restoring puts the text back as it was.
+            const my_terminator = my_unit.range.is_single_line
+                ? INLINE_UNIT_TERMINATOR_PATTERN.exec(my_unit.content)?.[0] ?? ''
+                : '';
             the_embedded_blocks.set(my_placeholder, {
-                content: my_unit.content,
+                content: my_unit.content.slice(
+                    0, my_unit.content.length - my_terminator.length),
                 range: my_unit.range
             });
 
@@ -192,7 +204,7 @@ export class CodeFormatter {
             my_modified_content = this.replace_range_in_content(
                 my_modified_content,
                 my_unit.actual_range,
-                my_placeholder
+                my_placeholder + my_terminator
             );
 
             my_placeholder_counter++;

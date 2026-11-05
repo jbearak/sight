@@ -77,7 +77,13 @@ export class TokenReconstructor {
                     
                     let output_whitespace: string;
                     if (indent_info.indent_delta !== 0) {
-                        output_whitespace = this.apply_indent_delta(leading_whitespace, indent_info.indent_delta, config);
+                        // Normalize the shifted whitespace too, so a tab
+                        // added to spaces (or spaces to tabs) gives what a
+                        // second format would.
+                        output_whitespace = this.normalize_whitespace(
+                            this.apply_indent_delta(leading_whitespace, indent_info.indent_delta, config),
+                            config
+                        );
                     } else {
                         // Even with delta 0, normalize mixed whitespace to consistent style
                         // while preserving the visual width
