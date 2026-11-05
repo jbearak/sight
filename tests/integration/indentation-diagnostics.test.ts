@@ -4,6 +4,7 @@ import { DEFAULT_SETTINGS } from '../../src/server-handlers';
 import { StataDiagnosticCode, StataLSPConfig } from '../../src/types';
 import { Connection } from 'vscode-languageserver';
 import { create_real_document_state } from '../test-context-helper';
+import { indentation_codes_by_line } from '../property/helpers/indentation-test-utils';
 
 describe('Indentation Diagnostics Integration', () => {
   test('should detect unnecessary indentation after comment', async () => {
@@ -179,5 +180,21 @@ No indentation line
         code: StataDiagnosticCode.MISSING_INDENTATION
       })
     );
+  });
+});
+
+describe('Indentation diagnostics: what Format Document re-indents', () => {
+  test('reports a line whose spacing inside also changes', () => {
+    // Format Document turns `\tdisplay\t1` into `display 1`; the
+    // leading tab is still unnecessary.
+    expect(indentation_codes_by_line('\tdisplay\t1\n').get(0))
+      .toBe(StataDiagnosticCode.UNNECESSARY_INDENTATION);
+  });
+
+  test('reports a line that starts with a block comment', () => {
+    // Format Document indents `/* c */ display 1` inside the block, so
+    // the line is reported like any other code line.
+    expect(indentation_codes_by_line('if 1 {\n/* c */ display 1\n}\n').get(1))
+      .toBe(StataDiagnosticCode.MISSING_INDENTATION);
   });
 });

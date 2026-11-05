@@ -14,6 +14,13 @@ import { diagnostic_code_description_fields } from '../utils/diagnostic-code-des
 import { CodeFormatter } from './formatter';
 
 const LEADING_WHITESPACE_RE = /^[ \t]*/;
+const BLANK_RUN_RE = /[ \t]+/g;
+
+/** `line` without its leading and trailing blanks, inner runs as one space. */
+function collapse_blanks(line: string): string {
+  return line.trim().replace(BLANK_RUN_RE, ' ');
+}
+
 const NON_CODE_TOKEN_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
   'COMMENT_LINE', 'COMMENT_BLOCK', 'WHITESPACE', 'STATEMENT_TERMINATOR', 'EOF',
 ]);
@@ -91,9 +98,11 @@ export class IndentationDiagnosticAnalyzer {
       const line = the_lines[i];
       const formatted_line = the_formatted_lines[i];
       // Blank lines have no indentation to judge, and a line the
-      // formatter changed beyond its indentation is not the same line.
+      // formatter changed beyond its whitespace is not the same line.
+      // Spacing inside the line may change (`display\t1` becomes
+      // `display 1`), which says nothing about its indentation.
       if (!code_lines.has(i) || structural_taint.has(i) ||
-          line.trim() !== formatted_line.trim()) {
+          collapse_blanks(line) !== collapse_blanks(formatted_line)) {
         continue;
       }
       const actual = this.indent_width(line, indent_size);
