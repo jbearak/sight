@@ -9,7 +9,10 @@ import {
   LanguageContext,
 } from '../types';
 import { is_swallowed_continuation_terminator } from '../utils/continuation';
-import { is_program_definition_header } from '../utils/program-definition';
+import {
+  is_program_definition_header,
+  logical_line_text,
+} from '../utils/program-definition';
 import { SemicolonStatementTracker } from '../utils/semicolon-statement';
 import {
   COLON_PREFIX_COMMANDS,
@@ -223,12 +226,9 @@ export class StataLexer {
   private note_program_definition_word(value: string, start_line: number): void {
     if (value === 'program' && !this.program_definition_open &&
         this.is_first_code_on_line(start_line)) {
-      const my_line_end = this.source.indexOf('\n', this.position);
-      const my_rest = this.source.slice(
-        this.position,
-        my_line_end === -1 ? this.source.length : my_line_end
+      this.program_definition_open = is_program_definition_header(
+        logical_line_text(this.source, this.position)
       );
-      this.program_definition_open = is_program_definition_header(my_rest);
     } else if (value === 'end' && this.program_definition_open &&
         this.is_end_at_line_start(start_line)) {
       this.program_definition_open = false;

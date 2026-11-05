@@ -54,6 +54,11 @@
       "error": null
     },
     {
+      "path": "program-ends.do",
+      "standalone": false,
+      "error": null
+    },
+    {
       "path": "report.do",
       "standalone": false,
       "error": null
@@ -69,6 +74,7 @@
     "comment-placement.do",
     "header-only.do",
     "main.do",
+    "program-ends.do",
     "tight-slashes.do"
   ],
   "edges": [

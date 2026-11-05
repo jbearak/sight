@@ -5649,5 +5649,625 @@
         }
       }
     ]
+  },
+  {
+    "schema_version": 1,
+    "sight_version": "<VERSION>",
+    "path": "<ROOT>/program-ends.do",
+    "line_count": 26,
+    "statements": [
+      {
+        "kind": "program",
+        "range": {
+          "start": {
+            "line": 4,
+            "character": 0
+          },
+          "end": {
+            "line": 7,
+            "character": 3
+          }
+        },
+        "text": "program define stray\n    args a/note\n    unab x : a/b\nend",
+        "delimit": "cr",
+        "comments": {
+          "leading": [
+            {
+              "style": "star",
+              "text": "* Stata 18 checks: args and unab keep a stray operator with the name",
+              "range": {
+                "start": {
+                  "line": 0,
+                  "character": 0
+                },
+                "end": {
+                  "line": 0,
+                  "character": 68
+                }
+              },
+              "directive": null
+            },
+            {
+              "style": "star",
+              "text": "* (r(198) when run); a mata block's end inside an if in a program ends",
+              "range": {
+                "start": {
+                  "line": 1,
+                  "character": 0
+                },
+                "end": {
+                  "line": 1,
+                  "character": 70
+                }
+              },
+              "directive": null
+            },
+            {
+              "style": "star",
+              "text": "* the program; a program header can continue with ///; and under\n* #delimit ; the { of an if can be on the next line.",
+              "range": {
+                "start": {
+                  "line": 2,
+                  "character": 0
+                },
+                "end": {
+                  "line": 3,
+                  "character": 52
+                }
+              },
+              "directive": null
+            }
+          ],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "stray",
+        "define_options": null,
+        "args": [
+          {
+            "name": "a",
+            "range": {
+              "start": {
+                "line": 5,
+                "character": 9
+              },
+              "end": {
+                "line": 5,
+                "character": 10
+              }
+            }
+          }
+        ],
+        "syntax": null,
+        "body": [
+          {
+            "kind": "command",
+            "range": {
+              "start": {
+                "line": 5,
+                "character": 4
+              },
+              "end": {
+                "line": 5,
+                "character": 15
+              }
+            },
+            "text": "args a/note",
+            "delimit": "cr",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "name": "args",
+            "canonical_name": "args",
+            "prefixes": [],
+            "args": [
+              {
+                "text": "a/note",
+                "range": {
+                  "start": {
+                    "line": 5,
+                    "character": 9
+                  },
+                  "end": {
+                    "line": 5,
+                    "character": 15
+                  }
+                }
+              }
+            ],
+            "varlist": null,
+            "assignment": null,
+            "if": null,
+            "in": null,
+            "weight": null,
+            "using": null,
+            "options": []
+          },
+          {
+            "kind": "command",
+            "range": {
+              "start": {
+                "line": 6,
+                "character": 4
+              },
+              "end": {
+                "line": 6,
+                "character": 16
+              }
+            },
+            "text": "unab x : a/b",
+            "delimit": "cr",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "name": "unab",
+            "canonical_name": "unab",
+            "prefixes": [],
+            "args": [
+              {
+                "text": "x",
+                "range": {
+                  "start": {
+                    "line": 6,
+                    "character": 9
+                  },
+                  "end": {
+                    "line": 6,
+                    "character": 10
+                  }
+                }
+              },
+              {
+                "text": "a/b",
+                "range": {
+                  "start": {
+                    "line": 6,
+                    "character": 13
+                  },
+                  "end": {
+                    "line": 6,
+                    "character": 16
+                  }
+                }
+              }
+            ],
+            "varlist": null,
+            "assignment": null,
+            "if": null,
+            "in": null,
+            "weight": null,
+            "using": null,
+            "options": []
+          }
+        ]
+      },
+      {
+        "kind": "program",
+        "range": {
+          "start": {
+            "line": 8,
+            "character": 0
+          },
+          "end": {
+            "line": 12,
+            "character": 11
+          }
+        },
+        "text": "program define cut\n    if 1 {\n        mata:\n        x = 1\n        end",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "cut",
+        "define_options": null,
+        "args": [],
+        "syntax": null,
+        "body": [
+          {
+            "kind": "if",
+            "range": {
+              "start": {
+                "line": 9,
+                "character": 4
+              },
+              "end": {
+                "line": 12,
+                "character": 11
+              }
+            },
+            "text": "if 1 {\n        mata:\n        x = 1\n        end",
+            "delimit": "cr",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "prefixes": [],
+            "condition": {
+              "text": "1",
+              "expression": {
+                "kind": "number",
+                "text": "1",
+                "value": 1,
+                "range": {
+                  "start": {
+                    "line": 9,
+                    "character": 7
+                  },
+                  "end": {
+                    "line": 9,
+                    "character": 8
+                  }
+                }
+              }
+            },
+            "single_statement": false,
+            "body": [
+              {
+                "kind": "embedded",
+                "range": {
+                  "start": {
+                    "line": 10,
+                    "character": 8
+                  },
+                  "end": {
+                    "line": 12,
+                    "character": 11
+                  }
+                },
+                "text": "mata:\n        x = 1\n        end",
+                "delimit": "cr",
+                "comments": {
+                  "leading": [],
+                  "trailing": [],
+                  "interior": [],
+                  "block_end": []
+                },
+                "language": "mata",
+                "inline": false,
+                "prefixes": [],
+                "content": {
+                  "text": "x = 1",
+                  "range": {
+                    "start": {
+                      "line": 10,
+                      "character": 13
+                    },
+                    "end": {
+                      "line": 12,
+                      "character": 8
+                    }
+                  }
+                }
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 13,
+            "character": 4
+          },
+          "end": {
+            "line": 13,
+            "character": 14
+          }
+        },
+        "text": "di \"after\"",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "di",
+        "canonical_name": "display",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "\"after\"",
+            "range": {
+              "start": {
+                "line": 13,
+                "character": 7
+              },
+              "end": {
+                "line": 13,
+                "character": 14
+              }
+            }
+          }
+        ],
+        "varlist": null,
+        "assignment": null,
+        "if": null,
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": []
+      },
+      {
+        "kind": "program",
+        "range": {
+          "start": {
+            "line": 15,
+            "character": 0
+          },
+          "end": {
+            "line": 18,
+            "character": 3
+          }
+        },
+        "text": "program ///\n    define cont, rclass\n    return local x \"hi\"\nend",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [
+            {
+              "style": "continuation",
+              "text": "///",
+              "range": {
+                "start": {
+                  "line": 15,
+                  "character": 8
+                },
+                "end": {
+                  "line": 15,
+                  "character": 11
+                }
+              },
+              "directive": null
+            }
+          ],
+          "block_end": []
+        },
+        "name": "cont",
+        "define_options": "rclass",
+        "args": [],
+        "syntax": null,
+        "body": [
+          {
+            "kind": "command",
+            "range": {
+              "start": {
+                "line": 17,
+                "character": 4
+              },
+              "end": {
+                "line": 17,
+                "character": 23
+              }
+            },
+            "text": "return local x \"hi\"",
+            "delimit": "cr",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "name": "return",
+            "canonical_name": "return",
+            "prefixes": [],
+            "args": [
+              {
+                "text": "local",
+                "range": {
+                  "start": {
+                    "line": 17,
+                    "character": 11
+                  },
+                  "end": {
+                    "line": 17,
+                    "character": 16
+                  }
+                }
+              },
+              {
+                "text": "x",
+                "range": {
+                  "start": {
+                    "line": 17,
+                    "character": 17
+                  },
+                  "end": {
+                    "line": 17,
+                    "character": 18
+                  }
+                }
+              },
+              {
+                "text": "\"hi\"",
+                "range": {
+                  "start": {
+                    "line": 17,
+                    "character": 19
+                  },
+                  "end": {
+                    "line": 17,
+                    "character": 23
+                  }
+                }
+              }
+            ],
+            "varlist": null,
+            "assignment": null,
+            "if": null,
+            "in": null,
+            "weight": null,
+            "using": null,
+            "options": []
+          }
+        ]
+      },
+      {
+        "kind": "delimit",
+        "range": {
+          "start": {
+            "line": 19,
+            "character": 0
+          },
+          "end": {
+            "line": 19,
+            "character": 10
+          }
+        },
+        "text": "#delimit ;",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "mode": "semicolon"
+      },
+      {
+        "kind": "if",
+        "range": {
+          "start": {
+            "line": 20,
+            "character": 0
+          },
+          "end": {
+            "line": 23,
+            "character": 1
+          }
+        },
+        "text": "if 1\n{;\n    di \"in\";\n}",
+        "delimit": "semicolon",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [],
+        "condition": {
+          "text": "1",
+          "expression": {
+            "kind": "number",
+            "text": "1",
+            "value": 1,
+            "range": {
+              "start": {
+                "line": 20,
+                "character": 3
+              },
+              "end": {
+                "line": 20,
+                "character": 4
+              }
+            }
+          }
+        },
+        "single_statement": false,
+        "body": [
+          {
+            "kind": "command",
+            "range": {
+              "start": {
+                "line": 22,
+                "character": 4
+              },
+              "end": {
+                "line": 22,
+                "character": 11
+              }
+            },
+            "text": "di \"in\"",
+            "delimit": "semicolon",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "name": "di",
+            "canonical_name": "display",
+            "prefixes": [],
+            "args": [
+              {
+                "text": "\"in\"",
+                "range": {
+                  "start": {
+                    "line": 22,
+                    "character": 7
+                  },
+                  "end": {
+                    "line": 22,
+                    "character": 11
+                  }
+                }
+              }
+            ],
+            "varlist": null,
+            "assignment": null,
+            "if": null,
+            "in": null,
+            "weight": null,
+            "using": null,
+            "options": []
+          }
+        ]
+      },
+      {
+        "kind": "delimit",
+        "range": {
+          "start": {
+            "line": 24,
+            "character": 0
+          },
+          "end": {
+            "line": 24,
+            "character": 11
+          }
+        },
+        "text": "#delimit cr",
+        "delimit": "semicolon",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "mode": "cr"
+      }
+    ],
+    "comments": [],
+    "errors": [
+      {
+        "source": "parser",
+        "code": "ORPHAN_CLOSE_BRACE",
+        "severity": "error",
+        "message": "unexpected closing brace - no matching opening brace",
+        "range": {
+          "start": {
+            "line": 14,
+            "character": 0
+          },
+          "end": {
+            "line": 14,
+            "character": 1
+          }
+        }
+      }
+    ]
   }
 ]

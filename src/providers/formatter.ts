@@ -75,7 +75,12 @@ export class CodeFormatter {
 
         const mode = config?.formatting?.mode || 'source-preserving';
 
-        if (mode === 'ast') {
+        // The AST leaves out code the parser could not structure (see
+        // StataAST.unprintable_ranges); printing it would lose or invent
+        // code, so such a file is formatted as written.
+        const has_unprintable_code =
+            (document.ast.unprintable_ranges?.length ?? 0) > 0;
+        if (mode === 'ast' && !has_unprintable_code) {
             return this.format_with_ast(document, options, config);
         }
 

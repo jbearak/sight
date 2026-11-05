@@ -11,11 +11,14 @@ import { block_comment_lines } from '../utils/block-comment-utils';
 import { inline_embedded_statement_end } from '../utils/statement-span';
 import {
   is_program_definition_header,
-  strip_inline_block_comments,
+  logical_line_text,
 } from '../utils/program-definition';
 
 // A line whose first word is `end` (not `endx` or `end.x`).
 const PROGRAM_END_LINE = /^end(?![A-Za-z0-9_.])/;
+
+// A line whose first word is `program`
+const PROGRAM_WORD_AT_START = /^[ \t]*program(?=[ \t]|$)/;
 
 // A `//` comment start: at the start of the line or after a space or tab.
 const LINE_COMMENT_START_PATTERN = /(?<=^|[ \t])\/\//;
@@ -509,14 +512,18 @@ export class ContextTracker implements IContextTracker {
   
   /**
    * Check if a line starts a program block.
-   * Handles various forms: 'program define name', 'program name', 'program def name'
+   * Handles various forms: 'program define name', 'program name',
+   * 'program def name', and a header that `///` continues onto the
+   * next lines (`program ///` then `define foo`).
    */
-  private is_program_block_start(line: string): boolean {
-    const my_code_trimmed = this.extract_code_before_comment(
-      strip_inline_block_comments(line)
-    ).trim();
-    return my_code_trimmed.startsWith('program') &&
-      is_program_definition_header(my_code_trimmed.slice('program'.length));
+  private is_program_block_start(
+    doc: { content: string; line_offsets: number[] },
+    line_number: number
+  ): boolean {
+    const my_text = logical_line_text(doc.content, doc.line_offsets[line_number] ?? 0);
+    const my_match = PROGRAM_WORD_AT_START.exec(my_text);
+    return my_match !== null &&
+      is_program_definition_header(my_text.slice(my_match[0].length));
   }
 
   /**
@@ -567,7 +574,7 @@ export class ContextTracker implements IContextTracker {
       const my_first_word = this.extract_first_word(my_code_trimmed);
       
       // Check for program block start
-      if (this.is_program_block_start(my_line)) {
+      if (this.is_program_block_start(doc, my_line_number)) {
         my_program_stack.push(my_line_number);
       }
       

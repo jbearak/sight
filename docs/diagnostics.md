@@ -72,7 +72,7 @@ Stata still runs the code.
 | <a id="brace-else-same-line"></a>`BRACE_ELSE_SAME_LINE` | error | `} else {` style: Stata requires the closing brace and `else` on separate lines. |
 | <a id="brace-not-alone"></a>`BRACE_NOT_ALONE` | error | A closing `}` shares a line with other code. |
 | <a id="missing-program-end"></a>`MISSING_PROGRAM_END` | error | A `program` / `mata` / `python` block is not closed by `end`. |
-| <a id="open-brace-alone"></a>`OPEN_BRACE_ALONE` | error | An opening `{` appears alone on a line where Stata expects it on the control statement. |
+| <a id="open-brace-alone"></a>`OPEN_BRACE_ALONE` | error | An opening `{` appears alone on a line where Stata expects it on the control statement. Under `#delimit ;` a line break doesn't end the statement, so `if 1` then `{;` on the next line is accepted, as in Stata. |
 | <a id="unclosed-block"></a>`UNCLOSED_BLOCK` | error | An `if` / `foreach` / `forvalues` / `while` / frame / mata / python block is not closed. |
 | <a id="code-after-open-brace"></a>`CODE_AFTER_OPEN_BRACE` | warning | Tokens follow `{` on the same line as the opening brace. Stata runs the block but ignores trailing code on that line. |
 | <a id="forvalues-syntax"></a>`FORVALUES_SYNTAX` | error | Malformed `forvalues` range (e.g., missing `=` or bad `to`/`/` separators). |
@@ -97,7 +97,7 @@ Reported by the context tracker for Mata and Python block structure.
 | <a id="mismatched-end-python"></a>`MISMATCHED_END_PYTHON` | error | A Python block is closed with a mismatched delimiter. |
 | <a id="nested-block-error"></a>`NESTED_BLOCK_ERROR` | error | Embedded language block nesting is invalid. |
 | <a id="invalid-delimiter-position"></a>`INVALID_DELIMITER_POSITION` | error | A Mata or Python delimiter appears where it cannot start or end a valid block. |
-| <a id="embedded-block-ends-program"></a>`EMBEDDED_BLOCK_ENDS_PROGRAM` | error | A multi-line `mata` or `python` block sits inside a `program define` body. Stata ends the program definition at the block's `end` (the first line whose first word is `end`), so the lines after it run at the top level and the program's own `end` is unexpected. Move the block outside the program, or use one-line `mata:` / `python:` statements. |
+| <a id="embedded-block-ends-program"></a>`EMBEDDED_BLOCK_ENDS_PROGRAM` | error | A multi-line `mata` or `python` block sits inside a `program define` body, even inside an `if`, loop or `capture {` block there. Stata ends the program definition at the block's `end` (the first line whose first word is `end`), so the lines after it run at the top level and the program's own `end` is unexpected. Move the block outside the program, or use one-line `mata:` / `python:` statements. |
 
 ## Semantic / scope diagnostics
 
