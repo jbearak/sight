@@ -157,6 +157,29 @@ describe('program definition ends at an embedded block end', () => {
         ).toEqual([3]);
     });
 
+    it('closes a program at end with a tail, so a later block is not in it', () => {
+        // Stata 18 ends a program definition at `end foo` too.
+        expect(context_codes('program foo\nend foo\npython:\nend\n')).toEqual([]);
+        expect(context_codes('program foo\nend;\nmata:\nend\n')).toEqual([]);
+    });
+
+    it('does not close a program at an end joined by ///', () => {
+        // `di 1 ///` then `end` is one line, `di 1 end`, so the program
+        // runs on to the block's `end`.
+        expect(
+            context_codes('program define foo\n    di 1 ///\n    end\n    mata:\n    end\n')
+        ).toEqual([[4, ContextErrorCode.EMBEDDED_BLOCK_ENDS_PROGRAM]]);
+    });
+
+    it('opens a program with a block comment in its header', () => {
+        const my_source = 'program /* c */ define foo\npython:\n    end\ndi 1\nend\n';
+        expect(end_token_lines(my_source)).toEqual([2]);
+        expect(context_codes(my_source)).toEqual([
+            [2, ContextErrorCode.EMBEDDED_BLOCK_ENDS_PROGRAM],
+            [4, ContextErrorCode.UNEXPECTED_END],
+        ]);
+    });
+
     it('closes a program with options at its own end', () => {
         // `program foo, rclass` used to be missed, so its `end` was
         // reported as unexpected.

@@ -9,7 +9,13 @@ import { ContextErrorCode, Token, TokenType } from '../types';
 import { get_line_text, get_line_count, compute_line_offsets } from '../utils/line-utils';
 import { block_comment_lines } from '../utils/block-comment-utils';
 import { inline_embedded_statement_end } from '../utils/statement-span';
-import { is_program_definition_header } from '../utils/program-definition';
+import {
+  is_program_definition_header,
+  strip_inline_block_comments,
+} from '../utils/program-definition';
+
+// A line whose first word is `end` (not `endx` or `end.x`).
+const PROGRAM_END_LINE = /^end(?![A-Za-z0-9_.])/;
 
 // Token types that carry no live code. A line whose only tokens are
 // these (and that the lexer placed inside a block comment) is safe to
@@ -44,6 +50,9 @@ export class ContextTracker implements IContextTracker {
   // structure scans below skip these so commented-out `end`/`program`/
   // `mata` lines do not produce spurious diagnostics.
   private block_comment_continuation_lines: Set<number> = new Set();
+  // Lines (0-based) that a `///` joins to the line above, so they do not
+  // start a statement (an `end` there is not a command).
+  private joined_lines: Set<number> = new Set();
 
   /**
    * Initialize context tracker from tokens instead of raw content.
@@ -76,6 +85,11 @@ export class ContextTracker implements IContextTracker {
       }
     }
     this.block_comment_continuation_lines = my_comment_lines;
+    this.joined_lines = new Set(
+      tokens
+        .filter((my_token) => my_token.type === 'CONTINUATION')
+        .map((my_token) => my_token.range.start.line + 1)
+    );
 
     // Extract context ranges from tokens
     // Tokens already have position information (range) and type information
@@ -364,8 +378,10 @@ export class ContextTracker implements IContextTracker {
     const my_valid_end_lines = this.find_valid_end_lines(my_doc);
 
     for (let my_line_number = 0; my_line_number < my_line_count; my_line_number++) {
-      // Lines inside a multi-line block comment are not live code
-      if (this.block_comment_continuation_lines.has(my_line_number)) {
+      // Lines inside a multi-line block comment are not live code, and a
+      // line joined to the one above does not start a command
+      if (this.block_comment_continuation_lines.has(my_line_number) ||
+          this.joined_lines.has(my_line_number)) {
         continue;
       }
       const my_line = get_line_text(my_doc, my_line_number);
@@ -493,7 +509,9 @@ export class ContextTracker implements IContextTracker {
    * Handles various forms: 'program define name', 'program name', 'program def name'
    */
   private is_program_block_start(line: string): boolean {
-    const my_code_trimmed = this.extract_code_before_comment(line).trim();
+    const my_code_trimmed = this.extract_code_before_comment(
+      strip_inline_block_comments(line)
+    ).trim();
     return my_code_trimmed.startsWith('program') &&
       is_program_definition_header(my_code_trimmed.slice('program'.length));
   }
@@ -516,8 +534,10 @@ export class ContextTracker implements IContextTracker {
     
     for (let my_line_number = 0; my_line_number < my_line_count; my_line_number++) {
       // Lines inside a multi-line block comment are not live code, so
-      // they neither open nor close program/embedded blocks.
-      if (this.block_comment_continuation_lines.has(my_line_number)) {
+      // they neither open nor close program/embedded blocks; nor does a
+      // line that a `///` joins to the one above.
+      if (this.block_comment_continuation_lines.has(my_line_number) ||
+          this.joined_lines.has(my_line_number)) {
         continue;
       }
       // Stata ends a program definition at the first line whose first
@@ -554,17 +574,16 @@ export class ContextTracker implements IContextTracker {
       }
 
       // Check for 'end' command
-      if (my_code_trimmed === 'end') {
+      if (my_code_trimmed === 'end' && my_in_input_block) {
         // If we're in an input block, this 'end' closes that block
-        if (my_in_input_block) {
-          my_in_input_block = false;
-          my_valid_end_lines.add(my_line_number);
-        }
-        // Otherwise, if we have program blocks, this 'end' closes a program block
-        else if (my_program_stack.length > 0) {
-          my_program_stack.pop();
-          my_valid_end_lines.add(my_line_number);
-        }
+        my_in_input_block = false;
+        my_valid_end_lines.add(my_line_number);
+      } else if (PROGRAM_END_LINE.test(my_code_trimmed) &&
+          my_program_stack.length > 0) {
+        // Stata ends a program definition at the first line whose first
+        // word is `end`, whatever follows (`end foo`, `end;`)
+        my_program_stack.pop();
+        my_valid_end_lines.add(my_line_number);
       }
     }
     
