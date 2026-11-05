@@ -31,7 +31,12 @@ import {
     ProgramSymbol,
     Token,
 } from '../types';
-import { find_macro_creating_command, matches_option } from './macro-creating-commands';
+import {
+    MacroCreatingCommand,
+    MacroCreatingOption,
+    find_macro_creating_command,
+    matches_option,
+} from './macro-creating-commands';
 import { parse_option_argument, is_valid_identifier } from './option-argument-parser';
 import { NameWord, group_name_words, whole_word_item } from '../utils/name-words';
 import { resolve_c_local_arg_names } from './c-local-arg-positions';
@@ -84,6 +89,7 @@ export interface MacroWriteContext {
 
 const MACRO_DROP_RE = /^dr(o(p)?)?$/;
 const WILDCARD_RE = /[*?]/;
+const UPPERCASE_RE = /[A-Z]/;
 const WEIGHT_TYPES: ReadonlySet<string> = new Set([
     'weight', 'fweight', 'fw', 'aweight', 'aw', 'pweight', 'pw',
     'iweight', 'iw',
@@ -165,13 +171,50 @@ function find_program(
 }
 
 /**
- * The `local()`/`global()` option names of a user program, from the
- * first of the file's and the workspace's definitions that has any.
+ * How much of a `syntax` option name must be typed: its leading
+ * capitals (`LOCal` takes `loc`), or all of it when it has none or is
+ * all capitals (checked in StataMP 18).
+ */
+function syntax_option_min_length(spec_name: string): number {
+    let length = 0;
+    while (length < spec_name.length && UPPERCASE_RE.test(spec_name[length])) {
+        length++;
+    }
+    return length === 0 ? spec_name.length : length;
+}
+
+/**
+ * A program's macro-creating options as `matches_option` reads them.
+ * `names` are the lowercase locals its `syntax` defines; the minimum
+ * abbreviation comes from the `syntax` option that defines each, and
+ * without one the option must be typed in full.
+ */
+function program_option_specs(
+    names: readonly string[],
+    program: ProgramSymbol
+): MacroCreatingOption[] {
+    const the_min_lengths = new Map<string, number>();
+    for (const my_option of program.signature?.options ?? []) {
+        const local_name = syntax_option_local_name(my_option);
+        if (!the_min_lengths.has(local_name)) {
+            the_min_lengths.set(
+                local_name, syntax_option_min_length(my_option.name));
+        }
+    }
+    return names.map((my_name) => ({
+        name: my_name,
+        min_abbreviation: the_min_lengths.get(my_name) ?? my_name.length,
+    }));
+}
+
+/**
+ * The `local()`/`global()` options of a user program, from the first
+ * of the file's and the workspace's definitions that has any.
  */
 function program_macro_options(
     name: string,
     context: MacroWriteContext
-): { local_options: string[]; global_options: string[] } | undefined {
+): MacroCreatingCommand | undefined {
     for (const my_programs of [context.file_programs, context.workspace_programs]) {
         const program = my_programs?.get(name);
         if (
@@ -180,8 +223,12 @@ function program_macro_options(
                 || program.macro_creating_global_options)
         ) {
             return {
-                local_options: program.macro_creating_local_options ?? [],
-                global_options: program.macro_creating_global_options ?? [],
+                name,
+                min_abbreviation: 0,
+                local_options: program_option_specs(
+                    program.macro_creating_local_options ?? [], program),
+                global_options: program_option_specs(
+                    program.macro_creating_global_options ?? [], program),
             };
         }
     }
@@ -190,29 +237,24 @@ function program_macro_options(
 
 /**
  * The scope of macro an option creates, if the command creates one
- * through it. A user program's option names are the locals its
- * `syntax` defines, which are lowercase; the typed option must match
- * one exactly, since Stata options are case-sensitive.
+ * through it. Options are case-sensitive: Stata rejects
+ * `levelsof x, LOCAL(l)`, and a user program's options must be typed
+ * in lowercase, however its `syntax` capitalizes them.
  */
 function option_write_scope(
     option_name: string,
     node: CommandNode,
     context: MacroWriteContext
 ): 'local' | 'global' | undefined {
-    const builtin = find_macro_creating_command(node.fullName);
-    if (builtin) {
-        if (builtin.local_options.some((my_spec) => matches_option(option_name, my_spec))) {
-            return 'local';
-        }
-        if (builtin.global_options.some((my_spec) => matches_option(option_name, my_spec))) {
-            return 'global';
-        }
-        return undefined;
+    const command = find_macro_creating_command(node.fullName)
+        ?? program_macro_options(node.fullName, context);
+    if (!command) return undefined;
+    if (command.local_options.some((my_spec) => matches_option(option_name, my_spec))) {
+        return 'local';
     }
-    const program_options = program_macro_options(node.fullName, context);
-    if (!program_options) return undefined;
-    if (program_options.local_options.includes(option_name)) return 'local';
-    if (program_options.global_options.includes(option_name)) return 'global';
+    if (command.global_options.some((my_spec) => matches_option(option_name, my_spec))) {
+        return 'global';
+    }
     return undefined;
 }
 

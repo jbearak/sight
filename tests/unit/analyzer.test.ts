@@ -164,6 +164,25 @@ myprog, Cache(other)
             )).toBeUndefined();
         });
 
+        it('should accept an abbreviated macro-creating syntax option', () => {
+            // StataMP 18: `myprog, c(r)` defines r for Cache(string).
+            const source = `program define myprog
+    syntax, Cache(string)
+    c_local \`cache' "value"
+end
+
+myprog, c(result)
+display \`result'
+`;
+
+            const result = analyze(source);
+
+            expect(result.diagnostics.find(
+                d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                    d.message.includes('result')
+            )).toBeUndefined();
+        });
+
         it('should not register an unclosed levelsof global() option in cr mode', () => {
             const source = 'levelsof rep78, global(G\ndisplay $G';
             const { tokens } = lexer.tokenize(source);

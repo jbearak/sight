@@ -138,6 +138,47 @@ describe('command_macro_writes', () => {
         });
     });
 
+    describe('user program option abbreviations', () => {
+        // StataMP 18: a `syntax` option's leading capitals are its
+        // minimum abbreviation; with none, or all capitals, it must be
+        // typed in full, and always in lowercase.
+        function program_with(spec: string, call: string): string {
+            const local_name = spec.toLowerCase();
+            return [
+                'program define p',
+                `    syntax, ${spec}(string)`,
+                `    c_local \`${local_name}' "v"`,
+                'end',
+                `p, ${call}(r)`,
+            ].join('\n');
+        }
+
+        it('accepts an abbreviation as long as the leading capitals', () => {
+            expect(summary(program_with('LOCal', 'loc'))).toEqual(['local:r:option']);
+            expect(summary(program_with('LOCal', 'loca'))).toEqual(['local:r:option']);
+            expect(summary(program_with('Cache', 'c'))).toEqual(['local:r:option']);
+        });
+
+        it('rejects a shorter, longer, or capitalized abbreviation', () => {
+            expect(summary(program_with('LOCal', 'lo'))).toEqual([]);
+            expect(summary(program_with('LOCal', 'locals'))).toEqual([]);
+            expect(summary(program_with('LOCal', 'LOC'))).toEqual([]);
+        });
+
+        it('requires the full name for an all-lowercase or all-caps option', () => {
+            expect(summary(program_with('cache', 'c'))).toEqual([]);
+            expect(summary(program_with('cache', 'cache'))).toEqual(['local:r:option']);
+            expect(summary(program_with('CACHE', 'cach'))).toEqual([]);
+            expect(summary(program_with('CACHE', 'cache'))).toEqual(['local:r:option']);
+        });
+
+        it('reads the abbreviation of a workspace program', () => {
+            const library = program_with('LOCal', 'local').split('\n')
+                .slice(0, 4).join('\n');
+            expect(summary('p, loc(r)', library)).toEqual(['local:r:option']);
+        });
+    });
+
     describe('c_local', () => {
         const PROGRAM = [
             'program define setter',

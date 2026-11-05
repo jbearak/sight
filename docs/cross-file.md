@@ -183,7 +183,8 @@ auto-discovered or declared with an explicit directive.
 A program can also set locals in its caller with `c_local`. Calling a
 program defined in another file, including an ado on the ado-path,
 defines those locals at the call when the name is fixed, comes from a
-`local()`-style option, or is a plain-name argument (see
+`local()`-style option (in full, or abbreviated as far as the
+program's `syntax` allows), or is a plain-name argument (see
 [Configuration](configuration.md#locals-named-by-program-arguments)).
 
 ## Forward Scope Resolution
