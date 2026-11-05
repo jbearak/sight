@@ -177,12 +177,14 @@ function source_lines_of(tokens: Token[]): SourceLine[] {
         }
         the_parts = [];
         column = my_token.range.start.character;
-        // A `///` with no space before it, after a token or alone at
-        // the start of its line.
+        // A `///` with no space before it. One alone on its line keeps a
+        // tight chain going only from column 0, as ContinuationTracker
+        // reads it (`b///` then `///` then `c` is `bc`).
         is_after_tight = previous.type === 'CONTINUATION' &&
-          (previous.range.start.character === 0 ||
-           (before_previous !== undefined &&
-            compare_positions(before_previous.range.end, previous.range.start) === 0));
+          (before_previous === undefined ||
+           before_previous.range.end.line !== previous.range.start.line
+            ? is_after_tight && previous.range.start.character === 0
+            : compare_positions(before_previous.range.end, previous.range.start) === 0);
       }
     }
     the_parts.push(my_token.value);

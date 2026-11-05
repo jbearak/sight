@@ -114,16 +114,20 @@ describe('formatting a statement with a note after ///', () => {
         // The source-preserving formatter re-indents continued lines and
         // changes both values; that is a separate bug.
         skip_for_mode(mode, 'source-preserving', () => {
-            const sources = [
-                'if 1 {\nlocal a b/// note\nc\n}\n',
-                '        local a b/// note\n    c\n',
+            // A `///` alone on a line continues a tight chain only from
+            // column 0.
+            const the_cases: Array<[string, string]> = [
+                ['if 1 {\nlocal a b/// note\nc\n}\n', 'bc'],
+                ['        local a b/// note\n    c\n', 'b c'],
+                ['if 1 {\nlocal a b/// note\n///\nc\n}\n', 'bc'],
+                ['if 1 {\nlocal a b /// note\n/// note\nc\n}\n', 'b c'],
+                ['if 1 {\nlocal a b/// note\n  ///\nc\n}\n', 'b c'],
             ];
-            for (const my_source of sources) {
+            for (const [my_source, my_value] of the_cases) {
+                expect(macro_values(my_source)).toEqual([my_value]);
                 const formatted = format_idempotent(my_source, mode);
-                expect(macro_values(formatted)).toEqual(macro_values(my_source));
+                expect(macro_values(formatted)).toEqual([my_value]);
             }
-            expect(macro_values(sources[0] ?? '')).toEqual(['bc']);
-            expect(macro_values(sources[1] ?? '')).toEqual(['b c']);
         });
     });
 
