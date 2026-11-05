@@ -41,7 +41,7 @@ replace undefined_var = .
 
 <a id="what-the-lsp-can-detect"></a>
 
-This is useful when the LSP cannot automatically detect that a macro will be defined. The LSP can trace `do`/`run`/`include` calls to find macros defined in other files, and it can detect macros created by called programs when the macro name is fixed or set via a program option. In other situations, you can use `sight: ignore` or `sight: ignore-next` to suppress diagnostics for a specific line, or `sight: local` to declare the macro to the LSP.
+This is useful when the LSP cannot automatically detect that a macro will be defined. The LSP can trace `do`/`run`/`include` calls to find macros defined in other files, and it can detect macros created by called programs when the macro name is fixed, set via a program option, or passed as a plain-name argument (`_getrhs rhs`; see [configuration](configuration.md#locals-named-by-program-arguments)). In other situations, you can use `sight: ignore` or `sight: ignore-next` to suppress diagnostics for a specific line, or `sight: local` to declare the macro to the LSP.
 
 ## Declaring Symbols with Directives
 
