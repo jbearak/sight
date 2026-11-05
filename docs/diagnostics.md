@@ -405,7 +405,8 @@ Sight recognizes a variable as defined when it sees one of:
 
 - `generate` / `gen`, `egen`, `input` — explicit creation.
 - `rename` / `ren` — the new name is registered.
-- `confirm variable` / `confirm var` — treated as an assertion that
+- `confirm variable` (or an abbreviation down to `confirm v`, in
+  lowercase as Stata requires) — treated as an assertion that
   the variable exists; useful for declaring columns loaded from a
   dataset without disabling the diagnostic.
 - `sight: variables name [name …]` — manual declaration, forward-only.
@@ -414,6 +415,23 @@ Variables loaded from `use`, `import`, or `merge` are **not**
 introspected — Sight does not read `.dta` files. If the diagnostic is
 on and you load data, declare the columns with `sight: variables` (or a
 `confirm variable` line if you want a runtime assertion as well).
+
+## What the undefined-variable check reads
+
+The check reads only commands whose arguments are a varlist of
+existing variables: `summarize`, `tabulate`, `tab1`, `tab2`, `list`,
+`codebook`, `inspect`, `regress`, `logit`, `probit`, `logistic`,
+`poisson`, `correlate`, `pwcorr`, `keep`, `drop`, `order`, `sort`,
+`destring`, `tostring`, `xtset` and `tsset` (with the abbreviations
+Stata accepts, in exact case), plus the target of `replace`. Elsewhere
+an argument may be a keyword, a file, a scalar or a new name, so other
+commands are not checked. In those commands it checks plain names
+only. It skips macro references, numbers, strings, wildcards, `_all`,
+and names that are part of a factor-variable or time-series term
+(`i.x`, `L.x`), a range (`x1-x3`), or a name built from a macro
+(`` v`i' ``). A name that starts a known variable's name counts as
+that variable, since Stata accepts abbreviations (`su pri` for
+`price`).
 
 ## Why undefined-variable is off by default
 

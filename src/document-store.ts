@@ -957,6 +957,10 @@ export class DocumentStore {
             workspace_symbols,
             {
               working_directory: resolved_working_directory,
+              // Always checked; DiagnosticsProvider drops the results
+              // while diagnostics.severity.undefinedVariable is off
+              // (the default), so changing the setting needs no reparse.
+              undefined_variable_enabled: true,
             },
             lex_result.result!.tokens
           )

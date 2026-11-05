@@ -1,4 +1,4 @@
-import { Range } from 'vscode-languageserver-textdocument';
+import { Position, Range } from 'vscode-languageserver-textdocument';
 import {
     find_enclosing_scope,
     program_body_start_line,
@@ -210,6 +210,80 @@ const STATA_STORAGE_TYPES = new Set([
 ]);
 
 const STR_WIDTH_RE = /^str\d+$/;
+
+/** `name` and each abbreviation of it down to `min_length` characters. */
+function command_abbreviations(name: string, min_length: number): string[] {
+    const the_names: string[] = [];
+    for (let i = min_length; i <= name.length; i++) {
+        the_names.push(name.slice(0, i));
+    }
+    return the_names;
+}
+
+/**
+ * Commands whose arguments (before `if`, `in`, weights, `using` and
+ * options) are a varlist of existing variables, with the abbreviations
+ * Stata accepts, in exact case. UNDEFINED_VARIABLE checks only these.
+ */
+const VARLIST_COMMAND_NAMES: ReadonlySet<string> = new Set([
+    ...command_abbreviations('summarize', 2),
+    ...command_abbreviations('tabulate', 2),
+    ...command_abbreviations('list', 1),
+    ...command_abbreviations('regress', 3),
+    ...command_abbreviations('correlate', 3),
+    ...command_abbreviations('inspect', 3),
+    ...command_abbreviations('sort', 2),
+    'tab1', 'tab2', 'pwcorr', 'codebook', 'order', 'keep', 'drop',
+    'destring', 'tostring', 'logit', 'probit', 'logistic', 'poisson',
+    'xtset', 'tsset',
+]);
+
+const PLAIN_NAME_RE = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/** Names in a varlist that are not variables: `drop _all`. */
+const VARLIST_KEYWORDS: ReadonlySet<string> = new Set([
+    '_all', '_n', '_N', '_b', '_se', '_cons', '_pi', '_rc',
+]);
+
+function position_key(position: Position): string {
+    return `${position.line}:${position.character}`;
+}
+
+/** Where a command's argument items start and end, to find touching ones. */
+interface ItemEdges {
+    starts: Set<string>;
+    ends: Set<string>;
+}
+
+function item_edges(the_items: readonly IdentifierNode[]): ItemEdges {
+    const edges: ItemEdges = { starts: new Set(), ends: new Set() };
+    for (const my_item of the_items) {
+        edges.starts.add(position_key(my_item.range.start));
+        edges.ends.add(position_key(my_item.range.end));
+    }
+    return edges;
+}
+
+/**
+ * True for a varlist item that is a plain variable name standing on its
+ * own. A name touching another item is part of something larger: a
+ * factor-variable or time-series operator (`i.x`, `L.x`, `c.a#c.b`), a
+ * range (`x1-x3`), or a name joined to a macro (`` v`i' ``). Macro
+ * references, numbers, strings, wildcards and groups are not plain names.
+ */
+function is_plain_variable_reference(
+    item: IdentifierNode,
+    edges: ItemEdges
+): boolean {
+    if (!PLAIN_NAME_RE.test(item.name) || VARLIST_KEYWORDS.has(item.name)) {
+        return false;
+    }
+    return !edges.starts.has(position_key(item.range.end))
+        && !edges.ends.has(position_key(item.range.start));
+}
+// `variable` in `confirm variable`, abbreviated to as little as `v`
+// (StataMP 18 accepts `confirm v x`; `confirm Variable x` is r(198))
+const CONFIRM_VARIABLE_RE = /^v(a(r(i(a(b(l(e)?)?)?)?)?)?)?$/;
 
 // A Mata setter's name argument must be a literal double-quoted identifier.
 // Hoisted to module level: matched once per `st_local`/`st_global` token in
@@ -2159,10 +2233,11 @@ export class SemanticAnalyzer {
      * 
      * The parser produces a CommandNode with:
      * - name: "confirm"
-     * - varlist: [{name: "variable"|"var"}, {name: varname}, ...]
+     * - varlist: [{name: "variable"|"var"|...}, {name: varname}, ...]
      * 
-     * We check if the first varlist item is "variable" or "var",
-     * then register the second varlist item as the variable.
+     * We check if the first varlist item is `variable` or an
+     * abbreviation of it, then register the second varlist item as the
+     * variable.
      */
     private extract_confirm_variable(node: CommandNode, symbols: SymbolTable): void {
         const varlist = this.semantic_varlist(node);
@@ -2175,10 +2250,9 @@ export class SemanticAnalyzer {
             return;
         }
 
-        const first_item = varlist[0].name.toLowerCase();
-
-        // Check if this is a "confirm variable" or "confirm var" command
-        if (first_item !== 'variable' && first_item !== 'var') {
+        // `confirm variable` and its abbreviations down to `confirm v`,
+        // in lowercase only: `confirm Variable x` is invalid syntax
+        if (!CONFIRM_VARIABLE_RE.test(varlist[0].name)) {
             return;
         }
 
@@ -3486,20 +3560,20 @@ export class SemanticAnalyzer {
             return;
         }
 
-        // Skip variable-creating commands
-        const cmd_name = node.fullName;
-        if (cmd_name === 'generate' || cmd_name === 'gen' || 
-            cmd_name === 'egen' || cmd_name === 'input' ||
-            cmd_name === 'tempvar' || cmd_name === 'unab' ||
-            cmd_name === 'marksample') {
+        // Only commands whose arguments are a varlist of existing
+        // variables; elsewhere an argument may be a keyword, a file,
+        // a scalar or a new name (`di as err`, `scalar s = 1`).
+        // `replace` checks only its target.
+        const is_replace = node.fullName === 'replace';
+        if (!is_replace && !VARLIST_COMMAND_NAMES.has(node.fullName)) {
             return;
         }
 
-        // Check varlist for undefined variables. A word joined to a
-        // macro (`` replace v`i' = 2 ``) is known only at run time.
-        for (const my_word of this.semantic_words(node)) {
-            const var_node = whole_word_item(my_word);
-            if (!var_node) {
+        const the_items = this.semantic_varlist(node);
+        const edges = item_edges([...the_items, ...(node.extra_args ?? [])]);
+        const the_checked = is_replace ? the_items.slice(0, 1) : the_items;
+        for (const var_node of the_checked) {
+            if (!is_plain_variable_reference(var_node, edges)) {
                 continue;
             }
             const is_defined = this.is_variable_defined(
@@ -3857,6 +3931,19 @@ export class SemanticAnalyzer {
         const declared = this.config.declared_variables.get(name);
         if (declared !== undefined && reference_line >= declared.line) {
             return true;
+        }
+
+        // Stata accepts an abbreviation of a variable name (`su pri`
+        // for `price`), so a name that starts a known one counts
+        for (const my_name of symbols.variables.keys()) {
+            if (my_name.startsWith(name)) {
+                return true;
+            }
+        }
+        for (const [my_name, my_declared] of this.config.declared_variables) {
+            if (my_name.startsWith(name) && reference_line >= my_declared.line) {
+                return true;
+            }
         }
 
         // NOTE: Workspace symbols do NOT suppress undefined variable warnings.
