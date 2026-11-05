@@ -157,6 +157,9 @@ const NEXT_STATEMENT_SKIP_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
 ]);
 // `#delimit ;`, with the `;` as the first thing after the keyword.
 const DELIMIT_SEMICOLON_PATTERN = /^#delimit[ \t]*;/;
+// A negatable `syntax` option such as `noCONStant`.
+const NO_PREFIXED_OPTION_RE = /^no[A-Z]/;
+const UPPERCASE_LETTER_RE = /[A-Z]/;
 
 /**
  * Does `token` end its statement? Under `#delimit ;` a `*` comment runs
@@ -2858,30 +2861,20 @@ export class StataParser {
     return { spec, next_idx: current_idx };
   }
 
+  /**
+   * How much of a `syntax` option must be typed: its leading capitals
+   * in lowercase (`Detail` takes `d`, `NOLOg` takes `nolo`, `CACHE`
+   * takes `cache`), after the `no` of `noCONStant` (`nocons`). Without
+   * leading capitals, the whole name as written: `cache`, and
+   * `myOption`, which Stata accepts only as `myOption` (StataMP 18).
+   */
   private compute_min_abbreviation(name: string): string {
-    if (name.length === 0) {
-      return '';
+    const start = NO_PREFIXED_OPTION_RE.test(name) ? 2 : 0;
+    let end = start;
+    while (end < name.length && UPPERCASE_LETTER_RE.test(name[end])) {
+      end++;
     }
-
-    // Check casing pattern
-    const has_upper = /[A-Z]/.test(name);
-    const has_lower = /[a-z]/.test(name);
-
-    if (has_upper && !has_lower) {
-      // All uppercase: return first letter
-      return name[0];
-    } else if (!has_upper && has_lower) {
-      // All lowercase: return first letter
-      return name[0];
-    } else {
-      // Mixed case: return first uppercase letter, or first letter if none
-      for (const my_char of name) {
-        if (/[A-Z]/.test(my_char)) {
-          return my_char;
-        }
-      }
-      return name[0];
-    }
+    return end === start ? name : name.slice(0, end).toLowerCase();
   }
 
   /** Can the current token be a name in unab's varlist? */

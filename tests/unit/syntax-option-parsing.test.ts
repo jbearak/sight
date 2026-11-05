@@ -246,6 +246,27 @@ end`;
     });
   });
 
+  describe('minimum abbreviation', () => {
+    // StataMP 18: the leading capitals must be typed (`Detail` takes
+    // `d`, `NOLOg` takes `nolo`), after the `no` of `noCONStant`
+    // (`nocons`); an all-lowercase or all-caps option is typed whole.
+    it('should take the leading capitals, in lowercase', () => {
+      const my_source = `program define test_prog
+syntax [, Detail NOLOg noCONStant LOCal(string) cache(string) CACHE(string)]
+end`;
+      const my_parse_result = my_parser.parse(
+        my_lexer.tokenize(my_source).tokens);
+      const my_program = my_parse_result.ast.nodes.find(
+        (my_node) => my_node.type === 'program'
+      );
+      expect(my_program?.type).toBe('program');
+      if (my_program?.type !== 'program' || !my_program.signature) return;
+      expect(my_program.signature.options.map(
+        (my_option) => my_option.minAbbreviation
+      )).toEqual(['d', 'nolo', 'nocons', 'loc', 'cache', 'cache']);
+    });
+  });
+
   describe('option parsing with type specifications', () => {
     it('should preserve required flag with typed options', () => {
       const my_source = `program define test_prog

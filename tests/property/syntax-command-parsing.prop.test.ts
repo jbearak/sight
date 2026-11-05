@@ -286,10 +286,12 @@ describe('Syntax Command Parsing Property Tests', () => {
    */
   it('should compute abbreviations based on casing', () => {
     const my_test_cases = [
-      { name: 'MyOption', expected: 'M' },
-      { name: 'myoption', expected: 'm' },
-      { name: 'MYOPTION', expected: 'M' },
-      { name: 'myOption', expected: 'O' },
+      // StataMP 18: the leading capitals, in lowercase; without any,
+      // the whole name as written (`myOption` only as `myOption`).
+      { name: 'MyOption', expected: 'm' },
+      { name: 'myoption', expected: 'myoption' },
+      { name: 'MYOPTION', expected: 'myoption' },
+      { name: 'myOption', expected: 'myOption' },
     ];
 
     for (const my_case of my_test_cases) {
