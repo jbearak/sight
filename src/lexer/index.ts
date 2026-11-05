@@ -10,6 +10,7 @@ import {
 } from '../types';
 import { is_swallowed_continuation_terminator } from '../utils/continuation';
 import { is_program_definition_header } from '../utils/program-definition';
+import { SemicolonStatementTracker } from '../utils/semicolon-statement';
 import {
   COLON_PREFIX_COMMANDS,
   PREFIX_COMMANDS,
@@ -89,6 +90,10 @@ export class StataLexer {
   // `python:;`) under `#delimit ;`, so Stata reads it as `;`-ended
   // statements (see is_python_end_statement).
   private python_block_reads_statements = false;
+  // Under `#delimit ;`, whether the current statement has anything in
+  // it yet, comments included: Stata 18 reads a column-0 `//` or `///`
+  // as a comment only on a statement's first line.
+  private semicolon_statement = new SemicolonStatementTracker();
 
   tokenize(source: string, initialState?: LexerState): LexerResult {
     this.source = source;
@@ -107,6 +112,7 @@ export class StataLexer {
     this.in_python_inline_statement = false;
     this.program_definition_open = false;
     this.python_block_reads_statements = false;
+    this.semicolon_statement = new SemicolonStatementTracker();
     this.state = initialState || {
       delimiterMode: 'cr',
       line: 0,
@@ -459,6 +465,7 @@ export class StataLexer {
 
   /** Remember the token just scanned for context-sensitive lexing. */
   private note_previous_token(token: Token): void {
+    this.semicolon_statement.note(token, this.state.delimiterMode);
     if (token.type === 'WHITESPACE') {
       // Under `#delimit ;` a newline is whitespace; it still ends the
       // physical line a comment run sits on.
@@ -720,6 +727,16 @@ export class StataLexer {
       return this.makeToken('OPERATOR', char, startLine, startColumn);
     }
 
+    // Under `#delimit ;`, a `//` or `///` at column 0 is a comment
+    // only on a statement's first line. Later in the statement it is
+    // code: Stata 18 stores `local a b` / `/// x` / `c;` as `b /// x c`.
+    if (char === '/' && this.peek() === '/' && startColumn === 0 &&
+        this.state.delimiterMode === 'semicolon' &&
+        this.semicolon_statement.is_open) {
+      this.note_slashes_mid_statement(startLine);
+      return this.makeToken('OPERATOR', char, startLine, startColumn);
+    }
+
     if (char === '/' && this.peek() === '/') {
       this.advance(); // consume second /
 
@@ -729,13 +746,15 @@ export class StataLexer {
 
         // A `///` (or a longer run of slashes) after whitespace is a
         // continuation; Stata 18 joins `b ////////` to the next line.
-        // At column 0 it continues a chain (`a ///`, `////////`, `b`
-        // is `a b`); otherwise only the next line follows it, so it
-        // reads as a comment.
-        if (startColumn === 0 && !this.state.in_continuation) {
+        // One that starts a line continues a chain (`a ///`,
+        // `////////`, `b` is `a b`). Otherwise it starts a statement
+        // and Stata reads the next line as that statement, so it is a
+        // comment, at any indentation.
+        if (this.is_at_line_start(startLine, startColumn) &&
+            this.slash_line_starts_statement()) {
           return this.scanLineComment(startLine, startColumn, 'slash');
         }
-        
+
         return this.scanContinuationComment(startLine, startColumn);
       } else {
         return this.scanLineComment(startLine, startColumn, 'slash');
@@ -2023,6 +2042,40 @@ export class StataLexer {
     const before = this.source[this.position - 2];
     return before === ' ' || before === '\t' ||
       (before === ';' && this.state.delimiterMode === 'semicolon');
+  }
+
+  /**
+   * Whether a `///` line starts a statement rather than continuing one:
+   * under `#delimit cr`, the line above has no `///`; under
+   * `#delimit ;`, the statement has nothing in it yet.
+   */
+  private slash_line_starts_statement(): boolean {
+    return this.state.delimiterMode === 'semicolon'
+      ? !this.semicolon_statement.is_open
+      : !this.state.in_continuation;
+  }
+
+  /**
+   * Warn at a column-0 run of slashes that is code because the
+   * `#delimit ;` statement began on an earlier line.
+   */
+  private note_slashes_mid_statement(start_line: number): void {
+    const slash_offset = this.position - 1;
+    let my_end = slash_offset;
+    while (this.source[my_end] === '/') {
+      my_end++;
+    }
+    this.errors.push({
+      message: 'Under `#delimit ;`, `//` at the start of a line is a'
+        + ' comment only on the first line of a statement. This'
+        + ' statement began on an earlier line (a comment does not end'
+        + ' it), so Stata reads these slashes as code. Indent the line,'
+        + ' or end the statement with `;` first.',
+      range: this.makeRange(
+        start_line, 0, start_line, my_end - slash_offset
+      ),
+      code: LexerErrorCode.SLASHES_MID_STATEMENT,
+    });
   }
 
   /**

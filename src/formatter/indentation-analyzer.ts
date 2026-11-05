@@ -1,5 +1,6 @@
 import { StataAST, StataNode, ControlFlowNode, ProgramNode, CommandNode, TriviaNode, Token } from '../types';
 import { ContinuationGroup, find_delimit_continuation_runs } from './alignment-detector';
+import { find_mid_statement_slash_lines } from '../utils/semicolon-statement';
 
 export interface IndentationInfo {
     line: number;
@@ -44,7 +45,13 @@ export class IndentationAnalyzer {
             this.walk_node(my_node);
         }
 
-        if (tokens) {
+        const mid_statement_slashes = tokens
+            ? find_mid_statement_slash_lines(tokens)
+            : undefined;
+        if (tokens && mid_statement_slashes) {
+            // First, so the lines continuing a statement that starts
+            // with such code move with it.
+            this.keep_slash_code_at_column0(mid_statement_slashes.code_lines);
             this.process_continuations(tokens);
             this.process_delimit_continuations(tokens);
             this.process_comment_tokens(tokens);
@@ -52,6 +59,11 @@ export class IndentationAnalyzer {
 
         if (alignment_info) {
             this.apply_alignment_preservation(alignment_info);
+        }
+
+        if (mid_statement_slashes) {
+            this.keep_mid_statement_comments_indented(mid_statement_slashes.comment_lines);
+            this.keep_slash_code_at_column0(mid_statement_slashes.code_lines);
         }
 
         return this.indentation_map;
@@ -366,6 +378,66 @@ export class IndentationAnalyzer {
 
         // Default to no indentation (e.g., comments at start of file)
         return 0;
+    }
+
+    /**
+     * Under `#delimit ;`, keep a line that starts with a `//` or `///`
+     * comment in the middle of a statement off column 0. Stata 18 reads
+     * slashes at column 0 as a comment only on a statement's first line
+     * (a comment doesn't end the statement), so an indented `// d` after
+     * `// c` moved to column 0 would become code.
+     */
+    private keep_mid_statement_comments_indented(comment_lines: Set<number>): void {
+        for (const my_line of comment_lines) {
+            const existing = this.indentation_map.get(my_line);
+            if (existing !== undefined && this.output_indent_width(existing) > 0) {
+                continue;
+            }
+            const { original_indent } = this.calculate_indent_delta(my_line, 1);
+            this.indentation_map.set(my_line, {
+                line: my_line,
+                indent_level: 1,
+                is_continuation: true,
+                is_block_start: existing?.is_block_start ?? false,
+                is_block_end: existing?.is_block_end ?? false,
+                preserve_whitespace: false,
+                indent_delta: 0,
+                original_indent,
+            });
+        }
+    }
+
+    /**
+     * Keep the slashes the lexer read as code at column 0 (see
+     * keep_mid_statement_comments_indented): indented, they would be
+     * a comment.
+     */
+    private keep_slash_code_at_column0(code_lines: Set<number>): void {
+        for (const my_line of code_lines) {
+            const existing = this.indentation_map.get(my_line);
+            const { original_indent } = this.calculate_indent_delta(my_line, 0);
+            this.indentation_map.set(my_line, {
+                line: my_line,
+                indent_level: 0,
+                is_continuation: existing?.is_continuation ?? false,
+                is_block_start: existing?.is_block_start ?? false,
+                is_block_end: existing?.is_block_end ?? false,
+                preserve_whitespace: false,
+                indent_delta: 0,
+                original_indent,
+            });
+        }
+    }
+
+    /**
+     * Width of the indentation the reconstructor writes for a line:
+     * its preserved whitespace moved by its delta, or its level.
+     */
+    private output_indent_width(info: IndentationInfo): number {
+        if (info.preserve_whitespace) {
+            return Math.max(0, info.original_indent + info.indent_delta);
+        }
+        return info.indent_level * this.indent_size;
     }
 
     /**

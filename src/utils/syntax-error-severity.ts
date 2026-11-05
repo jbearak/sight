@@ -25,6 +25,9 @@ const LEXER_ERROR_SEVERITIES: Readonly<
     // A `///` with no space before it is text, so the next line runs
     // as its own command: not a matter of style.
     [LexerErrorCode.CONTINUATION_NO_SPACE]: 'warning',
+    // Likewise a column-0 `//` or `///` in the middle of a
+    // `#delimit ;` statement, which Stata reads as code.
+    [LexerErrorCode.SLASHES_MID_STATEMENT]: 'warning',
     [LexerErrorCode.BLOCK_COMMENT_IN_STAR_COMMENT]: 'warning',
 };
 

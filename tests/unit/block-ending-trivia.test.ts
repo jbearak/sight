@@ -165,18 +165,33 @@ describe('block-ending trivia ownership', () => {
         // A `///` continuation interleaved with the trailing comment must NOT be
         // split: draining only the comment would reorder the continuation
         // relative to the comment across the closer. The whole group stays with
-        // the following statement, preserving pre-existing order.
+        // the following statement, preserving pre-existing order. (A `///`
+        // that starts a line is a comment; after a block comment it is a
+        // continuation.)
         const nodes = parse_nodes(
-            'if 1 {\n    display 1\n    ///\n    * keep\n}\ndisplay 2'
+            'if 1 {\n    display 1\n    /* x */ ///\n    * keep\n}\ndisplay 2'
         );
         const block_node = as_block_node(nodes.find(n => n.type === 'if'));
         const following_node = nodes[nodes.length - 1] as NodeWithBlockEndingTrivia;
 
         expect(block_node.blockEndingTrivia).toBeUndefined();
         expect((following_node.leadingTrivia ?? []).map(t => t.content)).toEqual([
+            '/* x */',
             '///',
             '* keep',
         ]);
+    });
+
+    test('a `///` line that starts a statement is a comment before the closer', () => {
+        // Stata 18 joins the next line to it, which then starts the
+        // statement, so the `///` line is a comment at any indentation.
+        const nodes = parse_nodes(
+            'if 1 {\n    display 1\n    ///\n    * keep\n}\ndisplay 2'
+        );
+        expect_block_ending_comment(
+            nodes.find(n => n.type === 'if'),
+            ['///', '* keep']
+        );
     });
 
     test('unclosed brace block does not populate blockEndingTrivia but keeps the comment', () => {

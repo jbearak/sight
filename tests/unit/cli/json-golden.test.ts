@@ -10,7 +10,9 @@
  * of comments with no statements; comment-placement.do has own-line
  * comments the parser attaches as trailing trivia (after `#delimit ;`
  * and at end of file), with directives in them; tight-slashes.do has
- * `//` and `///` with code right before them, which Stata reads as text.
+ * `//` and `///` with code right before them, which Stata reads as text;
+ * column0-slashes.do has `///` lines that start a statement and, under
+ * `#delimit ;`, column-0 `//` and `///` after a statement's first line.
  * The expected JSON is in
  * tests/fixtures/cli-json/expected, with the fixture's absolute path
  * replaced by <ROOT> and the Sight version by <VERSION>.
@@ -42,6 +44,7 @@ const PARSE_FILES = [
     'header-only.do',
     'comment-placement.do',
     'tight-slashes.do',
+    'column0-slashes.do',
 ];
 
 /** Replace machine-specific values so the output is stable. */

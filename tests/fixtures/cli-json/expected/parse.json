@@ -5149,5 +5149,505 @@
         }
       }
     ]
+  },
+  {
+    "schema_version": 1,
+    "sight_version": "<VERSION>",
+    "path": "<ROOT>/column0-slashes.do",
+    "line_count": 25,
+    "statements": [
+      {
+        "kind": "if",
+        "range": {
+          "start": {
+            "line": 3,
+            "character": 0
+          },
+          "end": {
+            "line": 6,
+            "character": 1
+          }
+        },
+        "text": "if 1 {\n    ///\n    display \"after a slash line\"\n}",
+        "delimit": "cr",
+        "comments": {
+          "leading": [
+            {
+              "style": "star",
+              "text": "* Under #delimit cr, a /// line that starts a statement is a comment at\n* any indentation: Stata 18 joins the next line to it, which then runs",
+              "range": {
+                "start": {
+                  "line": 0,
+                  "character": 0
+                },
+                "end": {
+                  "line": 1,
+                  "character": 70
+                }
+              },
+              "directive": null
+            },
+            {
+              "style": "star",
+              "text": "* as its own statement.",
+              "range": {
+                "start": {
+                  "line": 2,
+                  "character": 0
+                },
+                "end": {
+                  "line": 2,
+                  "character": 23
+                }
+              },
+              "directive": null
+            }
+          ],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [],
+        "condition": {
+          "text": "1",
+          "expression": {
+            "kind": "number",
+            "text": "1",
+            "value": 1,
+            "range": {
+              "start": {
+                "line": 3,
+                "character": 3
+              },
+              "end": {
+                "line": 3,
+                "character": 4
+              }
+            }
+          }
+        },
+        "single_statement": false,
+        "body": [
+          {
+            "kind": "command",
+            "range": {
+              "start": {
+                "line": 5,
+                "character": 4
+              },
+              "end": {
+                "line": 5,
+                "character": 32
+              }
+            },
+            "text": "display \"after a slash line\"",
+            "delimit": "cr",
+            "comments": {
+              "leading": [
+                {
+                  "style": "slash",
+                  "text": "///",
+                  "range": {
+                    "start": {
+                      "line": 4,
+                      "character": 4
+                    },
+                    "end": {
+                      "line": 4,
+                      "character": 7
+                    }
+                  },
+                  "directive": null
+                }
+              ],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "name": "display",
+            "canonical_name": "display",
+            "prefixes": [],
+            "args": [
+              {
+                "text": "\"after a slash line\"",
+                "range": {
+                  "start": {
+                    "line": 5,
+                    "character": 12
+                  },
+                  "end": {
+                    "line": 5,
+                    "character": 32
+                  }
+                }
+              }
+            ],
+            "varlist": null,
+            "assignment": null,
+            "if": null,
+            "in": null,
+            "weight": null,
+            "using": null,
+            "options": []
+          }
+        ]
+      },
+      {
+        "kind": "delimit",
+        "range": {
+          "start": {
+            "line": 10,
+            "character": 0
+          },
+          "end": {
+            "line": 10,
+            "character": 10
+          }
+        },
+        "text": "#delimit ;",
+        "delimit": "cr",
+        "comments": {
+          "leading": [
+            {
+              "style": "star",
+              "text": "* Under #delimit semicolon, a // or /// at column 0 is a comment only on",
+              "range": {
+                "start": {
+                  "line": 7,
+                  "character": 0
+                },
+                "end": {
+                  "line": 7,
+                  "character": 72
+                }
+              },
+              "directive": null
+            },
+            {
+              "style": "star",
+              "text": "* a statement's first line. A comment doesn't end the statement, so a",
+              "range": {
+                "start": {
+                  "line": 8,
+                  "character": 0
+                },
+                "end": {
+                  "line": 8,
+                  "character": 69
+                }
+              },
+              "directive": null
+            },
+            {
+              "style": "star",
+              "text": "* later // or /// at column 0 is code.",
+              "range": {
+                "start": {
+                  "line": 9,
+                  "character": 0
+                },
+                "end": {
+                  "line": 9,
+                  "character": 38
+                }
+              },
+              "directive": null
+            }
+          ],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "mode": "semicolon"
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 13,
+            "character": 0
+          },
+          "end": {
+            "line": 13,
+            "character": 13
+          }
+        },
+        "text": "display \"ran\"",
+        "delimit": "semicolon",
+        "comments": {
+          "leading": [
+            {
+              "style": "slash",
+              "text": "// first line of the statement: a comment",
+              "range": {
+                "start": {
+                  "line": 11,
+                  "character": 0
+                },
+                "end": {
+                  "line": 11,
+                  "character": 41
+                }
+              },
+              "directive": null
+            },
+            {
+              "style": "slash",
+              "text": "// indented: a comment",
+              "range": {
+                "start": {
+                  "line": 12,
+                  "character": 4
+                },
+                "end": {
+                  "line": 12,
+                  "character": 26
+                }
+              },
+              "directive": null
+            }
+          ],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "display",
+        "canonical_name": "display",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "\"ran\"",
+            "range": {
+              "start": {
+                "line": 13,
+                "character": 8
+              },
+              "end": {
+                "line": 13,
+                "character": 13
+              }
+            }
+          }
+        ],
+        "varlist": null,
+        "assignment": null,
+        "if": null,
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": []
+      },
+      {
+        "kind": "macro",
+        "range": {
+          "start": {
+            "line": 14,
+            "character": 0
+          },
+          "end": {
+            "line": 16,
+            "character": 1
+          }
+        },
+        "text": "local a b\n/// x\nc",
+        "delimit": "semicolon",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [],
+        "scope": "local",
+        "name": "a",
+        "form": "value",
+        "value": "b /// x c",
+        "value_parts": [
+          {
+            "kind": "text",
+            "value": "b /// x c",
+            "range": {
+              "start": {
+                "line": 14,
+                "character": 8
+              },
+              "end": {
+                "line": 16,
+                "character": 1
+              }
+            }
+          }
+        ],
+        "expression": null,
+        "extended": null,
+        "increment": null
+      },
+      {
+        "kind": "macro",
+        "range": {
+          "start": {
+            "line": 17,
+            "character": 0
+          },
+          "end": {
+            "line": 19,
+            "character": 1
+          }
+        },
+        "text": "local e b\n    /// y\nf",
+        "delimit": "semicolon",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [
+            {
+              "style": "continuation",
+              "text": "/// y",
+              "range": {
+                "start": {
+                  "line": 18,
+                  "character": 4
+                },
+                "end": {
+                  "line": 18,
+                  "character": 9
+                }
+              },
+              "directive": null
+            }
+          ],
+          "block_end": []
+        },
+        "prefixes": [],
+        "scope": "local",
+        "name": "e",
+        "form": "value",
+        "value": "b f",
+        "value_parts": [
+          {
+            "kind": "text",
+            "value": "b f",
+            "range": {
+              "start": {
+                "line": 17,
+                "character": 8
+              },
+              "end": {
+                "line": 19,
+                "character": 1
+              }
+            }
+          }
+        ],
+        "expression": null,
+        "extended": null,
+        "increment": null
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 21,
+            "character": 0
+          },
+          "end": {
+            "line": 22,
+            "character": 17
+          }
+        },
+        "text": "// code: Stata reports \"/ is not a valid command name\"\ndisplay \"not run\"",
+        "delimit": "semicolon",
+        "comments": {
+          "leading": [
+            {
+              "style": "slash",
+              "text": "// a comment",
+              "range": {
+                "start": {
+                  "line": 20,
+                  "character": 0
+                },
+                "end": {
+                  "line": 20,
+                  "character": 12
+                }
+              },
+              "directive": null
+            }
+          ],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "",
+        "canonical_name": null,
+        "prefixes": [],
+        "args": [],
+        "varlist": null,
+        "assignment": null,
+        "if": null,
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": []
+      },
+      {
+        "kind": "delimit",
+        "range": {
+          "start": {
+            "line": 23,
+            "character": 0
+          },
+          "end": {
+            "line": 23,
+            "character": 11
+          }
+        },
+        "text": "#delimit cr",
+        "delimit": "semicolon",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "mode": "cr"
+      }
+    ],
+    "comments": [],
+    "errors": [
+      {
+        "source": "lexer",
+        "code": "SLASHES_MID_STATEMENT",
+        "severity": "warning",
+        "message": "Under `#delimit ;`, `//` at the start of a line is a comment only on the first line of a statement. This statement began on an earlier line (a comment does not end it), so Stata reads these slashes as code. Indent the line, or end the statement with `;` first.",
+        "range": {
+          "start": {
+            "line": 15,
+            "character": 0
+          },
+          "end": {
+            "line": 15,
+            "character": 3
+          }
+        }
+      },
+      {
+        "source": "lexer",
+        "code": "SLASHES_MID_STATEMENT",
+        "severity": "warning",
+        "message": "Under `#delimit ;`, `//` at the start of a line is a comment only on the first line of a statement. This statement began on an earlier line (a comment does not end it), so Stata reads these slashes as code. Indent the line, or end the statement with `;` first.",
+        "range": {
+          "start": {
+            "line": 21,
+            "character": 0
+          },
+          "end": {
+            "line": 21,
+            "character": 2
+          }
+        }
+      }
+    ]
   }
 ]
