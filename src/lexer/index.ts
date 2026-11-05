@@ -986,9 +986,22 @@ export class StataLexer {
       this.state.delimiterMode = 'semicolon';
     }
 
-    // Consume until end of line
-    while (this.peek() !== '\n' && !this.isAtEnd()) {
-      this.advance();
+    // A comment after the mode is its own token, so its text and any
+    // Sight directive in it are kept: Stata 18 accepts
+    // `#delimit ; // c`, `#delimit cr /* c */`, and `#delimit ; * c`.
+    // Anything else up to the end of the line stays in the directive
+    // token. A `///` is left there too: it would join the next line.
+    let comment_start = this.position;
+    while (this.source[comment_start] === ' ' || this.source[comment_start] === '\t') {
+      comment_start++;
+    }
+    const rest = this.source.substring(comment_start, comment_start + 3);
+    const starts_comment = (rest.startsWith('//') && rest !== '///') ||
+      rest.startsWith('/*') || rest.startsWith('*');
+    if (!starts_comment) {
+      while (this.peek() !== '\n' && !this.isAtEnd()) {
+        this.advance();
+      }
     }
 
     const value = this.source.substring(this.position_to_offset(startLine, startColumn), this.position);

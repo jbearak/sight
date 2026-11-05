@@ -302,6 +302,9 @@ describe('sight parse --json directives agree with the editor', () => {
         before_closer: 'foreach v in a {\n    display `u\'\n    // sight: ignore\n}\ndisplay `u\'\ndisplay `u\'\n',
         nested_closers: 'program define p\n    if 1 {\n        display `u\'\n        // sight: ignore\n    }\nend\ndisplay `u\'\ndisplay `u\'\n',
         delimit: '#delimit ;\n// sight: ignore-next\ndisplay `u\'\n    `u\';\ndisplay `u\';\n#delimit cr\n',
+        // A comment on the `#delimit` line is its own token.
+        delimit_line_next: '#delimit ; // sight: ignore-next\ndisplay `u\';\ndisplay `u\';\n#delimit cr\n',
+        delimit_line_trailing: '#delimit ; // sight: ignore\ndisplay `u\';\n#delimit cr\n',
         at_eof: 'display `u\'\n// sight: ignore\n',
         before_forward: '// sight: ignore\n// sight: do "x.do"\ndisplay `u\'\ndisplay `u\'\n',
     };

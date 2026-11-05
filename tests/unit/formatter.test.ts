@@ -306,7 +306,7 @@ display 1`;
 
       const my_expected = mode === 'source-preserving'
         ? my_source
-        : `reg y x, vce(seed(123)
+        : `reg y x, vce(seed(123) // note
 display 1
 `;
       expect(my_formatted).toBe(my_expected);
