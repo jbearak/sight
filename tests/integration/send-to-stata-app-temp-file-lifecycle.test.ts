@@ -88,6 +88,10 @@ interface SharedVscodeTestState {
             active: {
                 line: number;
             };
+            start: {
+                line: number;
+                character: number;
+            };
         };
         revealRange: () => void;
     };
@@ -277,6 +281,10 @@ describe.serial('Feature: send-to-stata app temp file lifecycle', () => {
                         isEmpty: false,
                         active: {
                             line: 0,
+                        },
+                        start: {
+                            line: 0,
+                            character: 0,
                         },
                     },
                     revealRange: () => {},
@@ -485,6 +493,10 @@ describe.serial('Feature: send-to-stata app temp file lifecycle', () => {
                     isEmpty: false,
                     active: {
                         line: 0,
+                    },
+                    start: {
+                        line: 0,
+                        character: 0,
                     },
                 },
                 revealRange: () => {},

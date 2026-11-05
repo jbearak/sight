@@ -1,12 +1,7 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import { LanguageClient } from 'vscode-languageclient/node.js';
-import {
-    detect_statement,
-    get_statement_text,
-    get_upward_bounds,
-    get_downward_bounds
-} from './statement-detector.js';
+import { find_code_to_send } from './statement-detector.js';
 import {
     create_temp_file,
     schedule_temp_file_cleanup
@@ -222,26 +217,25 @@ async function handle_send_command(
 
     let my_code: string;
     let statement_end_line: number | null = null;
-    
-    if (mode === 'statement') {
-        if (!my_editor.selection.isEmpty) {
-            my_code = my_editor.document.getText(my_editor.selection);
-        } else {
-            const my_statement = detect_statement(my_editor.document, 
-                my_editor.selection.active.line);
-            my_code = get_statement_text(my_editor.document, my_statement);
-            statement_end_line = my_statement.end_line;
-        }
-    } else if (mode === 'upward') {
-        const my_bounds = get_upward_bounds(my_editor.document, 
-            my_editor.selection.active.line);
-        my_code = get_statement_text(my_editor.document, my_bounds);
-    } else if (mode === 'downward') {
-        const my_bounds = get_downward_bounds(my_editor.document, 
-            my_editor.selection.active.line);
-        my_code = get_statement_text(my_editor.document, my_bounds);
-    } else {
+
+    if (mode === 'file') {
         my_code = my_editor.document.getText();
+    } else {
+        const my_selection = my_editor.selection;
+        const my_send = find_code_to_send(
+            my_editor.document,
+            mode,
+            my_selection.active.line,
+            mode === 'statement' && !my_selection.isEmpty
+                ? {
+                    text: my_editor.document.getText(my_selection),
+                    line: my_selection.start.line,
+                    character: my_selection.start.character,
+                }
+                : null
+        );
+        my_code = my_send.code;
+        statement_end_line = my_send.statement_end_line;
     }
 
     // Apply working directory prefix if configured

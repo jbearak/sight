@@ -173,7 +173,13 @@ With no selection, the send commands send the whole statement the cursor is in, 
 
 Send Upward Lines ends at the end of the cursor's statement, and Send Downward Lines starts at its first line.
 
-Under `#delimit ;`, a statement ends at its `;`, but the extension still sends only the lines joined as above, and Stata runs them under `#delimit cr`. Select the statement, with a `#delimit ;` line before it, to send it.
+### `#delimit ;`
+
+After `#delimit ;`, a statement runs to its `;`, across as many lines as it takes. Comment lines just before a statement are sent with it; a comment after the `;` (`di "A"; // note`) isn't sent with the next statement. A `//` or `///` at column 0 in the middle of a statement is code, as Stata reads it.
+
+Stata runs the code it's sent under `#delimit cr`. So when the code starts in a `#delimit ;` region (Send statement, a selection, or Send Downward Lines), the extension puts a `#delimit ;` line before it. Stata goes back to `#delimit cr` when the sent code ends. Send Upward Lines and Send File start at the top of the file, so they carry the file's own `#delimit` lines.
+
+A block's header (`foreach v in a b {;`), each line of its body, and its `};` are separate statements, as under `#delimit cr`. To run a whole block, select it.
 
 ## Editor Toolbar
 

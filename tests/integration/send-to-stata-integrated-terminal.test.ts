@@ -1555,7 +1555,11 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
                 save: async () => true,
                 getText: () => 'display "queued"',
             },
-            selection: { isEmpty: false, active: { line: 0 } },
+            selection: {
+                isEmpty: false,
+                active: { line: 0 },
+                start: { line: 0, character: 0 },
+            },
             revealRange: () => {},
         };
         try {

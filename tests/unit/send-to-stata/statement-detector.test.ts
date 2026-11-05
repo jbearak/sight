@@ -178,3 +178,80 @@ describe('Send upward and downward lines with a noted ///', () => {
         }
     });
 });
+
+describe('Send to Stata: statements under #delimit ;', () => {
+    test('a statement runs to its ;, across lines', () => {
+        const the_lines = [
+            '#delimit ;',
+            'reg price',
+            '    mpg /// note',
+            '    weight, robust;',
+            'di "after";',
+        ];
+        expect_statement(the_lines, 0, 0);
+        expect_statement(the_lines, 1, 3);
+        expect_statement(the_lines, 4, 4);
+    });
+
+    test('a blank line inside a statement is part of it', () => {
+        expect_statement(['#delimit ;', 'reg price', '', '  mpg;'], 1, 3);
+    });
+
+    test('a tight /// does not end a ; statement', () => {
+        // Stata stores `b/// c`.
+        expect_statement(['#delimit ;', 'local a b///', 'c;'], 1, 2);
+    });
+
+    test('a comment after the ; does not join the next statement', () => {
+        const the_lines = ['#delimit ;', 'di "A"; // note', 'di "B";'];
+        expect_statement(the_lines, 1, 1);
+        expect_statement(the_lines, 2, 2);
+    });
+
+    test('comment lines before a statement are sent with it', () => {
+        const the_lines = [
+            '#delimit ;', 'di "A";', '', '// note', 'summarize', '  price;',
+        ];
+        expect_statement(the_lines, 2, 2);
+        expect_statement(the_lines, 3, 5);
+    });
+
+    test('column-0 slashes in the middle of a statement are code', () => {
+        // Stata stores `b /// x c`.
+        expect_statement(['#delimit ;', 'local a b', '/// x', 'c;'], 1, 3);
+        // `// d` is code here: Stata fails with r(199), and so does
+        // the sent statement.
+        expect_statement(['#delimit ;', '// c', '// d', 'di "x";'], 1, 3);
+    });
+
+    test('a block header, its body, and its close are statements', () => {
+        const the_lines = [
+            '#delimit ;',
+            'foreach v in a b {;',
+            '    di "`v\'";',
+            '};',
+        ];
+        expect_statement(the_lines, 1, 1);
+        expect_statement(the_lines, 2, 2);
+        expect_statement(the_lines, 3, 3);
+    });
+
+    test('a statement that starts after another on its line', () => {
+        expect_statement(
+            ['#delimit ;', 'di "one"; di "two"', '  "three";'], 1, 2);
+    });
+
+    test('a * comment runs to its ;', () => {
+        expect_statement(
+            ['#delimit ;', '* a star', '  comment;', 'di 1;'], 1, 2);
+    });
+
+    test('lines after #delimit cr follow cr rules', () => {
+        const the_lines = [
+            '#delimit ;', 'di "A";', '#delimit cr', 'di "B"', 'di "C"',
+        ];
+        expect_statement(the_lines, 2, 2);
+        expect_statement(the_lines, 3, 3);
+        expect_statement(the_lines, 4, 4);
+    });
+});
