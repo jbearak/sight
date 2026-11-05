@@ -416,4 +416,95 @@ describe('statement structure', () => {
             expect(macro.interiorTrivia?.map((t) => t.content)).toEqual(['/* c */']);
         });
     });
+
+    describe('block comments around a colon', () => {
+        // A block comment before or after the `:` of a prefix or of
+        // `unab` is whitespace; each line is one statement.
+        const unab_sources = [
+            'unab x /* c */ : a b',
+            'unab x /* c */ /* d */ : a b',
+            'unab x: /* c */ a b',
+            'unab x : a /* c */ b',
+            'unab /* c */ x : a b',
+            'frame f: unab x /* c */ : a /* d */ b',
+        ];
+        for (const my_source of unab_sources) {
+            it(`keeps ${my_source} whole`, () => {
+                const nodes = parse_nodes(my_source);
+                expect(nodes).toHaveLength(1);
+                const node = nodes[0] as CommandNode;
+                expect(node).toMatchObject({ name: 'unab', has_colon_before_varlist: true });
+                expect(names(node)).toEqual(['x', 'a', 'b']);
+                expect(node.interiorTrivia?.length).toBeGreaterThan(0);
+            });
+        }
+
+        it('keeps unab options after a comment', () => {
+            const nodes = parse_nodes('unab x : a b, /* c */ min(1)');
+            expect(nodes).toHaveLength(1);
+            expect((nodes[0] as CommandNode).options?.map((o) => o.name)).toEqual(['min']);
+        });
+
+        const prefixed_sources: Array<[string, string[]]> = [
+            ['quietly /* c */ : gen x = 1', ['quietly']],
+            ['capture noisily /* c */ : gen x = 1', ['capture', 'noisily']],
+            ['quietly: /* c */ gen x = 1', ['quietly']],
+            ['capture /* c */ noisily gen x = 1', ['capture', 'noisily']],
+            ['version 14 /* c */ : gen x = 1', ['version']],
+            ['version 14: /* c */ gen x = 1', ['version']],
+            ['by g /* c */ : gen x = 1', ['by']],
+            ['by g: /* c */ gen x = 1', ['by']],
+            // Loop and syntax keywords aren't reserved: here they are
+            // variable names, not the command.
+            ['capture /* c */ noisily gen syntax = 1', ['capture', 'noisily']],
+            ['quietly /* c */ : gen while = 1', ['quietly']],
+        ];
+        for (const [my_source, my_prefixes] of prefixed_sources) {
+            it(`keeps ${my_source} whole`, () => {
+                const nodes = parse_nodes(my_source);
+                expect(nodes).toHaveLength(1);
+                const node = nodes[0] as CommandNode;
+                expect(node).toMatchObject({ name: 'gen', expression: '1' });
+                expect(node.prefix?.map((p) => p.fullName)).toEqual(my_prefixes);
+                expect(node.interiorTrivia?.map((t) => t.content)).toEqual(['/* c */']);
+            });
+        }
+
+        it('finds the command after a /// continuation', () => {
+            // Before syntax the comment stays where it was, on the prefix.
+            const nodes = parse_nodes('capture /* c */ noisily ///\n    syntax varlist');
+            expect(nodes.map((n) => n.type)).toEqual(['command', 'syntax']);
+            expect((nodes[0] as CommandNode).trailingTrivia?.map((t) => t.content))
+                .toEqual(['/* c */']);
+
+            const plain = parse_nodes('capture /* c */ noisily ///\n    gen x = 1');
+            expect(plain).toHaveLength(1);
+            expect((plain[0] as CommandNode).interiorTrivia?.map((t) => t.content))
+                .toEqual(['/* c */']);
+        });
+
+        it('still ends a dangling prefix at a trailing comment', () => {
+            const nodes = parse_nodes('quietly /* c */\ngen x = 1');
+            expect(nodes).toHaveLength(2);
+            expect((nodes[0] as CommandNode).trailingTrivia?.map((t) => t.content))
+                .toEqual(['/* c */']);
+        });
+    });
+
+    describe('#delimit ; star lines', () => {
+        it('reads * that continues a statement as multiplication', () => {
+            const nodes = parse_nodes('#delimit ;\ngen y = a\n* b;\ngen z = 1;\n');
+            expect(nodes).toHaveLength(3);
+            expect(nodes[1]).toMatchObject({ type: 'command', name: 'gen', expression: 'a * b' });
+            expect(nodes[2]).toMatchObject({ type: 'command', name: 'gen', expression: '1' });
+        });
+
+        it('reads * at the start of a statement as a comment', () => {
+            const nodes = parse_nodes('#delimit ;\ngen y = a;\n* note;\ngen z = 1;\n');
+            expect(nodes).toHaveLength(3);
+            expect(nodes[1]).toMatchObject({ expression: 'a' });
+            expect((nodes[2] as CommandNode).leadingTrivia?.map((t) => t.content))
+                .toEqual(['* note;']);
+        });
+    });
 });

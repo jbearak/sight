@@ -92,6 +92,14 @@ const COLON_PREFIX_COMMANDS: ReadonlyMap<string, string> = new Map([
   ['eststo', 'eststo'],
 ]);
 
+// Tokens that can name a command (`gen`, `` `cmd' ``, `$cmd`).
+const COMMAND_NAME_TYPES: ReadonlySet<TokenType | undefined> = new Set<TokenType>([
+  'WORD', 'MACRO_REF_LOCAL', 'MACRO_REF_GLOBAL',
+]);
+// Commands after a prefix that parse to nodes without interior comments.
+const BODY_COMMANDS: ReadonlySet<string> = new Set([
+  'foreach', 'while', 'if', 'syntax',
+]);
 /** Canonical names of the colon prefixes above. */
 const COLON_PREFIX_NAMES: ReadonlySet<string> = new Set(COLON_PREFIX_COMMANDS.values());
 
@@ -2039,6 +2047,7 @@ export class StataParser {
     const start_pos = command_token.range.start;
 
     // Parse macro name
+    this.skip_interior_block_comments();
     if (!this.check('WORD')) {
       this.addError('Expected macro name after unab', this.peek().range);
       throw new Error('Missing macro name in unab command');
@@ -2056,7 +2065,8 @@ export class StataParser {
     // This keeps varlists pure (only variable names) while preserving syntax
     let has_colon_before_varlist = false;
 
-    // Expect colon
+    // Expect colon; a block comment before it is whitespace.
+    this.skip_interior_block_comments();
     if (!this.check('COLON')) {
       this.addError(
         'Expected ":" after macro name in unab command',
@@ -2067,11 +2077,13 @@ export class StataParser {
       has_colon_before_varlist = true;
     }
 
-    // Parse variable list after colon
-    while ((this.check('WORD') || this.check('MACRO_REF_LOCAL') ||
-            this.check('MACRO_REF_GLOBAL') ||
-            (this.check('OPERATOR') && (this.peek().value === '*' || this.peek().value === '?'))) &&
-           !this.check('COMMA') && !this.isTrivia()) {
+    // Parse variable list after colon; a block comment between names is
+    // whitespace.
+    for (;;) {
+      this.skip_interior_block_comments();
+      if (!this.is_unab_varlist_token()) {
+        break;
+      }
       const var_token = this.advance();
       let name = var_token.value;
       let end_range = var_token.range.end;
@@ -2103,6 +2115,7 @@ export class StataParser {
 
       while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
         if (this.skipContinuation()) continue;
+        if (this.skip_interior_block_comments()) continue;
         if (this.isTrivia()) break;
         if (this.check('WORD')) {
           const option_token = this.advance();
@@ -2603,6 +2616,14 @@ export class StataParser {
       }
       return name[0];
     }
+  }
+
+  /** Can the current token be a name in unab's varlist? */
+  private is_unab_varlist_token(): boolean {
+    return this.check('WORD') || this.check('MACRO_REF_LOCAL') ||
+      this.check('MACRO_REF_GLOBAL') ||
+      (this.check('OPERATOR') &&
+        (this.peek().value === '*' || this.peek().value === '?'));
   }
 
   private isTrivia(): boolean {
@@ -3313,6 +3334,7 @@ export class StataParser {
     const start_pos = command_token.range.start;
 
     // Parse macro name
+    this.skip_interior_block_comments();
     if (!this.check('WORD')) {
       this.addError('Expected macro name after unab', this.peek().range);
       return {
@@ -3335,7 +3357,8 @@ export class StataParser {
     // This keeps varlists pure (only variable names) while preserving syntax
     let has_colon_before_varlist = false;
 
-    // Expect colon
+    // Expect colon; a block comment before it is whitespace.
+    this.skip_interior_block_comments();
     if (!this.check('COLON')) {
       this.addError(
         'Expected ":" after macro name in unab command',
@@ -3346,11 +3369,13 @@ export class StataParser {
       has_colon_before_varlist = true;
     }
 
-    // Parse variable list after colon
-    while ((this.check('WORD') || this.check('MACRO_REF_LOCAL') ||
-            this.check('MACRO_REF_GLOBAL') ||
-            (this.check('OPERATOR') && (this.peek().value === '*' || this.peek().value === '?'))) &&
-           !this.check('COMMA') && !this.isTrivia()) {
+    // Parse variable list after colon; a block comment between names is
+    // whitespace.
+    for (;;) {
+      this.skip_interior_block_comments();
+      if (!this.is_unab_varlist_token()) {
+        break;
+      }
       const var_token = this.advance();
       let name = var_token.value;
       let end_range = var_token.range.end;
@@ -3381,6 +3406,7 @@ export class StataParser {
       this.advance();
       while (!this.check('STATEMENT_TERMINATOR') && !this.isAtEnd()) {
         if (this.skipContinuation()) continue;
+        if (this.skip_interior_block_comments()) continue;
         if (this.isTrivia()) break;
         if (this.check('WORD')) {
           const option_token = this.advance();
@@ -3441,10 +3467,20 @@ export class StataParser {
    */
   private parse_prefix_chain(prefixes: PrefixNode[]): void {
     for (;;) {
-      // A `///` continuation may separate prefixes; comments end the chain
-      // so they stay attached to the statement as trivia.
+      // A `///` continuation, or block comments before the next word of
+      // a plain command (`capture /* c */ noisily`, `quietly: /* c */
+      // gen`), may separate prefixes; other comments end the chain so
+      // they stay attached to the statement as trivia.
       while (this.skipContinuation()) {
         // skip
+      }
+      const word_index = this.index_after_block_comments(this.current);
+      if (word_index > this.current &&
+          COMMAND_NAME_TYPES.has(this.tokens[word_index]?.type) &&
+          this.is_plain_command_from(word_index)) {
+        while (this.current < word_index) {
+          this.advance();
+        }
       }
       const token = this.peek();
       if (token.type !== 'WORD') {
@@ -3488,7 +3524,17 @@ export class StataParser {
       }
     }
 
-    // Consume colon after any prefix command (quietly:, capture:, by g:, etc.)
+    // Consume colon after any prefix command (quietly:, capture:, by g:,
+    // etc.). A block comment before it is whitespace before a plain
+    // command: `quietly /* c */ : gen x = 1`.
+    const colon_index = this.index_after_block_comments(this.current);
+    if (colon_index > this.current &&
+        this.tokens[colon_index]?.type === 'COLON' &&
+        this.is_plain_command_from(colon_index + 1)) {
+      while (this.current < colon_index) {
+        this.advance();
+      }
+    }
     if (this.check('COLON')) {
       this.advance();
       prefix.has_colon = true;
@@ -3688,6 +3734,111 @@ export class StataParser {
       return true;
     }
     return false;
+  }
+
+  /**
+   * Is the statement from token `index` on a plain command or macro
+   * definition, not a loop, `if` command, `syntax`, brace block, or
+   * Mata/Python? Those nodes don't keep interior comments, so a comment
+   * between prefixes is read as whitespace only before a plain command;
+   * otherwise it stays where it was.
+   */
+  private is_plain_command_from(index: number): boolean {
+    // Find the command word, past any further prefixes.
+    let i = this.index_after_statement_trivia(index);
+    for (;;) {
+      const my_token = this.tokens[i];
+      if (my_token?.type !== 'WORD') {
+        break;
+      }
+      const prefix_name = PREFIX_COMMANDS.get(my_token.value);
+      if (prefix_name === 'by' || prefix_name === 'bysort' ||
+          (prefix_name === undefined && COLON_PREFIX_COMMANDS.has(my_token.value))) {
+        const colon_index = this.find_statement_colon(i + 1);
+        if (colon_index === -1) {
+          break;
+        }
+        i = this.index_after_statement_trivia(colon_index + 1);
+      } else if (prefix_name !== undefined) {
+        i = this.index_after_statement_trivia(i + 1);
+        if (this.tokens[i]?.type === 'COLON') {
+          i = this.index_after_statement_trivia(i + 1);
+        }
+      } else {
+        break;
+      }
+    }
+    const command = this.tokens[i];
+    if (command?.type === 'WORD' &&
+        (BODY_COMMANDS.has(command.value) ||
+         (command.value.length >= 4 && 'forvalues'.startsWith(command.value)))) {
+      return false;
+    }
+
+    // A brace block or Mata/Python anywhere in the statement.
+    for (let j = i; j < this.tokens.length; j++) {
+      const my_token = this.tokens[j];
+      switch (my_token.type) {
+        case 'STATEMENT_TERMINATOR':
+          if (is_swallowed_continuation_terminator(
+            my_token, this.tokens[j - 1]?.type === 'CONTINUATION')) {
+            break;
+          }
+          return true;
+        case 'EOF':
+        case 'RBRACE':
+          return true;
+        case 'LBRACE':
+        case 'MATA_START':
+        case 'MATA_INLINE':
+        case 'PYTHON_START':
+        case 'PYTHON_INLINE':
+          return false;
+      }
+    }
+    return true;
+  }
+
+  /**
+   * Index of the first token from `index` on that isn't a block comment
+   * or a `///` continuation with its swallowed newline.
+   */
+  private index_after_statement_trivia(index: number): number {
+    let i = index;
+    for (;;) {
+      const my_token = this.tokens[i];
+      if (my_token?.type === 'COMMENT_BLOCK' || my_token?.type === 'CONTINUATION') {
+        i++;
+      } else if (my_token !== undefined && i > 0 &&
+          is_swallowed_continuation_terminator(
+            my_token, this.tokens[i - 1]?.type === 'CONTINUATION')) {
+        i++;
+      } else {
+        return i;
+      }
+    }
+  }
+
+  /** Index of the first token from `index` on that isn't a block comment. */
+  private index_after_block_comments(index: number): number {
+    let i = index;
+    while (this.tokens[i]?.type === 'COMMENT_BLOCK') {
+      i++;
+    }
+    return i;
+  }
+
+  /**
+   * Skip block comments that have more of the statement after them; a
+   * comment there is whitespace. Returns true if any were skipped.
+   */
+  private skip_interior_block_comments(): boolean {
+    let skipped = false;
+    while (this.check('COMMENT_BLOCK') && this.statement_continues_after(this.current)) {
+      this.advance();
+      skipped = true;
+    }
+    return skipped;
   }
 
   /**

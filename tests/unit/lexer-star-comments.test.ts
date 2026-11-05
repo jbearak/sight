@@ -169,6 +169,73 @@ gen result = age * income ;
     });
   });
 
+  describe('Star at the start of a line under #delimit ;', () => {
+    // Under `#delimit ;` a newline doesn't end the statement, so `*` at
+    // the start of a line is a comment only at the start of a statement.
+    // Stata 18 computes y = a*b for each `gen` below.
+    const tokens_of = (source: string): string[] =>
+      lexer.tokenize(source).tokens
+        .filter(t => t.type !== 'EOF')
+        .map(t => `${t.type} ${t.value}`);
+
+    test('reads * that continues a statement as multiplication', () => {
+      expect(tokens_of('#delimit ;\ngen y = a\n* b;\n')).toEqual([
+        'DELIMIT_DIRECTIVE #delimit ;', 'WORD gen', 'WORD y', 'OPERATOR =',
+        'WORD a', 'OPERATOR *', 'WORD b', 'STATEMENT_TERMINATOR ;',
+      ]);
+      for (const my_source of [
+        '#delimit ;\ngen y = a\n    * b;\n',
+        '#delimit ;\ngen y = a\n*\nb;\n',
+        '#delimit ;\ngen y = a /* c */\n* b;\n',
+        '#delimit ;\ngen y = a // note\n* b;\n',
+        '#delimit ;\ngen y = a ///\n* b;\n',
+      ]) {
+        const the_tokens = tokens_of(my_source);
+        expect(the_tokens).toContain('OPERATOR *');
+        expect(the_tokens.filter(t => t.startsWith('COMMENT_LINE *'))).toEqual([]);
+        expect(the_tokens[the_tokens.length - 1]).toBe('STATEMENT_TERMINATOR ;');
+      }
+    });
+
+    test('reads * at the start of a statement as a comment', () => {
+      expect(tokens_of('#delimit ;\n* note;\n')).toEqual([
+        'DELIMIT_DIRECTIVE #delimit ;', 'COMMENT_LINE * note;',
+      ]);
+      expect(tokens_of('#delimit ;\ngen y = a;\n* one;\n* two;\n')).toEqual([
+        'DELIMIT_DIRECTIVE #delimit ;', 'WORD gen', 'WORD y', 'OPERATOR =',
+        'WORD a', 'STATEMENT_TERMINATOR ;',
+        'COMMENT_LINE * one;', 'COMMENT_LINE * two;',
+      ]);
+      expect(tokens_of('#delimit ;\ngen y = a; // note\n  * c;\n'))
+        .toContain('COMMENT_LINE * c;');
+      expect(tokens_of('#delimit ;\nif 1 {;\n* c;\n};\n* d;\n'))
+        .toEqual(expect.arrayContaining(['COMMENT_LINE * c;', 'COMMENT_LINE * d;']));
+    });
+
+    test('reads * after a word that ends no command as code', () => {
+      // The statement goes on, so `*;` is code, not a comment.
+      expect(tokens_of('#delimit ;\ndrop program\n*;\n')).toEqual([
+        'DELIMIT_DIRECTIVE #delimit ;', 'WORD drop', 'WORD program',
+        'OPERATOR *', 'STATEMENT_TERMINATOR ;',
+      ]);
+    });
+
+    test('reads * where a command starts after a prefix as a comment', () => {
+      // Stata 18 runs `quietly` then `* note;` and `capture:` then
+      // `* note;` as comments.
+      expect(tokens_of('#delimit ;\nquietly\n* note;\n'))
+        .toContain('COMMENT_LINE * note;');
+      expect(tokens_of('#delimit ;\ncapture:\n* note;\n'))
+        .toContain('COMMENT_LINE * note;');
+    });
+
+    test('keeps * at the start of a line a comment in cr mode', () => {
+      expect(tokens_of('gen y = a\n* b\n')).toContain('COMMENT_LINE * b');
+      expect(tokens_of('#delimit ;\n#delimit cr\ngen y = a\n* b\n'))
+        .toContain('COMMENT_LINE * b');
+    });
+  });
+
   describe('Edge cases', () => {
     test('should handle * at start of file as comment', () => {
       const source = '* File header comment';

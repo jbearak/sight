@@ -10,10 +10,12 @@ import {
 } from '../property/helpers/formatter-test-utils';
 
 /** Format a fixture in the selected mode and return the resulting source. */
-function format_source(source: string, mode: FormatterMode): string {
+function format_source(source: string, mode: FormatterMode, allow_errors = false): string {
     const lex_result = new StataLexer().tokenize(source);
     const parse_result = new StataParser().parse(lex_result.tokens);
-    expect(parse_result.errors).toEqual([]);
+    if (!allow_errors) {
+        expect(parse_result.errors).toEqual([]);
+    }
     const edits = new CodeFormatter().format({
         uri: 'file:///statement-structure.do',
         content: source,
@@ -114,6 +116,14 @@ const INTERIOR_COMMENTS: Array<[string, string]> = [
     ['reg y x, robust /* c */ cluster(id)', 'reg y x, robust cluster(id) /* c */'],
     ['local z = a /* c */ + b', 'local z = a + b /* c */'],
     ['reg y /* a */ x if b /* c */ & d // note', 'reg y /* a */ x if b & d /* c */ // note'],
+    // A comment around the colon of unab or a prefix; one inside the
+    // prefixes goes before the command's arguments.
+    ['unab x /* c */ : a b', 'unab x: /* c */ a b'],
+    ['unab x : a /* c */ b', 'unab x: a /* c */ b'],
+    ['unab x : a b, /* c */ min(1)', 'unab x: a b, min(1) /* c */'],
+    ['quietly /* c */ : gen x = 1', 'quietly: gen /* c */ x = 1'],
+    ['capture /* c */ noisily gen x = 1', 'capture noisily gen /* c */ x = 1'],
+    ['version 14: /* c */ gen x = 1', 'version 14: gen /* c */ x = 1'],
 ];
 
 describe('formatting statements with interior block comments', () => {
@@ -135,6 +145,49 @@ describe('formatting statements with interior block comments', () => {
         const source = 'gen x = a /* c */\nkeep if b /* d */ // note\n';
         const formatted = format_source(source, mode);
         expect(formatted).toBe(source);
+        expect(format_source(formatted, mode)).toBe(formatted);
+    });
+
+    for_each_formatter_mode('keeps a comment between a prefix and a block, and the block', mode => {
+        // Loops, if blocks, and braces don't keep interior comments, so
+        // a comment before one stays out of the prefix chain.
+        const the_sources = [
+            'version 14: /* c */ foreach x in a b {\n    di 1\n}\n',
+            'capture /* c */ while 1 {\n    di 1\n}\n',
+            'quietly /* c */ : foreach x in a {\n    di 1\n}\n',
+            'quietly /* c */ if 1 {\n    di 1\n}\n',
+        ];
+        for (const my_source of the_sources) {
+            const formatted = format_source(my_source, mode, true);
+            expect(formatted).toContain('/* c */');
+            expect(formatted).toContain('di 1');
+        }
+    });
+
+    for_each_formatter_mode('keeps a comment before syntax, also after ///', mode => {
+        // syntax nodes don't keep interior comments either. The command
+        // after `///` decides, as on the same line. (AST formatting
+        // already drops a prefixed syntax, and what follows `///` here,
+        // on main; this checks only the comment.)
+        for (const my_source of [
+            'capture /* c */ noisily syntax varlist\n',
+            'capture /* c */ noisily ///\n    syntax varlist\n',
+            'quietly /* c */ : ///\n    syntax varlist\n',
+            'capture /* c */ noisily ///\n    foreach x in a {\n    di 1\n}\n',
+        ]) {
+            expect(format_source(my_source, mode, true)).toContain('/* c */');
+        }
+    });
+
+    for_each_formatter_mode('keeps a * line that continues a #delimit ; statement', mode => {
+        const source = '#delimit ;\ngen y = a\n* b;\ngen z = 1;\n#delimit cr\n';
+        const formatted = format_source(source, mode);
+        // Stata 18 reads `* b` here as multiplication, not a comment.
+        if (mode === 'ast') {
+            expect(formatted).toContain('gen y = a * b;\ngen z = 1;');
+        } else {
+            expect(formatted).toBe(source);
+        }
         expect(format_source(formatted, mode)).toBe(formatted);
     });
 
