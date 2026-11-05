@@ -98,8 +98,14 @@ describe('Syntax Command Analyzer Property Tests', () => {
           // lowercase form of the name. Multiple options that differ only
           // in case (e.g. `Foo` and `foo`) collapse onto one runtime local,
           // so we deduplicate by the lowercase form before asserting.
+          // An option like these, without an argument, that starts with
+          // a lowercase `no` defines the rest of its name (`noLOg`
+          // defines `log`, checked in StataMP 18).
           const the_runtime_names = new Set(
-            my_option_names.map((my_name) => my_name.toLowerCase())
+            my_option_names.map((my_name) =>
+              my_name.length > 2 && my_name.startsWith('no')
+                ? my_name.slice(2).toLowerCase()
+                : my_name.toLowerCase())
           );
           for (const my_runtime_name of the_runtime_names) {
             expect(my_result.symbols.localMacros.has(my_runtime_name)).toBe(true);
