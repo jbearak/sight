@@ -100,6 +100,8 @@ the loop is left alone and no names are expanded.
 
 **Macro-creating options**: The analyzer recognizes `local()` and `global()` options on built-in commands (`levelsof`, `glevelsof`) and user-defined programs (via `` c_local `option' `` and `` global `option' `` patterns matching syntax declarations).
 
+**Locals set by `c_local` with a fixed name**: After a call to a program that runs `c_local foo …`, `` `foo' `` is defined from the call on. Hover, go-to-definition and Find References treat the call as a definition of `foo`, in addition to any earlier definitions in the caller. A name joined to a macro, as in `` c_local foo`i' … ``, is known only when the program runs, so Sight defines nothing for it. The same applies to `tempvar`, `tempname`, `tempfile`, `args`, `gettoken` and `file read`. `` local foo`i' … `` is not covered yet: Sight still treats it as defining `foo`.
+
 <a id="locals-named-by-program-arguments"></a>
 **Locals named by program arguments**: A program can set a local in its caller whose name the caller passes as an argument. After `_getrhs rhs`, `` `rhs' `` is defined when `_getrhs` does one of these:
 
