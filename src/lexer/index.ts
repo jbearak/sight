@@ -397,10 +397,10 @@ export class StataLexer {
       }
 
       // Under `#delimit ;`, the `;` ends the opener statement: Stata 18
-      // opens a block at `mata:;` and `python:;`.
+      // opens a block at `mata:;` and `python:;`, and reads anything after
+      // the `;` on the line as block content.
       if (my_char === ';' && this.state.delimiterMode === 'semicolon') {
-        my_pos++;
-        continue;
+        return true;
       }
       
       // Check for // line comment

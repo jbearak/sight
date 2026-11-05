@@ -61,6 +61,11 @@ const PYTHON_CASES: DelimitCase[] = [
     },
     { name: 'python:; ... end;', lines: ['python:;', 'print(1);', 'end;', 'di 1;'], end_line: 3 },
     {
+        name: 'python:; with block content on its line',
+        lines: ['python:;print(1);', 'end;', 'di 1;'],
+        end_line: 2,
+    },
+    {
         name: 'not an indented end;',
         lines: ['python;', 'print(1);', '  end;', 'print(2);', 'end;', 'di 1;'],
         end_line: 5,
