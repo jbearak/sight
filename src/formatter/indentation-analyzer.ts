@@ -315,9 +315,10 @@ export class IndentationAnalyzer {
             const continuation_indent = base_info ? base_info.indent_level + 1 : 1;
             const base_delta = base_info ? base_info.indent_delta : 0;
             for (const my_line of my_run.continuation_lines) {
-                const existing = this.indentation_map.get(my_line);
-                // A `///` line was set above; a block opener keeps its own.
-                if (existing && (existing.is_continuation || existing.is_block_start)) {
+                // A line after a `///` inside the statement is set here
+                // too, from the statement's first line; a block opener
+                // keeps its own.
+                if (this.indentation_map.get(my_line)?.is_block_start) {
                     continue;
                 }
                 const { original_indent } = this.calculate_indent_delta(my_line, continuation_indent);

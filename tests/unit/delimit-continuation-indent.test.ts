@@ -115,6 +115,15 @@ describe('continuation lines under #delimit ;', () => {
         }
     });
 
+    it('are indented from the statement\'s first line when a /// is among them [source-preserving]', () => {
+        // The line after the `///` took the `///` line as its base.
+        const source = '#delimit ;\nprogram foo;\nreg y\nx ///\nz;\nend;\n';
+        expect(format_stable(source, 'source-preserving'))
+            .toBe('#delimit ;\nprogram foo;\n    reg y\n    x ///\n    z;\nend;\n');
+        expect(format_stable(source, 'source-preserving', { preserve_alignment: false }))
+            .toBe('#delimit ;\nprogram foo;\n    reg y\n        x ///\n        z;\nend;\n');
+    });
+
     for_each_formatter_mode('keep the syntax spec of a program indented', mode => {
         const source = '#delimit ;\nprogram foo;\nsyntax varlist\n[if] [, Detail];\nend;\n';
         expect(format_stable(source, mode)).toBe(mode === 'ast'
@@ -170,6 +179,18 @@ describe('a statement after an inline mata: under #delimit ;', () => {
         ]) {
             const expected = my_source.replace(/\n(mata|python|di)/g, '\n    $1');
             expect(format_stable(my_source, mode)).toBe(expected);
+        }
+    });
+
+    for_each_formatter_mode('is indented at its own depth after a comment', mode => {
+        // A comment after the `;` hid it, so `di 1;` moved on each
+        // format. The AST printer puts a comment after `;` on its own
+        // line.
+        for (const my_comment of ['// c', '/* c */']) {
+            const source = `#delimit ;\nprogram foo;\nmata: x = 1; ${my_comment}\ndi 1;\nend;\n`;
+            expect(format_stable(source, mode)).toBe(mode === 'ast'
+                ? `#delimit ;\nprogram foo;\n    mata: x = 1;\n    ${my_comment}\n    di 1;\nend;\n`
+                : `#delimit ;\nprogram foo;\n    mata: x = 1; ${my_comment}\n    di 1;\nend;\n`);
         }
     });
 

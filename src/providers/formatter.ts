@@ -21,9 +21,9 @@ import { PrettyPrinter } from '../pretty-printer';
 import { StataLexer } from '../lexer';
 import { StataParser } from '../parser';
 
-// The `;` that ends an inline embedded statement, with any spaces
-// after it.
-const INLINE_UNIT_TERMINATOR_PATTERN = /;[ \t]*$/;
+// The `;` that ends an inline embedded statement, with what may follow
+// it on the line: spaces and a trailing comment.
+const INLINE_UNIT_TERMINATOR_PATTERN = /;[ \t]*(?:\/\/.*|\/\*.*\*\/[ \t]*)?$/;
 
 /**
  * Code Formatter class with embedded language support.
