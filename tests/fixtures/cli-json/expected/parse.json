@@ -2058,7 +2058,7 @@
           "options": [
             {
               "name": "Detail",
-              "min_abbreviation": "D",
+              "min_abbreviation": "d",
               "required": false,
               "optional": false,
               "argument_type": null,
@@ -2252,7 +2252,7 @@
               "options": [
                 {
                   "name": "Detail",
-                  "min_abbreviation": "D",
+                  "min_abbreviation": "d",
                   "required": false,
                   "optional": false,
                   "argument_type": null,
@@ -6697,7 +6697,7 @@
           "options": [
             {
               "name": "Level",
-              "min_abbreviation": "L",
+              "min_abbreviation": "l",
               "required": false,
               "optional": false,
               "argument_type": "integer",
@@ -6801,7 +6801,7 @@
                   "options": [
                     {
                       "name": "Level",
-                      "min_abbreviation": "L",
+                      "min_abbreviation": "l",
                       "required": false,
                       "optional": false,
                       "argument_type": "integer",

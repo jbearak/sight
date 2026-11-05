@@ -477,6 +477,9 @@ The qualifiers may appear in any order in the source, as Stata allows.
   `{"arguments": [{"type", "name", "optional", "range"}],
   "options": [{"name", "min_abbreviation", "required", "optional",
   "argument_type", "default", "range"}], "allows_arbitrary_options"}`.
+  An option's `min_abbreviation` is the shortest spelling Stata accepts:
+  `d` for `Detail`, `nocons` for `noCONStant`, `cache` for `cache` or
+  `CACHE`, and `myOption` for `myOption`.
 - `syntax`: `prefixes`, `signature` (as above).
 - `macro`: `scope` (`local` or `global`), `name`, `name_parts`, `form`,
   `value`, `value_parts`, `expression`, `extended`, `increment`. `name` is

@@ -50,6 +50,7 @@ import {
   parse_varlist,
 } from '../expression-parser';
 import { is_macro_piece, joins_name } from '../utils/name-words';
+import { syntax_option_spelling } from '../utils/syntax-option-name';
 
 /** Tokens that can be part of a macro name joined across macros. */
 const NAME_PIECE_TOKEN_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
@@ -2840,7 +2841,8 @@ export class StataParser {
       current_idx++;
     }
 
-    const min_abbrev = this.compute_min_abbreviation(option_name);
+    const min_abbrev = syntax_option_spelling(
+      option_name, has_argument).min_abbreviation;
 
     const spec: OptionSpec = {
       name: option_name,
@@ -2856,32 +2858,6 @@ export class StataParser {
     }
 
     return { spec, next_idx: current_idx };
-  }
-
-  private compute_min_abbreviation(name: string): string {
-    if (name.length === 0) {
-      return '';
-    }
-
-    // Check casing pattern
-    const has_upper = /[A-Z]/.test(name);
-    const has_lower = /[a-z]/.test(name);
-
-    if (has_upper && !has_lower) {
-      // All uppercase: return first letter
-      return name[0];
-    } else if (!has_upper && has_lower) {
-      // All lowercase: return first letter
-      return name[0];
-    } else {
-      // Mixed case: return first uppercase letter, or first letter if none
-      for (const my_char of name) {
-        if (/[A-Z]/.test(my_char)) {
-          return my_char;
-        }
-      }
-      return name[0];
-    }
   }
 
   /** Can the current token be a name in unab's varlist? */

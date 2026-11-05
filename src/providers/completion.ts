@@ -3221,12 +3221,16 @@ export class CompletionProvider {
                 abbrev_counts.set(my_abbrev, (abbrev_counts.get(my_abbrev) || 0) + 1);
             }
 
-            // Update abbreviations for conflicting options
+            // Lengthen conflicting abbreviations, never below the
+            // option's own minimum: `syntax [, cache capture]` needs
+            // `cache` and `capture` typed in full, not `ca`.
             for (const my_option of options) {
                 const my_abbrev = my_option.name.substring(0, abbrev_length).toLowerCase();
                 if (abbrev_counts.get(my_abbrev)! > 1) {
                     has_conflicts = true;
-                    my_abbrev_map.set(my_option.name, my_abbrev);
+                    if (my_abbrev.length > my_option.minAbbreviation.length) {
+                        my_abbrev_map.set(my_option.name, my_abbrev);
+                    }
                 }
             }
 
