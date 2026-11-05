@@ -13,6 +13,7 @@ import { ContextTracker } from '../../src/context-tracker';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { CodeFormatter } from '../../src/providers/formatter';
+import { StataNode } from '../../src/types';
 import { IndentationDiagnosticAnalyzer } from '../../src/providers/indentation-diagnostics';
 import { create_document_state } from '../property/helpers/document-utils';
 import {
@@ -238,5 +239,58 @@ describe('continuation lines after /// in #delimit cr', () => {
         const source = 'program foo\nreg y x ///\n    z\nend\n';
         expect(format_stable(source, 'source-preserving', { insert_spaces: false }))
             .toBe('program foo\n\treg y x ///\n\t\tz\nend\n');
+    });
+});
+
+describe('lines after a /// with no space before it', () => {
+    // The parser joins `b///` and a column-0 `c` into `bc`, and reads an
+    // indented `c` as a separate word, so re-indenting either changed the
+    // value: inside a block `c` moved in (`bc` to `b c`), and at the top
+    // level a statement moving left pulled `c` to column 0 (`b c` to `bc`).
+    // (Stata itself doesn't continue a line after a tight `///`.)
+    function macro_values(source: string): string[] {
+        const the_values: string[] = [];
+        const visit = (the_nodes: StataNode[]): void => {
+            for (const my_node of the_nodes) {
+                if (my_node.type === 'macro_def') {
+                    the_values.push(my_node.value);
+                }
+                if ('body' in my_node && Array.isArray(my_node.body)) {
+                    visit(my_node.body);
+                }
+            }
+        };
+        visit(new StataParser().parse(new StataLexer().tokenize(source).tokens).ast.nodes);
+        return the_values;
+    }
+
+    const SOURCES = [
+        'if 1 {\nlocal a b///\nc\n}\n',
+        '    local a b/// note\n  c\n',
+        'if 1 {\n        local a b/// note\n  c\n}\n',
+        '  local a b///\n  c\n',
+        'if 1 {\nlocal a b///\n///\nc\n}\n',
+        'if 1 {\nlocal a b///\n  ///\nc\n}\n',
+        '#delimit ;\nif 1 {;\nlocal a b///\nc;\n};\n',
+        '#delimit ;\n  local a b///\n  c;\n',
+    ];
+
+    for_each_formatter_mode('keep the macro value', mode => {
+        for (const my_preserve_alignment of [true, false]) {
+            for (const my_source of SOURCES) {
+                const formatted = format_stable(my_source, mode, {
+                    preserve_alignment: my_preserve_alignment,
+                });
+                expect({ source: my_source, values: macro_values(formatted) })
+                    .toEqual({ source: my_source, values: macro_values(my_source) });
+            }
+        }
+    });
+
+    it('stay at column 0 or keep a space [source-preserving]', () => {
+        expect(format_stable('if 1 {\nlocal a b///\nc\n}\n', 'source-preserving'))
+            .toBe('if 1 {\n    local a b///\nc\n}\n');
+        expect(format_stable('  local a b///\n  c\n', 'source-preserving'))
+            .toBe('local a b///\n c\n');
     });
 });
