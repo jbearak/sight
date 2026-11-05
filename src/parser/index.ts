@@ -243,6 +243,8 @@ export class StataParser {
   private pending_trivia: TriviaNode[] = [];
   private context_tracker: ContextTracker | null = null;
   private inside_program: boolean = false;
+  // The `#delimit` mode at the current statement
+  private delimit_mode: 'cr' | 'semicolon' = 'cr';
   private if_brace_scan_end = -1;
   private if_brace_scan_result = false;
 
@@ -262,6 +264,7 @@ export class StataParser {
     this.pending_trivia = [];
     this.if_brace_scan_end = -1;
     this.if_brace_scan_result = false;
+    this.delimit_mode = 'cr';
     this.context_tracker = context_tracker || null;
 
     const nodes: StataNode[] = [];
@@ -465,6 +468,7 @@ export class StataParser {
     // The mode is the first thing after `#delimit`, as in the lexer:
     // `#delimit cr // c;` is cr.
     const mode = DELIMIT_SEMICOLON_PATTERN.test(token.value) ? 'semicolon' : 'cr';
+    this.delimit_mode = mode;
 
     return {
       type: 'directive',
@@ -482,6 +486,22 @@ export class StataParser {
     const is_single_line =
       start_token.type === 'MATA_INLINE' ||
       start_token.type === 'PYTHON_INLINE';
+
+    // Under `#delimit ;`, the `;` after `mata` / `python` ends the
+    // opener statement (`mata;`); it is not block content.
+    if (!is_single_line && this.delimit_mode === 'semicolon') {
+      let my_index = this.current;
+      while (this.tokens[my_index]?.type === 'WHITESPACE' &&
+          !this.tokens[my_index]?.value.includes('\n')) {
+        my_index++;
+      }
+      const my_token = this.tokens[my_index];
+      if (my_token !== undefined && my_token.type === 'EMBEDDED_CONTENT' &&
+          my_token.value === ';' &&
+          my_token.range.start.line === start_token.range.end.line) {
+        this.current = my_index + 1;
+      }
+    }
 
     const content_start_pos = this.current;
     let end_command: string | undefined;

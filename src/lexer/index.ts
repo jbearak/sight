@@ -85,6 +85,10 @@ export class StataLexer {
   // first line whose first word is `end`, even one inside a mata or
   // python block, so such an `end` also closes the block.
   private program_definition_open = false;
+  // Whether the open python block was opened by `python;` (or
+  // `python:;`) under `#delimit ;`, so Stata reads it as `;`-ended
+  // statements (see is_python_end_statement).
+  private python_block_reads_statements = false;
 
   tokenize(source: string, initialState?: LexerState): LexerResult {
     this.source = source;
@@ -102,6 +106,7 @@ export class StataLexer {
     this.in_mata_inline_statement = false;
     this.in_python_inline_statement = false;
     this.program_definition_open = false;
+    this.python_block_reads_statements = false;
     this.state = initialState || {
       delimiterMode: 'cr',
       line: 0,
@@ -267,6 +272,9 @@ export class StataLexer {
     if (start_column !== 0) {
       return false;
     }
+    if (this.python_block_reads_statements) {
+      return this.is_python_end_statement(start_column);
+    }
     let my_pos = this.position;
     while (my_pos < this.source.length) {
       const my_char = this.source[my_pos];
@@ -280,6 +288,51 @@ export class StataLexer {
     }
     return true;
   }
+
+  /**
+   * Note how a python block that starts at the current position reads.
+   * Under `#delimit ;`, `python;` and `python:;` open a block of
+   * `;`-ended statements. A bare `python` line there is not a block
+   * opener in Stata (the statement runs on to the next `;`); it keeps
+   * the physical-line rule as a lenient reading of that invalid code.
+   */
+  private note_python_block_opener(): void {
+    if (this.state.delimiterMode !== 'semicolon') {
+      this.python_block_reads_statements = false;
+      return;
+    }
+    let my_pos = this.position;
+    while (this.source[my_pos] === ' ' || this.source[my_pos] === '\t') {
+      my_pos++;
+    }
+    this.python_block_reads_statements = this.source[my_pos] === ';';
+  }
+
+  /**
+   * Under `#delimit ;`, Stata 18 hands a Python block whole `;`-ended
+   * statements (lines joined until the `;`), and ends the block at a
+   * statement that is exactly `end`, with trailing blanks or line
+   * breaks before its `;`. So the `end` (in column 0) must follow the
+   * previous statement's `;` (or the opener's) with only line breaks
+   * between, and be followed by blanks and then `;`. `print(1); end;`
+   * on one line hands Python ` end`, which does not end the block.
+   */
+  private is_python_end_statement(start_column: number): boolean {
+    let my_before = this.position - 'end'.length - 1;
+    while (my_before >= 0 &&
+        (this.source[my_before] === '\n' || this.source[my_before] === '\r')) {
+      my_before--;
+    }
+    if (start_column !== 0 || my_before < 0 || this.source[my_before] !== ';') {
+      return false;
+    }
+    let my_after = this.position;
+    while (my_after < this.source.length && /\s/.test(this.source[my_after])) {
+      my_after++;
+    }
+    return this.source[my_after] === ';';
+  }
+
 
   /**
    * Whether no code token precedes the word starting on `start_line`
@@ -318,6 +371,7 @@ export class StataLexer {
    *   - "mata:   \n"        (only whitespace)
    *   - "mata: // comment\n" (whitespace + line comment)
    *   - "mata: [block comment]\n" (whitespace + block comment)
+   *   - "mata:;\n" under `#delimit ;` (the `;` ends the opener)
    * 
    * Examples that return false (inline mode):
    *   - "mata: x = 5\n"     (code after colon)
@@ -338,6 +392,13 @@ export class StataLexer {
       
       if (my_char === ' ' || my_char === '\t') {
         // Skip whitespace
+        my_pos++;
+        continue;
+      }
+
+      // Under `#delimit ;`, the `;` ends the opener statement: Stata 18
+      // opens a block at `mata:;` and `python:;`.
+      if (my_char === ';' && this.state.delimiterMode === 'semicolon') {
         my_pos++;
         continue;
       }
@@ -1849,6 +1910,7 @@ export class StataLexer {
           if (this.is_only_whitespace_or_comment_until_newline()) {
             // python: followed by newline/comment = block start
             this.push_context(LanguageContext.PYTHON);
+            this.note_python_block_opener();
             this.state.embedded_block_start_line = startLine;
             return {
               type: 'PYTHON_START',
@@ -1872,6 +1934,7 @@ export class StataLexer {
         
         if (!prev_is_end) {
           this.push_context(LanguageContext.PYTHON);
+          this.note_python_block_opener();
           // Track the start line for brace-style block detection
           this.state.embedded_block_start_line = startLine;
           return {

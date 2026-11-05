@@ -218,10 +218,16 @@ export class CodeFormatter {
             // An inline `mata:`/`python:` statement keeps its closing `;`
             // after the placeholder, so under `#delimit ;` the placeholder
             // is still a statement of its own, and the next statement isn't
-            // read as continuing it. Restoring puts the text back as it was.
-            const my_terminator = my_unit.range.is_single_line
-                ? inline_unit_terminator(my_unit.content)
-                : '';
+            // read as continuing it. So does a block whose `end` is followed
+            // by its own `;` (`end;` under `#delimit ;`). Restoring puts the
+            // text back as it was.
+            const my_end_delimiter = my_unit.range.end_delimiter;
+            const my_end_has_terminator = my_end_delimiter !== undefined &&
+                !my_end_delimiter.command.includes(';');
+            const my_terminator =
+                my_unit.range.is_single_line || my_end_has_terminator
+                    ? inline_unit_terminator(my_unit.content)
+                    : '';
             the_embedded_blocks.set(my_placeholder, {
                 content: my_unit.content.slice(
                     0, my_unit.content.length - my_terminator.length),
