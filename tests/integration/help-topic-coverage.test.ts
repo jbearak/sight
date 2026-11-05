@@ -2,8 +2,10 @@
  * Help-topic coverage test.
  *
  * Runs only on developer machines where a real Stata install is
- * detectable (we skip when `discover_stata_ado_paths()` returns an
- * empty list, so CI boxes and non-Stata contributors are unaffected).
+ * detectable: `discover_stata_ado_paths()` must find an install's
+ * `ado/base`, where the built-in `.sthlp` files live. A user ado
+ * directory such as `~/ado` alone is not a Stata install, so CI boxes
+ * and non-Stata contributors skip the test.
  *
  * For every command in the committed v18 cache and every entry in
  * `STATA_EXPRESSION_FUNCTIONS` (+ aliases) the test drives the real
@@ -59,7 +61,12 @@ function make_deps(workspace_indexer: WorkspaceIndexer): HandlerDependencies {
 }
 
 const the_stata_ado_paths = discover_stata_ado_paths();
-const stata_is_installed = the_stata_ado_paths.length > 0;
+// Only install roots contribute an `ado/base` candidate; user ado
+// roots contribute themselves, `personal`, and `plus`.
+const stata_is_installed = the_stata_ado_paths.some((my_path) =>
+    path.basename(my_path) === 'base' &&
+    path.basename(path.dirname(my_path)) === 'ado'
+);
 
 // `describe.skipIf` is Bun-native; we preserve the describe block so
 // the skip shows up in the test report (with a helpful reason).
