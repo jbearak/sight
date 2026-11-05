@@ -29,6 +29,7 @@ import {
     StataLSPConfig,
     StataNode,
 } from '../../src/types';
+import { is_program_definition_header } from '../../src/utils/program-definition';
 
 function lex(source: string, mode: 'cr' | 'semicolon' = 'cr'): LexerResult {
     return new StataLexer().tokenize(source, {
@@ -236,5 +237,14 @@ describe('CONTINUATION_NO_SPACE', () => {
                     end: { line: 0, character: 12 },
                 },
             }]);
+    });
+});
+
+describe('is_program_definition_header with a // after code', () => {
+    it('finds a plugin option after a URL', () => {
+        // `//` right after `http:` is text, so it hides nothing after it.
+        expect(is_program_definition_header(
+            ' hello, using(http://h/hello.so) plugin')).toBe(false);
+        expect(is_program_definition_header(' hello // , plugin')).toBe(true);
     });
 });
