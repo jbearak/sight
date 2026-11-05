@@ -28,9 +28,13 @@ function unprintable_lines(my_source: string): number[] {
     return [...new Set(the_lines)];
 }
 
-/** The source without whitespace, to compare code across formatting. */
-function code_of(my_text: string): string {
-    return my_text.replace(/\s+/g, '');
+/**
+ * The source's lines without their indentation, to compare code across
+ * formatting: statements must stay on their lines, and spaces inside a
+ * line must stay.
+ */
+function code_of(my_text: string): string[] {
+    return my_text.split('\n').map((my_line) => my_line.trim());
 }
 
 const INVALID_SOURCES: Array<[string, string, number[]]> = [
@@ -73,7 +77,7 @@ describe('code the AST does not hold: formatting', () => {
     for (const [my_name, my_source] of INVALID_SOURCES) {
         for_each_formatter_mode(`keeps ${my_name} as written`, (my_mode) => {
             const my_once = format_text(my_source, my_mode);
-            expect(code_of(my_once)).toBe(code_of(my_source));
+            expect(code_of(my_once)).toEqual(code_of(my_source));
             // The same in both modes
             expect(my_once).toBe(format_text(my_source, 'source-preserving'));
             expect(format_text(my_once, my_mode)).toBe(my_once);

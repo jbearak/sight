@@ -3025,6 +3025,8 @@ export class StataParser {
         body: [ifNode],
         range: this.makeRange(elseToken.range.start, ifNode.range.end),
         ...comment_field,
+        // The program's end cut the `if` off, and with it this `else`
+        ...(ifNode.closed_by_program_end ? { closed_by_program_end: true } : {}),
       };
     }
 

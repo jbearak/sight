@@ -111,7 +111,7 @@ describe('args and unab keep tokens that are not names: formatting', () => {
 
     for_each_formatter_mode('keeps args names joined by /// in one statement', (my_mode) => {
         const my_once = format_text('args a ///\n    b\n', my_mode);
-        expect(my_once.replace(/\s+/g, ' ').replace(' /// ', ' ')).toBe('args a b ');
+        expect(commands(my_once)).toEqual([['args', ['a', 'b'], []]]);
         expect(format_text(my_once, my_mode)).toBe(my_once);
     });
 });

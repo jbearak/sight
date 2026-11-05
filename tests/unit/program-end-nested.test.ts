@@ -169,6 +169,15 @@ describe('program ends at an end nested in a brace block', () => {
         expect(my_if?.type === 'if' && my_if.closed_by_program_end).toBe(true);
     });
 
+    it('marks an else if cut off by the program end', () => {
+        const my_result = parse(
+            'program define foo\n    if 0 {\n    }\n    else if 1 {\n    end\n');
+        const my_program = my_result.ast.nodes[0];
+        const my_else = my_program?.type === 'program' ? my_program.body[1] : undefined;
+        expect(my_else?.type === 'else' && my_else.closed_by_program_end).toBe(true);
+        expect(my_result.errors).toEqual([]);
+    });
+
     it('still reports a missing } outside a program', () => {
         expect(parse('if 1 {\n    di 1\n').errors.map((my_error) => my_error.message))
             .toEqual(['Missing closing brace for if statement']);
@@ -247,6 +256,21 @@ describe('program ends at an end nested in a brace block: formatting', () => {
             // An indented `end` would leave the Python block open
             const my_once = format_text(PYTHON_IN_FOREACH_IN_IF, my_mode);
             expect(my_once.split('\n')[5]).toBe('end');
+        }
+    );
+
+    for_each_formatter_mode(
+        'adds no } to an else if cut off by the program end',
+        (my_mode) => {
+            const my_source =
+                'program define foo\n    if 0 {\n        di 1\n    }\n' +
+                '    else if 1 {\n        di 2\n    end\n    di 3\nend\n';
+            const my_once = format_text(my_source, my_mode);
+            // AST formatting writes `else if` as `else {` then `if`
+            expect(my_once.split('\n').filter((my_line) => my_line.trim() === '}'))
+                .toEqual(['    }']);
+            expect(my_once.split('\n').slice(-4)).toEqual(['end', 'di 3', 'end', '']);
+            expect(format_text(my_once, my_mode)).toBe(my_once);
         }
     );
 
