@@ -147,8 +147,23 @@ describe('embedded language openers', () => {
                 .toEqual(['MATA_INLINE mata:']);
             expect(openers('if flag python: print(1)\n'))
                 .toEqual(['PYTHON_INLINE python:']);
+            expect(openers('if (c) mata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+            expect(openers('if a == b mata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+            expect(openers('if 0 display 1\nelse if flag mata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
             // Without a colon, a word before it is still an argument
             expect(openers('if flag clear mata\ndisplay 1\n')).toEqual([]);
+        });
+
+        it('reads a later argument, or one after an if condition, as an argument', () => {
+            expect(openers('local x mata: hello\n')).toEqual([]);
+            expect(openers('local x python: hello\n')).toEqual([]);
+            // Two words in a row can't both be in the condition, so
+            // `local` is the command and `mata` its argument
+            expect(openers('if flag local mata : word 1 of a b\n')).toEqual([]);
+            expect(openers('if (c) local python : word 1 of a b\n')).toEqual([]);
         });
     });
 

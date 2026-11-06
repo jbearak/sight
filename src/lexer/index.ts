@@ -50,6 +50,14 @@ const STAR_COMMENT_COLON_PREFIXES: ReadonlySet<string> = new Set([
     my_name === 'version' || my_name === 'xi').map(([my_word]) => my_word),
   'frame',
 ]);
+// Tokens an `if` condition's operand can end with, and those that
+// can follow an operator or `(` inside one.
+const CONDITION_OPERAND_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
+  'WORD', 'NUMBER', 'STRING', 'MACRO_REF_LOCAL', 'MACRO_REF_GLOBAL',
+]);
+const CONDITION_OPERAND_END_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
+  ...CONDITION_OPERAND_TYPES, 'RPAREN', 'RBRACKET',
+]);
 // A statement starts after one of these (or at the start of the file).
 const STATEMENT_START_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
   'STATEMENT_TERMINATOR', 'DELIMIT_DIRECTIVE', 'LBRACE', 'RBRACE',
@@ -72,6 +80,11 @@ export class StataLexer {
   private content_end_offset = 0;
 
   private previous_token: Token | null = null;
+  // The code token before `previous_code_token`, and whether the
+  // statement is an `if` (or `else if`), for finding where a one-line
+  // `if`'s condition ends.
+  private code_token_before_previous: Token | null = null;
+  private in_if_statement = false;
   // The previous token other than whitespace or a comment, so
   // `a /* c */ * b` reads `*` after `a`.
   private previous_code_token: Token | null = null;
@@ -116,6 +129,8 @@ export class StataLexer {
     this.content_end_offset = source.trimEnd().length;
     this.previous_token = null;
     this.previous_code_token = null;
+    this.code_token_before_previous = null;
+    this.in_if_statement = false;
     this.comment_run_start_line = null;
     this.joined_to_previous_line = false;
     this.at_command_start = true;
@@ -562,18 +577,26 @@ export class StataLexer {
   }
 
   /**
-   * Whether the word just scanned directly follows its statement's
-   * command, as that command's first argument: `local mata :`,
-   * `clear mata`, `help python:`. After `if` (whose condition comes
-   * first) or `else`, or after a prefix, a command can follow instead:
-   * `if flag mata: x`, `else mata: x`, `capture mata: x`.
+   * Whether an `if` statement's condition ends at the token before the
+   * word just scanned, so a command starts there: `if flag mata: x`,
+   * `if (c) mata: x`. Two operands in a row can't both be in the
+   * condition, so in `if flag local mata : …` the command is `local`.
    */
-  private follows_its_command_word(): boolean {
-    const my_previous = this.previous_token;
-    return my_previous !== null && my_previous !== undefined &&
-      my_previous.type === 'WORD' &&
-      my_previous.value === this.command_word &&
-      this.command_word !== 'if' && this.command_word !== 'else';
+  private if_condition_just_ended(): boolean {
+    const my_previous = this.previous_code_token;
+    if (!this.in_if_statement || my_previous === null) {
+      return false;
+    }
+    if (my_previous.type === 'RPAREN' || my_previous.type === 'RBRACKET') {
+      return true;
+    }
+    if (!CONDITION_OPERAND_TYPES.has(my_previous.type)) {
+      return false;
+    }
+    const my_before = this.code_token_before_previous;
+    return my_before === null ||
+      !CONDITION_OPERAND_END_TYPES.has(my_before.type) ||
+      (my_before.type === 'WORD' && my_before.value === 'if');
   }
 
   /**
@@ -652,6 +675,7 @@ export class StataLexer {
         this.joined_to_previous_line && my_is_joined_newline;
       this.comment_run_start_line = null;
       this.note_command_position(token);
+      this.code_token_before_previous = this.previous_code_token;
       this.previous_code_token = token;
     }
     this.previous_token = token;
@@ -671,7 +695,13 @@ export class StataLexer {
       }
       this.at_command_start = true;
       this.command_word = null;
+      this.in_if_statement = false;
       return;
+    }
+    if (token.type === 'WORD' && token.value === 'if' &&
+        (this.at_command_start || (this.previous_code_token?.type === 'WORD' &&
+          this.previous_code_token.value === 'else'))) {
+      this.in_if_statement = true;
     }
     if (token.type === 'MATA_INLINE') {
       this.in_mata_inline_statement = true;
@@ -2052,8 +2082,9 @@ export class StataLexer {
         
         // First check for mata: syntax (mata followed by colon, after
         // any blanks): `capture mata:`, `if flag mata:`, but not
-        // `local mata : word 1 of a b`
-        if (prev_is_mata_inline || this.follows_its_command_word()) {
+        // `local mata : word 1 of a b` or `local x mata: y`
+        if (prev_is_mata_inline ||
+            (prev_is_word && !this.if_condition_just_ended())) {
           // "mata" is an argument to a command or part of inline mata, not a block start
           // Fall through to return as WORD
         } else if (this.colon_follows_blanks()) {
@@ -2111,7 +2142,8 @@ export class StataLexer {
         // Check for python: (python followed by colon, after any
         // blanks), unless python is a command's argument
         // (`local python : word 1 of a b`)
-        if (this.follows_its_command_word()) {
+        if (this.previous_word_takes_argument() &&
+            !this.if_condition_just_ended()) {
           // Fall through to return as WORD
         } else if (this.colon_follows_blanks()) {
           this.consume_blanks_and_colon();
