@@ -218,6 +218,12 @@ export function validate_comment_formatting_config(
             ) {
                 validated_config.diagnostics.severity.literalMacroAdjacency = diagnostics.severity.literalMacroAdjacency;
             }
+            if (
+                diagnostics.severity.emptyForvaluesRange &&
+                valid_severities.includes(diagnostics.severity.emptyForvaluesRange)
+            ) {
+                validated_config.diagnostics.severity.emptyForvaluesRange = diagnostics.severity.emptyForvaluesRange;
+            }
         }
 
         if (typeof diagnostics.indentation === 'boolean') {

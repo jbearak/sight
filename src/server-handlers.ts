@@ -108,6 +108,7 @@ export const DEFAULT_SETTINGS: StataLSPConfig = {
             mixedLogicalOperators: 'warning',
             chainedComparison: 'warning',
             literalMacroAdjacency: 'hint',
+            emptyForvaluesRange: 'warning',
         },
         indentation: false,
     },

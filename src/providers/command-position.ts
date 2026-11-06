@@ -77,8 +77,11 @@ export function is_bare_expression_command_at(
  * sit between it and the start of input or a statement boundary. This
  * is the backward version of the forward prefix-skipping grammar in
  * src/analyzer/loop-expander/name-expander.ts (parse_macro_def_head).
+ *
+ * Same precondition as `is_bare_expression_command_at`: the tokens come
+ * from `collect_significant_tokens`.
  */
-function is_command_position(
+export function is_command_position(
     the_significant: Token[],
     index: number
 ): boolean {

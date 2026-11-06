@@ -45,6 +45,7 @@ const DIAGNOSTIC_SEVERITY_KEYS = [
     'mixedLogicalOperators',
     'chainedComparison',
     'literalMacroAdjacency',
+    'emptyForvaluesRange',
 ] as const;
 
 const INDENT_STYLES = ['spaces', 'tabs'] as const;

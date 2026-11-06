@@ -1010,6 +1010,9 @@ export enum StataDiagnosticCode {
   CHAINED_COMPARISON = 'CHAINED_COMPARISON',
   LITERAL_MACRO_ADJACENCY = 'LITERAL_MACRO_ADJACENCY',
 
+  // Loop-range diagnostics
+  EMPTY_FORVALUES_RANGE = 'EMPTY_FORVALUES_RANGE',
+
   // Cross-file diagnostics
   PATH_CASE_MISMATCH = 'PATH_CASE_MISMATCH',
   CROSS_FILE_MISSING_FILE = 'CROSS_FILE_MISSING_FILE',
@@ -1057,6 +1060,7 @@ export interface StataLSPConfig {
       mixedLogicalOperators: 'error' | 'warning' | 'information' | 'hint' | 'off';
       chainedComparison: 'error' | 'warning' | 'information' | 'hint' | 'off';
       literalMacroAdjacency: 'error' | 'warning' | 'information' | 'hint' | 'off';
+      emptyForvaluesRange: 'error' | 'warning' | 'information' | 'hint' | 'off';
     };
     indentation: boolean;
   };
