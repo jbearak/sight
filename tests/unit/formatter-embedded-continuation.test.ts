@@ -7,7 +7,7 @@
  * went to column 0).
  */
 
-import { describe, it, expect } from 'bun:test';
+import { describe, expect } from 'bun:test';
 import { CodeFormatter } from '../../src/providers/formatter';
 import {
     create_formatter_config,
@@ -75,12 +75,12 @@ describe('a one-line mata: statement continued with ///', () => {
         });
     });
 
-    it('keeps a block opener on its line with the first line', () => {
+    for_each_formatter_mode('keeps a block opener at the new indent', (mode) => {
         // The placeholder now sits after the line's indentation; a
         // block's restored text must still start at the new indent.
         const source = 'if 1 {\n\t\tmata:\n\t\tx = 1\n\t\tend\n}\n';
-        const once = format_source(source, 'source-preserving');
+        const once = format_source(source, mode);
         expect(once.split('\n')[1]).toBe('    mata:');
-        expect(format_source(once, 'source-preserving')).toBe(once);
+        expect(format_source(once, mode)).toBe(once);
     });
 });
