@@ -4841,24 +4841,28 @@
             "display": {
               "items": [
                 {
-                  "kind": "expression",
-                  "text": "\"",
-                  "format": null,
-                  "expression": {
-                    "kind": "unparsed",
-                    "text": "\"",
-                    "reason": "syntax_error",
-                    "range": {
-                      "start": {
-                        "line": 36,
-                        "character": 12
+                  "kind": "string",
+                  "quote": "simple",
+                  "text": "\"`v'\"",
+                  "parts": [
+                    {
+                      "kind": "macro_ref",
+                      "scope": "local",
+                      "form": "name",
+                      "text": "`v'",
+                      "range": {
+                        "start": {
+                          "line": 36,
+                          "character": 13
+                        },
+                        "end": {
+                          "line": 36,
+                          "character": 16
+                        }
                       },
-                      "end": {
-                        "line": 36,
-                        "character": 13
-                      }
+                      "name": "v"
                     }
-                  },
+                  ],
                   "range": {
                     "start": {
                       "line": 36,
@@ -4866,71 +4870,10 @@
                     },
                     "end": {
                       "line": 36,
-                      "character": 13
-                    }
-                  }
-                },
-                {
-                  "kind": "expression",
-                  "text": "`v'",
-                  "format": null,
-                  "expression": {
-                    "kind": "macro_ref",
-                    "scope": "local",
-                    "form": "name",
-                    "text": "`v'",
-                    "range": {
-                      "start": {
-                        "line": 36,
-                        "character": 13
-                      },
-                      "end": {
-                        "line": 36,
-                        "character": 16
-                      }
-                    },
-                    "name": "v"
-                  },
-                  "range": {
-                    "start": {
-                      "line": 36,
-                      "character": 13
-                    },
-                    "end": {
-                      "line": 36,
-                      "character": 16
-                    }
-                  }
-                },
-                {
-                  "kind": "expression",
-                  "text": "\"",
-                  "format": null,
-                  "expression": {
-                    "kind": "unparsed",
-                    "text": "\"",
-                    "reason": "syntax_error",
-                    "range": {
-                      "start": {
-                        "line": 36,
-                        "character": 16
-                      },
-                      "end": {
-                        "line": 36,
-                        "character": 17
-                      }
-                    }
-                  },
-                  "range": {
-                    "start": {
-                      "line": 36,
-                      "character": 16
-                    },
-                    "end": {
-                      "line": 36,
                       "character": 17
                     }
-                  }
+                  },
+                  "format": null
                 }
               ]
             },
@@ -5278,24 +5221,28 @@
         "display": {
           "items": [
             {
-              "kind": "expression",
-              "text": "\"",
-              "format": null,
-              "expression": {
-                "kind": "unparsed",
-                "text": "\"",
-                "reason": "syntax_error",
-                "range": {
-                  "start": {
-                    "line": 3,
-                    "character": 8
+              "kind": "string",
+              "quote": "simple",
+              "text": "\"`d'\"",
+              "parts": [
+                {
+                  "kind": "macro_ref",
+                  "scope": "local",
+                  "form": "name",
+                  "text": "`d'",
+                  "range": {
+                    "start": {
+                      "line": 3,
+                      "character": 9
+                    },
+                    "end": {
+                      "line": 3,
+                      "character": 12
+                    }
                   },
-                  "end": {
-                    "line": 3,
-                    "character": 9
-                  }
+                  "name": "d"
                 }
-              },
+              ],
               "range": {
                 "start": {
                   "line": 3,
@@ -5303,71 +5250,10 @@
                 },
                 "end": {
                   "line": 3,
-                  "character": 9
-                }
-              }
-            },
-            {
-              "kind": "expression",
-              "text": "`d'",
-              "format": null,
-              "expression": {
-                "kind": "macro_ref",
-                "scope": "local",
-                "form": "name",
-                "text": "`d'",
-                "range": {
-                  "start": {
-                    "line": 3,
-                    "character": 9
-                  },
-                  "end": {
-                    "line": 3,
-                    "character": 12
-                  }
-                },
-                "name": "d"
-              },
-              "range": {
-                "start": {
-                  "line": 3,
-                  "character": 9
-                },
-                "end": {
-                  "line": 3,
-                  "character": 12
-                }
-              }
-            },
-            {
-              "kind": "expression",
-              "text": "\"",
-              "format": null,
-              "expression": {
-                "kind": "unparsed",
-                "text": "\"",
-                "reason": "syntax_error",
-                "range": {
-                  "start": {
-                    "line": 3,
-                    "character": 12
-                  },
-                  "end": {
-                    "line": 3,
-                    "character": 13
-                  }
-                }
-              },
-              "range": {
-                "start": {
-                  "line": 3,
-                  "character": 12
-                },
-                "end": {
-                  "line": 3,
                   "character": 13
                 }
-              }
+              },
+              "format": null
             }
           ]
         },

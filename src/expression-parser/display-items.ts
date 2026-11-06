@@ -39,7 +39,12 @@ import {
     ExpressionNode,
     Token,
 } from '../types';
-import { join_tokens, parse_expression, significant_tokens } from './index';
+import {
+    join_tokens,
+    parse_expression,
+    scan_string,
+    significant_tokens,
+} from './index';
 
 /** Binary operators, as the lexer spells them. */
 const BINARY_OPERATORS: ReadonlySet<string> = new Set([
@@ -180,10 +185,11 @@ class DisplayItemParser {
             return;
         }
         if (token.type === 'STRING') {
-            const node = parse_expression([token]);
-            if (node.kind === 'string') {
-                this.the_items.push({ ...node, format: this.take_format() });
-                this.i++;
+            // The lexer splits `"n = `n' done"` at its macros.
+            const scan = scan_string(this.tokens, this.i, this.tokens.length);
+            if (scan !== null) {
+                this.the_items.push({ ...scan.node, format: this.take_format() });
+                this.i = scan.end;
                 return;
             }
         }
@@ -339,7 +345,7 @@ class DisplayItemParser {
             return this.ends.get(i) ?? this.tokens.length;
         }
         if (token.type === 'STRING') {
-            return i + 1;
+            return scan_string(this.tokens, i, this.tokens.length)?.end ?? i + 1;
         }
         if (!JOINING_TYPES.has(token.type)) {
             return i;

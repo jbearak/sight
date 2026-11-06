@@ -195,7 +195,22 @@ describe('display: arguments as items', () => {
         ]);
     });
 
-    it('joins a call or subscript only when it touches its name', () => {
+    it('reads a string with macros in it as one item', () => {
+        // The lexer splits these strings at their macros.
+        expect(items('di "n = `n\' done" 1 "$root/x" `"a `b\' "c""\' 1 + "`s\'" 2\n')).toEqual([
+            'string "n = `n\' done"',
+            'exp 1',
+            'string "$root/x"',
+            'string `"a `b\' "c""\'',
+            'exp (1 + "`s\'")',
+            'exp 2',
+        ]);
+        const [my_item] = first_command('di "a `b\' c"\n').display_items ?? [];
+        expect(my_item?.kind === 'string' && my_item.parts.map((p) => p.kind))
+            .toEqual(['text', 'macro_ref', 'text']);
+    });
+
+        it('joins a call or subscript only when it touches its name', () => {
         expect(items('di abs(-1) abs (-1) x[1] x [1] 1 (2)\n')).toEqual([
             'exp abs(-1)',
             'exp abs',

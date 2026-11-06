@@ -501,7 +501,7 @@ function compound_depth_delta(text: string): number {
     return delta;
 }
 
-interface StringScan {
+export interface StringScan {
     node: StringExpressionNode;
     end: number;   // Index after the string's last token
 }
@@ -512,7 +512,7 @@ interface StringScan {
  * (`"a ` + `` `b' `` + ` c"`), which are merged back here. Returns null
  * when tokens[start] does not open a string or the string never closes.
  */
-function scan_string(
+export function scan_string(
     tokens: readonly Token[],
     start: number,
     end: number
