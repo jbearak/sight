@@ -35,7 +35,7 @@ import { isFileCommand } from '../utils/file-path-utils';
 import { is_swallowed_continuation_terminator } from '../utils/continuation';
 import { compare_positions } from '../utils/scope-position';
 import { program_signature_syntax_nodes } from '../utils/node-body';
-import { PROGRAM_SUBCOMMANDS } from '../utils/program-definition';
+import { PROGRAM_COMMAND_NAMES, PROGRAM_SUBCOMMANDS } from '../utils/program-definition';
 import {
   COLON_PREFIX_COMMANDS,
   PREFIX_COMMANDS,
@@ -376,7 +376,8 @@ export class StataParser {
     } else if (this.check('WORD') && this.isPrefixCommand(this.peek().value)) {
       // Prefix command - delegate to parseCommand which handles prefix parsing
       node = this.parseCommand();
-    } else if (this.checkWord('program') && this.starts_program_definition()) {
+    } else if (this.check('WORD') && PROGRAM_COMMAND_NAMES.has(this.peek().value) &&
+        this.starts_program_definition()) {
       node = this.parseProgramDefinition();
     } else if (this.checkWord('syntax')) {
       node = this.parseSyntaxCommand();
@@ -4498,7 +4499,8 @@ export class StataParser {
       }
 
       // Synchronize on statement-starting keywords
-      if (this.checkWord('program') || this.checkWord('local') || this.checkWord('global') ||
+      if ((this.check('WORD') && PROGRAM_COMMAND_NAMES.has(this.peek().value)) ||
+        this.checkWord('local') || this.checkWord('global') ||
         this.checkWord('if') || this.checkWord('foreach') || this.checkForvalues() ||
         this.checkWord('while')) {
         return;

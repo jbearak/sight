@@ -11,6 +11,7 @@ import {
 import { is_swallowed_continuation_terminator } from '../utils/continuation';
 import {
   is_program_definition_header,
+  PROGRAM_COMMAND_NAMES,
   logical_line_text,
 } from '../utils/program-definition';
 import { SemicolonStatementTracker } from '../utils/semicolon-statement';
@@ -233,7 +234,7 @@ export class StataLexer {
    * the context tracker), and `end` first on its line closes it.
    */
   private note_program_definition_word(value: string, start_line: number): void {
-    if (value === 'program' && !this.program_definition_open &&
+    if (PROGRAM_COMMAND_NAMES.has(value) && !this.program_definition_open &&
         this.is_first_code_on_line(start_line)) {
       this.program_definition_open = is_program_definition_header(
         logical_line_text(this.source, this.position)
