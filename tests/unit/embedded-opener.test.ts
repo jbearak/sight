@@ -170,6 +170,24 @@ describe('embedded language openers', () => {
             expect(openers('if flag local x hello-world python: hello\n')).toEqual([]);
         });
 
+        it('reads it as an argument after any argument token', () => {
+            for (const my_keyword of ['mata', 'python']) {
+                expect(openers(`if flag local x 1 ${my_keyword}: hello\n`)).toEqual([]);
+                expect(openers(`if flag local x (1) ${my_keyword}: hello\n`)).toEqual([]);
+                expect(openers(`local x 1 ${my_keyword}: hello\n`)).toEqual([]);
+                expect(openers(`local x (1) ${my_keyword}: hello\n`)).toEqual([]);
+            }
+            expect(openers('local x 1 python\ndisplay 1\n')).toEqual([]);
+        });
+
+        it('opens on a line a /// joins to a prefix macro or an if condition', () => {
+            // _power_rsafe.ado: `version' /// then mata: on the next line
+            expect(openers('`version\' ///\nmata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+            expect(openers('if flag ///\nmata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+        });
+
         it('treats a quoted macro in the condition as one operand', () => {
             expect(openers('if "`a\'" == "" mata: x = 1\n'))
                 .toEqual(['MATA_INLINE mata:']);

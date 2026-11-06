@@ -85,6 +85,10 @@ export class StataLexer {
   // finding where a one-line `if`'s command starts.
   private in_if_statement = false;
   private if_keyword_token: Token | null = null;
+  // The last token that counts for where commands start (not a
+  // newline a `///` swallows), and whether it began where one can.
+  private command_previous_token: Token | null = null;
+  private previous_started_command = true;
   private if_condition_done = false;
   // The previous token other than whitespace or a comment, so
   // `a /* c */ * b` reads `*` after `a`.
@@ -133,6 +137,8 @@ export class StataLexer {
     this.in_if_statement = false;
     this.if_keyword_token = null;
     this.if_condition_done = false;
+    this.previous_started_command = true;
+    this.command_previous_token = null;
     this.comment_run_start_line = null;
     this.joined_to_previous_line = false;
     this.at_command_start = true;
@@ -579,6 +585,31 @@ export class StataLexer {
   }
 
   /**
+   * Whether a command can start at the word just scanned (at
+   * `start_line`, `start_column`), so `mata` or `python` there opens
+   * embedded code: at the start of a statement or after a prefix or its
+   * colon (`capture mata:`, `version 18: mata:`), after an `else` or a
+   * macro that starts the statement (`` `vv' mata:``, which holds a
+   * prefix), or where a one-line `if`'s condition ends. Elsewhere it is
+   * an argument: `local x 1 mata: y`, `if flag local x 1 mata: y`.
+   */
+  private at_embedded_opener_position(start_line: number, start_column: number): boolean {
+    if (this.at_command_start) {
+      return true;
+    }
+    const my_previous = this.command_previous_token;
+    if (my_previous === null) {
+      return true;
+    }
+    const my_starts_statement = this.previous_started_command &&
+      (my_previous.type === 'MACRO_REF_LOCAL' ||
+        my_previous.type === 'MACRO_REF_GLOBAL' ||
+        (my_previous.type === 'WORD' && my_previous.value === 'else'));
+    return my_starts_statement ||
+      this.if_condition_ends_before(start_line, start_column);
+  }
+
+  /**
    * Whether an `if` statement's condition ends right before the word
    * just scanned (at `start_line`, `start_column`), so a command starts
    * there: `if flag mata: x`, `if (c) mata: x`, `if a == b mata: x`.
@@ -586,7 +617,7 @@ export class StataLexer {
    * follows is its arguments.
    */
   private if_condition_ends_before(start_line: number, start_column: number): boolean {
-    const my_previous = this.previous_code_token;
+    const my_previous = this.command_previous_token;
     return this.in_if_statement && !this.if_condition_done &&
       my_previous !== null && my_previous !== this.if_keyword_token &&
       CONDITION_OPERAND_END_TYPES.has(my_previous.type) &&
@@ -682,7 +713,7 @@ export class StataLexer {
    * touch (`"`a'"`, `` x`i' ``) are one operand.
    */
   private note_if_condition(token: Token): void {
-    const my_previous = this.previous_code_token;
+    const my_previous = this.command_previous_token;
     if (this.in_if_statement && !this.if_condition_done &&
         CONDITION_OPERAND_TYPES.has(token.type) &&
         my_previous !== null && my_previous !== this.if_keyword_token &&
@@ -700,8 +731,23 @@ export class StataLexer {
     }
   }
 
-  /** Track where commands start, for reading a `*` as a comment. */
+  /**
+   * Track where commands start, and the last token that counts for it
+   * (the newline a `///` swallows doesn't).
+   */
   private note_command_position(token: Token): void {
+    if (is_swallowed_continuation_terminator(
+      token, this.previous_token?.type === 'CONTINUATION')) {
+      return;
+    }
+    const my_started_command = this.at_command_start;
+    this.update_command_position(token);
+    this.previous_started_command = my_started_command;
+    this.command_previous_token = token;
+  }
+
+  /** Track where commands start, for reading a `*` as a comment. */
+  private update_command_position(token: Token): void {
     if (STATEMENT_START_TYPES.has(token.type)) {
       // The newline after `///` doesn't end the statement.
       if (is_swallowed_continuation_terminator(
@@ -2098,9 +2144,9 @@ export class StataLexer {
         // First check for mata: syntax (mata followed by colon, after
         // any blanks): `capture mata:`, `if flag mata:`, but not
         // `local mata : word 1 of a b` or `local x mata: y`
-        if (prev_is_mata_inline ||
-            (prev_is_word &&
-              !this.if_condition_ends_before(startLine, startColumn))) {
+        const at_opener_position =
+          this.at_embedded_opener_position(startLine, startColumn);
+        if (prev_is_mata_inline || !at_opener_position) {
           // "mata" is an argument to a command or part of inline mata, not a block start
           // Fall through to return as WORD
         } else if (this.colon_follows_blanks()) {
@@ -2130,8 +2176,9 @@ export class StataLexer {
             };
           }
         } else if (prev_is_word) {
-          // Without a colon, any word but a prefix or `else` makes
-          // "mata" its argument; fall through to return as WORD
+          // Without a colon, any word but a prefix or `else` also makes
+          // "mata" its argument (`if flag clear mata`); fall through to
+          // return as WORD
         } else if (
           !this.is_only_whitespace_or_comment_until_newline() &&
           !this.brace_follows_blanks()
@@ -2158,8 +2205,9 @@ export class StataLexer {
         // Check for python: (python followed by colon, after any
         // blanks), unless python is a command's argument
         // (`local python : word 1 of a b`)
-        if (this.previous_word_takes_argument() &&
-            !this.if_condition_ends_before(startLine, startColumn)) {
+        const at_opener_position =
+          this.at_embedded_opener_position(startLine, startColumn);
+        if (!at_opener_position) {
           // Fall through to return as WORD
         } else if (this.colon_follows_blanks()) {
           this.consume_blanks_and_colon();
@@ -2200,7 +2248,7 @@ export class StataLexer {
           !this.is_only_whitespace_or_comment_until_newline() &&
           !this.brace_follows_blanks();
         
-        if (!prev_is_end && !is_subcommand &&
+        if (at_opener_position && !prev_is_end && !is_subcommand &&
             !this.previous_word_takes_argument()) {
           this.push_context(LanguageContext.PYTHON);
           this.note_python_block_opener();
