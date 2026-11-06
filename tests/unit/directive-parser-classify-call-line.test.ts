@@ -26,6 +26,9 @@ describe('DirectiveParser.classify_call_line', () => {
         expect(parser.classify_call_line('qui do "x.do"')).toBe('do');
         expect(parser.classify_call_line('cap include x.do')).toBe('include');
         expect(parser.classify_call_line('noisily run "x.do"')).toBe('run');
+        // break is a prefix too (StataMP 18)
+        expect(parser.classify_call_line('break run x.do')).toBe('run');
+        expect(parser.classify_call_line('capture break include x.do')).toBe('include');
         expect(parser.classify_call_line('nobreak do "x.do"')).toBe('do');
         expect(parser.classify_call_line('nobreak include x.do')).toBe('include');
         expect(parser.classify_call_line('nobreak run "x.do"')).toBe('run');

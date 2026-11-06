@@ -1377,6 +1377,46 @@ display \`result'
             expect(undefined_result).toBeUndefined();
         });
 
+        it('should suppress c_local warning after the nobreak and break prefixes', async () => {
+            for (const my_prefix of ['nobreak', 'break']) {
+                const document = create_real_document_state(
+                    `${my_prefix} MyProg\ndisplay \`result'\n`);
+                const resolved_scope = {
+                    symbols: {
+                        programs: new Map([
+                            ['MyProg', {
+                                name: 'MyProg',
+                                location: { uri: 'file:///other.do', range: { start: { line: 0, character: 0 }, end: { line: 0, character: 6 } } },
+                                sourceUri: 'file:///other.do',
+                                c_locals: ['result'],
+                            }],
+                        ]),
+                        localMacros: new Map(),
+                        globalMacros: new Map(),
+                        variables: new Map(),
+                        scalars: new Map(),
+                        matrices: new Map(),
+                    },
+                    out_of_scope_symbols: [],
+                    diagnostics: [],
+                };
+                const mock_scope_resolver = {
+                    resolve: async () => resolved_scope,
+                };
+                const the_diagnostics = await provider.get_diagnostics(
+                    document,
+                    DEFAULT_CONFIG,
+                    undefined,
+                    mock_scope_resolver as any
+                );
+                const undefined_result = the_diagnostics.find(
+                    d => d.code === StataDiagnosticCode.UNDEFINED_MACRO &&
+                         (d.data as { symbol_name?: string } | undefined)?.symbol_name === 'result'
+                );
+                expect(undefined_result).toBeUndefined();
+            }
+        });
+
         it('should NOT suppress c_local warning with uppercase prefix command', async () => {
             // Program MyProg defines c_local 'result'
             // Calling "Quietly MyProg" (uppercase prefix) should NOT suppress warning

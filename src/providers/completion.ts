@@ -579,7 +579,7 @@ function detect_option_context(
  * Extract the command name from text (simple heuristic).
  */
 function extract_command_name(text: string): string | null {
-    const PREFIX_COMMANDS = ['by', 'bysort', 'quietly', 'qui', 'capture', 'cap', 'noisily', 'noi'];
+    const PREFIX_COMMANDS = ['by', 'bysort', 'quietly', 'qui', 'capture', 'cap', 'noisily', 'noi', 'nobreak', 'break'];
     
     // Handle "by varlist:" prefix - but not merge syntax like "merge 1:m"
     let working_text = text;
@@ -715,7 +715,7 @@ function detect_subcommand_context(text_before_cursor: string, command_db?: Comm
     // following command when every preceding part is a supported prefix.
     const STANDARD_PREFIXES = [
         'by', 'bysort', 'quietly', 'qui',
-        'capture', 'cap', 'noisily', 'noi',
+        'capture', 'cap', 'noisily', 'noi', 'nobreak', 'break',
     ];
     const BY_PREFIXES = ['by', 'bysort'];
     let command_index = 0;
@@ -802,7 +802,7 @@ function is_command_context(
 
     // Check if we're after a prefix command (by, bysort, quietly, capture, etc.)
     // Note: "by varlist:" is a prefix, so we need to handle the colon
-    const PREFIX_COMMANDS = ['by', 'bysort', 'quietly', 'qui', 'capture', 'cap', 'noisily', 'noi'];
+    const PREFIX_COMMANDS = ['by', 'bysort', 'quietly', 'qui', 'capture', 'cap', 'noisily', 'noi', 'nobreak', 'break'];
     
     // Split by whitespace but preserve structure
     const the_words = trimmed.split(/\s+/);

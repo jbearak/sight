@@ -685,6 +685,13 @@ global after 2
         expect(result).toBe(1);
     });
 
+    test('infer_call_site_for_file should match lowercase with break prefixes', () => {
+        for (const my_call of ['break do "child.do"', 'capture break include child.do']) {
+            const parent_content = `global setup 1\n${my_call}\nglobal after 2\n`;
+            expect(parser.infer_call_site_for_file(parent_content, 'child.do')).toBe(1);
+        }
+    });
+
     test('infer_call_site_for_file should match lowercase with version colon prefix', () => {
         const parent_content = `global setup 1
 version 18.0: do "child.do"

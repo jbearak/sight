@@ -61,6 +61,14 @@ describe('highlight_stata', () => {
         expect(output).toContain(`${SGR.blue}if${SGR.reset}`);
     });
 
+    it('finds the command after nobreak and break', () => {
+        for (const my_prefix of ['nobreak', 'break']) {
+            const output = highlight_stata(`${my_prefix} regress y x`);
+            expect(output).toContain(`${SGR.blue}${my_prefix}${SGR.reset}`);
+            expect(output).toContain(`${SGR.bold_blue}regress${SGR.reset}`);
+        }
+    });
+
     it('matches prefixes with exact case (Stata is case-sensitive)', () => {
         // `Quietly` is not a prefix, so it is taken as the command word
         // and `summarize` is an ordinary argument.
