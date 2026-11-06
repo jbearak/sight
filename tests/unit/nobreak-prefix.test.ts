@@ -11,6 +11,10 @@ import { SemanticAnalyzer } from '../../src/analyzer';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { CodeFormatter } from '../../src/providers/formatter';
+import { detect_completion_context } from '../../src/providers/completion';
+import { LiteralMacroAdjacencyAnalyzer } from '../../src/providers/literal-macro-adjacency-diagnostics';
+import { OperatorSequenceAnalyzer } from '../../src/providers/operator-sequence-diagnostics';
+import { DEFAULT_SETTINGS } from '../../src/server-handlers';
 import { StataDiagnosticCode, StataNode } from '../../src/types';
 import {
     create_formatter_config,
@@ -92,5 +96,56 @@ describe('nobreak and break prefixes', () => {
         const source = 'program p\nnobreak {\nlocal rc = _rc\n}\nend\n';
         expect(format_source(source, mode)).toBe(
             'program p\n    nobreak {\n        local rc = _rc\n    }\nend\n');
+    });
+
+    describe('in the other places that skip prefixes', () => {
+        it('defines a constructed local behind the prefix in a loop', () => {
+            const source = [
+                'forvalues i = 1/2 {',
+                '    nobreak local v`i\' = 1',
+                '    break local w`i\' = 1',
+                '}',
+                'display "`v1\' `w2\'"',
+            ].join('\n');
+            expect(analyzer_codes(source).filter((my_code) =>
+                my_code.endsWith(StataDiagnosticCode.UNDEFINED_MACRO)))
+                .toEqual([]);
+        });
+
+        it('reads assert after the prefix as a command', () => {
+            const found = (source: string) => new LiteralMacroAdjacencyAnalyzer()
+                .analyze(create_document_state(source), DEFAULT_SETTINGS)
+                .filter((my_diag) =>
+                    my_diag.code === StataDiagnosticCode.LITERAL_MACRO_ADJACENCY);
+            expect(found("capture assert 1`b'")).toHaveLength(1);
+            expect(found("nobreak assert 1`b'")).toHaveLength(1);
+            expect(found("break assert 1`b'")).toHaveLength(1);
+        });
+
+        it('completes a command after the prefix, and the options of the command after it', () => {
+            for (const my_source of ['nobreak ', 'break ']) {
+                const context = detect_completion_context(
+                    create_document_state(my_source),
+                    { line: 0, character: my_source.length });
+                expect(context.type).toBe('command');
+            }
+            const source = 'break regress y x, ';
+            const context = detect_completion_context(
+                create_document_state(source),
+                { line: 0, character: source.length });
+            expect(context.type).toBe('option');
+            if (context.type === 'option') {
+                expect(context.command).toBe('regress');
+            }
+        });
+
+        it('keeps the mixed-model || separator valid after the prefix', () => {
+            const analyzer = new OperatorSequenceAnalyzer();
+            for (const my_prefix of ['nobreak', 'break', 'capture nobreak']) {
+                expect(analyzer.analyze(
+                    create_document_state(`${my_prefix} mixed y x || id:`),
+                    DEFAULT_SETTINGS)).toHaveLength(0);
+            }
+        });
     });
 });

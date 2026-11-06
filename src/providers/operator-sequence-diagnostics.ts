@@ -161,6 +161,7 @@ const MIXED_COLON_OPTIONAL_PREFIX_COMMANDS: ReadonlySet<string> = new Set([
     'cap', 'capt', 'captu', 'captur', 'capture',
     'qui', 'quie', 'quiet', 'quietl', 'quietly',
     'noi', 'nois', 'noisi', 'noisil', 'noisily',
+    'nobreak', 'break',
 ]);
 
 const MIXED_COLON_REQUIRED_PREFIX_COMMANDS: ReadonlySet<string> = new Set([
@@ -183,7 +184,7 @@ const NAME_CONTINUATION_TOKEN_TYPES: ReadonlySet<string> = new Set([
 /**
  * Resolve the command used only by mixed-effects separator diagnostics.
  * Capture/quietly/noisily prefixes accept all exact documented spellings and
- * an optional colon; exact-case `xi` requires its colon. Argument-bearing and
+ * an optional colon (as do nobreak and break, which have no abbreviations); exact-case `xi` requires its colon. Argument-bearing and
  * multiword prefixes remain unsupported. Source-constructed command names fail
  * closed so they cannot inherit a built-in command's separator exception.
  */

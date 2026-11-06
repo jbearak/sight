@@ -11,6 +11,7 @@ export const SINGLE_LINE_PREFIX_COMMANDS: ReadonlySet<string> = new Set([
     'capture', 'cap',
     'quietly', 'qui', 'quie',
     'noisily', 'noi',
+    'nobreak', 'break',
 ]);
 
 /**
