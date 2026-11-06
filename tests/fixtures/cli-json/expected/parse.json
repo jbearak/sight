@@ -62,6 +62,8 @@
         "varlist": null,
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": null,
         "in": null,
         "weight": null,
         "using": null,
@@ -183,6 +185,8 @@
         },
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": null,
         "in": null,
         "weight": null,
         "using": null,
@@ -256,6 +260,8 @@
         "varlist": null,
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": null,
         "in": null,
         "weight": null,
         "using": null,
@@ -332,6 +338,8 @@
         },
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": null,
         "in": null,
         "weight": null,
         "using": null,
@@ -425,6 +433,8 @@
         "varlist": null,
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": null,
         "in": null,
         "weight": null,
         "using": null,
@@ -472,6 +482,8 @@
         "varlist": null,
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": null,
         "in": null,
         "weight": null,
         "using": null,
@@ -529,6 +541,8 @@
         "varlist": null,
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": null,
         "in": null,
         "weight": null,
         "using": null,
@@ -714,6 +728,8 @@
           }
         },
         "if": null,
+        "assertion": null,
+        "display": null,
         "in": null,
         "weight": null,
         "using": null,
@@ -934,6 +950,8 @@
             }
           }
         },
+        "assertion": null,
+        "display": null,
         "in": null,
         "weight": null,
         "using": null,
@@ -1093,6 +1111,8 @@
           }
         },
         "if": null,
+        "assertion": null,
+        "display": null,
         "in": null,
         "weight": null,
         "using": null,
@@ -1223,6 +1243,8 @@
         },
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": null,
         "in": {
           "text": "1/100",
           "first": {
@@ -1480,6 +1502,8 @@
             }
           }
         },
+        "assertion": null,
+        "display": null,
         "in": null,
         "weight": null,
         "using": null,
@@ -1612,6 +1636,8 @@
             "varlist": null,
             "assignment": null,
             "if": null,
+            "assertion": null,
+            "display": null,
             "in": null,
             "weight": null,
             "using": {
@@ -1937,6 +1963,8 @@
                 }
               }
             },
+            "assertion": null,
+            "display": null,
             "in": null,
             "weight": null,
             "using": null,
@@ -2174,6 +2202,8 @@
             },
             "assignment": null,
             "if": null,
+            "assertion": null,
+            "display": null,
             "in": null,
             "weight": null,
             "using": null,
@@ -2413,6 +2443,8 @@
                 }
               }
             },
+            "assertion": null,
+            "display": null,
             "in": null,
             "weight": null,
             "using": null,
@@ -2532,6 +2564,8 @@
               }
             },
             "if": null,
+            "assertion": null,
+            "display": null,
             "in": null,
             "weight": null,
             "using": null,
@@ -2677,6 +2711,8 @@
         },
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": null,
         "in": null,
         "weight": null,
         "using": null,
@@ -2795,6 +2831,43 @@
             "varlist": null,
             "assignment": null,
             "if": null,
+            "assertion": null,
+            "display": {
+              "items": [
+                {
+                  "kind": "string",
+                  "quote": "simple",
+                  "text": "\"ok\"",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "ok",
+                      "range": {
+                        "start": {
+                          "line": 2,
+                          "character": 13
+                        },
+                        "end": {
+                          "line": 2,
+                          "character": 15
+                        }
+                      }
+                    }
+                  ],
+                  "range": {
+                    "start": {
+                      "line": 2,
+                      "character": 12
+                    },
+                    "end": {
+                      "line": 2,
+                      "character": 16
+                    }
+                  },
+                  "format": null
+                }
+              ]
+            },
             "in": null,
             "weight": null,
             "using": null,
@@ -2893,6 +2966,60 @@
             "varlist": null,
             "assignment": null,
             "if": null,
+            "assertion": null,
+            "display": {
+              "items": [
+                {
+                  "kind": "directive",
+                  "name": "as",
+                  "text": "as error",
+                  "argument": null,
+                  "style": "error",
+                  "range": {
+                    "start": {
+                      "line": 5,
+                      "character": 12
+                    },
+                    "end": {
+                      "line": 5,
+                      "character": 20
+                    }
+                  }
+                },
+                {
+                  "kind": "string",
+                  "quote": "simple",
+                  "text": "\"empty\"",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "empty",
+                      "range": {
+                        "start": {
+                          "line": 5,
+                          "character": 22
+                        },
+                        "end": {
+                          "line": 5,
+                          "character": 27
+                        }
+                      }
+                    }
+                  ],
+                  "range": {
+                    "start": {
+                      "line": 5,
+                      "character": 21
+                    },
+                    "end": {
+                      "line": 5,
+                      "character": 28
+                    }
+                  },
+                  "format": null
+                }
+              ]
+            },
             "in": null,
             "weight": null,
             "using": null,
@@ -2972,6 +3099,43 @@
         "varlist": null,
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": {
+          "items": [
+            {
+              "kind": "string",
+              "quote": "simple",
+              "text": "\"declared child\"",
+              "parts": [
+                {
+                  "kind": "text",
+                  "value": "declared child",
+                  "range": {
+                    "start": {
+                      "line": 1,
+                      "character": 9
+                    },
+                    "end": {
+                      "line": 1,
+                      "character": 23
+                    }
+                  }
+                }
+              ],
+              "range": {
+                "start": {
+                  "line": 1,
+                  "character": 8
+                },
+                "end": {
+                  "line": 1,
+                  "character": 24
+                }
+              },
+              "format": null
+            }
+          ]
+        },
         "in": null,
         "weight": null,
         "using": null,
@@ -3135,6 +3299,8 @@
         "varlist": null,
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": null,
         "in": null,
         "weight": null,
         "using": null,
@@ -3475,6 +3641,107 @@
         },
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": {
+          "items": [
+            {
+              "kind": "expression",
+              "text": "`a'",
+              "format": null,
+              "expression": {
+                "kind": "macro_ref",
+                "scope": "local",
+                "form": "name",
+                "text": "`a'",
+                "range": {
+                  "start": {
+                    "line": 16,
+                    "character": 8
+                  },
+                  "end": {
+                    "line": 16,
+                    "character": 11
+                  }
+                },
+                "name": "a"
+              },
+              "range": {
+                "start": {
+                  "line": 16,
+                  "character": 8
+                },
+                "end": {
+                  "line": 16,
+                  "character": 11
+                }
+              }
+            },
+            {
+              "kind": "expression",
+              "text": "`b'",
+              "format": null,
+              "expression": {
+                "kind": "macro_ref",
+                "scope": "local",
+                "form": "name",
+                "text": "`b'",
+                "range": {
+                  "start": {
+                    "line": 16,
+                    "character": 12
+                  },
+                  "end": {
+                    "line": 16,
+                    "character": 15
+                  }
+                },
+                "name": "b"
+              },
+              "range": {
+                "start": {
+                  "line": 16,
+                  "character": 12
+                },
+                "end": {
+                  "line": 16,
+                  "character": 15
+                }
+              }
+            },
+            {
+              "kind": "expression",
+              "text": "$G",
+              "format": null,
+              "expression": {
+                "kind": "macro_ref",
+                "scope": "global",
+                "form": "name",
+                "text": "$G",
+                "range": {
+                  "start": {
+                    "line": 16,
+                    "character": 16
+                  },
+                  "end": {
+                    "line": 16,
+                    "character": 18
+                  }
+                },
+                "name": "G"
+              },
+              "range": {
+                "start": {
+                  "line": 16,
+                  "character": 16
+                },
+                "end": {
+                  "line": 16,
+                  "character": 18
+                }
+              }
+            }
+          ]
+        },
         "in": null,
         "weight": null,
         "using": null,
@@ -3638,6 +3905,43 @@
         },
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": {
+          "items": [
+            {
+              "kind": "expression",
+              "text": "`undef1'",
+              "format": null,
+              "expression": {
+                "kind": "macro_ref",
+                "scope": "local",
+                "form": "name",
+                "text": "`undef1'",
+                "range": {
+                  "start": {
+                    "line": 21,
+                    "character": 8
+                  },
+                  "end": {
+                    "line": 21,
+                    "character": 16
+                  }
+                },
+                "name": "undef1"
+              },
+              "range": {
+                "start": {
+                  "line": 21,
+                  "character": 8
+                },
+                "end": {
+                  "line": 21,
+                  "character": 16
+                }
+              }
+            }
+          ]
+        },
         "in": null,
         "weight": null,
         "using": null,
@@ -3790,6 +4094,75 @@
         },
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": {
+          "items": [
+            {
+              "kind": "expression",
+              "text": "`undef2'",
+              "format": null,
+              "expression": {
+                "kind": "macro_ref",
+                "scope": "local",
+                "form": "name",
+                "text": "`undef2'",
+                "range": {
+                  "start": {
+                    "line": 23,
+                    "character": 8
+                  },
+                  "end": {
+                    "line": 23,
+                    "character": 16
+                  }
+                },
+                "name": "undef2"
+              },
+              "range": {
+                "start": {
+                  "line": 23,
+                  "character": 8
+                },
+                "end": {
+                  "line": 23,
+                  "character": 16
+                }
+              }
+            },
+            {
+              "kind": "expression",
+              "text": "`undef3'",
+              "format": null,
+              "expression": {
+                "kind": "macro_ref",
+                "scope": "local",
+                "form": "name",
+                "text": "`undef3'",
+                "range": {
+                  "start": {
+                    "line": 24,
+                    "character": 4
+                  },
+                  "end": {
+                    "line": 24,
+                    "character": 12
+                  }
+                },
+                "name": "undef3"
+              },
+              "range": {
+                "start": {
+                  "line": 24,
+                  "character": 4
+                },
+                "end": {
+                  "line": 24,
+                  "character": 12
+                }
+              }
+            }
+          ]
+        },
         "in": null,
         "weight": null,
         "using": null,
@@ -3896,6 +4269,43 @@
         },
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": {
+          "items": [
+            {
+              "kind": "expression",
+              "text": "`undef4'",
+              "format": null,
+              "expression": {
+                "kind": "macro_ref",
+                "scope": "local",
+                "form": "name",
+                "text": "`undef4'",
+                "range": {
+                  "start": {
+                    "line": 25,
+                    "character": 8
+                  },
+                  "end": {
+                    "line": 25,
+                    "character": 16
+                  }
+                },
+                "name": "undef4"
+              },
+              "range": {
+                "start": {
+                  "line": 25,
+                  "character": 8
+                },
+                "end": {
+                  "line": 25,
+                  "character": 16
+                }
+              }
+            }
+          ]
+        },
         "in": null,
         "weight": null,
         "using": null,
@@ -3971,6 +4381,43 @@
         "varlist": null,
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": {
+          "items": [
+            {
+              "kind": "string",
+              "quote": "simple",
+              "text": "\"x\"",
+              "parts": [
+                {
+                  "kind": "text",
+                  "value": "x",
+                  "range": {
+                    "start": {
+                      "line": 26,
+                      "character": 9
+                    },
+                    "end": {
+                      "line": 26,
+                      "character": 10
+                    }
+                  }
+                }
+              ],
+              "range": {
+                "start": {
+                  "line": 26,
+                  "character": 8
+                },
+                "end": {
+                  "line": 26,
+                  "character": 11
+                }
+              },
+              "format": null
+            }
+          ]
+        },
         "in": null,
         "weight": null,
         "using": null,
@@ -4049,6 +4496,43 @@
         },
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": {
+          "items": [
+            {
+              "kind": "expression",
+              "text": "`undef5'",
+              "format": null,
+              "expression": {
+                "kind": "macro_ref",
+                "scope": "local",
+                "form": "name",
+                "text": "`undef5'",
+                "range": {
+                  "start": {
+                    "line": 27,
+                    "character": 8
+                  },
+                  "end": {
+                    "line": 27,
+                    "character": 16
+                  }
+                },
+                "name": "undef5"
+              },
+              "range": {
+                "start": {
+                  "line": 27,
+                  "character": 8
+                },
+                "end": {
+                  "line": 27,
+                  "character": 16
+                }
+              }
+            }
+          ]
+        },
         "in": null,
         "weight": null,
         "using": null,
@@ -4112,6 +4596,43 @@
         "varlist": null,
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": {
+          "items": [
+            {
+              "kind": "string",
+              "quote": "simple",
+              "text": "\"y\"",
+              "parts": [
+                {
+                  "kind": "text",
+                  "value": "y",
+                  "range": {
+                    "start": {
+                      "line": 28,
+                      "character": 9
+                    },
+                    "end": {
+                      "line": 28,
+                      "character": 10
+                    }
+                  }
+                }
+              ],
+              "range": {
+                "start": {
+                  "line": 28,
+                  "character": 8
+                },
+                "end": {
+                  "line": 28,
+                  "character": 11
+                }
+              },
+              "format": null
+            }
+          ]
+        },
         "in": null,
         "weight": null,
         "using": null,
@@ -4316,6 +4837,46 @@
             "varlist": null,
             "assignment": null,
             "if": null,
+            "assertion": null,
+            "display": {
+              "items": [
+                {
+                  "kind": "string",
+                  "quote": "simple",
+                  "text": "\"`v'\"",
+                  "parts": [
+                    {
+                      "kind": "macro_ref",
+                      "scope": "local",
+                      "form": "name",
+                      "text": "`v'",
+                      "range": {
+                        "start": {
+                          "line": 36,
+                          "character": 13
+                        },
+                        "end": {
+                          "line": 36,
+                          "character": 16
+                        }
+                      },
+                      "name": "v"
+                    }
+                  ],
+                  "range": {
+                    "start": {
+                      "line": 36,
+                      "character": 12
+                    },
+                    "end": {
+                      "line": 36,
+                      "character": 17
+                    }
+                  },
+                  "format": null
+                }
+              ]
+            },
             "in": null,
             "weight": null,
             "using": null,
@@ -4396,6 +4957,43 @@
         },
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": {
+          "items": [
+            {
+              "kind": "expression",
+              "text": "`undef6'",
+              "format": null,
+              "expression": {
+                "kind": "macro_ref",
+                "scope": "local",
+                "form": "name",
+                "text": "`undef6'",
+                "range": {
+                  "start": {
+                    "line": 39,
+                    "character": 8
+                  },
+                  "end": {
+                    "line": 39,
+                    "character": 16
+                  }
+                },
+                "name": "undef6"
+              },
+              "range": {
+                "start": {
+                  "line": 39,
+                  "character": 8
+                },
+                "end": {
+                  "line": 39,
+                  "character": 16
+                }
+              }
+            }
+          ]
+        },
         "in": null,
         "weight": null,
         "using": null,
@@ -4619,6 +5217,46 @@
         "varlist": null,
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": {
+          "items": [
+            {
+              "kind": "string",
+              "quote": "simple",
+              "text": "\"`d'\"",
+              "parts": [
+                {
+                  "kind": "macro_ref",
+                  "scope": "local",
+                  "form": "name",
+                  "text": "`d'",
+                  "range": {
+                    "start": {
+                      "line": 3,
+                      "character": 9
+                    },
+                    "end": {
+                      "line": 3,
+                      "character": 12
+                    }
+                  },
+                  "name": "d"
+                }
+              ],
+              "range": {
+                "start": {
+                  "line": 3,
+                  "character": 8
+                },
+                "end": {
+                  "line": 3,
+                  "character": 13
+                }
+              },
+              "format": null
+            }
+          ]
+        },
         "in": null,
         "weight": null,
         "using": null,
@@ -4704,6 +5342,41 @@
         "varlist": null,
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": {
+          "items": [
+            {
+              "kind": "expression",
+              "text": "1",
+              "format": null,
+              "expression": {
+                "kind": "number",
+                "text": "1",
+                "value": 1,
+                "range": {
+                  "start": {
+                    "line": 5,
+                    "character": 8
+                  },
+                  "end": {
+                    "line": 5,
+                    "character": 9
+                  }
+                }
+              },
+              "range": {
+                "start": {
+                  "line": 5,
+                  "character": 8
+                },
+                "end": {
+                  "line": 5,
+                  "character": 9
+                }
+              }
+            }
+          ]
+        },
         "in": null,
         "weight": null,
         "using": null,
@@ -4872,6 +5545,43 @@
         "varlist": null,
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": {
+          "items": [
+            {
+              "kind": "string",
+              "quote": "simple",
+              "text": "\"a separate command\"",
+              "parts": [
+                {
+                  "kind": "text",
+                  "value": "a separate command",
+                  "range": {
+                    "start": {
+                      "line": 3,
+                      "character": 9
+                    },
+                    "end": {
+                      "line": 3,
+                      "character": 27
+                    }
+                  }
+                }
+              ],
+              "range": {
+                "start": {
+                  "line": 3,
+                  "character": 8
+                },
+                "end": {
+                  "line": 3,
+                  "character": 28
+                }
+              },
+              "format": null
+            }
+          ]
+        },
         "in": null,
         "weight": null,
         "using": null,
@@ -5027,6 +5737,8 @@
         "varlist": null,
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": null,
         "in": null,
         "weight": null,
         "using": null,
@@ -5329,6 +6041,43 @@
             "varlist": null,
             "assignment": null,
             "if": null,
+            "assertion": null,
+            "display": {
+              "items": [
+                {
+                  "kind": "string",
+                  "quote": "simple",
+                  "text": "\"after a slash line\"",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "after a slash line",
+                      "range": {
+                        "start": {
+                          "line": 5,
+                          "character": 13
+                        },
+                        "end": {
+                          "line": 5,
+                          "character": 31
+                        }
+                      }
+                    }
+                  ],
+                  "range": {
+                    "start": {
+                      "line": 5,
+                      "character": 12
+                    },
+                    "end": {
+                      "line": 5,
+                      "character": 32
+                    }
+                  },
+                  "format": null
+                }
+              ]
+            },
             "in": null,
             "weight": null,
             "using": null,
@@ -5477,6 +6226,43 @@
         "varlist": null,
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": {
+          "items": [
+            {
+              "kind": "string",
+              "quote": "simple",
+              "text": "\"ran\"",
+              "parts": [
+                {
+                  "kind": "text",
+                  "value": "ran",
+                  "range": {
+                    "start": {
+                      "line": 13,
+                      "character": 9
+                    },
+                    "end": {
+                      "line": 13,
+                      "character": 12
+                    }
+                  }
+                }
+              ],
+              "range": {
+                "start": {
+                  "line": 13,
+                  "character": 8
+                },
+                "end": {
+                  "line": 13,
+                  "character": 13
+                }
+              },
+              "format": null
+            }
+          ]
+        },
         "in": null,
         "weight": null,
         "using": null,
@@ -5634,6 +6420,8 @@
         "varlist": null,
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": null,
         "in": null,
         "weight": null,
         "using": null,
@@ -5832,6 +6620,8 @@
             "varlist": null,
             "assignment": null,
             "if": null,
+            "assertion": null,
+            "display": null,
             "in": null,
             "weight": null,
             "using": null,
@@ -5892,6 +6682,8 @@
             "varlist": null,
             "assignment": null,
             "if": null,
+            "assertion": null,
+            "display": null,
             "in": null,
             "weight": null,
             "using": null,
@@ -6048,6 +6840,43 @@
         "varlist": null,
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": {
+          "items": [
+            {
+              "kind": "string",
+              "quote": "simple",
+              "text": "\"after\"",
+              "parts": [
+                {
+                  "kind": "text",
+                  "value": "after",
+                  "range": {
+                    "start": {
+                      "line": 13,
+                      "character": 8
+                    },
+                    "end": {
+                      "line": 13,
+                      "character": 13
+                    }
+                  }
+                }
+              ],
+              "range": {
+                "start": {
+                  "line": 13,
+                  "character": 7
+                },
+                "end": {
+                  "line": 13,
+                  "character": 14
+                }
+              },
+              "format": null
+            }
+          ]
+        },
         "in": null,
         "weight": null,
         "using": null,
@@ -6162,6 +6991,8 @@
             "varlist": null,
             "assignment": null,
             "if": null,
+            "assertion": null,
+            "display": null,
             "in": null,
             "weight": null,
             "using": null,
@@ -6274,6 +7105,43 @@
             "varlist": null,
             "assignment": null,
             "if": null,
+            "assertion": null,
+            "display": {
+              "items": [
+                {
+                  "kind": "string",
+                  "quote": "simple",
+                  "text": "\"in\"",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "in",
+                      "range": {
+                        "start": {
+                          "line": 22,
+                          "character": 8
+                        },
+                        "end": {
+                          "line": 22,
+                          "character": 10
+                        }
+                      }
+                    }
+                  ],
+                  "range": {
+                    "start": {
+                      "line": 22,
+                      "character": 7
+                    },
+                    "end": {
+                      "line": 22,
+                      "character": 11
+                    }
+                  },
+                  "format": null
+                }
+              ]
+            },
             "in": null,
             "weight": null,
             "using": null,
@@ -6444,6 +7312,43 @@
             "varlist": null,
             "assignment": null,
             "if": null,
+            "assertion": null,
+            "display": {
+              "items": [
+                {
+                  "kind": "string",
+                  "quote": "simple",
+                  "text": "\"ignored\"",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "ignored",
+                      "range": {
+                        "start": {
+                          "line": 2,
+                          "character": 11
+                        },
+                        "end": {
+                          "line": 2,
+                          "character": 18
+                        }
+                      }
+                    }
+                  ],
+                  "range": {
+                    "start": {
+                      "line": 2,
+                      "character": 10
+                    },
+                    "end": {
+                      "line": 2,
+                      "character": 19
+                    }
+                  },
+                  "format": null
+                }
+              ]
+            },
             "in": null,
             "weight": null,
             "using": null,
@@ -6491,6 +7396,43 @@
             "varlist": null,
             "assignment": null,
             "if": null,
+            "assertion": null,
+            "display": {
+              "items": [
+                {
+                  "kind": "string",
+                  "quote": "simple",
+                  "text": "\"runs\"",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "runs",
+                      "range": {
+                        "start": {
+                          "line": 3,
+                          "character": 8
+                        },
+                        "end": {
+                          "line": 3,
+                          "character": 12
+                        }
+                      }
+                    }
+                  ],
+                  "range": {
+                    "start": {
+                      "line": 3,
+                      "character": 7
+                    },
+                    "end": {
+                      "line": 3,
+                      "character": 13
+                    }
+                  },
+                  "format": null
+                }
+              ]
+            },
             "in": null,
             "weight": null,
             "using": null,
@@ -6582,6 +7524,43 @@
             "varlist": null,
             "assignment": null,
             "if": null,
+            "assertion": null,
+            "display": {
+              "items": [
+                {
+                  "kind": "string",
+                  "quote": "simple",
+                  "text": "\"error\"",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "error",
+                      "range": {
+                        "start": {
+                          "line": 5,
+                          "character": 14
+                        },
+                        "end": {
+                          "line": 5,
+                          "character": 19
+                        }
+                      }
+                    }
+                  ],
+                  "range": {
+                    "start": {
+                      "line": 5,
+                      "character": 13
+                    },
+                    "end": {
+                      "line": 5,
+                      "character": 20
+                    }
+                  },
+                  "format": null
+                }
+              ]
+            },
             "in": null,
             "weight": null,
             "using": null,
@@ -6629,6 +7608,43 @@
             "varlist": null,
             "assignment": null,
             "if": null,
+            "assertion": null,
+            "display": {
+              "items": [
+                {
+                  "kind": "string",
+                  "quote": "simple",
+                  "text": "\"body\"",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "body",
+                      "range": {
+                        "start": {
+                          "line": 6,
+                          "character": 8
+                        },
+                        "end": {
+                          "line": 6,
+                          "character": 12
+                        }
+                      }
+                    }
+                  ],
+                  "range": {
+                    "start": {
+                      "line": 6,
+                      "character": 7
+                    },
+                    "end": {
+                      "line": 6,
+                      "character": 13
+                    }
+                  },
+                  "format": null
+                }
+              ]
+            },
             "in": null,
             "weight": null,
             "using": null,
@@ -7033,6 +8049,8 @@
                 },
                 "assignment": null,
                 "if": null,
+                "assertion": null,
+                "display": null,
                 "in": null,
                 "weight": null,
                 "using": null,
@@ -8003,6 +9021,8 @@
         "varlist": null,
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": null,
         "in": null,
         "weight": null,
         "using": null,
@@ -8063,6 +9083,8 @@
         "varlist": null,
         "assignment": null,
         "if": null,
+        "assertion": null,
+        "display": null,
         "in": null,
         "weight": null,
         "using": null,
@@ -8346,6 +9368,8 @@
             },
             "assignment": null,
             "if": null,
+            "assertion": null,
+            "display": null,
             "in": null,
             "weight": null,
             "using": null,
@@ -8473,6 +9497,8 @@
           }
         },
         "if": null,
+        "assertion": null,
+        "display": null,
         "in": null,
         "weight": null,
         "using": null,
@@ -8604,5 +9630,2194 @@
     ],
     "comments": [],
     "errors": []
+  },
+  {
+    "schema_version": 1,
+    "sight_version": "<VERSION>",
+    "path": "<ROOT>/assert-display.do",
+    "line_count": 11,
+    "statements": [
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 1,
+            "character": 0
+          },
+          "end": {
+            "line": 1,
+            "character": 26
+          }
+        },
+        "text": "assert x > 5 & !missing(x)",
+        "delimit": "cr",
+        "comments": {
+          "leading": [
+            {
+              "style": "star",
+              "text": "* Expressions in assert and display",
+              "range": {
+                "start": {
+                  "line": 0,
+                  "character": 0
+                },
+                "end": {
+                  "line": 0,
+                  "character": 35
+                }
+              },
+              "directive": null
+            }
+          ],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "assert",
+        "canonical_name": "assert",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "x",
+            "range": {
+              "start": {
+                "line": 1,
+                "character": 7
+              },
+              "end": {
+                "line": 1,
+                "character": 8
+              }
+            }
+          },
+          {
+            "text": ">",
+            "range": {
+              "start": {
+                "line": 1,
+                "character": 9
+              },
+              "end": {
+                "line": 1,
+                "character": 10
+              }
+            }
+          },
+          {
+            "text": "5",
+            "range": {
+              "start": {
+                "line": 1,
+                "character": 11
+              },
+              "end": {
+                "line": 1,
+                "character": 12
+              }
+            }
+          },
+          {
+            "text": "&",
+            "range": {
+              "start": {
+                "line": 1,
+                "character": 13
+              },
+              "end": {
+                "line": 1,
+                "character": 14
+              }
+            }
+          },
+          {
+            "text": "!missing(x)",
+            "range": {
+              "start": {
+                "line": 1,
+                "character": 15
+              },
+              "end": {
+                "line": 1,
+                "character": 26
+              }
+            }
+          }
+        ],
+        "varlist": null,
+        "assignment": null,
+        "if": null,
+        "assertion": {
+          "text": "x > 5 & !missing(x)",
+          "expression": {
+            "kind": "binary",
+            "op": "&",
+            "op_text": "&",
+            "left": {
+              "kind": "binary",
+              "op": ">",
+              "op_text": ">",
+              "left": {
+                "kind": "variable",
+                "name": "x",
+                "range": {
+                  "start": {
+                    "line": 1,
+                    "character": 7
+                  },
+                  "end": {
+                    "line": 1,
+                    "character": 8
+                  }
+                }
+              },
+              "right": {
+                "kind": "number",
+                "text": "5",
+                "value": 5,
+                "range": {
+                  "start": {
+                    "line": 1,
+                    "character": 11
+                  },
+                  "end": {
+                    "line": 1,
+                    "character": 12
+                  }
+                }
+              },
+              "range": {
+                "start": {
+                  "line": 1,
+                  "character": 7
+                },
+                "end": {
+                  "line": 1,
+                  "character": 12
+                }
+              }
+            },
+            "right": {
+              "kind": "unary",
+              "op": "!",
+              "op_text": "!",
+              "operand": {
+                "kind": "call",
+                "name": "missing",
+                "name_range": {
+                  "start": {
+                    "line": 1,
+                    "character": 16
+                  },
+                  "end": {
+                    "line": 1,
+                    "character": 23
+                  }
+                },
+                "args": [
+                  {
+                    "kind": "variable",
+                    "name": "x",
+                    "range": {
+                      "start": {
+                        "line": 1,
+                        "character": 24
+                      },
+                      "end": {
+                        "line": 1,
+                        "character": 25
+                      }
+                    }
+                  }
+                ],
+                "range": {
+                  "start": {
+                    "line": 1,
+                    "character": 16
+                  },
+                  "end": {
+                    "line": 1,
+                    "character": 26
+                  }
+                }
+              },
+              "range": {
+                "start": {
+                  "line": 1,
+                  "character": 15
+                },
+                "end": {
+                  "line": 1,
+                  "character": 26
+                }
+              }
+            },
+            "range": {
+              "start": {
+                "line": 1,
+                "character": 7
+              },
+              "end": {
+                "line": 1,
+                "character": 26
+              }
+            }
+          }
+        },
+        "display": null,
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": [],
+        "options_tail": []
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 2,
+            "character": 0
+          },
+          "end": {
+            "line": 2,
+            "character": 37
+          }
+        },
+        "text": "assert `cond' | (y == 1 & z < .), rc0",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "assert",
+        "canonical_name": "assert",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "`cond'",
+            "range": {
+              "start": {
+                "line": 2,
+                "character": 7
+              },
+              "end": {
+                "line": 2,
+                "character": 13
+              }
+            }
+          },
+          {
+            "text": "|",
+            "range": {
+              "start": {
+                "line": 2,
+                "character": 14
+              },
+              "end": {
+                "line": 2,
+                "character": 15
+              }
+            }
+          },
+          {
+            "text": "(y",
+            "range": {
+              "start": {
+                "line": 2,
+                "character": 16
+              },
+              "end": {
+                "line": 2,
+                "character": 18
+              }
+            }
+          },
+          {
+            "text": "==",
+            "range": {
+              "start": {
+                "line": 2,
+                "character": 19
+              },
+              "end": {
+                "line": 2,
+                "character": 21
+              }
+            }
+          },
+          {
+            "text": "1",
+            "range": {
+              "start": {
+                "line": 2,
+                "character": 22
+              },
+              "end": {
+                "line": 2,
+                "character": 23
+              }
+            }
+          },
+          {
+            "text": "&",
+            "range": {
+              "start": {
+                "line": 2,
+                "character": 24
+              },
+              "end": {
+                "line": 2,
+                "character": 25
+              }
+            }
+          },
+          {
+            "text": "z",
+            "range": {
+              "start": {
+                "line": 2,
+                "character": 26
+              },
+              "end": {
+                "line": 2,
+                "character": 27
+              }
+            }
+          },
+          {
+            "text": "<",
+            "range": {
+              "start": {
+                "line": 2,
+                "character": 28
+              },
+              "end": {
+                "line": 2,
+                "character": 29
+              }
+            }
+          },
+          {
+            "text": ".)",
+            "range": {
+              "start": {
+                "line": 2,
+                "character": 30
+              },
+              "end": {
+                "line": 2,
+                "character": 32
+              }
+            }
+          }
+        ],
+        "varlist": null,
+        "assignment": null,
+        "if": null,
+        "assertion": {
+          "text": "`cond' | (y == 1 & z < .)",
+          "expression": {
+            "kind": "binary",
+            "op": "|",
+            "op_text": "|",
+            "left": {
+              "kind": "macro_ref",
+              "scope": "local",
+              "form": "name",
+              "text": "`cond'",
+              "range": {
+                "start": {
+                  "line": 2,
+                  "character": 7
+                },
+                "end": {
+                  "line": 2,
+                  "character": 13
+                }
+              },
+              "name": "cond"
+            },
+            "right": {
+              "kind": "paren",
+              "expression": {
+                "kind": "binary",
+                "op": "&",
+                "op_text": "&",
+                "left": {
+                  "kind": "binary",
+                  "op": "==",
+                  "op_text": "==",
+                  "left": {
+                    "kind": "variable",
+                    "name": "y",
+                    "range": {
+                      "start": {
+                        "line": 2,
+                        "character": 17
+                      },
+                      "end": {
+                        "line": 2,
+                        "character": 18
+                      }
+                    }
+                  },
+                  "right": {
+                    "kind": "number",
+                    "text": "1",
+                    "value": 1,
+                    "range": {
+                      "start": {
+                        "line": 2,
+                        "character": 22
+                      },
+                      "end": {
+                        "line": 2,
+                        "character": 23
+                      }
+                    }
+                  },
+                  "range": {
+                    "start": {
+                      "line": 2,
+                      "character": 17
+                    },
+                    "end": {
+                      "line": 2,
+                      "character": 23
+                    }
+                  }
+                },
+                "right": {
+                  "kind": "binary",
+                  "op": "<",
+                  "op_text": "<",
+                  "left": {
+                    "kind": "variable",
+                    "name": "z",
+                    "range": {
+                      "start": {
+                        "line": 2,
+                        "character": 26
+                      },
+                      "end": {
+                        "line": 2,
+                        "character": 27
+                      }
+                    }
+                  },
+                  "right": {
+                    "kind": "missing",
+                    "text": ".",
+                    "extended": null,
+                    "range": {
+                      "start": {
+                        "line": 2,
+                        "character": 30
+                      },
+                      "end": {
+                        "line": 2,
+                        "character": 31
+                      }
+                    }
+                  },
+                  "range": {
+                    "start": {
+                      "line": 2,
+                      "character": 26
+                    },
+                    "end": {
+                      "line": 2,
+                      "character": 31
+                    }
+                  }
+                },
+                "range": {
+                  "start": {
+                    "line": 2,
+                    "character": 17
+                  },
+                  "end": {
+                    "line": 2,
+                    "character": 31
+                  }
+                }
+              },
+              "range": {
+                "start": {
+                  "line": 2,
+                  "character": 16
+                },
+                "end": {
+                  "line": 2,
+                  "character": 32
+                }
+              }
+            },
+            "range": {
+              "start": {
+                "line": 2,
+                "character": 7
+              },
+              "end": {
+                "line": 2,
+                "character": 32
+              }
+            }
+          }
+        },
+        "display": null,
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": [
+          {
+            "name": "rc0",
+            "canonical_name": "rc0",
+            "argument": null,
+            "argument_range": null,
+            "expression": null,
+            "range": {
+              "start": {
+                "line": 2,
+                "character": 34
+              },
+              "end": {
+                "line": 2,
+                "character": 37
+              }
+            }
+          }
+        ],
+        "options_tail": []
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 3,
+            "character": 0
+          },
+          "end": {
+            "line": 3,
+            "character": 51
+          }
+        },
+        "text": "capture assert inlist(region, 1, 2) if year >= 2000",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "assert",
+        "canonical_name": "assert",
+        "prefixes": [
+          {
+            "name": "capture",
+            "canonical_name": "capture",
+            "range": {
+              "start": {
+                "line": 3,
+                "character": 0
+              },
+              "end": {
+                "line": 3,
+                "character": 7
+              }
+            },
+            "by_varlist": null,
+            "sort_varlist": null,
+            "arguments": null,
+            "options": [],
+            "frame": null
+          }
+        ],
+        "args": [
+          {
+            "text": "inlist(region, 1, 2)",
+            "range": {
+              "start": {
+                "line": 3,
+                "character": 15
+              },
+              "end": {
+                "line": 3,
+                "character": 35
+              }
+            }
+          }
+        ],
+        "varlist": {
+          "kind": "varlist",
+          "items": [
+            {
+              "kind": "unparsed",
+              "text": "inlist(region, 1, 2)",
+              "reason": "factor_or_time_series_operator",
+              "range": {
+                "start": {
+                  "line": 3,
+                  "character": 15
+                },
+                "end": {
+                  "line": 3,
+                  "character": 35
+                }
+              }
+            }
+          ],
+          "range": {
+            "start": {
+              "line": 3,
+              "character": 15
+            },
+            "end": {
+              "line": 3,
+              "character": 35
+            }
+          }
+        },
+        "assignment": null,
+        "if": {
+          "text": "year >= 2000",
+          "expression": {
+            "kind": "binary",
+            "op": ">=",
+            "op_text": ">=",
+            "left": {
+              "kind": "variable",
+              "name": "year",
+              "range": {
+                "start": {
+                  "line": 3,
+                  "character": 39
+                },
+                "end": {
+                  "line": 3,
+                  "character": 43
+                }
+              }
+            },
+            "right": {
+              "kind": "number",
+              "text": "2000",
+              "value": 2000,
+              "range": {
+                "start": {
+                  "line": 3,
+                  "character": 47
+                },
+                "end": {
+                  "line": 3,
+                  "character": 51
+                }
+              }
+            },
+            "range": {
+              "start": {
+                "line": 3,
+                "character": 39
+              },
+              "end": {
+                "line": 3,
+                "character": 51
+              }
+            }
+          }
+        },
+        "assertion": {
+          "text": "inlist(region, 1, 2)",
+          "expression": {
+            "kind": "call",
+            "name": "inlist",
+            "name_range": {
+              "start": {
+                "line": 3,
+                "character": 15
+              },
+              "end": {
+                "line": 3,
+                "character": 21
+              }
+            },
+            "args": [
+              {
+                "kind": "variable",
+                "name": "region",
+                "range": {
+                  "start": {
+                    "line": 3,
+                    "character": 22
+                  },
+                  "end": {
+                    "line": 3,
+                    "character": 28
+                  }
+                }
+              },
+              {
+                "kind": "number",
+                "text": "1",
+                "value": 1,
+                "range": {
+                  "start": {
+                    "line": 3,
+                    "character": 30
+                  },
+                  "end": {
+                    "line": 3,
+                    "character": 31
+                  }
+                }
+              },
+              {
+                "kind": "number",
+                "text": "2",
+                "value": 2,
+                "range": {
+                  "start": {
+                    "line": 3,
+                    "character": 33
+                  },
+                  "end": {
+                    "line": 3,
+                    "character": 34
+                  }
+                }
+              }
+            ],
+            "range": {
+              "start": {
+                "line": 3,
+                "character": 15
+              },
+              "end": {
+                "line": 3,
+                "character": 35
+              }
+            }
+          }
+        },
+        "display": null,
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": [],
+        "options_tail": []
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 4,
+            "character": 0
+          },
+          "end": {
+            "line": 4,
+            "character": 40
+          }
+        },
+        "text": "display \"n = \" _N \" mean \" %5.2f r(mean)",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "display",
+        "canonical_name": "display",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "\"n = \"",
+            "range": {
+              "start": {
+                "line": 4,
+                "character": 8
+              },
+              "end": {
+                "line": 4,
+                "character": 14
+              }
+            }
+          },
+          {
+            "text": "_N",
+            "range": {
+              "start": {
+                "line": 4,
+                "character": 15
+              },
+              "end": {
+                "line": 4,
+                "character": 17
+              }
+            }
+          },
+          {
+            "text": "\" mean \"",
+            "range": {
+              "start": {
+                "line": 4,
+                "character": 18
+              },
+              "end": {
+                "line": 4,
+                "character": 26
+              }
+            }
+          },
+          {
+            "text": "%5.2f",
+            "range": {
+              "start": {
+                "line": 4,
+                "character": 27
+              },
+              "end": {
+                "line": 4,
+                "character": 32
+              }
+            }
+          },
+          {
+            "text": "r(mean)",
+            "range": {
+              "start": {
+                "line": 4,
+                "character": 33
+              },
+              "end": {
+                "line": 4,
+                "character": 40
+              }
+            }
+          }
+        ],
+        "varlist": null,
+        "assignment": null,
+        "if": null,
+        "assertion": null,
+        "display": {
+          "items": [
+            {
+              "kind": "string",
+              "quote": "simple",
+              "text": "\"n = \"",
+              "parts": [
+                {
+                  "kind": "text",
+                  "value": "n = ",
+                  "range": {
+                    "start": {
+                      "line": 4,
+                      "character": 9
+                    },
+                    "end": {
+                      "line": 4,
+                      "character": 13
+                    }
+                  }
+                }
+              ],
+              "range": {
+                "start": {
+                  "line": 4,
+                  "character": 8
+                },
+                "end": {
+                  "line": 4,
+                  "character": 14
+                }
+              },
+              "format": null
+            },
+            {
+              "kind": "expression",
+              "text": "_N",
+              "format": null,
+              "expression": {
+                "kind": "system_variable",
+                "name": "_N",
+                "range": {
+                  "start": {
+                    "line": 4,
+                    "character": 15
+                  },
+                  "end": {
+                    "line": 4,
+                    "character": 17
+                  }
+                }
+              },
+              "range": {
+                "start": {
+                  "line": 4,
+                  "character": 15
+                },
+                "end": {
+                  "line": 4,
+                  "character": 17
+                }
+              }
+            },
+            {
+              "kind": "string",
+              "quote": "simple",
+              "text": "\" mean \"",
+              "parts": [
+                {
+                  "kind": "text",
+                  "value": " mean ",
+                  "range": {
+                    "start": {
+                      "line": 4,
+                      "character": 19
+                    },
+                    "end": {
+                      "line": 4,
+                      "character": 25
+                    }
+                  }
+                }
+              ],
+              "range": {
+                "start": {
+                  "line": 4,
+                  "character": 18
+                },
+                "end": {
+                  "line": 4,
+                  "character": 26
+                }
+              },
+              "format": null
+            },
+            {
+              "kind": "format",
+              "text": "%5.2f",
+              "range": {
+                "start": {
+                  "line": 4,
+                  "character": 27
+                },
+                "end": {
+                  "line": 4,
+                  "character": 32
+                }
+              }
+            },
+            {
+              "kind": "expression",
+              "text": "r(mean)",
+              "format": "%5.2f",
+              "expression": {
+                "kind": "stored_result",
+                "result_class": "r",
+                "name": "mean",
+                "range": {
+                  "start": {
+                    "line": 4,
+                    "character": 33
+                  },
+                  "end": {
+                    "line": 4,
+                    "character": 40
+                  }
+                }
+              },
+              "range": {
+                "start": {
+                  "line": 4,
+                  "character": 33
+                },
+                "end": {
+                  "line": 4,
+                  "character": 40
+                }
+              }
+            }
+          ]
+        },
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": [],
+        "options_tail": []
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 5,
+            "character": 0
+          },
+          "end": {
+            "line": 5,
+            "character": 52
+          }
+        },
+        "text": "di as result %9.0gc _N _col(20) as text \"done\" _n(2)",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "di",
+        "canonical_name": "display",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "as",
+            "range": {
+              "start": {
+                "line": 5,
+                "character": 3
+              },
+              "end": {
+                "line": 5,
+                "character": 5
+              }
+            }
+          },
+          {
+            "text": "result",
+            "range": {
+              "start": {
+                "line": 5,
+                "character": 6
+              },
+              "end": {
+                "line": 5,
+                "character": 12
+              }
+            }
+          },
+          {
+            "text": "%9.0gc",
+            "range": {
+              "start": {
+                "line": 5,
+                "character": 13
+              },
+              "end": {
+                "line": 5,
+                "character": 19
+              }
+            }
+          },
+          {
+            "text": "_N",
+            "range": {
+              "start": {
+                "line": 5,
+                "character": 20
+              },
+              "end": {
+                "line": 5,
+                "character": 22
+              }
+            }
+          },
+          {
+            "text": "_col(20)",
+            "range": {
+              "start": {
+                "line": 5,
+                "character": 23
+              },
+              "end": {
+                "line": 5,
+                "character": 31
+              }
+            }
+          },
+          {
+            "text": "as",
+            "range": {
+              "start": {
+                "line": 5,
+                "character": 32
+              },
+              "end": {
+                "line": 5,
+                "character": 34
+              }
+            }
+          },
+          {
+            "text": "text",
+            "range": {
+              "start": {
+                "line": 5,
+                "character": 35
+              },
+              "end": {
+                "line": 5,
+                "character": 39
+              }
+            }
+          },
+          {
+            "text": "\"done\"",
+            "range": {
+              "start": {
+                "line": 5,
+                "character": 40
+              },
+              "end": {
+                "line": 5,
+                "character": 46
+              }
+            }
+          },
+          {
+            "text": "_n(2)",
+            "range": {
+              "start": {
+                "line": 5,
+                "character": 47
+              },
+              "end": {
+                "line": 5,
+                "character": 52
+              }
+            }
+          }
+        ],
+        "varlist": null,
+        "assignment": null,
+        "if": null,
+        "assertion": null,
+        "display": {
+          "items": [
+            {
+              "kind": "directive",
+              "name": "as",
+              "text": "as result",
+              "argument": null,
+              "style": "result",
+              "range": {
+                "start": {
+                  "line": 5,
+                  "character": 3
+                },
+                "end": {
+                  "line": 5,
+                  "character": 12
+                }
+              }
+            },
+            {
+              "kind": "format",
+              "text": "%9.0gc",
+              "range": {
+                "start": {
+                  "line": 5,
+                  "character": 13
+                },
+                "end": {
+                  "line": 5,
+                  "character": 19
+                }
+              }
+            },
+            {
+              "kind": "expression",
+              "text": "_N",
+              "format": "%9.0gc",
+              "expression": {
+                "kind": "system_variable",
+                "name": "_N",
+                "range": {
+                  "start": {
+                    "line": 5,
+                    "character": 20
+                  },
+                  "end": {
+                    "line": 5,
+                    "character": 22
+                  }
+                }
+              },
+              "range": {
+                "start": {
+                  "line": 5,
+                  "character": 20
+                },
+                "end": {
+                  "line": 5,
+                  "character": 22
+                }
+              }
+            },
+            {
+              "kind": "directive",
+              "name": "_column",
+              "text": "_col(20)",
+              "argument": {
+                "text": "20",
+                "expression": {
+                  "kind": "number",
+                  "text": "20",
+                  "value": 20,
+                  "range": {
+                    "start": {
+                      "line": 5,
+                      "character": 28
+                    },
+                    "end": {
+                      "line": 5,
+                      "character": 30
+                    }
+                  }
+                },
+                "range": {
+                  "start": {
+                    "line": 5,
+                    "character": 28
+                  },
+                  "end": {
+                    "line": 5,
+                    "character": 30
+                  }
+                }
+              },
+              "style": null,
+              "range": {
+                "start": {
+                  "line": 5,
+                  "character": 23
+                },
+                "end": {
+                  "line": 5,
+                  "character": 31
+                }
+              }
+            },
+            {
+              "kind": "directive",
+              "name": "as",
+              "text": "as text",
+              "argument": null,
+              "style": "text",
+              "range": {
+                "start": {
+                  "line": 5,
+                  "character": 32
+                },
+                "end": {
+                  "line": 5,
+                  "character": 39
+                }
+              }
+            },
+            {
+              "kind": "string",
+              "quote": "simple",
+              "text": "\"done\"",
+              "parts": [
+                {
+                  "kind": "text",
+                  "value": "done",
+                  "range": {
+                    "start": {
+                      "line": 5,
+                      "character": 41
+                    },
+                    "end": {
+                      "line": 5,
+                      "character": 45
+                    }
+                  }
+                }
+              ],
+              "range": {
+                "start": {
+                  "line": 5,
+                  "character": 40
+                },
+                "end": {
+                  "line": 5,
+                  "character": 46
+                }
+              },
+              "format": null
+            },
+            {
+              "kind": "directive",
+              "name": "_newline",
+              "text": "_n(2)",
+              "argument": {
+                "text": "2",
+                "expression": {
+                  "kind": "number",
+                  "text": "2",
+                  "value": 2,
+                  "range": {
+                    "start": {
+                      "line": 5,
+                      "character": 50
+                    },
+                    "end": {
+                      "line": 5,
+                      "character": 51
+                    }
+                  }
+                },
+                "range": {
+                  "start": {
+                    "line": 5,
+                    "character": 50
+                  },
+                  "end": {
+                    "line": 5,
+                    "character": 51
+                  }
+                }
+              },
+              "style": null,
+              "range": {
+                "start": {
+                  "line": 5,
+                  "character": 47
+                },
+                "end": {
+                  "line": 5,
+                  "character": 52
+                }
+              }
+            }
+          ]
+        },
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": [],
+        "options_tail": []
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 6,
+            "character": 0
+          },
+          "end": {
+            "line": 6,
+            "character": 33
+          }
+        },
+        "text": "di in smcl \"{bf:x}\", \"y\",, \"z\" _c",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "di",
+        "canonical_name": "display",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "in",
+            "range": {
+              "start": {
+                "line": 6,
+                "character": 3
+              },
+              "end": {
+                "line": 6,
+                "character": 5
+              }
+            }
+          },
+          {
+            "text": "smcl",
+            "range": {
+              "start": {
+                "line": 6,
+                "character": 6
+              },
+              "end": {
+                "line": 6,
+                "character": 10
+              }
+            }
+          },
+          {
+            "text": "\"{bf:x}\",",
+            "range": {
+              "start": {
+                "line": 6,
+                "character": 11
+              },
+              "end": {
+                "line": 6,
+                "character": 20
+              }
+            }
+          },
+          {
+            "text": "\"y\",,",
+            "range": {
+              "start": {
+                "line": 6,
+                "character": 21
+              },
+              "end": {
+                "line": 6,
+                "character": 26
+              }
+            }
+          },
+          {
+            "text": "\"z\"",
+            "range": {
+              "start": {
+                "line": 6,
+                "character": 27
+              },
+              "end": {
+                "line": 6,
+                "character": 30
+              }
+            }
+          },
+          {
+            "text": "_c",
+            "range": {
+              "start": {
+                "line": 6,
+                "character": 31
+              },
+              "end": {
+                "line": 6,
+                "character": 33
+              }
+            }
+          }
+        ],
+        "varlist": null,
+        "assignment": null,
+        "if": null,
+        "assertion": null,
+        "display": {
+          "items": [
+            {
+              "kind": "directive",
+              "name": "in",
+              "text": "in smcl",
+              "argument": null,
+              "style": "smcl",
+              "range": {
+                "start": {
+                  "line": 6,
+                  "character": 3
+                },
+                "end": {
+                  "line": 6,
+                  "character": 10
+                }
+              }
+            },
+            {
+              "kind": "string",
+              "quote": "simple",
+              "text": "\"{bf:x}\"",
+              "parts": [
+                {
+                  "kind": "text",
+                  "value": "{bf:x}",
+                  "range": {
+                    "start": {
+                      "line": 6,
+                      "character": 12
+                    },
+                    "end": {
+                      "line": 6,
+                      "character": 18
+                    }
+                  }
+                }
+              ],
+              "range": {
+                "start": {
+                  "line": 6,
+                  "character": 11
+                },
+                "end": {
+                  "line": 6,
+                  "character": 19
+                }
+              },
+              "format": null
+            },
+            {
+              "kind": "directive",
+              "name": ",",
+              "text": ",",
+              "argument": null,
+              "style": null,
+              "range": {
+                "start": {
+                  "line": 6,
+                  "character": 19
+                },
+                "end": {
+                  "line": 6,
+                  "character": 20
+                }
+              }
+            },
+            {
+              "kind": "string",
+              "quote": "simple",
+              "text": "\"y\"",
+              "parts": [
+                {
+                  "kind": "text",
+                  "value": "y",
+                  "range": {
+                    "start": {
+                      "line": 6,
+                      "character": 22
+                    },
+                    "end": {
+                      "line": 6,
+                      "character": 23
+                    }
+                  }
+                }
+              ],
+              "range": {
+                "start": {
+                  "line": 6,
+                  "character": 21
+                },
+                "end": {
+                  "line": 6,
+                  "character": 24
+                }
+              },
+              "format": null
+            },
+            {
+              "kind": "directive",
+              "name": ",,",
+              "text": ",,",
+              "argument": null,
+              "style": null,
+              "range": {
+                "start": {
+                  "line": 6,
+                  "character": 24
+                },
+                "end": {
+                  "line": 6,
+                  "character": 26
+                }
+              }
+            },
+            {
+              "kind": "string",
+              "quote": "simple",
+              "text": "\"z\"",
+              "parts": [
+                {
+                  "kind": "text",
+                  "value": "z",
+                  "range": {
+                    "start": {
+                      "line": 6,
+                      "character": 28
+                    },
+                    "end": {
+                      "line": 6,
+                      "character": 29
+                    }
+                  }
+                }
+              ],
+              "range": {
+                "start": {
+                  "line": 6,
+                  "character": 27
+                },
+                "end": {
+                  "line": 6,
+                  "character": 30
+                }
+              },
+              "format": null
+            },
+            {
+              "kind": "directive",
+              "name": "_continue",
+              "text": "_c",
+              "argument": null,
+              "style": null,
+              "range": {
+                "start": {
+                  "line": 6,
+                  "character": 31
+                },
+                "end": {
+                  "line": 6,
+                  "character": 33
+                }
+              }
+            }
+          ]
+        },
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": [],
+        "options_tail": []
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 7,
+            "character": 0
+          },
+          "end": {
+            "line": 7,
+            "character": 49
+          }
+        },
+        "text": "di = 2 + 2 _dup(3) \"-\" _char(65) _request(answer)",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "di",
+        "canonical_name": "display",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "=",
+            "range": {
+              "start": {
+                "line": 7,
+                "character": 3
+              },
+              "end": {
+                "line": 7,
+                "character": 4
+              }
+            }
+          },
+          {
+            "text": "2",
+            "range": {
+              "start": {
+                "line": 7,
+                "character": 5
+              },
+              "end": {
+                "line": 7,
+                "character": 6
+              }
+            }
+          },
+          {
+            "text": "+",
+            "range": {
+              "start": {
+                "line": 7,
+                "character": 7
+              },
+              "end": {
+                "line": 7,
+                "character": 8
+              }
+            }
+          },
+          {
+            "text": "2",
+            "range": {
+              "start": {
+                "line": 7,
+                "character": 9
+              },
+              "end": {
+                "line": 7,
+                "character": 10
+              }
+            }
+          },
+          {
+            "text": "_dup(3)",
+            "range": {
+              "start": {
+                "line": 7,
+                "character": 11
+              },
+              "end": {
+                "line": 7,
+                "character": 18
+              }
+            }
+          },
+          {
+            "text": "\"-\"",
+            "range": {
+              "start": {
+                "line": 7,
+                "character": 19
+              },
+              "end": {
+                "line": 7,
+                "character": 22
+              }
+            }
+          },
+          {
+            "text": "_char(65)",
+            "range": {
+              "start": {
+                "line": 7,
+                "character": 23
+              },
+              "end": {
+                "line": 7,
+                "character": 32
+              }
+            }
+          },
+          {
+            "text": "_request(answer)",
+            "range": {
+              "start": {
+                "line": 7,
+                "character": 33
+              },
+              "end": {
+                "line": 7,
+                "character": 49
+              }
+            }
+          }
+        ],
+        "varlist": null,
+        "assignment": null,
+        "if": null,
+        "assertion": null,
+        "display": {
+          "items": [
+            {
+              "kind": "expression",
+              "text": "= 2 + 2",
+              "format": null,
+              "expression": {
+                "kind": "binary",
+                "op": "+",
+                "op_text": "+",
+                "left": {
+                  "kind": "number",
+                  "text": "2",
+                  "value": 2,
+                  "range": {
+                    "start": {
+                      "line": 7,
+                      "character": 5
+                    },
+                    "end": {
+                      "line": 7,
+                      "character": 6
+                    }
+                  }
+                },
+                "right": {
+                  "kind": "number",
+                  "text": "2",
+                  "value": 2,
+                  "range": {
+                    "start": {
+                      "line": 7,
+                      "character": 9
+                    },
+                    "end": {
+                      "line": 7,
+                      "character": 10
+                    }
+                  }
+                },
+                "range": {
+                  "start": {
+                    "line": 7,
+                    "character": 5
+                  },
+                  "end": {
+                    "line": 7,
+                    "character": 10
+                  }
+                }
+              },
+              "range": {
+                "start": {
+                  "line": 7,
+                  "character": 3
+                },
+                "end": {
+                  "line": 7,
+                  "character": 10
+                }
+              }
+            },
+            {
+              "kind": "directive",
+              "name": "_dup",
+              "text": "_dup(3)",
+              "argument": {
+                "text": "3",
+                "expression": {
+                  "kind": "number",
+                  "text": "3",
+                  "value": 3,
+                  "range": {
+                    "start": {
+                      "line": 7,
+                      "character": 16
+                    },
+                    "end": {
+                      "line": 7,
+                      "character": 17
+                    }
+                  }
+                },
+                "range": {
+                  "start": {
+                    "line": 7,
+                    "character": 16
+                  },
+                  "end": {
+                    "line": 7,
+                    "character": 17
+                  }
+                }
+              },
+              "style": null,
+              "range": {
+                "start": {
+                  "line": 7,
+                  "character": 11
+                },
+                "end": {
+                  "line": 7,
+                  "character": 18
+                }
+              }
+            },
+            {
+              "kind": "string",
+              "quote": "simple",
+              "text": "\"-\"",
+              "parts": [
+                {
+                  "kind": "text",
+                  "value": "-",
+                  "range": {
+                    "start": {
+                      "line": 7,
+                      "character": 20
+                    },
+                    "end": {
+                      "line": 7,
+                      "character": 21
+                    }
+                  }
+                }
+              ],
+              "range": {
+                "start": {
+                  "line": 7,
+                  "character": 19
+                },
+                "end": {
+                  "line": 7,
+                  "character": 22
+                }
+              },
+              "format": null
+            },
+            {
+              "kind": "directive",
+              "name": "_char",
+              "text": "_char(65)",
+              "argument": {
+                "text": "65",
+                "expression": {
+                  "kind": "number",
+                  "text": "65",
+                  "value": 65,
+                  "range": {
+                    "start": {
+                      "line": 7,
+                      "character": 29
+                    },
+                    "end": {
+                      "line": 7,
+                      "character": 31
+                    }
+                  }
+                },
+                "range": {
+                  "start": {
+                    "line": 7,
+                    "character": 29
+                  },
+                  "end": {
+                    "line": 7,
+                    "character": 31
+                  }
+                }
+              },
+              "style": null,
+              "range": {
+                "start": {
+                  "line": 7,
+                  "character": 23
+                },
+                "end": {
+                  "line": 7,
+                  "character": 32
+                }
+              }
+            },
+            {
+              "kind": "directive",
+              "name": "_request",
+              "text": "_request(answer)",
+              "argument": {
+                "text": "answer",
+                "expression": null,
+                "range": {
+                  "start": {
+                    "line": 7,
+                    "character": 42
+                  },
+                  "end": {
+                    "line": 7,
+                    "character": 48
+                  }
+                }
+              },
+              "style": null,
+              "range": {
+                "start": {
+                  "line": 7,
+                  "character": 33
+                },
+                "end": {
+                  "line": 7,
+                  "character": 49
+                }
+              }
+            }
+          ]
+        },
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": [],
+        "options_tail": []
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 8,
+            "character": 0
+          },
+          "end": {
+            "line": 8,
+            "character": 13
+          }
+        },
+        "text": "assert (x > 5",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "assert",
+        "canonical_name": "assert",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "(x > 5",
+            "range": {
+              "start": {
+                "line": 8,
+                "character": 7
+              },
+              "end": {
+                "line": 8,
+                "character": 13
+              }
+            }
+          }
+        ],
+        "varlist": null,
+        "assignment": null,
+        "if": null,
+        "assertion": {
+          "text": "(x > 5",
+          "expression": {
+            "kind": "unparsed",
+            "text": "(x > 5",
+            "reason": "syntax_error",
+            "range": {
+              "start": {
+                "line": 8,
+                "character": 7
+              },
+              "end": {
+                "line": 8,
+                "character": 13
+              }
+            }
+          }
+        },
+        "display": null,
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": [],
+        "options_tail": []
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 9,
+            "character": 0
+          },
+          "end": {
+            "line": 9,
+            "character": 9
+          }
+        },
+        "text": "di (1 + 2",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "di",
+        "canonical_name": "display",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "(1 + 2",
+            "range": {
+              "start": {
+                "line": 9,
+                "character": 3
+              },
+              "end": {
+                "line": 9,
+                "character": 9
+              }
+            }
+          }
+        ],
+        "varlist": null,
+        "assignment": null,
+        "if": null,
+        "assertion": null,
+        "display": {
+          "items": [
+            {
+              "kind": "expression",
+              "text": "(1 + 2",
+              "format": null,
+              "expression": {
+                "kind": "unparsed",
+                "text": "(1 + 2",
+                "reason": "syntax_error",
+                "range": {
+                  "start": {
+                    "line": 9,
+                    "character": 3
+                  },
+                  "end": {
+                    "line": 9,
+                    "character": 9
+                  }
+                }
+              },
+              "range": {
+                "start": {
+                  "line": 9,
+                  "character": 3
+                },
+                "end": {
+                  "line": 9,
+                  "character": 9
+                }
+              }
+            }
+          ]
+        },
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": [],
+        "options_tail": []
+      }
+    ],
+    "comments": [],
+    "errors": [
+      {
+        "source": "parser",
+        "code": "UNBALANCED_PARENTHESES",
+        "severity": "error",
+        "message": "Unbalanced parentheses: missing closing parenthesis",
+        "range": {
+          "start": {
+            "line": 8,
+            "character": 12
+          },
+          "end": {
+            "line": 8,
+            "character": 13
+          }
+        }
+      },
+      {
+        "source": "parser",
+        "code": "UNBALANCED_PARENTHESES",
+        "severity": "error",
+        "message": "Unbalanced parentheses: missing closing parenthesis",
+        "range": {
+          "start": {
+            "line": 9,
+            "character": 8
+          },
+          "end": {
+            "line": 9,
+            "character": 9
+          }
+        }
+      }
+    ]
   }
 ]

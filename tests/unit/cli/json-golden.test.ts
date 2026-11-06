@@ -18,7 +18,9 @@
  * header, and an `if` whose `{;` is on the next line under `#delimit ;`.
  * macro-built-names.do has `local`, `global`, `args` and `gen` names
  * joined to macro references (`` local foo`x' 1 ``), in every macro
- * definition form, which have `name_parts`.
+ * definition form, which have `name_parts`. assert-display.do has
+ * `assert` conditions and `display` arguments of every item kind,
+ * and an unbalanced parenthesis in each.
  * The expected JSON is in
  * tests/fixtures/cli-json/expected, with the fixture's absolute path
  * replaced by <ROOT> and the Sight version by <VERSION>.
@@ -54,6 +56,7 @@ const PARSE_FILES = [
     'program-ends.do',
     'brace-blocks.do',
     'macro-built-names.do',
+    'assert-display.do',
 ];
 
 /** Replace machine-specific values so the output is stable. */

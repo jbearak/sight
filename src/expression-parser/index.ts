@@ -161,7 +161,11 @@ function is_adjacent(previous: Token, next: Token): boolean {
  * Join token values, inserting one space wherever the source had a gap
  * (whitespace, a comment, or a `///` line break).
  */
-function join_tokens(tokens: readonly Token[], start: number, end: number): string {
+export function join_tokens(
+    tokens: readonly Token[],
+    start = 0,
+    end = tokens.length
+): string {
     const the_parts: string[] = [];
     for (let i = start; i < end; i++) {
         const my_token = tokens[i];
@@ -497,7 +501,7 @@ function compound_depth_delta(text: string): number {
     return delta;
 }
 
-interface StringScan {
+export interface StringScan {
     node: StringExpressionNode;
     end: number;   // Index after the string's last token
 }
@@ -508,7 +512,7 @@ interface StringScan {
  * (`"a ` + `` `b' `` + ` c"`), which are merged back here. Returns null
  * when tokens[start] does not open a string or the string never closes.
  */
-function scan_string(
+export function scan_string(
     tokens: readonly Token[],
     start: number,
     end: number

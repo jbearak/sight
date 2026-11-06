@@ -48,7 +48,9 @@ import {
   parse_in_range,
   parse_path,
   parse_varlist,
+  significant_tokens,
 } from '../expression-parser';
+import { parse_display_items } from '../expression-parser/display-items';
 import { is_macro_piece, joins_name } from '../utils/name-words';
 import { syntax_option_spelling } from '../utils/syntax-option-name';
 
@@ -58,8 +60,9 @@ const NAME_PIECE_TOKEN_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
 ]);
 
 /**
- * `display` and its abbreviations. It has no options, so a comma in it
- * is an argument (`di "a", "b"` shows `a b` in Stata 18).
+ * `display` and its abbreviations. It has no qualifiers or options, so
+ * everything after it is an argument: a comma (`di "a", "b"` shows
+ * `a b` in Stata 18), `in smcl`, and `= exp`.
  */
 const DISPLAY_COMMANDS: ReadonlySet<string> = new Set([
   'di', 'dis', 'disp', 'displ', 'displa', 'display',
@@ -1629,6 +1632,8 @@ export class StataParser {
     start_token: Token
   ): CommandNode {
     const command_name = command_token.value;
+    const is_display = DISPLAY_COMMANDS.has(command_name);
+    const args_start = this.current;
 
     // Parse variable list (stop at comma, statement terminator, comment,
     // qualifier keyword, or weight). Use file path coalescing for file
@@ -1664,8 +1669,7 @@ export class StataParser {
           this.check('LBRACE') || this.check('RBRACE')) {
         break;
       }
-      if (extra_depth === 0 && this.at_argument_boundary() &&
-          !(this.check('COMMA') && DISPLAY_COMMANDS.has(command_name))) {
+      if (extra_depth === 0 && !is_display && this.at_argument_boundary()) {
         break;
       }
 
@@ -1714,6 +1718,7 @@ export class StataParser {
       }
       extra_tokens.push(extra_token);
     }
+    const args_end = this.current;
 
     // Qualifiers, in any order, then options.
     let expression: string | undefined;
@@ -1826,7 +1831,55 @@ export class StataParser {
     if (using_clause && this.structured) {
       node.using = using_clause;
     }
+    if (command_name === 'assert' || is_display) {
+      // `assert exp` and display's arguments are expressions to Stata,
+      // which stops on an unbalanced parenthesis in them.
+      const the_tokens = significant_tokens(this.tokens.slice(args_start, args_end));
+      this.report_unbalanced_parentheses(the_tokens);
+      if (this.structured && is_display) {
+        node.display_items = parse_display_items(the_tokens);
+      } else if (this.structured) {
+        node.assertion_ast = the_tokens.length > 0
+          ? parse_expression(the_tokens)
+          : empty_expression(command_token.range.end);
+      }
+    }
     return node;
+  }
+
+  /**
+   * Report a `)` with no `(` before it, and a `(` left open at the end
+   * of `tokens`, as for an `= exp`. Reports nothing when a stray `'`
+   * shows the lexer lost track of a macro, as it does for the quotes
+   * nested in `` "`=lower("`x'")'" ``: its parentheses are then split
+   * from their macro.
+   */
+  private report_unbalanced_parentheses(tokens: readonly Token[]): void {
+    let depth = 0;
+    const the_unexpected: Token[] = [];
+    for (const my_token of tokens) {
+      if (my_token.type === 'OPERATOR' && my_token.value === "'") {
+        return;
+      }
+      if (my_token.type === 'LPAREN') {
+        depth++;
+      } else if (my_token.type === 'RPAREN' && depth > 0) {
+        depth--;
+      } else if (my_token.type === 'RPAREN') {
+        the_unexpected.push(my_token);
+      }
+    }
+    for (const my_token of the_unexpected) {
+      this.addError(
+        'Unbalanced parentheses: unexpected closing parenthesis',
+        my_token.range, ParseErrorCode.UNBALANCED_PARENTHESES);
+    }
+    const last = tokens[tokens.length - 1];
+    if (depth > 0 && last !== undefined) {
+      this.addError(
+        'Unbalanced parentheses: missing closing parenthesis',
+        last.range, ParseErrorCode.UNBALANCED_PARENTHESES);
+    }
   }
 
   /**
