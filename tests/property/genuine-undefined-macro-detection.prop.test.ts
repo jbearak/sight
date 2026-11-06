@@ -11,7 +11,7 @@
 
 import { describe, it, expect, beforeEach } from 'bun:test';
 import * as fc from 'fast-check';
-import { SemanticAnalyzer } from '../../src/analyzer';
+import { SemanticAnalyzer, STATA_SYSTEM_GLOBALS } from '../../src/analyzer';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { StataDiagnosticCode } from '../../src/types';
@@ -51,6 +51,11 @@ describe('Genuine Undefined Macro Detection Property Tests', () => {
      * Generator for macro names that are NOT positional arguments (not purely numeric)
      */
     const arbitrary_non_positional_name = fc.stringMatching(/^[a-zA-Z_][a-zA-Z_]{2,10}$/);
+
+    // A global name Stata leaves undefined: it always defines `S_OS`
+    // and the other system globals.
+    const arbitrary_global_name = arbitrary_non_positional_name
+        .filter(name => !STATA_SYSTEM_GLOBALS.has(name));
 
     /**
      * Property 4: Genuine Undefined Macro Detection
@@ -174,7 +179,7 @@ display \`${my_undefined_name}'`;
         it('should report undefined global macros', () => {
             fc.assert(
                 fc.property(
-                    arbitrary_non_positional_name,
+                    arbitrary_global_name,
                     (my_macro_name) => {
                         // Use a global macro that is NOT defined
                         const my_document = `display $${my_macro_name}`;

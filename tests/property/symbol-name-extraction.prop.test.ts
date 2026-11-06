@@ -106,9 +106,12 @@ describe('Symbol Name Extraction Round-Trip Properties', () => {
             // the data is the authoritative carrier.
             fc.assert(
                 fc.property(
-                    arbitrary_global_name(),
+                    arbitrary_macro_name(),
                     fc.boolean(),
                     (macro_name, use_local_format) => {
+                        // Stata always defines its system globals
+                        fc.pre(use_local_format
+                            || !STATA_SYSTEM_GLOBALS.has(macro_name));
                         const my_source = use_local_format
                             ? `display \`${macro_name}'`
                             : `display \${${macro_name}}`;

@@ -2,7 +2,7 @@ import * as fc from 'fast-check';
 import { describe, it, expect } from 'bun:test';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
-import { SemanticAnalyzer } from '../../src/analyzer';
+import { SemanticAnalyzer, STATA_SYSTEM_GLOBALS } from '../../src/analyzer';
 import { StataDiagnosticCode, SymbolTable } from '../../src/types';
 
 function analyze_code(code: string, workspace_symbols?: SymbolTable) {
@@ -124,7 +124,8 @@ local ${macro_name} second_value
     it('Property 4: Workspace symbols do NOT suppress undefined macro warnings', () => {
         fc.assert(
             fc.property(
-                macro_name_gen,
+                // Stata always defines its system globals (`S_OS`)
+                macro_name_gen.filter(name => !STATA_SYSTEM_GLOBALS.has(name)),
                 (macro_name) => {
                     // Create workspace symbols with the global macro
                     const workspace_symbols: SymbolTable = {
