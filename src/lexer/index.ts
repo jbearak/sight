@@ -562,6 +562,21 @@ export class StataLexer {
   }
 
   /**
+   * Whether the word just scanned directly follows its statement's
+   * command, as that command's first argument: `local mata :`,
+   * `clear mata`, `help python:`. After `if` (whose condition comes
+   * first) or `else`, or after a prefix, a command can follow instead:
+   * `if flag mata: x`, `else mata: x`, `capture mata: x`.
+   */
+  private follows_its_command_word(): boolean {
+    const my_previous = this.previous_token;
+    return my_previous !== null && my_previous !== undefined &&
+      my_previous.type === 'WORD' &&
+      my_previous.value === this.command_word &&
+      this.command_word !== 'if' && this.command_word !== 'else';
+  }
+
+  /**
    * Whether `:` follows the word just scanned, after any spaces or tabs.
    * Stata 18 reads `mata :` and `python :` as `mata:` and `python:`.
    */
@@ -2027,7 +2042,7 @@ export class StataLexer {
       // Check for embedded language block starts (case-sensitive: Stata requires lowercase)
       if (this.is_mata_start_delimiter(value)) {
         // After a word other than a prefix, "mata" is that command's
-        // argument: `clear mata`, `local mata : word 1 of a b`
+        // argument: `clear mata`
         const prev_is_word = this.previous_word_takes_argument();
         
         // Check if previous token is MATA_INLINE - if so, we're inside an inline mata expression
@@ -2036,8 +2051,9 @@ export class StataLexer {
           this.previous_token.type === 'MATA_INLINE';
         
         // First check for mata: syntax (mata followed by colon, after
-        // any blanks); `capture mata:` follows a prefix
-        if (prev_is_word || prev_is_mata_inline) {
+        // any blanks): `capture mata:`, `if flag mata:`, but not
+        // `local mata : word 1 of a b`
+        if (prev_is_mata_inline || this.follows_its_command_word()) {
           // "mata" is an argument to a command or part of inline mata, not a block start
           // Fall through to return as WORD
         } else if (this.colon_follows_blanks()) {
@@ -2066,6 +2082,9 @@ export class StataLexer {
               range: this.makeRange(startLine, startColumn, this.line, this.column),
             };
           }
+        } else if (prev_is_word) {
+          // Without a colon, any word but a prefix or `else` makes
+          // "mata" its argument; fall through to return as WORD
         } else if (
           !this.is_only_whitespace_or_comment_until_newline() &&
           !this.brace_follows_blanks()
@@ -2092,7 +2111,7 @@ export class StataLexer {
         // Check for python: (python followed by colon, after any
         // blanks), unless python is a command's argument
         // (`local python : word 1 of a b`)
-        if (this.previous_word_takes_argument()) {
+        if (this.follows_its_command_word()) {
           // Fall through to return as WORD
         } else if (this.colon_follows_blanks()) {
           this.consume_blanks_and_colon();

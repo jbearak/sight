@@ -141,6 +141,15 @@ describe('embedded language openers', () => {
             expect(openers('quietly python : print(1)\n'))
                 .toEqual(['PYTHON_INLINE python :']);
         });
+
+        it('still opens after an if condition that ends in a word', () => {
+            expect(openers('if flag mata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+            expect(openers('if flag python: print(1)\n'))
+                .toEqual(['PYTHON_INLINE python:']);
+            // Without a colon, a word before it is still an argument
+            expect(openers('if flag clear mata\ndisplay 1\n')).toEqual([]);
+        });
     });
 
     describe('inside a program', () => {
