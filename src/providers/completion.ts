@@ -715,7 +715,7 @@ function detect_subcommand_context(text_before_cursor: string, command_db?: Comm
     // following command when every preceding part is a supported prefix.
     const STANDARD_PREFIXES = [
         'by', 'bysort', 'quietly', 'qui',
-        'capture', 'cap', 'noisily', 'noi',
+        'capture', 'cap', 'noisily', 'noi', 'nobreak', 'break',
     ];
     const BY_PREFIXES = ['by', 'bysort'];
     let command_index = 0;

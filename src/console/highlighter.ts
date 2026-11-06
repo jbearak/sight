@@ -29,6 +29,7 @@ const MAX_HIGHLIGHT_BYTES = 64 * 1024;
 const COMMAND_PREFIXES = new Set([
     'qui', 'quietly', 'n', 'noi', 'noisily',
     'cap', 'capt', 'captu', 'captur', 'capture',
+    'nobreak', 'break',
 ]);
 const BY_PREFIXES = new Set(['by', 'bys', 'byso', 'bysor', 'bysort']);
 const QUALIFIER_KEYWORDS = new Set(['if', 'in']);

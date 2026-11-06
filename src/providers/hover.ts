@@ -1497,7 +1497,7 @@ export class HoverProvider {
             return { is_subcommand: false, prefix_command: null };
         }
         const tokens = document.tokens!;
-        const STANDARD_PREFIXES = ['by', 'bysort', 'quietly', 'capture', 'noisily', 'qui', 'cap', 'noi'];
+        const STANDARD_PREFIXES = ['by', 'bysort', 'quietly', 'capture', 'noisily', 'qui', 'cap', 'noi', 'nobreak', 'break'];
         const TRIVIA_TYPES = ['WHITESPACE', 'COMMENT_LINE', 'COMMENT_BLOCK', 'CONTINUATION'];
 
         // Find the WORD token whose value matches `hovered_word` at the
@@ -1681,7 +1681,7 @@ export class HoverProvider {
 
         // Skip standard prefix commands (by, quietly, capture, etc.).
         // Stata prefix commands are case-sensitive and must be lowercase.
-        const standard_prefixes = ['by', 'bysort', 'quietly', 'capture', 'noisily', 'qui', 'cap', 'noi'];
+        const standard_prefixes = ['by', 'bysort', 'quietly', 'capture', 'noisily', 'qui', 'cap', 'noi', 'nobreak', 'break'];
         let command_index = 0;
         while (command_index < tokens_before.length &&
                standard_prefixes.includes(tokens_before[command_index])) {

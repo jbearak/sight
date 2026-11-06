@@ -341,6 +341,26 @@ describe('HoverProvider - Context-Aware Behavior', () => {
             }
         });
 
+        it('should return subcommand hover after the nobreak and break prefixes', async () => {
+            command_db = create_frame_command_db();
+            hover_provider = new HoverProvider(command_db, context_tracker);
+
+            for (const my_prefix of ['nobreak', 'break', 'capture nobreak']) {
+                const my_content = `${my_prefix} frame create f`;
+                const my_doc = create_test_document(my_content);
+                init_tracker_from_source(context_tracker, my_content);
+
+                // cursor on "create"
+                const my_hover = await hover_provider.get_hover(
+                    my_doc, { line: 0, character: my_prefix.length + 8 });
+
+                expect(my_hover).not.toBeNull();
+                if (typeof my_hover?.contents === 'object' && 'value' in my_hover.contents) {
+                    expect(my_hover.contents.value).toContain('Frame Subcommand');
+                }
+            }
+        });
+
         it('should return subcommand hover across a `///` continuation', async () => {
             command_db = create_frame_command_db();
             hover_provider = new HoverProvider(command_db, context_tracker);

@@ -166,6 +166,9 @@ describe('Frame Subcommand Completion', () => {
                 'quietly: capture: frame ',
                 'by group: quietly frame ',
                 'quietly: by group: capture: frame ',
+                // StataMP 18: nobreak and break are prefixes too
+                'nobreak frame ',
+                'capture break frame ',
             ];
 
             for (const my_source of the_sources) {
