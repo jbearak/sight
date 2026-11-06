@@ -13,69 +13,27 @@
 
 import { describe, it, expect } from 'bun:test';
 import * as fc from 'fast-check';
-import { IndentationDiagnosticAnalyzer } from '../../src/providers/indentation-diagnostics';
-import { DocumentState } from '../../src/document-store';
-import { ContextTracker } from '../../src/context-tracker';
-import { StataDiagnosticCode, StataLSPConfig } from '../../src/types';
-import { create_document_state } from './helpers/document-utils';
+import { StataDiagnosticCode } from '../../src/types';
+import {
+    indentation_codes_by_line,
+    indentation_diagnostics,
+    with_line_indent,
+} from './helpers/indentation-test-utils';
 
 /**
- * Create a minimal DocumentState for indentation analysis.
- * The IndentationDiagnosticAnalyzer only needs content and context_tracker.
+ * The line numbers a block comment occupies when its first line is
+ * line `first_line` of the document.
  */
-function create_document_for_indentation(content: string): DocumentState {
-    const the_line_offsets: number[] = [];
-    let my_offset = 0;
-    for (const my_line of content.split('\n')) {
-        the_line_offsets.push(my_offset);
-        my_offset += my_line.length + 1;
+function block_comment_lines(first_line: number, block_comment: string): Set<number> {
+    const the_lines = new Set<number>();
+    const line_count = block_comment.split('\n').length;
+    for (let i = 0; i < line_count; i++) {
+        the_lines.add(first_line + i);
     }
-
-    return {
-        uri: 'file:///test.do',
-        version: 1,
-        content,
-        tokens: [],
-        ast: null,
-        symbols: {
-            localMacros: new Map(),
-            globalMacros: new Map(),
-            programs: new Map(),
-            scalars: new Map(),
-            matrices: new Map(),
-            variables: new Map()
-        },
-        diagnostics: [],
-        context_tracker: new ContextTracker(),
-        line_offsets: the_line_offsets
-    };
+    return the_lines;
 }
 
-const config: StataLSPConfig = {
-    diagnostics: {
-        enabled: true,
-        indentation: true,
-        severity: {
-            undefinedMacro: 'warning',
-            undefinedVariable: 'information',
-            styleWarnings: 'hint'
-        },
-    },
-    adoPaths: [],
-    cross_file: {
-        index_workspace: true,
-        max_indexed_files: 1000,
-        assume_call_site: false,
-        max_backward_depth: 10,
-        max_forward_depth: 10,
-        max_chain_depth: 20,
-        auto_detect_forward_calls: true
-    }
-};
-
 describe('Block Comment Indentation Exclusion Property Tests', () => {
-    const analyzer = new IndentationDiagnosticAnalyzer();
-
     it('excludes lines between an inner block close and the outer block close', () => {
         const my_source = [
             '/* outer',
@@ -86,42 +44,37 @@ describe('Block Comment Indentation Exclusion Property Tests', () => {
             'display "live and not indented"',
             '}',
         ].join('\n');
-        const my_document = create_document_for_indentation(my_source);
-        const my_diagnostics = analyzer.analyze(my_document, config);
-        const my_block_comment_lines = analyzer.compute_block_comment_lines(my_source.split('\n'));
+        const my_codes = indentation_codes_by_line(my_source);
 
-        expect(my_block_comment_lines.has(2)).toBe(true);
-        expect(my_block_comment_lines.has(4)).toBe(false);
-        expect(my_diagnostics.some(d => d.range.start.line === 2)).toBe(false);
-        expect(my_diagnostics.some(
-            d => d.code === StataDiagnosticCode.MISSING_INDENTATION &&
-                d.range.start.line === 5
-        )).toBe(true);
+        // Line 2 is still inside the outer comment: no diagnostic,
+        // however it is indented.
+        expect(my_codes.has(2)).toBe(false);
+        expect(indentation_codes_by_line(
+            with_line_indent(my_source, 2, 8)
+        ).has(2)).toBe(false);
+        // Line 4 is live code again: indenting it is reported.
+        expect(indentation_codes_by_line(
+            with_line_indent(my_source, 4, 4)
+        ).get(4)).toBe(StataDiagnosticCode.UNNECESSARY_INDENTATION);
+        expect(my_codes.get(5)).toBe(StataDiagnosticCode.MISSING_INDENTATION);
     });
 
     it('does not treat /* inside a string literal as a block comment', () => {
         // The `/*` sequences live inside a string, not a comment, so
         // no line is inside a block comment and the unindented live
-        // `display` must still be flagged. Uses a fully-lexed document
-        // so the analyzer takes the token-aware path.
+        // `display` must still be flagged.
         const my_source = [
             'display "/* outer /* inner */"',
             'if 1 {',
             'display "live and not indented"',
             '}',
         ].join('\n');
-        const my_document = create_document_state(my_source);
-        const my_diagnostics = analyzer.analyze(my_document, config);
-        const my_block_comment_lines = analyzer.compute_block_comment_lines(
-            my_source.split('\n'),
-            my_document.tokens
-        );
+        const my_codes = indentation_codes_by_line(my_source);
 
-        expect(my_block_comment_lines.size).toBe(0);
-        expect(my_diagnostics.some(
-            d => d.code === StataDiagnosticCode.MISSING_INDENTATION &&
-                d.range.start.line === 2
-        )).toBe(true);
+        expect(indentation_codes_by_line(
+            with_line_indent(my_source, 1, 4)
+        ).get(1)).toBe(StataDiagnosticCode.UNNECESSARY_INDENTATION);
+        expect(my_codes.get(2)).toBe(StataDiagnosticCode.MISSING_INDENTATION);
     });
 
     it('excludes lines inside a multi-line star-led comment span', () => {
@@ -135,15 +88,12 @@ describe('Block Comment Indentation Exclusion Property Tests', () => {
             '*/',
             '}',
         ].join('\n');
-        const my_document = create_document_state(my_source);
-        const my_diagnostics = analyzer.analyze(my_document, config);
-        const my_block_comment_lines = analyzer.compute_block_comment_lines(
-            my_source.split('\n'),
-            my_document.tokens
-        );
-
-        expect(my_block_comment_lines.has(2)).toBe(true);
-        expect(my_diagnostics.some(d => d.range.start.line === 2)).toBe(false);
+        // Unindented inside `if 1 {`, line 2 would be MISSING_INDENTATION
+        // were it live; indented two levels, UNNECESSARY_INDENTATION.
+        expect(indentation_codes_by_line(my_source).has(2)).toBe(false);
+        expect(indentation_codes_by_line(
+            with_line_indent(my_source, 2, 8)
+        ).has(2)).toBe(false);
     });
 
     // Generator for random block comment content lines (without /* or */)
@@ -189,14 +139,8 @@ describe('Block Comment Indentation Exclusion Property Tests', () => {
             fc.property(
                 arbitrary_block_comment,
                 (my_block_comment) => {
-                    const my_document = create_document_for_indentation(my_block_comment);
-                    const my_diagnostics = analyzer.analyze(my_document, config);
-
-                    // Filter for indentation-related diagnostics
-                    const my_indentation_diagnostics = my_diagnostics.filter(
-                        d => d.code === StataDiagnosticCode.UNNECESSARY_INDENTATION ||
-                             d.code === StataDiagnosticCode.MISSING_INDENTATION
-                    );
+                    const my_indentation_diagnostics =
+                        indentation_diagnostics(my_block_comment);
 
                     // Should have zero indentation diagnostics for block comment content
                     return my_indentation_diagnostics.length === 0;
@@ -223,12 +167,11 @@ describe('Block Comment Indentation Exclusion Property Tests', () => {
                 ),
                 ([my_before, my_block_comment, my_after]) => {
                     const my_source = `${my_before}\n${my_block_comment}\n${my_after}`;
-                    const my_document = create_document_for_indentation(my_source);
-                    const my_diagnostics = analyzer.analyze(my_document, config);
+                    const my_diagnostics = indentation_diagnostics(my_source);
 
-                    // Get the line numbers that are inside the block comment
-                    const the_lines = my_source.split('\n');
-                    const my_block_comment_lines = analyzer.compute_block_comment_lines(the_lines);
+                    // The block comment starts on line 1
+                    const my_block_comment_lines =
+                        block_comment_lines(1, my_block_comment);
 
                     // Check that no diagnostics are on block comment lines
                     for (const my_diag of my_diagnostics) {
@@ -267,14 +210,8 @@ describe('Block Comment Indentation Exclusion Property Tests', () => {
 * ${my_asterisk_content}
 ${' '.repeat(my_indent)}${my_non_asterisk_content}
 */`;
-                    const my_document = create_document_for_indentation(my_source);
-                    const my_diagnostics = analyzer.analyze(my_document, config);
-
-                    // Filter for indentation-related diagnostics
-                    const my_indentation_diagnostics = my_diagnostics.filter(
-                        d => d.code === StataDiagnosticCode.UNNECESSARY_INDENTATION ||
-                             d.code === StataDiagnosticCode.MISSING_INDENTATION
-                    );
+                    const my_indentation_diagnostics =
+                        indentation_diagnostics(my_source);
 
                     // Should have zero indentation diagnostics
                     return my_indentation_diagnostics.length === 0;
@@ -300,12 +237,15 @@ ${' '.repeat(my_indent)}${my_non_asterisk_content}
                 ),
                 ([my_comment1, my_code, my_comment2]) => {
                     const my_source = `${my_comment1}\n${my_code}\n${my_comment2}`;
-                    const my_document = create_document_for_indentation(my_source);
-                    const my_diagnostics = analyzer.analyze(my_document, config);
+                    const my_diagnostics = indentation_diagnostics(my_source);
 
-                    // Get the line numbers that are inside block comments
-                    const the_lines = my_source.split('\n');
-                    const my_block_comment_lines = analyzer.compute_block_comment_lines(the_lines);
+                    // The first comment starts on line 0, the second on
+                    // the line after the statement that follows it
+                    const my_first_comment_lines = block_comment_lines(0, my_comment1);
+                    const my_block_comment_lines = new Set([
+                        ...my_first_comment_lines,
+                        ...block_comment_lines(my_first_comment_lines.size + 1, my_comment2),
+                    ]);
 
                     // Check that no diagnostics are on block comment lines
                     for (const my_diag of my_diagnostics) {
@@ -334,14 +274,8 @@ ${' '.repeat(my_indent)}${my_non_asterisk_content}
                 fc.string({ minLength: 0, maxLength: 30 }).map(s => s.replace(/[/*\n]/g, '')),
                 (my_content) => {
                     const my_source = `/* ${my_content} */`;
-                    const my_document = create_document_for_indentation(my_source);
-                    const my_diagnostics = analyzer.analyze(my_document, config);
-
-                    // Filter for indentation-related diagnostics
-                    const my_indentation_diagnostics = my_diagnostics.filter(
-                        d => d.code === StataDiagnosticCode.UNNECESSARY_INDENTATION ||
-                             d.code === StataDiagnosticCode.MISSING_INDENTATION
-                    );
+                    const my_indentation_diagnostics =
+                        indentation_diagnostics(my_source);
 
                     return my_indentation_diagnostics.length === 0;
                 }

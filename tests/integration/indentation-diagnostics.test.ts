@@ -1,39 +1,25 @@
 import { describe, test, expect } from 'bun:test';
 import { DiagnosticsProvider } from '../../src/providers/diagnostics';
-import { DocumentState } from '../../src/document-store';
-import { ContextTracker } from '../../src/context-tracker';
+import { DEFAULT_SETTINGS } from '../../src/server-handlers';
 import { StataDiagnosticCode, StataLSPConfig } from '../../src/types';
 import { Connection } from 'vscode-languageserver';
+import { create_real_document_state } from '../test-context-helper';
+import { indentation_codes_by_line } from '../property/helpers/indentation-test-utils';
 
 describe('Indentation Diagnostics Integration', () => {
-  test('should detect unnecessary indentation after comment', () => {
+  test('should detect unnecessary indentation after comment', async () => {
     const content = `* This is a comment
     display "unnecessarily indented"`;
     
-    const document: DocumentState = {
-      uri: 'file:///test.do',
-      version: 1,
-      content,
-      tokens: [],
-      ast: null,
-      symbols: { localMacros: new Map(), globalMacros: new Map(), programs: new Map(), scalars: new Map(), matrices: new Map(), variables: new Set() },
-      diagnostics: [],
-      context_tracker: new ContextTracker(),
-      line_offsets: [0, content.indexOf('\n') + 1]
-    };
+    const document = create_real_document_state(content);
 
     const config: StataLSPConfig = {
+      ...DEFAULT_SETTINGS,
       diagnostics: {
+        ...DEFAULT_SETTINGS.diagnostics,
         enabled: true,
         indentation: true,
-        severity: {
-          undefinedMacro: 'warning',
-          undefinedVariable: 'information',
-          styleWarnings: 'hint'
-        },
       },
-      adoPaths: [],
-      cross_file: {}
     };
 
     const mockConnection = {} as Connection;
@@ -41,43 +27,31 @@ describe('Indentation Diagnostics Integration', () => {
     
     const diagnostics = provider.get_diagnostics(document, config);
     
-    expect(diagnostics).resolves.toContainEqual(
+    await expect(diagnostics).resolves.toContainEqual(
       expect.objectContaining({
         code: StataDiagnosticCode.UNNECESSARY_INDENTATION,
+        range: expect.objectContaining({
+          start: expect.objectContaining({ line: 1 })
+        }),
         message: expect.stringContaining('unnecessarily indented')
       })
     );
   });
 
-  test('should detect missing indentation inside brace block', () => {
+  test('should detect missing indentation inside brace block', async () => {
     const content = `if condition {
 display "should be indented"
 }`;
     
-    const document: DocumentState = {
-      uri: 'file:///test.do',
-      version: 1,
-      content,
-      tokens: [],
-      ast: null,
-      symbols: { localMacros: new Map(), globalMacros: new Map(), programs: new Map(), scalars: new Map(), matrices: new Map(), variables: new Set() },
-      diagnostics: [],
-      context_tracker: new ContextTracker(),
-      line_offsets: [0, content.indexOf('\n') + 1, content.lastIndexOf('\n') + 1]
-    };
+    const document = create_real_document_state(content);
 
     const config: StataLSPConfig = {
+      ...DEFAULT_SETTINGS,
       diagnostics: {
+        ...DEFAULT_SETTINGS.diagnostics,
         enabled: true,
         indentation: true,
-        severity: {
-          undefinedMacro: 'warning',
-          undefinedVariable: 'information',
-          styleWarnings: 'hint'
-        },
       },
-      adoPaths: [],
-      cross_file: {}
     };
 
     const mockConnection = {} as Connection;
@@ -85,42 +59,30 @@ display "should be indented"
     
     const diagnostics = provider.get_diagnostics(document, config);
     
-    expect(diagnostics).resolves.toContainEqual(
+    await expect(diagnostics).resolves.toContainEqual(
       expect.objectContaining({
         code: StataDiagnosticCode.MISSING_INDENTATION,
-        message: expect.stringContaining('should be indented')
+        range: expect.objectContaining({
+          start: expect.objectContaining({ line: 1 })
+        }),
+        message: expect.stringContaining('under-indented')
       })
     );
   });
 
-  test('should not emit indentation diagnostics when disabled', () => {
+  test('should not emit indentation diagnostics when disabled', async () => {
     const content = `* This is a comment
     display "unnecessarily indented"`;
     
-    const document: DocumentState = {
-      uri: 'file:///test.do',
-      version: 1,
-      content,
-      tokens: [],
-      ast: null,
-      symbols: { localMacros: new Map(), globalMacros: new Map(), programs: new Map(), scalars: new Map(), matrices: new Map(), variables: new Set() },
-      diagnostics: [],
-      context_tracker: new ContextTracker(),
-      line_offsets: [0, content.indexOf('\n') + 1]
-    };
+    const document = create_real_document_state(content);
 
     const config: StataLSPConfig = {
+      ...DEFAULT_SETTINGS,
       diagnostics: {
+        ...DEFAULT_SETTINGS.diagnostics,
         enabled: true,
         indentation: false, // Disabled
-        severity: {
-          undefinedMacro: 'warning',
-          undefinedVariable: 'information',
-          styleWarnings: 'hint'
-        },
       },
-      adoPaths: [],
-      cross_file: {}
     };
 
     const mockConnection = {} as Connection;
@@ -128,7 +90,7 @@ display "should be indented"
     
     const diagnostics = provider.get_diagnostics(document, config);
     
-    expect(diagnostics).resolves.not.toContainEqual(
+    await expect(diagnostics).resolves.not.toContainEqual(
       expect.objectContaining({
         code: StataDiagnosticCode.UNNECESSARY_INDENTATION
       })
@@ -141,7 +103,7 @@ display "should be indented"
    * should NOT flag it as "unnecessarily indented after comment".
    * Requirements: 1.1, 1.3
    */
-  test('should not emit diagnostics for lines inside block comments', () => {
+  test('should not emit diagnostics for lines inside block comments', async () => {
     // This is the reproduction case: a block comment where some lines
     // don't start with '*' - these should NOT trigger false positives
     const content = `/*
@@ -151,37 +113,15 @@ This line does NOT start with asterisk
 */
 display "code after block comment"`;
     
-    const the_line_offsets: number[] = [];
-    let my_offset = 0;
-    for (const my_line of content.split('\n')) {
-      the_line_offsets.push(my_offset);
-      my_offset += my_line.length + 1;
-    }
-
-    const document: DocumentState = {
-      uri: 'file:///test.do',
-      version: 1,
-      content,
-      tokens: [],
-      ast: null,
-      symbols: { localMacros: new Map(), globalMacros: new Map(), programs: new Map(), scalars: new Map(), matrices: new Map(), variables: new Set() },
-      diagnostics: [],
-      context_tracker: new ContextTracker(),
-      line_offsets: the_line_offsets
-    };
+    const document = create_real_document_state(content);
 
     const config: StataLSPConfig = {
+      ...DEFAULT_SETTINGS,
       diagnostics: {
+        ...DEFAULT_SETTINGS.diagnostics,
         enabled: true,
         indentation: true,
-        severity: {
-          undefinedMacro: 'warning',
-          undefinedVariable: 'information',
-          styleWarnings: 'hint'
-        },
       },
-      adoPaths: [],
-      cross_file: {}
     };
 
     const mockConnection = {} as Connection;
@@ -190,12 +130,12 @@ display "code after block comment"`;
     const diagnostics = provider.get_diagnostics(document, config);
     
     // Should NOT produce any indentation diagnostics for lines inside block comment
-    expect(diagnostics).resolves.not.toContainEqual(
+    await expect(diagnostics).resolves.not.toContainEqual(
       expect.objectContaining({
         code: StataDiagnosticCode.UNNECESSARY_INDENTATION
       })
     );
-    expect(diagnostics).resolves.not.toContainEqual(
+    await expect(diagnostics).resolves.not.toContainEqual(
       expect.objectContaining({
         code: StataDiagnosticCode.MISSING_INDENTATION
       })
@@ -206,44 +146,22 @@ display "code after block comment"`;
    * Test that block comment with varying indentation doesn't trigger diagnostics.
    * Requirements: 1.1, 1.2, 1.3
    */
-  test('should not emit diagnostics for block comment with varying indentation', () => {
+  test('should not emit diagnostics for block comment with varying indentation', async () => {
     const content = `/* Start of block comment
     Indented line inside block comment
         More indented line
 No indentation line
 */`;
     
-    const the_line_offsets: number[] = [];
-    let my_offset = 0;
-    for (const my_line of content.split('\n')) {
-      the_line_offsets.push(my_offset);
-      my_offset += my_line.length + 1;
-    }
-
-    const document: DocumentState = {
-      uri: 'file:///test.do',
-      version: 1,
-      content,
-      tokens: [],
-      ast: null,
-      symbols: { localMacros: new Map(), globalMacros: new Map(), programs: new Map(), scalars: new Map(), matrices: new Map(), variables: new Set() },
-      diagnostics: [],
-      context_tracker: new ContextTracker(),
-      line_offsets: the_line_offsets
-    };
+    const document = create_real_document_state(content);
 
     const config: StataLSPConfig = {
+      ...DEFAULT_SETTINGS,
       diagnostics: {
+        ...DEFAULT_SETTINGS.diagnostics,
         enabled: true,
         indentation: true,
-        severity: {
-          undefinedMacro: 'warning',
-          undefinedVariable: 'information',
-          styleWarnings: 'hint'
-        },
       },
-      adoPaths: [],
-      cross_file: {}
     };
 
     const mockConnection = {} as Connection;
@@ -252,15 +170,31 @@ No indentation line
     const diagnostics = provider.get_diagnostics(document, config);
     
     // Should NOT produce any indentation diagnostics for lines inside block comment
-    expect(diagnostics).resolves.not.toContainEqual(
+    await expect(diagnostics).resolves.not.toContainEqual(
       expect.objectContaining({
         code: StataDiagnosticCode.UNNECESSARY_INDENTATION
       })
     );
-    expect(diagnostics).resolves.not.toContainEqual(
+    await expect(diagnostics).resolves.not.toContainEqual(
       expect.objectContaining({
         code: StataDiagnosticCode.MISSING_INDENTATION
       })
     );
+  });
+});
+
+describe('Indentation diagnostics: what Format Document re-indents', () => {
+  test('reports a line whose spacing inside also changes', () => {
+    // Format Document turns `\tdisplay\t1` into `display 1`; the
+    // leading tab is still unnecessary.
+    expect(indentation_codes_by_line('\tdisplay\t1\n').get(0))
+      .toBe(StataDiagnosticCode.UNNECESSARY_INDENTATION);
+  });
+
+  test('reports a line that starts with a block comment', () => {
+    // Format Document indents `/* c */ display 1` inside the block, so
+    // the line is reported like any other code line.
+    expect(indentation_codes_by_line('if 1 {\n/* c */ display 1\n}\n').get(1))
+      .toBe(StataDiagnosticCode.MISSING_INDENTATION);
   });
 });

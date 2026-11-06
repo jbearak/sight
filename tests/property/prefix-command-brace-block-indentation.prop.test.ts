@@ -20,6 +20,10 @@ import {
     create_formatter_config,
     FormatterMode,
 } from './helpers/formatter-test-utils';
+import {
+    expect_line_at_depth,
+    indentation_diagnostics,
+} from './helpers/indentation-test-utils';
 
 describe('Prefix Command Brace Block Indentation Properties', () => {
     const analyzer = new IndentationDiagnosticAnalyzer();
@@ -73,24 +77,20 @@ describe('Prefix Command Brace Block Indentation Properties', () => {
     it('Property 1: Prefix command brace blocks increase expected depth for interior lines', () => {
         fc.assert(
             fc.property(prefix_block_arb, (source) => {
-                const doc = create_document_state(source);
-                const range = { start: 0, end: source.split('\n').length - 1 };
-                const expected_depths = analyzer.compute_expected_depths(doc, range);
-
                 const the_lines = source.split('\n');
 
+                expect(indentation_diagnostics(source)).toEqual([]);
+
                 // Line 0 (prefix command with opening brace) should have depth 0
-                expect(expected_depths.get(0) ?? 0).toBe(0);
+                expect_line_at_depth(source, 0, 0);
 
                 // Interior lines (1 to n-2) should have depth 1
                 for (let i = 1; i < the_lines.length - 1; i++) {
-                    const depth = expected_depths.get(i) ?? 0;
-                    expect(depth).toBe(1);
+                    expect_line_at_depth(source, i, 1);
                 }
 
                 // Last line (closing brace) should have depth 0
-                const last_line = the_lines.length - 1;
-                expect(expected_depths.get(last_line) ?? 0).toBe(0);
+                expect_line_at_depth(source, the_lines.length - 1, 0);
 
                 return true;
             }),
@@ -190,20 +190,18 @@ describe('Prefix Command Brace Block Indentation Properties', () => {
         display "nested"
     }
 }`;
-        const doc = create_document_state(nested_source);
-        const range = { start: 0, end: 4 };
-        const expected_depths = analyzer.compute_expected_depths(doc, range);
+        expect(indentation_diagnostics(nested_source)).toEqual([]);
 
         // Line 0: capture { -> depth 0
-        expect(expected_depths.get(0) ?? 0).toBe(0);
+        expect_line_at_depth(nested_source, 0, 0);
         // Line 1: quietly { -> depth 1
-        expect(expected_depths.get(1) ?? 0).toBe(1);
+        expect_line_at_depth(nested_source, 1, 1);
         // Line 2: display "nested" -> depth 2
-        expect(expected_depths.get(2) ?? 0).toBe(2);
+        expect_line_at_depth(nested_source, 2, 2);
         // Line 3: } (inner) -> depth 1
-        expect(expected_depths.get(3) ?? 0).toBe(1);
+        expect_line_at_depth(nested_source, 3, 1);
         // Line 4: } (outer) -> depth 0
-        expect(expected_depths.get(4) ?? 0).toBe(0);
+        expect_line_at_depth(nested_source, 4, 0);
     });
 
     /**
@@ -218,19 +216,17 @@ describe('Prefix Command Brace Block Indentation Properties', () => {
         display "inside"
     }
 }`;
-        const doc = create_document_state(source);
-        const range = { start: 0, end: 4 };
-        const expected_depths = analyzer.compute_expected_depths(doc, range);
+        expect(indentation_diagnostics(source)).toEqual([]);
 
         // Line 0: if 1 == 1 { -> depth 0
-        expect(expected_depths.get(0) ?? 0).toBe(0);
+        expect_line_at_depth(source, 0, 0);
         // Line 1: capture { -> depth 1
-        expect(expected_depths.get(1) ?? 0).toBe(1);
+        expect_line_at_depth(source, 1, 1);
         // Line 2: display "inside" -> depth 2
-        expect(expected_depths.get(2) ?? 0).toBe(2);
+        expect_line_at_depth(source, 2, 2);
         // Line 3: } (capture) -> depth 1
-        expect(expected_depths.get(3) ?? 0).toBe(1);
+        expect_line_at_depth(source, 3, 1);
         // Line 4: } (if) -> depth 0
-        expect(expected_depths.get(4) ?? 0).toBe(0);
+        expect_line_at_depth(source, 4, 0);
     });
 });

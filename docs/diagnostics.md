@@ -188,10 +188,16 @@ Off by default. Enable with `sight.diagnostics.indentation: true`.
 This is an on/off toggle — there is no severity key; both codes are
 emitted at `information` severity.
 
+A line is reported when Format Document, in the default
+source-preserving mode, would re-indent it, so Format Document clears
+these diagnostics. Lines with only comments on them, and lines inside a
+block comment, are not reported, though Format Document still
+re-indents them.
+
 | Rule ID | Trigger |
 |---|---|
-| <a id="unnecessary-indentation"></a>`UNNECESSARY_INDENTATION` | A line is indented past the AST-computed depth. |
-| <a id="missing-indentation"></a>`MISSING_INDENTATION` | A line is at a shallower indent than its block depth. |
+| <a id="unnecessary-indentation"></a>`UNNECESSARY_INDENTATION` | Format Document would indent the line less. |
+| <a id="missing-indentation"></a>`MISSING_INDENTATION` | Format Document would indent the line more. |
 
 ## Cross-file diagnostics
 

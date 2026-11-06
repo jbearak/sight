@@ -4,6 +4,10 @@ import { StataParser } from '../src/parser';
 import { IndentationDiagnosticAnalyzer } from '../src/providers/indentation-diagnostics';
 import { DocumentState } from '../src/document-store';
 import { ContextTracker } from '../src/context-tracker';
+import {
+    expect_line_at_depth,
+    indentation_diagnostics,
+} from './property/helpers/indentation-test-utils';
 
 /**
  * Reproduction tests for else block indentation false positive bug.
@@ -91,7 +95,9 @@ end`;
     });
     
     it('should compute correct expected depths for else blocks', () => {
-        // Test that expected depths are correctly computed for all lines
+        // Each line is checked through analyze(): at its depth it draws
+        // no diagnostic, one level deeper UNNECESSARY_INDENTATION, one
+        // level shallower MISSING_INDENTATION.
         // Requirements: 2.1, 2.3, 2.4, 2.5
         const code = `capture program drop _loop_execute_survey
 program define _loop_execute_survey
@@ -104,60 +110,30 @@ program define _loop_execute_survey
     }
 end`;
 
-        const lexer = new StataLexer();
-        const { tokens } = lexer.tokenize(code);
-        const parser = new StataParser();
-        const { ast } = parser.parse(tokens);
-        
-        const context_tracker = new ContextTracker();
-        context_tracker.initialize_from_tokens(tokens);
-        
-        const document: DocumentState = {
-            uri: 'test://test.do',
-            content: code,
-            version: 1,
-            tokens,
-            ast,
-            symbols: { programs: [], macros: [], variables: [], scalars: [], matrices: [] },
-            diagnostics: [],
-            context_tracker,
-            line_offsets: [],
-        };
-        
-        const analyzer = new IndentationDiagnosticAnalyzer();
-        const expected_depths = analyzer.compute_expected_depths(document, { start: 0, end: 10 });
-        
-        // Verify expected depths for each line:
+        expect(indentation_diagnostics(code)).toEqual([]);
+
         // Line 0 (capture...): depth 0 (top-level)
-        expect(expected_depths.get(0)).toBe(0);
-        
+        expect_line_at_depth(code, 0, 0);
         // Line 1 (program define...): depth 0 (program definition line)
-        expect(expected_depths.get(1)).toBe(0);
-        
+        expect_line_at_depth(code, 1, 0);
         // Line 2 (args...): depth 1 (inside program)
-        expect(expected_depths.get(2)).toBe(1);
-        
+        expect_line_at_depth(code, 2, 1);
         // Line 3 (if...): depth 1 (inside program)
-        expect(expected_depths.get(3)).toBe(1);
-        
+        expect_line_at_depth(code, 3, 1);
         // Line 4 (do...): depth 2 (inside program > inside if)
-        expect(expected_depths.get(4)).toBe(2);
-        
+        expect_line_at_depth(code, 4, 2);
         // Line 5 (}): depth 1 (closing brace of if)
-        expect(expected_depths.get(5)).toBe(1);
-        
+        expect_line_at_depth(code, 5, 1);
         // Line 6 (else {): depth 1 (inside program)
-        expect(expected_depths.get(6)).toBe(1);
-        
+        expect_line_at_depth(code, 6, 1);
         // Line 7 (`custom_arg'...): depth 2 (inside program > inside else)
-        // This is the KEY assertion - the bug caused this to be undefined or 0
-        expect(expected_depths.get(7)).toBe(2);
-        
+        // This is the KEY assertion - the bug left this line without a
+        // block depth
+        expect_line_at_depth(code, 7, 2);
         // Line 8 (}): depth 1 (closing brace of else)
-        expect(expected_depths.get(8)).toBe(1);
-        
+        expect_line_at_depth(code, 8, 1);
         // Line 9 (end): depth 0 (closing of program)
-        expect(expected_depths.get(9)).toBe(0);
+        expect_line_at_depth(code, 9, 0);
     });
     
     it('should parse else block with macro expansion command', () => {
@@ -237,33 +213,12 @@ else {
     }
 end`;
 
-        const lexer = new StataLexer();
-        const { tokens } = lexer.tokenize(code);
-        const parser = new StataParser();
-        const { ast } = parser.parse(tokens);
-        
-        const context_tracker = new ContextTracker();
-        context_tracker.initialize_from_tokens(tokens);
-        
-        const document: DocumentState = {
-            uri: 'test://test.do',
-            content: code,
-            version: 1,
-            tokens,
-            ast,
-            symbols: { programs: [], macros: [], variables: [], scalars: [], matrices: [] },
-            diagnostics: [],
-            context_tracker,
-            line_offsets: [],
-        };
-        
-        const analyzer = new IndentationDiagnosticAnalyzer();
-        const expected_depths = analyzer.compute_expected_depths(document, { start: 0, end: 15 });
-        
+        expect(indentation_diagnostics(code)).toEqual([]);
+
         // Line 6 (`cmd' "arg"): depth 3 (program > if > else)
-        expect(expected_depths.get(6)).toBe(3);
-        
+        expect_line_at_depth(code, 6, 3);
+
         // Line 10 (`outer_cmd' "arg"): depth 2 (program > else)
-        expect(expected_depths.get(10)).toBe(2);
+        expect_line_at_depth(code, 10, 2);
     });
 });

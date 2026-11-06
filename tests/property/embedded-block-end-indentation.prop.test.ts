@@ -5,34 +5,27 @@
  * Property 1: End delimiter indentation correctness
  * Validates: Requirements 1.1, 1.2, 1.3, 1.4
  *
- * Tests that the indentation analyzer correctly computes expected depths
- * for Mata/Python block end delimiters, ensuring no false positive
- * unnecessary indentation diagnostics.
+ * Tests, through IndentationDiagnosticAnalyzer.analyze(), that Mata/Python
+ * block end delimiters are held to the right block depth, ensuring no
+ * false positive unnecessary indentation diagnostics.
  */
 
 import { describe, expect, it } from 'bun:test';
 import fc from 'fast-check';
 import { IndentationDiagnosticAnalyzer } from '../../src/providers/indentation-diagnostics';
-import { StataDiagnosticCode, StataLSPConfig } from '../../src/types';
+import { StataDiagnosticCode } from '../../src/types';
 import { create_document_state } from './helpers/document-utils';
+import {
+    create_indentation_config,
+    expect_line_at_depth,
+    indentation_codes_by_line,
+    indentation_diagnostics,
+} from './helpers/indentation-test-utils';
 
 describe('Embedded Block End Delimiter Indentation Properties', () => {
     const analyzer = new IndentationDiagnosticAnalyzer();
 
-    const config: StataLSPConfig = {
-        diagnostics: {
-            enabled: true,
-            indentation: true,
-            severity: {
-                undefinedMacro: 'warning',
-                undefinedVariable: 'information',
-                styleWarnings: 'hint'
-            },
-        },
-        adoPaths: [],
-        cross_file: {},
-        formatting: { indentSize: 4 }
-    };
+    const config = create_indentation_config();
 
     // Generator for embedded block language
     const language_arb = fc.constantFrom('mata', 'python');
@@ -65,8 +58,22 @@ describe('Embedded Block End Delimiter Indentation Properties', () => {
         return language === 'python' ? '' : indent;
     }
 
-    function end_depth(language: string, depth: number): number {
-        return language === 'python' ? 0 : depth;
+    /**
+     * Assert a block's `end` line sits at `depth` (a Mata `end`). A
+     * Python `end` must stay in column 0: indenting it would make it
+     * Python code rather than move it, so it is checked in place only.
+     */
+    function expect_end_at_depth(
+        language: string,
+        source: string,
+        line: number,
+        depth: number
+    ): void {
+        if (language === 'python') {
+            expect(indentation_codes_by_line(source).get(line)).toBeUndefined();
+            return;
+        }
+        expect_line_at_depth(source, line, depth);
     }
 
     /**
@@ -87,15 +94,13 @@ describe('Embedded Block End Delimiter Indentation Properties', () => {
                     const source = `${language}
 ${content}
 end`;
-                    const doc = create_document_state(source);
-                    const range = { start: 0, end: source.split('\n').length - 1 };
-                    const expected_depths = analyzer.compute_expected_depths(doc, range);
+                    expect(indentation_diagnostics(source)).toEqual([]);
 
                     // Line 0 (mata/python): depth 0
-                    expect(expected_depths.get(0) ?? 0).toBe(0);
+                    expect_line_at_depth(source, 0, 0);
                     
                     // Line 2 (end): depth 0 (same as opening keyword)
-                    expect(expected_depths.get(2) ?? 0).toBe(0);
+                    expect_end_at_depth(language, source, 2, 0);
 
                     return true;
                 }
@@ -126,25 +131,23 @@ end`;
 ${end_indent(language, '    ')}end
     ${after_stmt}
 }`;
-                    const doc = create_document_state(source);
-                    const range = { start: 0, end: source.split('\n').length - 1 };
-                    const expected_depths = analyzer.compute_expected_depths(doc, range);
+                    expect(indentation_diagnostics(source)).toEqual([]);
 
                     // Line 0 (if): depth 0
-                    expect(expected_depths.get(0) ?? 0).toBe(0);
+                    expect_line_at_depth(source, 0, 0);
                     
                     // Line 1 (mata/python): depth 1 (inside if)
-                    expect(expected_depths.get(1) ?? 0).toBe(1);
+                    expect_line_at_depth(source, 1, 1);
                     
                     // Line 3 (end): depth 1 (same as opening keyword),
                     // or 0 for Python
-                    expect(expected_depths.get(3) ?? 0).toBe(end_depth(language, 1));
+                    expect_end_at_depth(language, source, 3, 1);
                     
                     // Line 4 (statement after end): depth 1 (still inside if)
-                    expect(expected_depths.get(4) ?? 0).toBe(1);
+                    expect_line_at_depth(source, 4, 1);
                     
                     // Line 5 (closing brace): depth 0
-                    expect(expected_depths.get(5) ?? 0).toBe(0);
+                    expect_line_at_depth(source, 5, 0);
 
                     return true;
                 }
@@ -174,23 +177,26 @@ ${end_indent(language, '    ')}end
     ${content}
 ${end_indent(language, '    ')}end
 end`;
-                    const doc = create_document_state(source);
-                    const range = { start: 0, end: source.split('\n').length - 1 };
-                    const expected_depths = analyzer.compute_expected_depths(doc, range);
-
                     // Line 0 (program define): depth 0
-                    expect(expected_depths.get(0) ?? 0).toBe(0);
+                    expect_line_at_depth(source, 0, 0);
                     
                     // Line 1 (mata/python): depth 1 (inside program)
-                    expect(expected_depths.get(1) ?? 0).toBe(1);
+                    expect_line_at_depth(source, 1, 1);
                     
                     // Line 3 (end for mata/python): Stata ends the program
                     // definition here (the first line whose first word is
-                    // `end`), so it is the program's `end`: depth 0
-                    expect(expected_depths.get(3) ?? 0).toBe(0);
+                    // `end`), so it is the program's `end`: depth 0. The
+                    // source indents a Mata `end` one level, so that
+                    // `end` is reported as unnecessarily indented.
+                    expect(indentation_codes_by_line(source).get(3)).toBe(
+                        language === 'mata'
+                            ? StataDiagnosticCode.UNNECESSARY_INDENTATION
+                            : undefined
+                    );
+                    expect_line_at_depth(source, 3, 0);
                     
                     // Line 4 (the program's own end, now unexpected): depth 0
-                    expect(expected_depths.get(4) ?? 0).toBe(0);
+                    expect_line_at_depth(source, 4, 0);
 
                     return true;
                 }
@@ -219,22 +225,20 @@ end`;
     ${content}
 ${end_indent(language, '    ')}end
 }`;
-                    const doc = create_document_state(source);
-                    const range = { start: 0, end: source.split('\n').length - 1 };
-                    const expected_depths = analyzer.compute_expected_depths(doc, range);
+                    expect(indentation_diagnostics(source)).toEqual([]);
 
                     // Line 0 (foreach): depth 0
-                    expect(expected_depths.get(0) ?? 0).toBe(0);
+                    expect_line_at_depth(source, 0, 0);
                     
                     // Line 1 (mata/python): depth 1 (inside foreach)
-                    expect(expected_depths.get(1) ?? 0).toBe(1);
+                    expect_line_at_depth(source, 1, 1);
                     
                     // Line 3 (end): depth 1 (same as opening keyword),
                     // or 0 for Python
-                    expect(expected_depths.get(3) ?? 0).toBe(end_depth(language, 1));
+                    expect_end_at_depth(language, source, 3, 1);
                     
                     // Line 4 (closing brace): depth 0
-                    expect(expected_depths.get(4) ?? 0).toBe(0);
+                    expect_line_at_depth(source, 4, 0);
 
                     return true;
                 }
@@ -266,8 +270,9 @@ ${end_indent(language, '    ')}end
 ${end_indent(language, '    ')}end
     ${after_stmt}
 }`;
-                    const doc = create_document_state(source);
-                    const diagnostics = analyzer.analyze(doc, config);
+                    const diagnostics = analyzer.analyze(
+                        create_document_state(source), config
+                    );
 
                     // Filter for UNNECESSARY_INDENTATION diagnostics on line 3 (end line)
                     const end_line_diags = diagnostics.filter(
@@ -308,28 +313,26 @@ ${end_indent(language, '    ')}end
 ${end_indent(language, '        ')}end
     }
 }`;
-                    const doc = create_document_state(source);
-                    const range = { start: 0, end: source.split('\n').length - 1 };
-                    const expected_depths = analyzer.compute_expected_depths(doc, range);
+                    expect(indentation_diagnostics(source)).toEqual([]);
 
                     // Line 0 (if): depth 0
-                    expect(expected_depths.get(0) ?? 0).toBe(0);
+                    expect_line_at_depth(source, 0, 0);
                     
                     // Line 1 (foreach): depth 1 (inside if)
-                    expect(expected_depths.get(1) ?? 0).toBe(1);
+                    expect_line_at_depth(source, 1, 1);
                     
                     // Line 2 (mata/python): depth 2 (inside if > foreach)
-                    expect(expected_depths.get(2) ?? 0).toBe(2);
+                    expect_line_at_depth(source, 2, 2);
                     
                     // Line 4 (end): depth 2 (same as opening keyword),
                     // or 0 for Python
-                    expect(expected_depths.get(4) ?? 0).toBe(end_depth(language, 2));
+                    expect_end_at_depth(language, source, 4, 2);
                     
                     // Line 5 (foreach closing brace): depth 1
-                    expect(expected_depths.get(5) ?? 0).toBe(1);
+                    expect_line_at_depth(source, 5, 1);
                     
                     // Line 6 (if closing brace): depth 0
-                    expect(expected_depths.get(6) ?? 0).toBe(0);
+                    expect_line_at_depth(source, 6, 0);
 
                     return true;
                 }

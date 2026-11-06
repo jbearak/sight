@@ -160,10 +160,11 @@ describe('Visual Width Calculation Properties', () => {
                     
                     expect(unnecessary.length).toBeGreaterThanOrEqual(1);
                     
-                    // Verify the diagnostic range width matches expected visual width
+                    // The range covers the leading tabs, in characters (an
+                    // LSP position counts characters, not visual columns).
                     const diagnostic = unnecessary[0];
-                    const actual_width = diagnostic.range.end.character;
-                    expect(actual_width).toBe(expected_width);
+                    expect(diagnostic.range.end.character).toBe(num_tabs);
+                    expect(expected_width).toBe(num_tabs * indent_size);
                     
                     return true;
                 }
