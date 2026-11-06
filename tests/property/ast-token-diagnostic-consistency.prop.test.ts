@@ -11,7 +11,7 @@
 
 import { describe, it, expect, beforeEach } from 'bun:test';
 import * as fc from 'fast-check';
-import { SemanticAnalyzer } from '../../src/analyzer';
+import { SemanticAnalyzer, STATA_SYSTEM_GLOBALS } from '../../src/analyzer';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { StataDiagnosticCode } from '../../src/types';
@@ -55,6 +55,11 @@ describe('AST and Token Diagnostic Consistency Property Tests', () => {
             'tempname', 'scalar', 'matrix', 'return', 'ereturn', 'sreturn',
             'args', 'syntax', 'version', 'preserve', 'restore'
         ].includes(name.toLowerCase()));
+
+    // A global name Stata leaves undefined: it always defines `S_OS`
+    // and the other system globals.
+    const arbitrary_global_name = arbitrary_macro_name
+        .filter(name => !STATA_SYSTEM_GLOBALS.has(name));
 
     // Expected message formats. The diagnostic code (UNDEFINED_MACRO) classifies
     // the rule; the message states subject + predicate. Local macros keep the
@@ -110,7 +115,7 @@ describe('AST and Token Diagnostic Consistency Property Tests', () => {
         it('should use consistent format for undefined global macro messages', () => {
             fc.assert(
                 fc.property(
-                    arbitrary_macro_name,
+                    arbitrary_global_name,
                     (my_macro_name) => {
                         // Create code with undefined global macro reference
                         // Using ${name} format to ensure it's parsed as global
@@ -188,7 +193,7 @@ describe('AST and Token Diagnostic Consistency Property Tests', () => {
         it('should produce consistent messages for multiple global macro refs', () => {
             fc.assert(
                 fc.property(
-                    fc.array(arbitrary_macro_name, { minLength: 2, maxLength: 5 })
+                    fc.array(arbitrary_global_name, { minLength: 2, maxLength: 5 })
                         .filter(arr => new Set(arr).size === arr.length),
                     (my_macro_names) => {
                         // Create code with multiple undefined global macro refs
@@ -231,7 +236,7 @@ describe('AST and Token Diagnostic Consistency Property Tests', () => {
             fc.assert(
                 fc.property(
                     arbitrary_macro_name,
-                    arbitrary_macro_name,
+                    arbitrary_global_name,
                     (my_local_name, my_global_name) => {
                         // Skip if names are the same
                         if (my_local_name === my_global_name) {
@@ -345,6 +350,8 @@ display \${${my_global_name}}`;
                     arbitrary_macro_name,
                     fc.boolean(),
                     (my_macro_name, my_is_local) => {
+                        // Stata always defines its system globals
+                        fc.pre(my_is_local || !STATA_SYSTEM_GLOBALS.has(my_macro_name));
                         // Create code with undefined macro reference
                         const my_document = my_is_local
                             ? `display \`${my_macro_name}'`

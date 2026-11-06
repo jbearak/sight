@@ -2,7 +2,7 @@ import * as fc from 'fast-check';
 import { describe, it, expect } from 'bun:test';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
-import { SemanticAnalyzer } from '../../src/analyzer';
+import { SemanticAnalyzer, STATA_SYSTEM_GLOBALS } from '../../src/analyzer';
 import { StataDiagnosticCode } from '../../src/types';
 
 function analyze_code(code: string) {
@@ -50,8 +50,12 @@ describe('String Literal Macro Detection Properties', () => {
                              d.message.includes(macro_name)
                     );
                     
-                    // Both should produce exactly one warning each
-                    return local_warnings.length === 1 && global_warnings.length === 1;
+                    // Each should produce exactly one warning, except
+                    // a system global (`$S_OS`), which Stata defines
+                    const expected_global_warnings =
+                        STATA_SYSTEM_GLOBALS.has(macro_name) ? 0 : 1;
+                    return local_warnings.length === 1
+                        && global_warnings.length === expected_global_warnings;
                 }
             ),
             { numRuns: 100 }

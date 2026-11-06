@@ -12,10 +12,17 @@
 import * as fc from 'fast-check';
 import { describe, it, beforeEach } from 'bun:test';
 import { arbitrary_macro_name } from './generators/primitives';
-import { SemanticAnalyzer } from '../../src/analyzer';
+import { SemanticAnalyzer, STATA_SYSTEM_GLOBALS } from '../../src/analyzer';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { StataDiagnosticCode } from '../../src/types';
+
+/** A global name Stata leaves undefined, unlike `S_OS` and the other
+ *  system globals it always defines. */
+function arbitrary_global_name(): fc.Arbitrary<string> {
+    return arbitrary_macro_name()
+        .filter((name) => !STATA_SYSTEM_GLOBALS.has(name));
+}
 
 describe('Symbol Name Extraction Round-Trip Properties', () => {
     let analyzer: SemanticAnalyzer;
@@ -77,7 +84,7 @@ describe('Symbol Name Extraction Round-Trip Properties', () => {
         it('attaches global macro name and kind to the diagnostic data', () => {
             fc.assert(
                 fc.property(
-                    arbitrary_macro_name(),
+                    arbitrary_global_name(),
                     (macro_name) => {
                         const my_diag = single_undefined_macro(
                             `display \${${macro_name}}`
@@ -102,6 +109,9 @@ describe('Symbol Name Extraction Round-Trip Properties', () => {
                     arbitrary_macro_name(),
                     fc.boolean(),
                     (macro_name, use_local_format) => {
+                        // Stata always defines its system globals
+                        fc.pre(use_local_format
+                            || !STATA_SYSTEM_GLOBALS.has(macro_name));
                         const my_source = use_local_format
                             ? `display \`${macro_name}'`
                             : `display \${${macro_name}}`;
