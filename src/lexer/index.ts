@@ -50,6 +50,14 @@ const STAR_COMMENT_COLON_PREFIXES: ReadonlySet<string> = new Set([
     my_name === 'version' || my_name === 'xi').map(([my_word]) => my_word),
   'frame',
 ]);
+// Tokens an `if` condition's operand can end with, and those that
+// can follow an operator or `(` inside one.
+const CONDITION_OPERAND_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
+  'WORD', 'NUMBER', 'STRING', 'MACRO_REF_LOCAL', 'MACRO_REF_GLOBAL',
+]);
+const CONDITION_OPERAND_END_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
+  ...CONDITION_OPERAND_TYPES, 'RPAREN', 'RBRACKET',
+]);
 // A statement starts after one of these (or at the start of the file).
 const STATEMENT_START_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
   'STATEMENT_TERMINATOR', 'DELIMIT_DIRECTIVE', 'LBRACE', 'RBRACE',
@@ -72,6 +80,16 @@ export class StataLexer {
   private content_end_offset = 0;
 
   private previous_token: Token | null = null;
+  // Whether the statement is an `if` (or `else if`), its `if`, and
+  // whether its condition has ended (a command has started), for
+  // finding where a one-line `if`'s command starts.
+  private in_if_statement = false;
+  private if_keyword_token: Token | null = null;
+  // The last token that counts for where commands start (not a
+  // newline a `///` swallows), and whether it began where one can.
+  private command_previous_token: Token | null = null;
+  private previous_started_command = true;
+  private if_condition_done = false;
   // The previous token other than whitespace or a comment, so
   // `a /* c */ * b` reads `*` after `a`.
   private previous_code_token: Token | null = null;
@@ -116,6 +134,11 @@ export class StataLexer {
     this.content_end_offset = source.trimEnd().length;
     this.previous_token = null;
     this.previous_code_token = null;
+    this.in_if_statement = false;
+    this.if_keyword_token = null;
+    this.if_condition_done = false;
+    this.previous_started_command = true;
+    this.command_previous_token = null;
     this.comment_run_start_line = null;
     this.joined_to_previous_line = false;
     this.at_command_start = true;
@@ -463,6 +486,8 @@ export class StataLexer {
    *   - "mata: x = 5 // comment\n" (code + comment)
    *   - "mata: * note\n"    (`*` after the colon is code: Stata 18 runs
    *     it as Mata, giving r(3499) "note not found")
+   *   - "mata: ///\n x = 5\n" (`///` joins the next line, so the code
+   *     there follows the colon)
    */
   private is_only_whitespace_or_comment_until_newline(): boolean {
     let my_pos = this.position;
@@ -491,6 +516,17 @@ export class StataLexer {
       // Check for // line comment
       if (my_char === '/' && my_pos + 1 < this.source.length && 
           this.source[my_pos + 1] === '/') {
+        if (this.source[my_pos + 2] === '/') {
+          // `///` joins the next line to this one, so what follows the
+          // opener is on the next line: `capture mata: ///` then code
+          // is a one-line statement in Stata 18
+          const my_newline = this.source.indexOf('\n', my_pos);
+          if (my_newline < 0) {
+            return true;
+          }
+          my_pos = my_newline + 1;
+          continue;
+        }
         // Rest of line is a comment - treat as block mode
         return true;
       }
@@ -535,6 +571,89 @@ export class StataLexer {
     return true;
   }
 
+  /**
+   * Whether a command can start at the word just scanned (at
+   * `start_line`, `start_column`), so `mata` or `python` there opens
+   * embedded code: at the start of a statement or after a prefix or its
+   * colon (`capture mata:`, `version 18: mata:`), after `else` or
+   * where a one-line `if`'s condition ends (`if flag quietly mata:`),
+   * or after a macro that starts the command (`` `vv' mata:``, which
+   * holds a prefix). Elsewhere it is
+   * an argument: `local x 1 mata: y`, `if flag local x 1 mata: y`.
+   */
+  private at_embedded_opener_position(start_line: number, start_column: number): boolean {
+    if (this.at_command_start) {
+      return true;
+    }
+    const my_previous = this.command_previous_token;
+    if (my_previous === null) {
+      return true;
+    }
+    const my_starts_statement = this.previous_started_command &&
+      (my_previous.type === 'MACRO_REF_LOCAL' ||
+        my_previous.type === 'MACRO_REF_GLOBAL');
+    return my_starts_statement ||
+      this.if_condition_ends_before(start_line, start_column);
+  }
+
+  /**
+   * Whether an `if` statement's condition ends right before the word
+   * just scanned (at `start_line`, `start_column`), so a command starts
+   * there: `if flag mata: x`, `if (c) mata: x`, `if a == b mata: x`.
+   * Once the command has started (`if flag local x mata: y`), what
+   * follows is its arguments.
+   */
+  private if_condition_ends_before(start_line: number, start_column: number): boolean {
+    const my_previous = this.command_previous_token;
+    return this.in_if_statement && !this.if_condition_done &&
+      my_previous !== null && my_previous !== this.if_keyword_token &&
+      CONDITION_OPERAND_END_TYPES.has(my_previous.type) &&
+      !(my_previous.range.end.line === start_line &&
+        my_previous.range.end.character === start_column);
+  }
+
+  /**
+   * Whether `:` follows the word just scanned, after any spaces or tabs.
+   * Stata 18 reads `mata :` and `python :` as `mata:` and `python:`.
+   */
+  private colon_follows_blanks(): boolean {
+    let my_pos = this.position;
+    while (this.source[my_pos] === ' ' || this.source[my_pos] === '\t') {
+      my_pos++;
+    }
+    return this.source[my_pos] === ':';
+  }
+
+  /** Consume the blanks and `:` that `colon_follows_blanks` found. */
+  private consume_blanks_and_colon(): void {
+    while (this.peek() === ' ' || this.peek() === '\t') {
+      this.advance();
+    }
+    this.advance();
+  }
+
+  /**
+   * Whether `{` comes next, after blanks and any `///` continuations:
+   * the opening brace of `mata {` or `python {` on the keyword's
+   * logical line.
+   */
+  private brace_follows_blanks(): boolean {
+    let my_pos = this.position;
+    for (;;) {
+      while (this.source[my_pos] === ' ' || this.source[my_pos] === '\t') {
+        my_pos++;
+      }
+      if (!this.source.startsWith('///', my_pos)) {
+        return this.source[my_pos] === '{';
+      }
+      const my_newline = this.source.indexOf('\n', my_pos);
+      if (my_newline < 0) {
+        return false;
+      }
+      my_pos = my_newline + 1;
+    }
+  }
+
   private get_current_context(): LanguageContext {
     if (!this.state.context_stack || this.state.context_stack.length === 0) {
       return LanguageContext.STATA;
@@ -574,8 +693,52 @@ export class StataLexer {
     this.previous_token = token;
   }
 
-  /** Track where commands start, for reading a `*` as a comment. */
+  /**
+   * Track a one-line `if`: where it starts, and where its condition
+   * ends. Two operands in a row can't both be in the condition, so
+   * the second starts the command (`if flag local …`); tokens that
+   * touch (`"`a'"`, `` x`i' ``) are one operand.
+   */
+  private note_if_condition(token: Token): void {
+    const my_previous = this.command_previous_token;
+    if (this.in_if_statement && !this.if_condition_done &&
+        CONDITION_OPERAND_TYPES.has(token.type) &&
+        my_previous !== null && my_previous !== this.if_keyword_token &&
+        CONDITION_OPERAND_END_TYPES.has(my_previous.type) &&
+        !(my_previous.range.end.line === token.range.start.line &&
+          my_previous.range.end.character === token.range.start.character)) {
+      // The command starts here, so prefixes may come first:
+      // `if flag quietly mata: x`
+      this.if_condition_done = true;
+      this.at_command_start = true;
+    }
+    // At command position only; `else if` gets there because `else`
+    // keeps it open, but not `local x else if …`
+    if (token.type === 'WORD' && token.value === 'if' && this.at_command_start) {
+      this.in_if_statement = true;
+      this.if_keyword_token = token;
+      this.if_condition_done = false;
+    }
+  }
+
+  /**
+   * Track where commands start, and the last token that counts for it
+   * (the newline a `///` swallows doesn't).
+   */
   private note_command_position(token: Token): void {
+    if (is_swallowed_continuation_terminator(
+      token, this.previous_token?.type === 'CONTINUATION')) {
+      return;
+    }
+    this.note_if_condition(token);
+    const my_started_command = this.at_command_start;
+    this.update_command_position(token);
+    this.previous_started_command = my_started_command;
+    this.command_previous_token = token;
+  }
+
+  /** Track where commands start, for reading a `*` as a comment. */
+  private update_command_position(token: Token): void {
     if (STATEMENT_START_TYPES.has(token.type)) {
       // The newline after `///` doesn't end the statement.
       if (is_swallowed_continuation_terminator(
@@ -588,6 +751,7 @@ export class StataLexer {
       }
       this.at_command_start = true;
       this.command_word = null;
+      this.in_if_statement = false;
       return;
     }
     if (token.type === 'MATA_INLINE') {
@@ -608,7 +772,8 @@ export class StataLexer {
       return;
     }
     if (this.at_command_start && token.type === 'WORD') {
-      if (ARGUMENT_FREE_PREFIXES.has(token.value)) {
+      // A command follows a prefix, and `else`: `else capture mata: x`
+      if (ARGUMENT_FREE_PREFIXES.has(token.value) || token.value === 'else') {
         return;
       }
       this.command_word = token.value;
@@ -1958,21 +2123,25 @@ export class StataLexer {
       this.note_input_command_word(value);
       // Check for embedded language block starts (case-sensitive: Stata requires lowercase)
       if (this.is_mata_start_delimiter(value)) {
-        // Check if previous token is a WORD - if so, "mata" is an argument, not a block start
-        // e.g., "clear mata" should not start a Mata block
-        const prev_is_word = this.previous_token && 
-          this.previous_token.type === 'WORD';
-        
         // Check if previous token is MATA_INLINE - if so, we're inside an inline mata expression
         // e.g., "mata: mata drop foo()" - the second "mata" is a Mata command, not a block start
         const prev_is_mata_inline = this.previous_token &&
           this.previous_token.type === 'MATA_INLINE';
         
-        // First check for mata: syntax (mata followed by colon)
-        // This takes precedence because "capture mata:" should be recognized
-        if (this.peek() === ':') {
-          this.advance(); // consume the colon
-          const full_value = value + ':';
+        // First check for mata: syntax (mata followed by colon, after
+        // any blanks): `capture mata:`, `if flag mata:`, but not
+        // `local mata : word 1 of a b` or `local x mata: y`
+        const at_opener_position =
+          this.at_embedded_opener_position(startLine, startColumn);
+        if (prev_is_mata_inline || !at_opener_position) {
+          // "mata" is an argument to a command or part of inline mata, not a block start
+          // Fall through to return as WORD
+        } else if (this.colon_follows_blanks()) {
+          this.consume_blanks_and_colon();
+          // The opener as written (`mata:` or `mata :`), so formatting
+          // keeps it
+          const full_value = this.source.substring(
+            this.position_to_offset(startLine, startColumn), this.position);
           
           // Lookahead: check if there's content on the same line after the colon
           // (whitespace and comments don't count as content)
@@ -1993,9 +2162,17 @@ export class StataLexer {
               range: this.makeRange(startLine, startColumn, this.line, this.column),
             };
           }
-        } else if (prev_is_word || prev_is_mata_inline) {
-          // "mata" is an argument to a command or part of inline mata, not a block start
-          // Fall through to return as WORD
+        } else if (
+          !this.is_only_whitespace_or_comment_until_newline() &&
+          !this.brace_follows_blanks()
+        ) {
+          // `mata x = 5`: code on the line makes a one-line statement,
+          // as with `mata:` (Stata 18 runs it and stays in Stata)
+          return {
+            type: 'MATA_INLINE',
+            value,
+            range: this.makeRange(startLine, startColumn, this.line, this.column),
+          };
         } else {
           // Regular mata block start
           this.push_context(LanguageContext.MATA);
@@ -2008,10 +2185,18 @@ export class StataLexer {
           };
         }
       } else if (this.is_python_start_delimiter(value)) {
-        // Check if next character is colon for python:
-        if (this.peek() === ':') {
-          this.advance(); // consume the colon
-          const full_value = value + ':';
+        // Check for python: (python followed by colon, after any
+        // blanks), unless python is a command's argument
+        // (`local python : word 1 of a b`)
+        const at_opener_position =
+          this.at_embedded_opener_position(startLine, startColumn);
+        if (!at_opener_position) {
+          // Fall through to return as WORD
+        } else if (this.colon_follows_blanks()) {
+          this.consume_blanks_and_colon();
+          // The opener as written (`python:` or `python :`)
+          const full_value = this.source.substring(
+            this.position_to_offset(startLine, startColumn), this.position);
           
           // Lookahead: check if there's content on the same line after the colon
           // (whitespace and comments don't count as content)
@@ -2040,7 +2225,13 @@ export class StataLexer {
           this.previous_token.type === 'WORD' && 
           this.previous_token.value === 'end';
         
-        if (!prev_is_end) {
+        // `python query`, `python set exec …`: words after `python` make
+        // a one-line Stata subcommand, not a block
+        const is_subcommand =
+          !this.is_only_whitespace_or_comment_until_newline() &&
+          !this.brace_follows_blanks();
+        
+        if (at_opener_position && !prev_is_end && !is_subcommand) {
           this.push_context(LanguageContext.PYTHON);
           this.note_python_block_opener();
           // Track the start line for brace-style block detection

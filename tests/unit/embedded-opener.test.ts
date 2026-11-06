@@ -1,0 +1,275 @@
+/**
+ * What a `mata` or `python` keyword opens is decided by what follows
+ * it on its logical line. Checked in StataMP 18:
+ *
+ *     mata : x = 1        one line (`mata :` is `mata:`)
+ *     mata x = 1          one line, without a colon
+ *     mata: ///           one line: `///` joins the code on the next
+ *         x = 1           line to the opener
+ *     mata :              block, up to `end`
+ *     mata // note        block
+ *     python : print(1)   one line
+ *     python query        a Stata subcommand of `python`, one line
+ *
+ * A one-line form inside a program leaves the program open; a block
+ * would end it at its `end`.
+ */
+
+import { describe, it, expect } from 'bun:test';
+import { SemanticAnalyzer } from '../../src/analyzer';
+import { StataLexer } from '../../src/lexer';
+import { StataParser } from '../../src/parser';
+import { CodeFormatter } from '../../src/providers/formatter';
+import { StataDiagnosticCode } from '../../src/types';
+import {
+    create_formatter_config,
+    for_each_formatter_mode,
+    FormatterMode,
+} from '../property/helpers/formatter-test-utils';
+import { create_document_state } from '../property/helpers/document-utils';
+import { context_diagnostics } from '../test-context-helper';
+
+/** `type value` for each token that opens or names an embedded unit. */
+function openers(source: string): string[] {
+    const OPENER_TYPES = new Set([
+        'MATA_START', 'MATA_INLINE', 'PYTHON_START', 'PYTHON_INLINE',
+        'END_MATA', 'END_PYTHON',
+    ]);
+    return new StataLexer().tokenize(source).tokens
+        .filter((my_token) => OPENER_TYPES.has(my_token.type))
+        .map((my_token) => `${my_token.type} ${my_token.value}`);
+}
+
+function undefined_macros(source: string): string[] {
+    const lex_result = new StataLexer().tokenize(source);
+    const ast = new StataParser().parse(lex_result.tokens).ast;
+    return new SemanticAnalyzer()
+        .analyze(ast, 'file:///t.do', undefined,
+            { undefined_macro_enabled: true }, lex_result.tokens)
+        .diagnostics
+        .filter((my_diag) => my_diag.code === StataDiagnosticCode.UNDEFINED_MACRO)
+        .map((my_diag) => my_diag.message);
+}
+
+function format_source(source: string, mode: FormatterMode): string {
+    const edits = new CodeFormatter().format(
+        create_document_state(source),
+        { tabSize: 4, insertSpaces: true },
+        create_formatter_config(mode));
+    return edits[0]?.newText ?? source;
+}
+
+describe('embedded language openers', () => {
+    describe('a colon after blanks', () => {
+        it('reads mata : with code as one line', () => {
+            expect(openers('mata : x = 1\n')).toEqual(['MATA_INLINE mata :']);
+            expect(openers('mata\t: x = 1\n')).toEqual(['MATA_INLINE mata\t:']);
+            expect(openers('capture mata : x = 1\n'))
+                .toEqual(['MATA_INLINE mata :']);
+        });
+
+        it('opens a block at mata : with nothing after it', () => {
+            expect(openers('mata :\nx = 1\nend\n'))
+                .toEqual(['MATA_START mata :', 'END_MATA end']);
+            expect(openers('mata : // note\nx = 1\nend\n'))
+                .toEqual(['MATA_START mata :', 'END_MATA end']);
+        });
+
+        it('reads python : the same way', () => {
+            expect(openers('python : print(1)\n'))
+                .toEqual(['PYTHON_INLINE python :']);
+            expect(openers('python :\nprint(1)\nend\n'))
+                .toEqual(['PYTHON_START python :', 'END_PYTHON end']);
+        });
+    });
+
+    describe('no colon', () => {
+        it('reads mata with code after it as one line', () => {
+            expect(openers('mata x = 1\ndisplay 1\n'))
+                .toEqual(['MATA_INLINE mata']);
+        });
+
+        it('still opens a block at mata alone, with a comment, or with {', () => {
+            expect(openers('mata\nx = 1\nend\n'))
+                .toEqual(['MATA_START mata', 'END_MATA end']);
+            expect(openers('mata // note\nx = 1\nend\n'))
+                .toEqual(['MATA_START mata', 'END_MATA end']);
+            expect(openers('mata {\nx = 1\n}\n')).toEqual(['MATA_START mata']);
+        });
+
+        it('reads python with words after it as a Stata subcommand', () => {
+            expect(openers('python query\ndisplay 1\n')).toEqual([]);
+            expect(openers('python set exec "/usr/bin/python3"\n'))
+                .toEqual([]);
+        });
+    });
+
+    describe('a /// continuation after the opener', () => {
+        it('joins the code on the next line to the opener', () => {
+            expect(openers('capture mata: ///\n    x = 1\ndisplay 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+            expect(openers('mata ///\n    x = 1\ndisplay 1\n'))
+                .toEqual(['MATA_INLINE mata']);
+        });
+
+        it('keeps a brace on the continued line as a brace block', () => {
+            expect(openers('mata ///\n{\nx = 1\n}\n'))
+                .toEqual(['MATA_START mata']);
+        });
+    });
+
+    describe('after a command word', () => {
+        it('reads mata and python as the command\'s argument', () => {
+            // `local mata : …` defines the local `mata'
+            expect(openers('local mata : word 1 of a b\n')).toEqual([]);
+            expect(openers('local python : word 1 of a b\n')).toEqual([]);
+            expect(openers('clear mata\n')).toEqual([]);
+            expect(undefined_macros([
+                'local mata : word 1 of a b',
+                'local python : word 2 of a b',
+                'display "`mata\' `python\'"',
+            ].join('\n'))).toEqual([]);
+        });
+
+        it('still opens after a prefix, else, or a macro', () => {
+            expect(openers('capture mata : x = 1\n'))
+                .toEqual(['MATA_INLINE mata :']);
+            expect(openers('if 0 display 1\nelse mata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+            expect(openers('`vv\' mata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+            expect(openers('quietly python : print(1)\n'))
+                .toEqual(['PYTHON_INLINE python :']);
+            // nobreak and break are prefixes (export.ado: `mata :`
+            // inside `nobreak { }`)
+            expect(openers('nobreak mata : x = 1\n'))
+                .toEqual(['MATA_INLINE mata :']);
+            expect(openers('nobreak {\n    mata : x = 1\n}\n'))
+                .toEqual(['MATA_INLINE mata :']);
+            expect(openers('capture break python: print(1)\n'))
+                .toEqual(['PYTHON_INLINE python:']);
+        });
+
+        it('still opens after an if condition that ends in a word', () => {
+            expect(openers('if flag mata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+            expect(openers('if flag python: print(1)\n'))
+                .toEqual(['PYTHON_INLINE python:']);
+            expect(openers('if (c) mata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+            expect(openers('if a == b mata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+            expect(openers('if 0 display 1\nelse if flag mata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+            // Without a colon too (StataMP 18: `if `flag' mata x = 7`
+            // runs, and `if `flag' mata` / `python` open blocks) ...
+            expect(openers('if flag mata x = 1\n'))
+                .toEqual(['MATA_INLINE mata']);
+            expect(openers('if flag mata\nx = 1\nend\n'))
+                .toEqual(['MATA_START mata', 'END_MATA end']);
+            expect(openers('if flag python\nprint(1)\nend\n'))
+                .toEqual(['PYTHON_START python', 'END_PYTHON end']);
+            // ... but once the command has started, it is an argument
+            expect(openers('if flag clear mata\ndisplay 1\n')).toEqual([]);
+        });
+
+        it('reads a later argument, or one after an if condition, as an argument', () => {
+            expect(openers('local x mata: hello\n')).toEqual([]);
+            expect(openers('local x python: hello\n')).toEqual([]);
+            // Two words in a row can't both be in the condition, so
+            // `local` is the command and `mata` its argument
+            expect(openers('if flag local mata : word 1 of a b\n')).toEqual([]);
+            expect(openers('if (c) local python : word 1 of a b\n')).toEqual([]);
+            // Once the command has started, a later operator doesn't
+            // restart the condition
+            expect(openers('if flag local x hello-world mata: hello\n')).toEqual([]);
+            expect(openers('if flag local x hello-world python: hello\n')).toEqual([]);
+        });
+
+        it('reads it as an argument after any argument token', () => {
+            for (const my_keyword of ['mata', 'python']) {
+                expect(openers(`if flag local x 1 ${my_keyword}: hello\n`)).toEqual([]);
+                expect(openers(`if flag local x (1) ${my_keyword}: hello\n`)).toEqual([]);
+                expect(openers(`local x 1 ${my_keyword}: hello\n`)).toEqual([]);
+                expect(openers(`local x (1) ${my_keyword}: hello\n`)).toEqual([]);
+            }
+            expect(openers('local x 1 python\ndisplay 1\n')).toEqual([]);
+        });
+
+        it('opens after prefixes that follow an if condition or else', () => {
+            expect(openers('if flag quietly mata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+            expect(openers('if 0 display 1\nelse capture mata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+            expect(openers('if flag capture python: print(1)\n'))
+                .toEqual(['PYTHON_INLINE python:']);
+            expect(openers('if flag capture noisily mata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+            expect(openers('if flag `vv\' mata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+            // A command after the prefix still takes it as an argument
+            expect(openers('if flag quietly local mata : word 1 of a b\n'))
+                .toEqual([]);
+            expect(openers('if 0 display 1\nelse capture local python : w\n'))
+                .toEqual([]);
+        });
+
+        it('reads else if inside a command\'s arguments as arguments', () => {
+            expect(openers('local x else if flag mata: x = 1\n')).toEqual([]);
+            expect(openers('local x else if flag python: print(1)\n')).toEqual([]);
+        });
+
+        it('opens on a line a /// joins to a prefix macro or an if condition', () => {
+            // _power_rsafe.ado: `version' /// then mata: on the next line
+            expect(openers('`version\' ///\nmata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+            expect(openers('if flag ///\nmata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+        });
+
+        it('treats a quoted macro in the condition as one operand', () => {
+            expect(openers('if "`a\'" == "" mata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+            expect(openers('if "`a\'" mata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+        });
+    });
+
+    describe('inside a program', () => {
+        const PROGRAM = [
+            'program define p',
+            '    mata : st_local("a", "1")',
+            '    mata st_local("b", "1")',
+            '    capture mata: ///',
+            '        st_local("c", "1")',
+            '    python query',
+            '    display "`a\' `b\' `c\' `z\'"',
+            'end',
+        ].join('\n');
+
+        it('keeps the program open past each one-line form', () => {
+            const the_codes = context_diagnostics(PROGRAM)
+                .map((my_diag) => my_diag.code);
+            expect(the_codes).not.toContain('EMBEDDED_BLOCK_ENDS_PROGRAM');
+            expect(the_codes).not.toContain('UNEXPECTED_END');
+        });
+
+        it('checks the Stata code after them', () => {
+            // Each st_local defines its macro; only `z' is undefined,
+            // which the analyzer sees only if it reads that line as
+            // Stata.
+            expect(undefined_macros(PROGRAM)).toEqual(["`z' is not defined"]);
+        });
+    });
+
+    for_each_formatter_mode('keeps the opener as written', (mode) => {
+        const source = [
+            'program define p',
+            '    mata : x = 1',
+            '    mata x = 2',
+            'end',
+            '',
+        ].join('\n');
+        expect(format_source(source, mode)).toBe(source);
+    });
+});
