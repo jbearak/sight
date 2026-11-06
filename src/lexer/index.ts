@@ -549,6 +549,19 @@ export class StataLexer {
   }
 
   /**
+   * Whether the word before the one just scanned is a command it is an
+   * argument of: any word but a prefix (`capture mata:`) or `else`
+   * (`else mata: x`), which a command follows.
+   */
+  private previous_word_takes_argument(): boolean {
+    const my_previous = this.previous_token;
+    return my_previous !== null && my_previous !== undefined &&
+      my_previous.type === 'WORD' &&
+      !ARGUMENT_FREE_PREFIXES.has(my_previous.value) &&
+      my_previous.value !== 'else';
+  }
+
+  /**
    * Whether `:` follows the word just scanned, after any spaces or tabs.
    * Stata 18 reads `mata :` and `python :` as `mata:` and `python:`.
    */
@@ -2013,10 +2026,9 @@ export class StataLexer {
       this.note_input_command_word(value);
       // Check for embedded language block starts (case-sensitive: Stata requires lowercase)
       if (this.is_mata_start_delimiter(value)) {
-        // Check if previous token is a WORD - if so, "mata" is an argument, not a block start
-        // e.g., "clear mata" should not start a Mata block
-        const prev_is_word = this.previous_token && 
-          this.previous_token.type === 'WORD';
+        // After a word other than a prefix, "mata" is that command's
+        // argument: `clear mata`, `local mata : word 1 of a b`
+        const prev_is_word = this.previous_word_takes_argument();
         
         // Check if previous token is MATA_INLINE - if so, we're inside an inline mata expression
         // e.g., "mata: mata drop foo()" - the second "mata" is a Mata command, not a block start
@@ -2024,9 +2036,11 @@ export class StataLexer {
           this.previous_token.type === 'MATA_INLINE';
         
         // First check for mata: syntax (mata followed by colon, after
-        // any blanks). This takes precedence because "capture mata:"
-        // should be recognized.
-        if (this.colon_follows_blanks()) {
+        // any blanks); `capture mata:` follows a prefix
+        if (prev_is_word || prev_is_mata_inline) {
+          // "mata" is an argument to a command or part of inline mata, not a block start
+          // Fall through to return as WORD
+        } else if (this.colon_follows_blanks()) {
           this.consume_blanks_and_colon();
           // The opener as written (`mata:` or `mata :`), so formatting
           // keeps it
@@ -2052,9 +2066,6 @@ export class StataLexer {
               range: this.makeRange(startLine, startColumn, this.line, this.column),
             };
           }
-        } else if (prev_is_word || prev_is_mata_inline) {
-          // "mata" is an argument to a command or part of inline mata, not a block start
-          // Fall through to return as WORD
         } else if (
           !this.is_only_whitespace_or_comment_until_newline() &&
           !this.brace_follows_blanks()
@@ -2078,8 +2089,12 @@ export class StataLexer {
           };
         }
       } else if (this.is_python_start_delimiter(value)) {
-        // Check for python: (python followed by colon, after any blanks)
-        if (this.colon_follows_blanks()) {
+        // Check for python: (python followed by colon, after any
+        // blanks), unless python is a command's argument
+        // (`local python : word 1 of a b`)
+        if (this.previous_word_takes_argument()) {
+          // Fall through to return as WORD
+        } else if (this.colon_follows_blanks()) {
           this.consume_blanks_and_colon();
           // The opener as written (`python:` or `python :`)
           const full_value = this.source.substring(
@@ -2118,7 +2133,8 @@ export class StataLexer {
           !this.is_only_whitespace_or_comment_until_newline() &&
           !this.brace_follows_blanks();
         
-        if (!prev_is_end && !is_subcommand) {
+        if (!prev_is_end && !is_subcommand &&
+            !this.previous_word_takes_argument()) {
           this.push_context(LanguageContext.PYTHON);
           this.note_python_block_opener();
           // Track the start line for brace-style block detection

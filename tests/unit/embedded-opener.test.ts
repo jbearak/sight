@@ -118,6 +118,31 @@ describe('embedded language openers', () => {
         });
     });
 
+    describe('after a command word', () => {
+        it('reads mata and python as the command\'s argument', () => {
+            // `local mata : …` defines the local `mata'
+            expect(openers('local mata : word 1 of a b\n')).toEqual([]);
+            expect(openers('local python : word 1 of a b\n')).toEqual([]);
+            expect(openers('clear mata\n')).toEqual([]);
+            expect(undefined_macros([
+                'local mata : word 1 of a b',
+                'local python : word 2 of a b',
+                'display "`mata\' `python\'"',
+            ].join('\n'))).toEqual([]);
+        });
+
+        it('still opens after a prefix, else, or a macro', () => {
+            expect(openers('capture mata : x = 1\n'))
+                .toEqual(['MATA_INLINE mata :']);
+            expect(openers('if 0 display 1\nelse mata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+            expect(openers('`vv\' mata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+            expect(openers('quietly python : print(1)\n'))
+                .toEqual(['PYTHON_INLINE python :']);
+        });
+    });
+
     describe('inside a program', () => {
         const PROGRAM = [
             'program define p',
