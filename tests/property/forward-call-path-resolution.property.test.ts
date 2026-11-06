@@ -548,7 +548,7 @@ describe('Forward Call Path Resolution with Working Directory Property Tests', (
                         // Create root file with working directory and forward call to nonexistent file
                         const nonexistent_path = `${subdir}/${target_file}.do`;
                         const root_content = `// @lsp-${wd_synonym}: "../data"\ndo "${nonexistent_path}"\nlocal root_var = 1`;
-                        write_file('scripts/root.do', root_content);
+                        const root_path = write_file('scripts/root.do', root_content);
 
                         // Create child file with backward directive
                         const child_content = `// @lsp-${backward_type}: "root.do"\nlocal child_var = 2`;
@@ -561,11 +561,23 @@ describe('Forward Call Path Resolution with Working Directory Property Tests', (
                         // Child should inherit working directory from root
                         expect(result.inherited_working_directory).toBeDefined();
 
-                        // A "Cannot read file" diagnostic should be emitted for the nonexistent file
-                        const cannot_read_diagnostics = result.diagnostics.filter(
+                        // The missing file is root.do's to report, at its
+                        // own call site; the child gets no copy
+                        const child_cannot_read = result.diagnostics.filter(
                             d => d.message.includes('Cannot read file')
                         );
-                        expect(cannot_read_diagnostics.length).toBeGreaterThan(0);
+                        expect(child_cannot_read).toHaveLength(0);
+
+                        const root_uri = URI.file(root_path).toString();
+                        const root_result = await scope_resolver.resolve(
+                            root_uri,
+                            root_content
+                        );
+                        const cannot_read_diagnostics = root_result.diagnostics.filter(
+                            d => d.message.includes('Cannot read file')
+                        );
+                        expect(cannot_read_diagnostics).toHaveLength(1);
+                        expect(cannot_read_diagnostics[0]?.range.start.line).toBe(1);
                     }
                 ),
                 { numRuns: 100 }

@@ -277,11 +277,23 @@ do "survey.do"
 
             const result = await scope_resolver.resolve(survey_uri, survey_content);
 
-            // Should have a diagnostic about the missing file
+            // The missing file is loop.do's to report at its own call
+            // site; survey.do must not get a copy on its directive line
             const missing_diagnostics = result.diagnostics.filter(
                 d => d.message.includes('Cannot read file') && d.message.includes('nonexistent')
             );
-            expect(missing_diagnostics.length).toBeGreaterThan(0);
+            expect(missing_diagnostics).toHaveLength(0);
+
+            // loop.do itself still reports it, at line 2
+            const loop_result = await scope_resolver.resolve(
+                to_uri(loop_path),
+                loop_content
+            );
+            const loop_missing = loop_result.diagnostics.filter(
+                d => d.message.includes('Cannot read file') && d.message.includes('nonexistent')
+            );
+            expect(loop_missing).toHaveLength(1);
+            expect(loop_missing[0]?.range.start.line).toBe(2);
         });
 
         it('should handle circular forward calls gracefully', async () => {

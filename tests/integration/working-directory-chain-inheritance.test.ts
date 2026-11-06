@@ -155,13 +155,14 @@ local bh_var = 1
             expect(result.symbols.globalMacros.has('my_global')).toBe(true);
         });
 
-        it('should emit diagnostics with source attribution when forward call fails', async () => {
+        it('should report a failing forward call on its own file, not on descendants', async () => {
             // Create loop.do with @lsp-cd ../ and a forward call to a missing file
-            create_file('dhs/loop.do', `
+            const loop_content = `
 // @lsp-cd ../
 do "missing_programs.do"
 local loop_var = 1
-`);
+`;
+            const loop_path = create_file('dhs/loop.do', loop_content);
 
             // Create survey.do
             create_file('dhs/survey.do', `
@@ -176,24 +177,36 @@ local bh_var = 1
 `;
             const bh_vars_path = create_file('dhs/bh_vars.do', bh_vars_content);
 
+            const is_missing_programs = (message: string): boolean =>
+                message.includes('Cannot read file') &&
+                message.includes('missing_programs.do');
+
+            // The descendant does not get a copy of loop.do's problem
             const result = await scope_resolver.resolve(
                 file_uri(bh_vars_path),
                 bh_vars_content
             );
+            expect(
+                result.diagnostics.filter(d => is_missing_programs(d.message))
+            ).toHaveLength(0);
 
-            // Should have a diagnostic about the missing file
-            const missing_file_diagnostics = result.diagnostics.filter(
-                d => d.message.includes('Cannot read file') && d.message.includes('missing_programs.do')
+            // loop.do reports it at its own call site (line 2)
+            const loop_result = await scope_resolver.resolve(
+                file_uri(loop_path),
+                loop_content
             );
-
-            expect(missing_file_diagnostics.length).toBeGreaterThan(0);
+            const missing_file_diagnostics = loop_result.diagnostics.filter(
+                d => is_missing_programs(d.message)
+            );
+            expect(missing_file_diagnostics).toHaveLength(1);
 
             // The diagnostic should have source attribution
             for (const diagnostic of missing_file_diagnostics) {
+                expect(diagnostic.range.start.line).toBe(2);
                 expect(diagnostic.source).toBeDefined();
                 if (diagnostic.source) {
-                    expect(diagnostic.source.source_file).toBeDefined();
-                    expect(typeof diagnostic.source.source_line).toBe('number');
+                    expect(diagnostic.source.source_file).toBe('loop.do');
+                    expect(diagnostic.source.source_line).toBe(2);
                 }
             }
         });

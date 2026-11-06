@@ -1541,9 +1541,21 @@ export class ScopeResolver {
             );
         }
 
+        // A missing do/run/include target in the parent is the parent's
+        // own problem: the parent reports it at its call site when it is
+        // checked. Passing it up would publish a copy on this child,
+        // remapped to the child's directive line (line 1 for an inferred
+        // parent), so one missing file showed up once per sibling
+        // callee. Truncation stays: its depth budget depends on this
+        // child's backward depth, so the parent's own check may not
+        // report it.
+        const the_child_diagnostics = the_diagnostics.filter(
+            my_diagnostic => my_diagnostic.kind !== 'missing_file'
+        );
+
         return {
             symbols: my_pre_site_symbols,
-            diagnostics: the_diagnostics,
+            diagnostics: the_child_diagnostics,
             call_sites: the_pre_site_sites,
             all_call_sites: forward_result.call_sites,
         };
