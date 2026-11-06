@@ -140,6 +140,14 @@ describe('embedded language openers', () => {
                 .toEqual(['MATA_INLINE mata:']);
             expect(openers('quietly python : print(1)\n'))
                 .toEqual(['PYTHON_INLINE python :']);
+            // nobreak and break are prefixes (export.ado: `mata :`
+            // inside `nobreak { }`)
+            expect(openers('nobreak mata : x = 1\n'))
+                .toEqual(['MATA_INLINE mata :']);
+            expect(openers('nobreak {\n    mata : x = 1\n}\n'))
+                .toEqual(['MATA_INLINE mata :']);
+            expect(openers('capture break python: print(1)\n'))
+                .toEqual(['PYTHON_INLINE python:']);
         });
 
         it('still opens after an if condition that ends in a word', () => {
