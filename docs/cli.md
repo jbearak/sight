@@ -420,7 +420,9 @@ through that `end`, and the data lines are not statements.
   comma, in source order, as `{"text", "range"}`. Tokens that touch are one
   arg, so `"$root/x`i'.dta"` and `i.region` are each one. The `using`
   clause is not included. For commands such as `display`, `assert`, and
-  `label define`, `args` holds all of their arguments.
+  `label define`, `args` holds all of their arguments. `display` has no
+  qualifiers or options, so `in smcl`, `= exp`, and commas in it are in
+  `args`, too.
 - `varlist`: `args` parsed as a varlist when every arg is a name, wildcard,
   range, macro, or factor-variable term; otherwise null.
 - `assignment`: `{"text", "expression"}` for `= exp`, or null. For `egen`,
@@ -448,8 +450,58 @@ through that `end`, and the data lines are not statements.
   `x`. An option that touches that token goes with it (`robust/cluster`).
   With no option before it, the comma is the first item, so `reg y x,`
   has `[","]`. `display` has no options: a comma in it is in `args`.
+- `assertion`: for `assert`, `{"text", "expression"}` for the asserted
+  `exp`, like `if`; null for other commands. With no expression
+  (`assert if x`), `expression` is an `unparsed` node with reason `empty`.
+- `display`: for `display` and its abbreviations, `{"items": [...]}`;
+  null for other commands. See below.
 
 The qualifiers may appear in any order in the source, as Stata allows.
+
+#### `display` items
+
+`display`'s arguments are a sequence of items, in source order. Each has
+`kind`, `text` (its tokens, single-spaced where the source had gaps), and
+`range`:
+
+| `kind` | Other fields |
+| --- | --- |
+| `string` | `quote`, `parts` (as in a `string` expression), `format` |
+| `expression` | `expression`, `format` |
+| `format` | none; `text` is the format, such as `%5.2f` |
+| `directive` | `name`, `argument`, `style` |
+
+- `format` on a `string` or `expression` is the `%fmt` that applies to it,
+  or null. A format applies to the next string or expression, past any
+  directives, as Stata reads `di %5.2f _n 2`.
+- An `expression` item's `text` and `range` include a leading `=`
+  (`di = 2 + 2`); its `expression` does not.
+- A directive's `name` is the name Stata's manual uses, whatever
+  abbreviation was written: `_newline` (`_n`), `_column` (`_col`),
+  `_skip` (`_s`), `_dup` (`_d`), `_continue` (`_c`), `_request` (`_r`),
+  `_char`, `_asis`, `as`, `in`, `,` (one space), or `,,` (nothing).
+- `argument` is the directive's parenthesized argument as
+  `{"text", "expression", "range"}`, or null: `_col(10)` has a `number`.
+  `expression` is null for `_request(macname)`.
+- `style` is, for `as`, `text`, `result`, `error`, or `input` (`as res`
+  is `result`), or null for a word Stata rejects or a macro; for `in`,
+  the word after it as written (`smcl`, `red`); otherwise null.
+
+Items follow how Stata 18 reads `display`:
+
+- A quoted string at the start of an item is the whole item: in
+  `di "a" + "b"`, `+ "b"` is a separate (and in Stata, invalid) item.
+  Parenthesize a string expression: `di ("a" + "b")`.
+- An expression continues across spaces only through a binary operator:
+  `di 1 2` is two items, and `di 1 -2` is one, `1 - 2`. A call or
+  subscript must touch its name, so `di abs (-1)` is `abs` then `(-1)`.
+- A format runs to the next space.
+- Directives are read only at the start of an item, by exact case: in
+  `di _n+1` `_n` is a newline, in `di 1+_n` it is the observation number,
+  and `_N` is never a directive. Two commas in a row are `,,`, even with
+  a space between them.
+- A macro at the start of an item is an `expression`, since what it
+  expands to is not known.
 
 #### Other statements
 

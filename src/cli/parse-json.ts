@@ -13,9 +13,11 @@ import { Position, Range } from 'vscode-languageserver-textdocument';
 import { ContextTracker } from '../context-tracker';
 import { CommandDatabase } from '../command-database';
 import {
+    join_tokens,
     name_parts_from_tokens,
     parse_expression,
     parse_varlist,
+    significant_tokens,
 } from '../expression-parser';
 import { StataLexer } from '../lexer';
 import { StataParser } from '../parser';
@@ -539,6 +541,16 @@ class ParseDocumentBuilder {
                 : null,
             if: node.ifExpression !== undefined
                 ? { text: node.ifExpression, expression: node.if_ast ?? null }
+                : null,
+            assertion: node.assertion_ast !== undefined
+                ? {
+                    text: join_tokens(significant_tokens(
+                        this.tokens_in(node.assertion_ast.range))),
+                    expression: node.assertion_ast,
+                }
+                : null,
+            display: node.display_items !== undefined
+                ? { items: node.display_items }
                 : null,
             in: node.inExpression !== undefined
                 ? {

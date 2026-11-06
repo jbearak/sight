@@ -161,7 +161,11 @@ function is_adjacent(previous: Token, next: Token): boolean {
  * Join token values, inserting one space wherever the source had a gap
  * (whitespace, a comment, or a `///` line break).
  */
-function join_tokens(tokens: readonly Token[], start: number, end: number): string {
+export function join_tokens(
+    tokens: readonly Token[],
+    start = 0,
+    end = tokens.length
+): string {
     const the_parts: string[] = [];
     for (let i = start; i < end; i++) {
         const my_token = tokens[i];

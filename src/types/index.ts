@@ -325,6 +325,10 @@ export interface CommandNode {
   expression_ast?: ExpressionNode;   // `= exp` of generate/replace/egen/...
   if_ast?: ExpressionNode;
   in_range?: InRangeNode;
+  // With ParserOptions.structured: the `exp` of `assert exp`, and the
+  // arguments of `display` (which has no qualifiers or options).
+  assertion_ast?: ExpressionNode;
+  display_items?: DisplayItem[];
   weight?: WeightClause;
   using?: UsingClause;
   body?: StataNode[];  // For prefix command brace blocks (e.g., capture { })
@@ -679,6 +683,73 @@ export interface InRangeNode {
   last?: ExpressionNode;
   range: Range;
 }
+
+// ---------------------------------------------------------------------------
+// display arguments
+// ---------------------------------------------------------------------------
+// `display` reads its arguments as a sequence of directives ([P] display):
+// strings, `[%fmt] [=]exp`, and directives such as `_n` or `as result`.
+// Each `text` is the item's tokens, single-spaced where the source had
+// gaps, as for UnparsedExpressionNode.
+
+/**
+ * A `display` directive, by the canonical name Stata's manual uses:
+ * `_newline` for `_n`, `_column` for `_col`, and so on. `,` shows one
+ * space and `,,` shows nothing.
+ */
+export type DisplayDirectiveName =
+  | '_newline' | '_column' | '_skip' | '_dup' | '_continue'
+  | '_request' | '_char' | '_asis' | 'as' | 'in' | ',' | ',,';
+
+/** A quoted string; `format` is the `%fmt` before it, if any. */
+export interface DisplayStringItem extends Omit<StringExpressionNode, 'kind'> {
+  kind: 'string';
+  format: string | null;
+}
+
+/**
+ * `[=]exp`. `text` and `range` include a leading `=`; `expression`
+ * does not. `format` is the `%fmt` before it, if any.
+ */
+export interface DisplayExpressionItem {
+  kind: 'expression';
+  text: string;
+  format: string | null;
+  expression: ExpressionNode;
+  range: Range;
+}
+
+/** `%fmt`, which applies to the next string or expression. */
+export interface DisplayFormatItem {
+  kind: 'format';
+  text: string;
+  range: Range;
+}
+
+/** The text in a directive's parentheses, as in `_col(10)`. */
+export interface DisplayDirectiveArgument {
+  text: string;
+  // Null for `_request(macname)`, whose argument is a name.
+  expression: ExpressionNode | null;
+  range: Range;
+}
+
+export interface DisplayDirectiveItem {
+  kind: 'directive';
+  name: DisplayDirectiveName;
+  text: string;
+  argument: DisplayDirectiveArgument | null;
+  // `as`: `text`, `result`, `error`, or `input`, or null for a word
+  // Stata rejects. `in`: the word after it as written (`smcl`, `red`).
+  style: string | null;
+  range: Range;
+}
+
+export type DisplayItem =
+  | DisplayStringItem
+  | DisplayExpressionItem
+  | DisplayFormatItem
+  | DisplayDirectiveItem;
 
 export type WeightKind = 'weight' | 'fweight' | 'aweight' | 'pweight' | 'iweight';
 

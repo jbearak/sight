@@ -81,7 +81,7 @@ Stata still runs the code.
 | <a id="redundant-macro-suffix"></a>`REDUNDANT_MACRO_SUFFIX` | warning | A macro reference includes redundant trailing characters that Stata ignores. |
 | <a id="invalid-macro-char"></a>`INVALID_MACRO_CHAR` | error | A macro name contains a character Stata does not allow in identifiers. |
 | <a id="missing-expression-after-equals"></a>`MISSING_EXPRESSION_AFTER_EQUALS` | error | An `=` is followed by no expression: e.g., `gen x =`, an empty `if` / `while` condition, or an empty qualifier. |
-| <a id="unbalanced-parentheses"></a>`UNBALANCED_PARENTHESES` | error | Mismatched `(` / `)` in an expression, `if` / `while` condition, or `by` / `bysort` qualifier. |
+| <a id="unbalanced-parentheses"></a>`UNBALANCED_PARENTHESES` | error | Mismatched `(` / `)` in an expression, `if` / `while` condition, `by` / `bysort` qualifier, `assert` expression, or `display` arguments. |
 | <a id="orphan-close-brace"></a>`ORPHAN_CLOSE_BRACE` | error | A `}` appears with no matching opening block. |
 | <a id="stray-token-in-condition"></a>`STRAY_TOKEN_IN_CONDITION` | error | Unexpected token inside an `if` / `while` / qualifier condition. |
 | <a id="split-literal-in-condition"></a>`SPLIT_LITERAL_IN_CONDITION` | error | A string or compound literal is split across the condition boundary, leaving an unterminated literal in an `if` / `while` condition. |
