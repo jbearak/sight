@@ -21,6 +21,8 @@ import { PrettyPrinter } from '../pretty-printer';
 import { StataLexer } from '../lexer';
 import { StataParser } from '../parser';
 
+const LEADING_BLANKS_RE = /^[ \t]*/;
+
 /**
  * The `;` that ends an inline embedded statement, with what may follow
  * it on its last line: spaces and a trailing comment. Empty when the
@@ -431,6 +433,13 @@ export class CodeFormatter {
         }
 
         const the_line_count = get_line_count(doc);
+        // A unit's placeholder goes after its first line's indentation,
+        // not over it. The formatter moves the lines that continue the
+        // statement (after a `///`) by as much as it moves that line, so
+        // with the indentation gone they moved one more level on every
+        // format.
+        const indent_length = (my_line: number): number =>
+            LEADING_BLANKS_RE.exec(get_line_text(doc, my_line))?.[0].length ?? 0;
         const the_units: Array<{
             content: string;
             range: ContextRange;
@@ -449,7 +458,10 @@ export class CodeFormatter {
                     content: this.extract_block_content(doc, my_range),
                     range: my_range,
                     actual_range: {
-                        start: { line: my_group.start_line, character: 0 },
+                        start: {
+                            line: my_group.start_line,
+                            character: indent_length(my_group.start_line),
+                        },
                         end: {
                             line: my_group.end_line,
                             character: my_end_line_text.length,
@@ -490,7 +502,10 @@ export class CodeFormatter {
                 content: my_lines.join('\n'),
                 range: my_synthetic_range,
                 actual_range: {
-                    start: { line: my_group.start_line, character: 0 },
+                    start: {
+                        line: my_group.start_line,
+                        character: indent_length(my_group.start_line),
+                    },
                     end: {
                         line: my_group.end_line,
                         character: my_end_line_text.length,
