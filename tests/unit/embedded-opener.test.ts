@@ -198,6 +198,11 @@ describe('embedded language openers', () => {
                 .toEqual([]);
         });
 
+        it('reads else if inside a command\'s arguments as arguments', () => {
+            expect(openers('local x else if flag mata: x = 1\n')).toEqual([]);
+            expect(openers('local x else if flag python: print(1)\n')).toEqual([]);
+        });
+
         it('opens on a line a /// joins to a prefix macro or an if condition', () => {
             // _power_rsafe.ado: `version' /// then mata: on the next line
             expect(openers('`version\' ///\nmata: x = 1\n'))

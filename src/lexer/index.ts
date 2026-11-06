@@ -725,9 +725,9 @@ export class StataLexer {
       this.if_condition_done = true;
       this.at_command_start = true;
     }
-    if (token.type === 'WORD' && token.value === 'if' &&
-        (this.at_command_start || (my_previous?.type === 'WORD' &&
-          my_previous.value === 'else'))) {
+    // At command position only; `else if` gets there because `else`
+    // keeps it open, but not `local x else if …`
+    if (token.type === 'WORD' && token.value === 'if' && this.at_command_start) {
       this.in_if_statement = true;
       this.if_keyword_token = token;
       this.if_condition_done = false;
