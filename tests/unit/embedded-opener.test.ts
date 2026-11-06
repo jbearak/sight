@@ -180,6 +180,24 @@ describe('embedded language openers', () => {
             expect(openers('local x 1 python\ndisplay 1\n')).toEqual([]);
         });
 
+        it('opens after prefixes that follow an if condition or else', () => {
+            expect(openers('if flag quietly mata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+            expect(openers('if 0 display 1\nelse capture mata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+            expect(openers('if flag capture python: print(1)\n'))
+                .toEqual(['PYTHON_INLINE python:']);
+            expect(openers('if flag capture noisily mata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+            expect(openers('if flag `vv\' mata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+            // A command after the prefix still takes it as an argument
+            expect(openers('if flag quietly local mata : word 1 of a b\n'))
+                .toEqual([]);
+            expect(openers('if 0 display 1\nelse capture local python : w\n'))
+                .toEqual([]);
+        });
+
         it('opens on a line a /// joins to a prefix macro or an if condition', () => {
             // _power_rsafe.ado: `version' /// then mata: on the next line
             expect(openers('`version\' ///\nmata: x = 1\n'))

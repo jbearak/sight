@@ -588,9 +588,10 @@ export class StataLexer {
    * Whether a command can start at the word just scanned (at
    * `start_line`, `start_column`), so `mata` or `python` there opens
    * embedded code: at the start of a statement or after a prefix or its
-   * colon (`capture mata:`, `version 18: mata:`), after an `else` or a
-   * macro that starts the statement (`` `vv' mata:``, which holds a
-   * prefix), or where a one-line `if`'s condition ends. Elsewhere it is
+   * colon (`capture mata:`, `version 18: mata:`), after `else` or
+   * where a one-line `if`'s condition ends (`if flag quietly mata:`),
+   * or after a macro that starts the command (`` `vv' mata:``, which
+   * holds a prefix). Elsewhere it is
    * an argument: `local x 1 mata: y`, `if flag local x 1 mata: y`.
    */
   private at_embedded_opener_position(start_line: number, start_column: number): boolean {
@@ -603,8 +604,7 @@ export class StataLexer {
     }
     const my_starts_statement = this.previous_started_command &&
       (my_previous.type === 'MACRO_REF_LOCAL' ||
-        my_previous.type === 'MACRO_REF_GLOBAL' ||
-        (my_previous.type === 'WORD' && my_previous.value === 'else'));
+        my_previous.type === 'MACRO_REF_GLOBAL');
     return my_starts_statement ||
       this.if_condition_ends_before(start_line, start_column);
   }
@@ -720,7 +720,10 @@ export class StataLexer {
         CONDITION_OPERAND_END_TYPES.has(my_previous.type) &&
         !(my_previous.range.end.line === token.range.start.line &&
           my_previous.range.end.character === token.range.start.character)) {
+      // The command starts here, so prefixes may come first:
+      // `if flag quietly mata: x`
       this.if_condition_done = true;
+      this.at_command_start = true;
     }
     if (token.type === 'WORD' && token.value === 'if' &&
         (this.at_command_start || (my_previous?.type === 'WORD' &&
@@ -740,6 +743,7 @@ export class StataLexer {
       token, this.previous_token?.type === 'CONTINUATION')) {
       return;
     }
+    this.note_if_condition(token);
     const my_started_command = this.at_command_start;
     this.update_command_position(token);
     this.previous_started_command = my_started_command;
@@ -763,7 +767,6 @@ export class StataLexer {
       this.in_if_statement = false;
       return;
     }
-    this.note_if_condition(token);
     if (token.type === 'MATA_INLINE') {
       this.in_mata_inline_statement = true;
     }
@@ -782,7 +785,8 @@ export class StataLexer {
       return;
     }
     if (this.at_command_start && token.type === 'WORD') {
-      if (ARGUMENT_FREE_PREFIXES.has(token.value)) {
+      // A command follows a prefix, and `else`: `else capture mata: x`
+      if (ARGUMENT_FREE_PREFIXES.has(token.value) || token.value === 'else') {
         return;
       }
       this.command_word = token.value;
