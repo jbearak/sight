@@ -572,19 +572,6 @@ export class StataLexer {
   }
 
   /**
-   * Whether the word before the one just scanned is a command it is an
-   * argument of: any word but a prefix (`capture mata:`) or `else`
-   * (`else mata: x`), which a command follows.
-   */
-  private previous_word_takes_argument(): boolean {
-    const my_previous = this.previous_token;
-    return my_previous !== null && my_previous !== undefined &&
-      my_previous.type === 'WORD' &&
-      !ARGUMENT_FREE_PREFIXES.has(my_previous.value) &&
-      my_previous.value !== 'else';
-  }
-
-  /**
    * Whether a command can start at the word just scanned (at
    * `start_line`, `start_column`), so `mata` or `python` there opens
    * embedded code: at the start of a statement or after a prefix or its
@@ -2136,10 +2123,6 @@ export class StataLexer {
       this.note_input_command_word(value);
       // Check for embedded language block starts (case-sensitive: Stata requires lowercase)
       if (this.is_mata_start_delimiter(value)) {
-        // After a word other than a prefix, "mata" is that command's
-        // argument: `clear mata`
-        const prev_is_word = this.previous_word_takes_argument();
-        
         // Check if previous token is MATA_INLINE - if so, we're inside an inline mata expression
         // e.g., "mata: mata drop foo()" - the second "mata" is a Mata command, not a block start
         const prev_is_mata_inline = this.previous_token &&
@@ -2179,10 +2162,6 @@ export class StataLexer {
               range: this.makeRange(startLine, startColumn, this.line, this.column),
             };
           }
-        } else if (prev_is_word) {
-          // Without a colon, any word but a prefix or `else` also makes
-          // "mata" its argument (`if flag clear mata`); fall through to
-          // return as WORD
         } else if (
           !this.is_only_whitespace_or_comment_until_newline() &&
           !this.brace_follows_blanks()
@@ -2252,8 +2231,7 @@ export class StataLexer {
           !this.is_only_whitespace_or_comment_until_newline() &&
           !this.brace_follows_blanks();
         
-        if (at_opener_position && !prev_is_end && !is_subcommand &&
-            !this.previous_word_takes_argument()) {
+        if (at_opener_position && !prev_is_end && !is_subcommand) {
           this.push_context(LanguageContext.PYTHON);
           this.note_python_block_opener();
           // Track the start line for brace-style block detection

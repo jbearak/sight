@@ -161,7 +161,15 @@ describe('embedded language openers', () => {
                 .toEqual(['MATA_INLINE mata:']);
             expect(openers('if 0 display 1\nelse if flag mata: x = 1\n'))
                 .toEqual(['MATA_INLINE mata:']);
-            // Without a colon, a word before it is still an argument
+            // Without a colon too (StataMP 18: `if `flag' mata x = 7`
+            // runs, and `if `flag' mata` / `python` open blocks) ...
+            expect(openers('if flag mata x = 1\n'))
+                .toEqual(['MATA_INLINE mata']);
+            expect(openers('if flag mata\nx = 1\nend\n'))
+                .toEqual(['MATA_START mata', 'END_MATA end']);
+            expect(openers('if flag python\nprint(1)\nend\n'))
+                .toEqual(['PYTHON_START python', 'END_PYTHON end']);
+            // ... but once the command has started, it is an argument
             expect(openers('if flag clear mata\ndisplay 1\n')).toEqual([]);
         });
 
