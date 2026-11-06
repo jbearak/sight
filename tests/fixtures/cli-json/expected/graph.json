@@ -44,6 +44,16 @@
       "error": null
     },
     {
+      "path": "frame-blocks.do",
+      "standalone": false,
+      "error": null
+    },
+    {
+      "path": "frame-unclosed.do",
+      "standalone": false,
+      "error": null
+    },
+    {
       "path": "header-only.do",
       "standalone": true,
       "error": null
@@ -89,6 +99,8 @@
     "brace-blocks.do",
     "column0-slashes.do",
     "comment-placement.do",
+    "frame-blocks.do",
+    "frame-unclosed.do",
     "header-only.do",
     "macro-built-names.do",
     "main.do",

@@ -1323,10 +1323,19 @@ export class StataParser {
     }
   }
 
+  /**
+   * Can `token` name a frame after `frame`? A word, or a macro holding
+   * one: Stata 18 runs `capture frame `f' {` and `cap frame $g: cmd`.
+   */
+  private is_frame_name_token(token: Token | undefined): boolean {
+    return token !== undefined &&
+      (token.type === 'WORD' || this.isMacroRefToken(token));
+  }
+
   /** Does `frame name {` start at the current token? */
   private starts_frame_block(): boolean {
     const name_index = this.index_after_statement_trivia(this.current + 1);
-    if (this.tokens[name_index]?.type !== 'WORD') {
+    if (!this.is_frame_name_token(this.tokens[name_index])) {
       return false;
     }
     const brace_index = this.index_after_statement_trivia(name_index + 1);
@@ -1492,7 +1501,7 @@ export class StataParser {
     // This handles cases like `capture frame this: that`.
     if (commandName === 'frame') {
       const saved_pos = this.current;
-      if (this.check('WORD')) {
+      if (this.is_frame_name_token(this.peek())) {
         const frame_name_token = this.advance();
         this.skipTrivia();
         if (this.check('COLON')) {
@@ -3616,7 +3625,7 @@ export class StataParser {
     this.skipTrivia();
 
     // Get frame name: a word, or a macro holding one (`frame `f' {`)
-    if (!this.check('WORD') && !this.isMacroRefToken(this.peek())) {
+    if (!this.is_frame_name_token(this.peek())) {
       // Not a frame block/prefix syntax, fall back to command parsing
       // Reset position and return null to let parseCommand handle it
       this.current = frame_index;

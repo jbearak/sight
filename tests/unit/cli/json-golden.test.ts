@@ -20,7 +20,11 @@
  * joined to macro references (`` local foo`x' 1 ``), in every macro
  * definition form, which have `name_parts`. assert-display.do has
  * `assert` conditions and `display` arguments of every item kind,
- * and an unbalanced parenthesis in each.
+ * and an unbalanced parenthesis in each. frame-blocks.do has `frame name {`
+ * blocks with and without prefixes, named by words and macros, the
+ * one-line `frame name:` prefix, and a frame block in a loop;
+ * frame-unclosed.do has frame blocks with no `}`, one cut off by a
+ * program's `end` and one at the end of the file.
  * The expected JSON is in
  * tests/fixtures/cli-json/expected, with the fixture's absolute path
  * replaced by <ROOT> and the Sight version by <VERSION>.
@@ -57,6 +61,8 @@ const PARSE_FILES = [
     'brace-blocks.do',
     'macro-built-names.do',
     'assert-display.do',
+    'frame-blocks.do',
+    'frame-unclosed.do',
 ];
 
 /** Replace machine-specific values so the output is stable. */
