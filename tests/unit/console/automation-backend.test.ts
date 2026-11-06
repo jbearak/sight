@@ -529,6 +529,9 @@ describe('browse_to_vview', () => {
         expect(browse_to_vview('quietly browse')).toBe('quietly vview');
         expect(browse_to_vview('cap noi br price')).toBe('cap noi vview price');
         expect(browse_to_vview('capture: browse')).toBe('capture: vview');
+        expect(browse_to_vview('nobreak browse')).toBe('nobreak vview');
+        expect(browse_to_vview('capture break br price'))
+            .toBe('capture break vview price');
     });
 
     it('rejects a long run of prefixes quickly', () => {
@@ -542,6 +545,8 @@ describe('browse_to_vview', () => {
         for (const my_line of [
             'b', 'browser', 'brx', 'Browse', 'BR', 'display "browse"',
             'gen br = 1', 'qu browse', 'browse_count = 1',
+            // nobreak and break take no abbreviation
+            'nobrea browse', 'brea browse',
         ]) {
             expect(is_browse_command(my_line)).toBe(false);
             expect(browse_to_vview(my_line)).toBe(my_line);

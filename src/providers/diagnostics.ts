@@ -1841,7 +1841,7 @@ export class DiagnosticsProvider {
             }
             
             // Check for common prefixes (must be lowercase per Stata syntax)
-            const prefixes = ['quietly ', 'qui ', 'capture ', 'cap ', 'noisily ', 'noi '];
+            const prefixes = ['quietly ', 'qui ', 'capture ', 'cap ', 'noisily ', 'noi ', 'nobreak ', 'break '];
             for (const prefix of prefixes) {
                 if (line_trimmed.startsWith(prefix)) {
                     const after_prefix = line_trimmed.slice(prefix.length).trim();
