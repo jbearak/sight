@@ -4,6 +4,22 @@
  * tracker so they agree on where a program definition starts.
  */
 
+/**
+ * `program` and the abbreviations Stata 18 accepts for it, down to `pr`
+ * (`prog def roctab` in roctab.ado); `p` is unrecognized.
+ */
+export const PROGRAM_COMMAND_NAMES: ReadonlySet<string> = new Set([
+    'pr', 'pro', 'prog', 'progr', 'progra', 'program',
+]);
+
+/**
+ * Regex source for a definition header up to the name: `program` and
+ * optionally `define`, each abbreviated as far as Stata allows
+ * (`prog def`). Exact case.
+ */
+export const PROGRAM_HEADER_SOURCE =
+    /pr(?:o(?:g(?:r(?:a(?:m)?)?)?)?)?\b(?:\s+de(?:f(?:i(?:n(?:e)?)?)?)?\b)?/.source;
+
 /** Words after `program` that make it a subcommand, not a definition. */
 export const PROGRAM_SUBCOMMANDS: ReadonlySet<string> = new Set([
     'di', 'dir', 'drop', 'l', 'li', 'lis', 'list',

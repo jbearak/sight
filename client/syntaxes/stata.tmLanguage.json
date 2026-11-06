@@ -305,7 +305,7 @@
         "program-definition": {
             "patterns": [
                 {
-                    "match": "(?<!\\.)\\b(program)\\s+(define|drop|list|dir)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+                    "match": "(?<!\\.)\\b(pr(?:o(?:g(?:r(?:a(?:m)?)?)?)?)?)\\s+(de(?:f(?:i(?:n(?:e)?)?)?)?|drop|l(?:i(?:s(?:t)?)?)?|dir?)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
                     "captures": {
                         "1": { "name": "storage.type.function.stata" },
                         "2": { "name": "keyword.other.stata" },
@@ -313,7 +313,7 @@
                     }
                 },
                 {
-                    "match": "(?<!\\.)\\b(program)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
+                    "match": "(?<!\\.)\\b(pr(?:o(?:g(?:r(?:a(?:m)?)?)?)?)?)\\s+([a-zA-Z_][a-zA-Z0-9_]*)",
                     "captures": {
                         "1": { "name": "storage.type.function.stata" },
                         "2": { "name": "entity.name.function.stata" }

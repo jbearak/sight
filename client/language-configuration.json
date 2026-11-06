@@ -64,7 +64,7 @@
         ]
     ],
     "indentationRules": {
-        "increaseIndentPattern": "^\\s*(program\\s+define|if|else|foreach|forvalues|while)\\b.*$\\|^\\s*\\{\\s*$",
+        "increaseIndentPattern": "^\\s*(pr(?:o(?:g(?:r(?:a(?:m)?)?)?)?)?\\s+de(?:f(?:i(?:n(?:e)?)?)?)?|if|else|foreach|forvalues|while)\\b.*$|^\\s*\\{\\s*$",
         "decreaseIndentPattern": "^\\s*(end|else|\\})\\s*$"
     }
 }
