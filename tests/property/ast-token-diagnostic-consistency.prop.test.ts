@@ -11,7 +11,7 @@
 
 import { describe, it, expect, beforeEach } from 'bun:test';
 import * as fc from 'fast-check';
-import { SemanticAnalyzer } from '../../src/analyzer';
+import { SemanticAnalyzer, STATA_SYSTEM_GLOBALS } from '../../src/analyzer';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { StataDiagnosticCode } from '../../src/types';
@@ -54,7 +54,9 @@ describe('AST and Token Diagnostic Consistency Property Tests', () => {
             'set', 'mata', 'python', 'frame', 'tempvar', 'tempfile',
             'tempname', 'scalar', 'matrix', 'return', 'ereturn', 'sreturn',
             'args', 'syntax', 'version', 'preserve', 'restore'
-        ].includes(name.toLowerCase()));
+        ].includes(name.toLowerCase()))
+        // Stata always defines these, so `$S_OS` is never undefined
+        .filter(name => !STATA_SYSTEM_GLOBALS.has(name));
 
     // Expected message formats. The diagnostic code (UNDEFINED_MACRO) classifies
     // the rule; the message states subject + predicate. Local macros keep the
