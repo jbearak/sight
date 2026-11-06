@@ -20,6 +20,7 @@ import {
 } from '../types';
 import { get_line_text, get_line_count } from '../utils/line-utils';
 import { nested_statements } from '../utils/node-body';
+import { PROGRAM_HEADER_SOURCE } from '../utils/program-definition';
 import { enumerate_scoped_local_macros } from '../utils/scoped-locals';
 import { extract_sections, RawSection } from './section-detector';
 import * as path from 'path';
@@ -670,13 +671,11 @@ export class SymbolProvider {
 
         const escaped_name = program_name.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
-        // Common Stata forms:
-        // - program <name>
-        // - program define <name>
-        // - program def <name>
+        // `program <name>` or `program define <name>`, each word
+        // abbreviated as far as Stata allows (`prog def <name>`), exact
+        // case
         const name_regex = new RegExp(
-            `\\bprogram\\b(?:\\s+(?:define|def))?\\s+(${escaped_name})\\b`,
-            'i'
+            `\\b${PROGRAM_HEADER_SOURCE}\\s+(${escaped_name})\\b`
         );
 
         const match = header_line.match(name_regex);
@@ -686,9 +685,7 @@ export class SymbolProvider {
 
         const full_match_start = match.index;
         const matched_text = match[0];
-        const inner_start_in_match = matched_text.toLowerCase().lastIndexOf(
-            program_name.toLowerCase()
-        );
+        const inner_start_in_match = matched_text.lastIndexOf(program_name);
         if (inner_start_in_match < 0) {
             return null;
         }

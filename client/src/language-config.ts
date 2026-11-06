@@ -34,7 +34,7 @@ const STATA_LANGUAGE_CONFIG_BASE = {
     ] as [string, string][],
     indentationRules: {
         increaseIndentPattern:
-            /^\s*(program\s+define|if|else|foreach|forvalues|while)\b.*$|^\s*\{\s*$/,
+            /^\s*(pr(?:o(?:g(?:r(?:a(?:m)?)?)?)?)?\s+de(?:f(?:i(?:n(?:e)?)?)?)?|if|else|foreach|forvalues|while)\b.*$|^\s*\{\s*$/,
         decreaseIndentPattern: /^\s*(end|else|\})\s*$/,
     },
 };

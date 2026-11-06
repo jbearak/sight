@@ -1113,6 +1113,37 @@ describe('Local Macro Nesting', () => {
         });
     });
 
+    it('should select only the name after an abbreviated header', () => {
+        // Stata accepts `pr` … `program` and `de` … `define`; base ados
+        // write `prog def`. A program may also be named `de`.
+        for (const [my_header, my_name] of [
+            ['prog def', 'roctab'], ['pr de', 'x'], ['progr', 'y'], ['prog', 'de'],
+        ]) {
+            const my_doc = create_test_document(`${my_header} ${my_name}\nend`, {
+                programs: new Map([
+                    [my_name, create_program_entry(my_name, 0, 1)],
+                ]),
+            });
+            const my_symbols = symbol_provider.get_document_symbols(my_doc);
+            const my_start = my_header.length + 1;
+            expect(my_symbols[0].selectionRange).toEqual({
+                start: { line: 0, character: my_start },
+                end: { line: 0, character: my_start + my_name.length },
+            });
+        }
+    });
+
+    it('should not match a differently cased header (Stata is case-sensitive)', () => {
+        const my_doc = create_test_document('PROGRAM test\nend', {
+            programs: new Map([
+                ['test', create_program_entry('test', 0, 1)],
+            ]),
+        });
+        const my_symbols = symbol_provider.get_document_symbols(my_doc);
+        // Falls back to the whole program range
+        expect(my_symbols[0].selectionRange.start.character).toBe(0);
+    });
+
     /**
      * Helper to create a program symbol entry for the symbol table.
      */
