@@ -164,6 +164,17 @@ describe('embedded language openers', () => {
             // `local` is the command and `mata` its argument
             expect(openers('if flag local mata : word 1 of a b\n')).toEqual([]);
             expect(openers('if (c) local python : word 1 of a b\n')).toEqual([]);
+            // Once the command has started, a later operator doesn't
+            // restart the condition
+            expect(openers('if flag local x hello-world mata: hello\n')).toEqual([]);
+            expect(openers('if flag local x hello-world python: hello\n')).toEqual([]);
+        });
+
+        it('treats a quoted macro in the condition as one operand', () => {
+            expect(openers('if "`a\'" == "" mata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
+            expect(openers('if "`a\'" mata: x = 1\n'))
+                .toEqual(['MATA_INLINE mata:']);
         });
     });
 
