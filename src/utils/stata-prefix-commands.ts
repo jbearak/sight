@@ -27,6 +27,10 @@ export const PREFIX_COMMANDS: ReadonlyMap<string, string> = new Map([
     ['captur', 'capture'], ['capture', 'capture'],
     ['n', 'noisily'], ['no', 'noisily'], ['noi', 'noisily'], ['nois', 'noisily'],
     ['noisi', 'noisily'], ['noisil', 'noisily'], ['noisily', 'noisily'],
+    // No abbreviations: StataMP 18 rejects `nobrea` and `brea`. Each
+    // takes a command or a `{ }` block (`nobreak {`).
+    ['nobreak', 'nobreak'],
+    ['break', 'break'],
 ]);
 
 /**
