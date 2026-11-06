@@ -205,7 +205,7 @@ describe('Property 3: Fallback to Script-Relative Resolution', () => {
                     // Create parent.do with backward directive and forward call command
                     const forward_call_path = `${target_subdir}/${target_file_name}.do`;
                     const parent_content = `// @lsp-${parent_backward_type}: "ancestor.do"\ndo "${forward_call_path}"\nlocal parent_var = 2`;
-                    write_file('scripts/parent.do', parent_content);
+                    const parent_path = write_file('scripts/parent.do', parent_content);
 
                     // Create child.do
                     const child_content = `// @lsp-${child_backward_type}: "parent.do"\nlocal child_var = 3`;
@@ -219,11 +219,26 @@ describe('Property 3: Fallback to Script-Relative Resolution', () => {
                     const has_wrong_target = result.symbols.globalMacros.has('wrong_location_target');
                     expect(has_wrong_target).toBe(false);
 
-                    // Should have a "Cannot read file" diagnostic
-                    const cannot_read_diagnostics = result.diagnostics.filter(
+                    // The missing file is parent.do's to report, at its
+                    // own call site; the child gets no copy
+                    const child_cannot_read = result.diagnostics.filter(
                         d => d.message.includes('Cannot read file')
                     );
-                    expect(cannot_read_diagnostics.length).toBeGreaterThan(0);
+                    expect(child_cannot_read).toHaveLength(0);
+
+                    const parent_uri = URI.file(parent_path).toString();
+                    const parent_result = await scope_resolver.resolve(
+                        parent_uri,
+                        parent_content
+                    );
+                    expect(
+                        parent_result.symbols.globalMacros.has('wrong_location_target')
+                    ).toBe(false);
+                    const cannot_read_diagnostics = parent_result.diagnostics.filter(
+                        d => d.message.includes('Cannot read file')
+                    );
+                    expect(cannot_read_diagnostics).toHaveLength(1);
+                    expect(cannot_read_diagnostics[0]?.range.start.line).toBe(1);
                 }
             ),
             { numRuns: 100 }

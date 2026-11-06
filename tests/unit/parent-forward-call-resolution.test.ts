@@ -381,7 +381,7 @@ local child_var = 1
             expect(result.symbols.globalMacros.has('helper_global')).toBe(false);
         });
 
-        it('should handle missing forward call target file gracefully', async () => {
+        it('should leave a missing forward call target to the parent', async () => {
             // Parent file that calls a non-existent helper before child
             const parent_content = `
 global parent_global = 1
@@ -401,11 +401,13 @@ local child_var = 1
 
             // Should have parent's global
             expect(result.symbols.globalMacros.has('parent_global')).toBe(true);
-            // Should have a diagnostic about the missing file
+            // The missing file is the parent's to report, at its own
+            // call site. The child must not get a copy remapped onto
+            // its directive line.
             const missing_file_diagnostics = result.diagnostics.filter(
                 d => d.message.includes('Cannot read file') && d.message.includes('nonexistent_helper')
             );
-            expect(missing_file_diagnostics.length).toBeGreaterThan(0);
+            expect(missing_file_diagnostics).toHaveLength(0);
         });
 
         it('should handle call site at end of file (assume_call_site: end)', async () => {

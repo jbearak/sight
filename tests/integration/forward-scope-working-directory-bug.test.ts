@@ -542,7 +542,10 @@ global loop_var = 1
 do "dhs/nonexistent_file"
 local survey_var = 1
 `;
-            write_file('fertility_surveys/dhs/survey.do', survey_content);
+            const survey_path = write_file(
+                'fertility_surveys/dhs/survey.do',
+                survey_content
+            );
 
             // Create bh_vars.do
             const bh_vars_content = `// @lsp-included-by: "survey.do"
@@ -554,23 +557,35 @@ local bh_var = 1
             );
             const bh_vars_uri = file_uri(bh_vars_path);
 
-            // Use ScopeResolver directly to get DirectiveDiagnostic[] with source attribution
-            const result = await scope_resolver.resolve(bh_vars_uri, bh_vars_content);
+            const is_nonexistent_file = (message: string): boolean =>
+                message.includes('Cannot read file') &&
+                message.includes('nonexistent_file');
 
-            // Should have a diagnostic about the missing file
-            const missing_file_diagnostics = result.diagnostics.filter(
-                d => d.message.includes('Cannot read file') &&
-                     d.message.includes('nonexistent_file')
+            // bh_vars.do does not get a copy of survey.do's problem
+            const result = await scope_resolver.resolve(bh_vars_uri, bh_vars_content);
+            expect(
+                result.diagnostics.filter(d => is_nonexistent_file(d.message))
+            ).toHaveLength(0);
+
+            // survey.do reports it, resolved through loop.do's working
+            // directory. Use ScopeResolver directly to get
+            // DirectiveDiagnostic[] with source attribution.
+            const survey_result = await scope_resolver.resolve(
+                file_uri(survey_path),
+                survey_content
+            );
+            const missing_file_diagnostics = survey_result.diagnostics.filter(
+                d => is_nonexistent_file(d.message)
             );
 
-            expect(missing_file_diagnostics.length).toBeGreaterThan(0);
+            expect(missing_file_diagnostics).toHaveLength(1);
 
             // The diagnostic should have source attribution
             for (const my_diagnostic of missing_file_diagnostics) {
                 expect(my_diagnostic.source).toBeDefined();
                 if (my_diagnostic.source) {
-                    expect(my_diagnostic.source.source_file).toBeDefined();
-                    expect(typeof my_diagnostic.source.source_line).toBe('number');
+                    expect(my_diagnostic.source.source_file).toBe('survey.do');
+                    expect(my_diagnostic.source.source_line).toBe(1);
                 }
             }
 
