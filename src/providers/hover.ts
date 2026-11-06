@@ -37,7 +37,12 @@ import {
     ResolvedScope,
     ScopeResolverConfig,
     CommandInfo,
+    CommandNode,
+    StataNode,
 } from '../types';
+import { compare_positions } from '../utils/scope-position';
+import { nested_statements } from '../utils/node-body';
+import { syntax_option_spelling } from '../utils/syntax-option-name';
 import { IContextTracker } from '../context-tracker/types';
 import { LanguageContext } from '../context-tracker/types';
 import { ScopeResolver } from '../scope-resolver';
@@ -226,6 +231,25 @@ export interface SymbolMatch {
     content: MarkupContent;
 }
 
+/** The innermost command statement whose range holds `position`. */
+function find_command_at(
+    the_nodes: readonly StataNode[],
+    position: Position
+): CommandNode | undefined {
+    for (const my_node of the_nodes) {
+        if (
+            compare_positions(my_node.range.start, position) > 0
+            || compare_positions(position, my_node.range.end) > 0
+        ) {
+            continue;
+        }
+        const inner = find_command_at(nested_statements(my_node) ?? [], position);
+        if (inner) return inner;
+        if (my_node.type === 'command') return my_node;
+    }
+    return undefined;
+}
+
 /**
  * Hover Provider class for generating hover information.
  *
@@ -355,6 +379,16 @@ export class HoverProvider {
                 }
             }
             return null;
+        }
+
+        // An option name at a call to a user program names that
+        // program's `syntax` option, even where it is also spelled
+        // like a function (`sum(1)`) or a symbol. Its argument keeps
+        // the generic hovers below.
+        const option_hover = this.get_user_program_option_hover(
+            document, position, workspace_symbols);
+        if (option_hover) {
+            return { contents: option_hover, range };
         }
 
         // Collect all symbol matches using the new collection approach
@@ -2360,33 +2394,35 @@ export class HoverProvider {
     }
 
     /**
-     * Get hover info for an option in a user program call.
-     * Shows type, default, and required status.
+     * Hover for an option name at a call to a user program, `det` in
+     * `myprog, det`: the `syntax` option it spells, matched as Stata
+     * matches it (see `syntax_option_spelling`). The file's program
+     * comes before the workspace's.
      */
-    private get_hover_for_option(
-        program_name: string,
-        option_name: string,
+    private get_user_program_option_hover(
+        document: DocumentState,
+        position: Position,
         workspace_symbols?: SymbolTable
     ): MarkupContent | null {
-        if (!workspace_symbols) {
+        const command = find_command_at(document.ast?.nodes ?? [], position);
+        // On the option's name, not its `(…)` argument
+        const option = command?.options?.find((my_option) =>
+            my_option.range.start.line === position.line
+            && my_option.range.start.character <= position.character
+            && position.character <
+                my_option.range.start.character + my_option.name.length);
+        if (!command || !option) {
             return null;
         }
-
-        const program = workspace_symbols.programs.get(program_name);
-        if (!program || !program.signature) {
-            return null;
-        }
-
-        // Find the option in the signature (option name matching can be case-insensitive)
-        const my_option = program.signature.options.find(
-            opt => opt.name.toLowerCase() === option_name.toLowerCase()
-        );
-
-        if (!my_option) {
-            return null;
-        }
-
-        return this.format_option_for_hover(my_option);
+        const program = document.symbols.programs.get(command.fullName)
+            ?? workspace_symbols?.programs.get(command.fullName);
+        const spec = program?.signature?.options.find((my_spec) => {
+            const spelling = syntax_option_spelling(
+                my_spec.name, my_spec.hasArgument === true);
+            return option.name.length >= spelling.min_abbreviation.length
+                && spelling.full.startsWith(option.name);
+        });
+        return spec ? this.format_option_for_hover(spec) : null;
     }
 
     /**
