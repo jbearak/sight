@@ -94,7 +94,7 @@ Reported by the context tracker for Mata and Python block structure.
 |---|---|---|
 | <a id="unclosed-mata-block"></a>`UNCLOSED_MATA_BLOCK` | error | A Mata block is opened but not closed. |
 | <a id="unclosed-python-block"></a>`UNCLOSED_PYTHON_BLOCK` | error | A Python block is opened but not closed. |
-| <a id="unexpected-end"></a>`UNEXPECTED_END` | error | An `end` appears where no embedded language block is open. |
+| <a id="unexpected-end"></a>`UNEXPECTED_END` | error | A line whose first word is `end` closes no program definition, `mata` or `python` block, or `input` data. Stata stops with "command end is unrecognized" (r(199)). Lines after an `exit` outside any block are not read. |
 | <a id="unexpected-end-command"></a>`UNEXPECTED_END_COMMAND` | error | An `end` command does not match the current embedded language context. |
 | <a id="mismatched-end-python"></a>`MISMATCHED_END_PYTHON` | error | A Python block is closed with a mismatched delimiter. |
 | <a id="nested-block-error"></a>`NESTED_BLOCK_ERROR` | error | Embedded language block nesting is invalid. |

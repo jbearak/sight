@@ -20,6 +20,7 @@ import { describe, expect, it } from 'bun:test';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { ContextTracker } from '../../src/context-tracker';
+import { context_diagnostics } from '../test-context-helper';
 import { LanguageContext } from '../../src/context-tracker/types';
 import { CodeFormatter } from '../../src/providers/formatter';
 import { ContextErrorCode } from '../../src/types';
@@ -206,8 +207,7 @@ describe('embedded block end rule', () => {
             // When the block stays open, the trailing bare `end` closes
             // it and is not an orphan.
             if (!my_case.ends_block) {
-                const the_unexpected = my_tracker
-                    .validate_context_structure()
+                const the_unexpected = context_diagnostics(source)
                     .filter((my_diag) => my_diag.code === ContextErrorCode.UNEXPECTED_END);
                 expect(the_unexpected).toEqual([]);
             }

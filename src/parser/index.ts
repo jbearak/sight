@@ -859,7 +859,7 @@ export class StataParser {
       if (my_trivia.length > 0) {
         this.pending_trivia.push(...my_trivia);
       }
-      if (this.checkWord('end') || this.isAtEnd()) {
+      if (this.at_program_end_word() || this.isAtEnd()) {
         break;
       }
       const stmt = this.parseStatement();
@@ -873,7 +873,8 @@ export class StataParser {
       }
     }
 
-    const program_block_ending_trivia = this.checkWord('end')
+    const is_at_end_word = this.at_program_end_word();
+    const program_block_ending_trivia = is_at_end_word
       ? this.drainBlockEndingTrivia()
       : undefined;
 
@@ -884,7 +885,7 @@ export class StataParser {
     let closed_by_end = false;
     if (embedded_block_end !== undefined) {
       // The block's `end` was the program's
-    } else if (this.checkWord('end')) {
+    } else if (is_at_end_word) {
       this.advance();
       closed_by_end = true;
     } else {
@@ -4239,7 +4240,7 @@ export class StataParser {
       }
       // Stata ends a program definition at the first line whose first
       // word is `end`, even in a brace block; the program takes it.
-      if (this.inside_program && this.checkWord('end')) {
+      if (this.at_program_end_word()) {
         break;
       }
       const stmt = this.parseStatement();
@@ -4326,7 +4327,38 @@ export class StataParser {
    */
   private program_ended_in_block(): boolean {
     return this.program_end_at !== undefined ||
-      (this.inside_program && this.checkWord('end'));
+      this.at_program_end_word();
+  }
+
+  /**
+   * Is the current token an `end` that ends the program definition
+   * being parsed? Stata ends one at the first line whose first word is
+   * `end`: blanks, a block comment, or (under `#delimit ;`) the `;` of
+   * the statement before may come first on the line, but code may not
+   * (`}  end while` in old ado-files), and neither may a `///` that
+   * joins the line to the one above. The lexer applies the same rule
+   * (is_end_at_line_start).
+   */
+  private at_program_end_word(): boolean {
+    if (!this.inside_program || !this.checkWord('end')) {
+      return false;
+    }
+    const end_line = this.peek().range.start.line;
+    for (let i = this.current - 1; i >= 0; i--) {
+      const my_token = this.tokens[i];
+      if (my_token.type === 'WHITESPACE' || my_token.type === 'COMMENT_BLOCK') {
+        if (my_token.range.end.line < end_line) {
+          return true;
+        }
+        continue;
+      }
+      if (my_token.type === 'STATEMENT_TERMINATOR') {
+        return !is_swallowed_continuation_terminator(
+          my_token, this.tokens[i - 1]?.type === 'CONTINUATION');
+      }
+      return my_token.range.end.line < end_line;
+    }
+    return true;
   }
 
   /**

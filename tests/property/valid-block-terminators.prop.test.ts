@@ -1,4 +1,4 @@
-import { init_tracker_from_source } from '../test-context-helper';
+import { context_diagnostics, init_tracker_from_source } from '../test-context-helper';
 import { describe, it, expect, beforeEach } from 'bun:test';
 import * as fc from 'fast-check';
 import { ContextTracker } from '../../src/context-tracker';
@@ -90,7 +90,7 @@ describe('Valid Block Terminators Property Tests', () => {
 
                     // Initialize context tracker
                     init_tracker_from_source(context_tracker, my_document);
-                    const my_diagnostics = context_tracker.validate_context_structure();
+                    const my_diagnostics = context_diagnostics(my_document);
 
                     // Should have no diagnostics for valid blocks
                     const my_block_errors = my_diagnostics.filter(
@@ -147,7 +147,7 @@ describe('Valid Block Terminators Property Tests', () => {
 
                     // Initialize context tracker
                     init_tracker_from_source(context_tracker, my_document);
-                    const my_diagnostics = context_tracker.validate_context_structure();
+                    const my_diagnostics = context_diagnostics(my_document);
 
                     // Should have no diagnostics for valid blocks
                     const my_block_errors = my_diagnostics.filter(
@@ -205,7 +205,7 @@ ${my_after}`;
 
                     // Initialize context tracker
                     init_tracker_from_source(context_tracker, my_document);
-                    const my_diagnostics = context_tracker.validate_context_structure();
+                    const my_diagnostics = context_diagnostics(my_document);
 
                     // Should have no diagnostics for valid block
                     const my_block_errors = my_diagnostics.filter(
@@ -255,7 +255,7 @@ end`;
 
                     // Initialize context tracker
                     init_tracker_from_source(context_tracker, my_document);
-                    const my_diagnostics = context_tracker.validate_context_structure();
+                    const my_diagnostics = context_diagnostics(my_document);
 
                     // Stata ends the program definition at the block's
                     // `end`, so the program's own `end` is unexpected.
@@ -317,7 +317,7 @@ end`;
 
                     // Initialize context tracker
                     init_tracker_from_source(context_tracker, my_document);
-                    const my_diagnostics = context_tracker.validate_context_structure();
+                    const my_diagnostics = context_diagnostics(my_document);
 
                     // Stata ends each program definition at its block's
                     // `end`, so each program's own `end` is unexpected.
@@ -379,7 +379,7 @@ end`;
 
                     // Initialize context tracker
                     init_tracker_from_source(context_tracker, my_document);
-                    const my_diagnostics = context_tracker.validate_context_structure();
+                    const my_diagnostics = context_diagnostics(my_document);
 
                     // Stata ends each program definition at its block's
                     // `end`, so each program's own `end` is unexpected.
@@ -493,7 +493,7 @@ end`;
 
                     // Initialize context tracker
                     init_tracker_from_source(context_tracker, my_document);
-                    const my_diagnostics = context_tracker.validate_context_structure();
+                    const my_diagnostics = context_diagnostics(my_document);
 
                     // Should have no block-related diagnostics for valid single-line embedded block
                     const my_block_errors = my_diagnostics.filter(

@@ -5,6 +5,8 @@ import { SemanticAnalyzer } from '../src/analyzer';
 import { DocumentState } from '../src/document-store';
 import { undefined_symbol_data_fields } from '../src/utils/undefined-symbol-diagnostic';
 import { DiagnosticSeverity } from 'vscode-languageserver';
+import { ContextDiagnostic } from '../src/context-tracker/types';
+import { find_end_diagnostics } from '../src/providers/end-diagnostics';
 
 /**
  * Helper to initialize a ContextTracker from source code.
@@ -16,6 +18,22 @@ export function init_tracker_from_source(tracker: ContextTracker, source: string
     const lexer = new StataLexer();
     const lex_result = lexer.tokenize(source);
     tracker.initialize_from_tokens(lex_result.tokens, source);
+}
+
+/**
+ * The block-structure diagnostics the diagnostics provider publishes
+ * for `source`: the context tracker's, then the `end` diagnostics read
+ * from the parsed statements.
+ */
+export function context_diagnostics(source: string): ContextDiagnostic[] {
+    const the_tokens = new StataLexer().tokenize(source).tokens;
+    const tracker = new ContextTracker();
+    tracker.initialize_from_tokens(the_tokens, source);
+    const the_nodes = new StataParser().parse(the_tokens).ast.nodes;
+    return [
+        ...tracker.validate_context_structure(),
+        ...find_end_diagnostics(the_nodes, source),
+    ];
 }
 
 /**
