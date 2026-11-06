@@ -62,6 +62,10 @@ const THE_PREFIXED_BLOCKS: Array<{ source: string; type: StataNode['type']; pref
     { source: 'capture forvalues i = 1/2 {\n    di 1\n}\n', type: 'forvalues', prefixes: ['capture'] },
     { source: 'cap noi foreach x in a {\n    di 1\n}\n', type: 'foreach', prefixes: ['cap', 'noi'] },
     { source: 'capture frame f {\n    di 1\n}\n', type: 'frame', prefixes: ['capture'] },
+    { source: 'capture noisily frame F {\n    di 1\n}\n', type: 'frame', prefixes: ['capture', 'noisily'] },
+    { source: 'noisily quietly capture frame F {\n    di 1\n}\n', type: 'frame', prefixes: ['noisily', 'quietly', 'capture'] },
+    { source: "cap noi frame `f' {\n    di 1\n}\n", type: 'frame', prefixes: ['cap', 'noi'] },
+    { source: 'quietly capture frame $g {\n    di 1\n}\n', type: 'frame', prefixes: ['quietly', 'capture'] },
     { source: 'version 14: foreach x in a b {\n    di 1\n}\n', type: 'foreach', prefixes: ['version'] },
     // Stata rejects a loop after a colon prefix, but formatting must
     // not delete the body.
@@ -173,6 +177,78 @@ describe('prefixed control flow', () => {
     });
 });
 
+// Stata 18 runs each of these with the body in frame F (checked in a
+// do-file).
+describe('prefixed frame blocks', () => {
+    it('keeps a frame name a macro holds, with or without prefixes', () => {
+        const the_cases: Array<[string, string, string[]]> = [
+            ["frame `f' {\n    di 1\n}\n", "`f'", []],
+            ["capture noisily frame `f' {\n    di 1\n}\n", "`f'", ['capture', 'noisily']],
+            ['frame $g {\n    di 1\n}\n', '$g', []],
+            ['quietly capture frame $g {\n    di 1\n}\n', '$g', ['quietly', 'capture']],
+        ];
+        for (const [my_source, my_frame, my_prefixes] of the_cases) {
+            const { ast, errors } = parse(my_source);
+            expect(errors).toEqual([]);
+            expect(ast.nodes).toHaveLength(1);
+            expect(ast.nodes[0]).toMatchObject({ type: 'frame', frameName: my_frame });
+            expect(prefix_names(ast.nodes[0])).toEqual(my_prefixes);
+        }
+    });
+
+    it('reads a one-line frame name: as a prefix of the command', () => {
+        const the_cases: Array<[string, string, string[]]> = [
+            ['frame F: replace x = 1\n', 'F', ['frame']],
+            ['capture noisily frame F: replace x = 1\n', 'F', ['capture', 'noisily', 'frame']],
+            ["capture noisily frame `f': replace x = 1\n", "`f'", ['capture', 'noisily', 'frame']],
+            ['cap frame $g: replace x = 1\n', '$g', ['cap', 'frame']],
+        ];
+        for (const [my_source, my_frame, my_prefixes] of the_cases) {
+            const { ast, errors } = parse(my_source);
+            expect(errors).toEqual([]);
+            expect(ast.nodes).toHaveLength(1);
+            const node = ast.nodes[0];
+            expect(node).toMatchObject({ type: 'command', name: 'replace' });
+            expect(prefix_names(node)).toEqual(my_prefixes);
+            const frame_prefix = node?.type === 'command'
+                ? node.prefix?.find((my_prefix) => my_prefix.name === 'frame')
+                : undefined;
+            expect(frame_prefix?.frameName).toBe(my_frame);
+        }
+    });
+
+    it('nests a frame block in a loop and ends both at their braces', () => {
+        const { ast, errors } = parse(
+            'foreach v in a b {\n    cap noi frame F {\n        di 1\n    }\n}\ndi 2\n'
+        );
+        expect(errors).toEqual([]);
+        expect(ast.nodes.map((my_node) => my_node.type)).toEqual(['foreach', 'command']);
+        const loop = ast.nodes[0];
+        const inner = loop?.type === 'foreach' ? loop.body[0] : undefined;
+        expect(inner).toMatchObject({ type: 'frame', frameName: 'F', body: [{ name: 'di' }] });
+        expect(prefix_names(inner)).toEqual(['cap', 'noi']);
+    });
+
+    it('reports a prefixed frame block with no closing brace', () => {
+        const { ast, errors } = parse('capture noisily frame F {\n    di 1\ndi 2\n');
+        expect(errors.map((my_error) => my_error.message))
+            .toEqual(['Missing closing brace for frame block']);
+        expect(ast.nodes).toHaveLength(1);
+        expect(ast.nodes[0]).toMatchObject({ type: 'frame', body: [{ name: 'di' }, { name: 'di' }] });
+    });
+
+    it("ends a program at its end inside a macro-named frame block", () => {
+        const { ast, errors } = parse(
+            "program define p\n    capture frame `0' {\n        di 1\nend\ndi 2\n"
+        );
+        expect(errors).toEqual([]);
+        expect(ast.nodes.map((my_node) => my_node.type)).toEqual(['program', 'command']);
+        const program = ast.nodes[0];
+        const inner = program?.type === 'program' ? program.body[0] : undefined;
+        expect(inner).toMatchObject({ type: 'frame', frameName: "`0'", closed_by_program_end: true });
+    });
+});
+
 describe('formatting prefixed control flow', () => {
     // Source, then the AST printer's output where it differs. The
     // source-preserving formatter keeps comments where they were.
@@ -182,6 +258,9 @@ describe('formatting prefixed control flow', () => {
         ['noisily foreach x in a b {\n    di 1\n}\n'],
         ['capture forvalues i = 1/2 {\n    di 1\n}\n', 'capture forvalues i = 1 / 2 {\n    di 1\n}\n'],
         ['capture frame f {\n    di 1\n}\n'],
+        ["capture noisily frame `f' {\n    di 1\n}\n"],
+        ['quietly capture frame $g {\n    di 1\n}\n'],
+        ["capture noisily frame `f': replace x = 1\n"],
         ['frame f: capture while 1 {\n    di 1\n}\n'],
         ['capture frame f: if 1 {\n    di 1\n}\n'],
         ['if 0 {\n}\nqui else {\n    di 1\n}\n'],

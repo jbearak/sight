@@ -11819,5 +11819,2241 @@
         }
       }
     ]
+  },
+  {
+    "schema_version": 1,
+    "sight_version": "<VERSION>",
+    "path": "<ROOT>/frame-blocks.do",
+    "line_count": 38,
+    "statements": [
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 1,
+            "character": 0
+          },
+          "end": {
+            "line": 1,
+            "character": 16
+          }
+        },
+        "text": "frame create F x",
+        "delimit": "cr",
+        "comments": {
+          "leading": [
+            {
+              "style": "star",
+              "text": "* Each runs in Stata 18: a block runs its body in the frame.",
+              "range": {
+                "start": {
+                  "line": 0,
+                  "character": 0
+                },
+                "end": {
+                  "line": 0,
+                  "character": 60
+                }
+              },
+              "directive": null
+            }
+          ],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "frame",
+        "canonical_name": "frame",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "create",
+            "range": {
+              "start": {
+                "line": 1,
+                "character": 6
+              },
+              "end": {
+                "line": 1,
+                "character": 12
+              }
+            }
+          },
+          {
+            "text": "F",
+            "range": {
+              "start": {
+                "line": 1,
+                "character": 13
+              },
+              "end": {
+                "line": 1,
+                "character": 14
+              }
+            }
+          },
+          {
+            "text": "x",
+            "range": {
+              "start": {
+                "line": 1,
+                "character": 15
+              },
+              "end": {
+                "line": 1,
+                "character": 16
+              }
+            }
+          }
+        ],
+        "varlist": {
+          "kind": "varlist",
+          "items": [
+            {
+              "kind": "variable",
+              "name": "create",
+              "range": {
+                "start": {
+                  "line": 1,
+                  "character": 6
+                },
+                "end": {
+                  "line": 1,
+                  "character": 12
+                }
+              }
+            },
+            {
+              "kind": "variable",
+              "name": "F",
+              "range": {
+                "start": {
+                  "line": 1,
+                  "character": 13
+                },
+                "end": {
+                  "line": 1,
+                  "character": 14
+                }
+              }
+            },
+            {
+              "kind": "variable",
+              "name": "x",
+              "range": {
+                "start": {
+                  "line": 1,
+                  "character": 15
+                },
+                "end": {
+                  "line": 1,
+                  "character": 16
+                }
+              }
+            }
+          ],
+          "range": {
+            "start": {
+              "line": 1,
+              "character": 6
+            },
+            "end": {
+              "line": 1,
+              "character": 16
+            }
+          }
+        },
+        "assignment": null,
+        "if": null,
+        "assertion": null,
+        "display": null,
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": [],
+        "options_tail": []
+      },
+      {
+        "kind": "macro",
+        "range": {
+          "start": {
+            "line": 2,
+            "character": 0
+          },
+          "end": {
+            "line": 2,
+            "character": 9
+          }
+        },
+        "text": "local f F",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [],
+        "scope": "local",
+        "name": "f",
+        "name_parts": null,
+        "form": "value",
+        "value": "F",
+        "value_parts": [
+          {
+            "kind": "text",
+            "value": "F",
+            "range": {
+              "start": {
+                "line": 2,
+                "character": 8
+              },
+              "end": {
+                "line": 2,
+                "character": 9
+              }
+            }
+          }
+        ],
+        "expression": null,
+        "extended": null,
+        "increment": null
+      },
+      {
+        "kind": "macro",
+        "range": {
+          "start": {
+            "line": 3,
+            "character": 0
+          },
+          "end": {
+            "line": 3,
+            "character": 10
+          }
+        },
+        "text": "global g F",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [],
+        "scope": "global",
+        "name": "g",
+        "name_parts": null,
+        "form": "value",
+        "value": "F",
+        "value_parts": [
+          {
+            "kind": "text",
+            "value": "F",
+            "range": {
+              "start": {
+                "line": 3,
+                "character": 9
+              },
+              "end": {
+                "line": 3,
+                "character": 10
+              }
+            }
+          }
+        ],
+        "expression": null,
+        "extended": null,
+        "increment": null
+      },
+      {
+        "kind": "frame",
+        "range": {
+          "start": {
+            "line": 5,
+            "character": 0
+          },
+          "end": {
+            "line": 7,
+            "character": 1
+          }
+        },
+        "text": "frame F {\n    replace x = 1\n}",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [],
+        "frame": "F",
+        "body": [
+          {
+            "kind": "command",
+            "range": {
+              "start": {
+                "line": 6,
+                "character": 4
+              },
+              "end": {
+                "line": 6,
+                "character": 17
+              }
+            },
+            "text": "replace x = 1",
+            "delimit": "cr",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "name": "replace",
+            "canonical_name": "replace",
+            "prefixes": [],
+            "args": [
+              {
+                "text": "x",
+                "range": {
+                  "start": {
+                    "line": 6,
+                    "character": 12
+                  },
+                  "end": {
+                    "line": 6,
+                    "character": 13
+                  }
+                }
+              }
+            ],
+            "varlist": {
+              "kind": "varlist",
+              "items": [
+                {
+                  "kind": "variable",
+                  "name": "x",
+                  "range": {
+                    "start": {
+                      "line": 6,
+                      "character": 12
+                    },
+                    "end": {
+                      "line": 6,
+                      "character": 13
+                    }
+                  }
+                }
+              ],
+              "range": {
+                "start": {
+                  "line": 6,
+                  "character": 12
+                },
+                "end": {
+                  "line": 6,
+                  "character": 13
+                }
+              }
+            },
+            "assignment": {
+              "text": "1",
+              "expression": {
+                "kind": "number",
+                "text": "1",
+                "value": 1,
+                "range": {
+                  "start": {
+                    "line": 6,
+                    "character": 16
+                  },
+                  "end": {
+                    "line": 6,
+                    "character": 17
+                  }
+                }
+              }
+            },
+            "if": null,
+            "assertion": null,
+            "display": null,
+            "in": null,
+            "weight": null,
+            "using": null,
+            "options": [],
+            "options_tail": []
+          }
+        ]
+      },
+      {
+        "kind": "frame",
+        "range": {
+          "start": {
+            "line": 8,
+            "character": 0
+          },
+          "end": {
+            "line": 10,
+            "character": 1
+          }
+        },
+        "text": "capture noisily frame F {\n    replace x = 2\n}",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [
+          {
+            "name": "capture",
+            "canonical_name": "capture",
+            "range": {
+              "start": {
+                "line": 8,
+                "character": 0
+              },
+              "end": {
+                "line": 8,
+                "character": 7
+              }
+            },
+            "by_varlist": null,
+            "sort_varlist": null,
+            "arguments": null,
+            "options": [],
+            "frame": null
+          },
+          {
+            "name": "noisily",
+            "canonical_name": "noisily",
+            "range": {
+              "start": {
+                "line": 8,
+                "character": 8
+              },
+              "end": {
+                "line": 8,
+                "character": 15
+              }
+            },
+            "by_varlist": null,
+            "sort_varlist": null,
+            "arguments": null,
+            "options": [],
+            "frame": null
+          }
+        ],
+        "frame": "F",
+        "body": [
+          {
+            "kind": "command",
+            "range": {
+              "start": {
+                "line": 9,
+                "character": 4
+              },
+              "end": {
+                "line": 9,
+                "character": 17
+              }
+            },
+            "text": "replace x = 2",
+            "delimit": "cr",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "name": "replace",
+            "canonical_name": "replace",
+            "prefixes": [],
+            "args": [
+              {
+                "text": "x",
+                "range": {
+                  "start": {
+                    "line": 9,
+                    "character": 12
+                  },
+                  "end": {
+                    "line": 9,
+                    "character": 13
+                  }
+                }
+              }
+            ],
+            "varlist": {
+              "kind": "varlist",
+              "items": [
+                {
+                  "kind": "variable",
+                  "name": "x",
+                  "range": {
+                    "start": {
+                      "line": 9,
+                      "character": 12
+                    },
+                    "end": {
+                      "line": 9,
+                      "character": 13
+                    }
+                  }
+                }
+              ],
+              "range": {
+                "start": {
+                  "line": 9,
+                  "character": 12
+                },
+                "end": {
+                  "line": 9,
+                  "character": 13
+                }
+              }
+            },
+            "assignment": {
+              "text": "2",
+              "expression": {
+                "kind": "number",
+                "text": "2",
+                "value": 2,
+                "range": {
+                  "start": {
+                    "line": 9,
+                    "character": 16
+                  },
+                  "end": {
+                    "line": 9,
+                    "character": 17
+                  }
+                }
+              }
+            },
+            "if": null,
+            "assertion": null,
+            "display": null,
+            "in": null,
+            "weight": null,
+            "using": null,
+            "options": [],
+            "options_tail": []
+          }
+        ]
+      },
+      {
+        "kind": "frame",
+        "range": {
+          "start": {
+            "line": 11,
+            "character": 0
+          },
+          "end": {
+            "line": 13,
+            "character": 1
+          }
+        },
+        "text": "quietly frame F {\n    replace x = 3\n}",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [
+          {
+            "name": "quietly",
+            "canonical_name": "quietly",
+            "range": {
+              "start": {
+                "line": 11,
+                "character": 0
+              },
+              "end": {
+                "line": 11,
+                "character": 7
+              }
+            },
+            "by_varlist": null,
+            "sort_varlist": null,
+            "arguments": null,
+            "options": [],
+            "frame": null
+          }
+        ],
+        "frame": "F",
+        "body": [
+          {
+            "kind": "command",
+            "range": {
+              "start": {
+                "line": 12,
+                "character": 4
+              },
+              "end": {
+                "line": 12,
+                "character": 17
+              }
+            },
+            "text": "replace x = 3",
+            "delimit": "cr",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "name": "replace",
+            "canonical_name": "replace",
+            "prefixes": [],
+            "args": [
+              {
+                "text": "x",
+                "range": {
+                  "start": {
+                    "line": 12,
+                    "character": 12
+                  },
+                  "end": {
+                    "line": 12,
+                    "character": 13
+                  }
+                }
+              }
+            ],
+            "varlist": {
+              "kind": "varlist",
+              "items": [
+                {
+                  "kind": "variable",
+                  "name": "x",
+                  "range": {
+                    "start": {
+                      "line": 12,
+                      "character": 12
+                    },
+                    "end": {
+                      "line": 12,
+                      "character": 13
+                    }
+                  }
+                }
+              ],
+              "range": {
+                "start": {
+                  "line": 12,
+                  "character": 12
+                },
+                "end": {
+                  "line": 12,
+                  "character": 13
+                }
+              }
+            },
+            "assignment": {
+              "text": "3",
+              "expression": {
+                "kind": "number",
+                "text": "3",
+                "value": 3,
+                "range": {
+                  "start": {
+                    "line": 12,
+                    "character": 16
+                  },
+                  "end": {
+                    "line": 12,
+                    "character": 17
+                  }
+                }
+              }
+            },
+            "if": null,
+            "assertion": null,
+            "display": null,
+            "in": null,
+            "weight": null,
+            "using": null,
+            "options": [],
+            "options_tail": []
+          }
+        ]
+      },
+      {
+        "kind": "frame",
+        "range": {
+          "start": {
+            "line": 14,
+            "character": 0
+          },
+          "end": {
+            "line": 16,
+            "character": 1
+          }
+        },
+        "text": "noisily quietly capture frame F {\n    replace x = 4\n}",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [
+          {
+            "name": "noisily",
+            "canonical_name": "noisily",
+            "range": {
+              "start": {
+                "line": 14,
+                "character": 0
+              },
+              "end": {
+                "line": 14,
+                "character": 7
+              }
+            },
+            "by_varlist": null,
+            "sort_varlist": null,
+            "arguments": null,
+            "options": [],
+            "frame": null
+          },
+          {
+            "name": "quietly",
+            "canonical_name": "quietly",
+            "range": {
+              "start": {
+                "line": 14,
+                "character": 8
+              },
+              "end": {
+                "line": 14,
+                "character": 15
+              }
+            },
+            "by_varlist": null,
+            "sort_varlist": null,
+            "arguments": null,
+            "options": [],
+            "frame": null
+          },
+          {
+            "name": "capture",
+            "canonical_name": "capture",
+            "range": {
+              "start": {
+                "line": 14,
+                "character": 16
+              },
+              "end": {
+                "line": 14,
+                "character": 23
+              }
+            },
+            "by_varlist": null,
+            "sort_varlist": null,
+            "arguments": null,
+            "options": [],
+            "frame": null
+          }
+        ],
+        "frame": "F",
+        "body": [
+          {
+            "kind": "command",
+            "range": {
+              "start": {
+                "line": 15,
+                "character": 4
+              },
+              "end": {
+                "line": 15,
+                "character": 17
+              }
+            },
+            "text": "replace x = 4",
+            "delimit": "cr",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "name": "replace",
+            "canonical_name": "replace",
+            "prefixes": [],
+            "args": [
+              {
+                "text": "x",
+                "range": {
+                  "start": {
+                    "line": 15,
+                    "character": 12
+                  },
+                  "end": {
+                    "line": 15,
+                    "character": 13
+                  }
+                }
+              }
+            ],
+            "varlist": {
+              "kind": "varlist",
+              "items": [
+                {
+                  "kind": "variable",
+                  "name": "x",
+                  "range": {
+                    "start": {
+                      "line": 15,
+                      "character": 12
+                    },
+                    "end": {
+                      "line": 15,
+                      "character": 13
+                    }
+                  }
+                }
+              ],
+              "range": {
+                "start": {
+                  "line": 15,
+                  "character": 12
+                },
+                "end": {
+                  "line": 15,
+                  "character": 13
+                }
+              }
+            },
+            "assignment": {
+              "text": "4",
+              "expression": {
+                "kind": "number",
+                "text": "4",
+                "value": 4,
+                "range": {
+                  "start": {
+                    "line": 15,
+                    "character": 16
+                  },
+                  "end": {
+                    "line": 15,
+                    "character": 17
+                  }
+                }
+              }
+            },
+            "if": null,
+            "assertion": null,
+            "display": null,
+            "in": null,
+            "weight": null,
+            "using": null,
+            "options": [],
+            "options_tail": []
+          }
+        ]
+      },
+      {
+        "kind": "frame",
+        "range": {
+          "start": {
+            "line": 19,
+            "character": 0
+          },
+          "end": {
+            "line": 21,
+            "character": 1
+          }
+        },
+        "text": "capture noisily frame `f' {\n    replace x = 5\n}",
+        "delimit": "cr",
+        "comments": {
+          "leading": [
+            {
+              "style": "star",
+              "text": "* A macro can name the frame, with or without prefixes.",
+              "range": {
+                "start": {
+                  "line": 18,
+                  "character": 0
+                },
+                "end": {
+                  "line": 18,
+                  "character": 55
+                }
+              },
+              "directive": null
+            }
+          ],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [
+          {
+            "name": "capture",
+            "canonical_name": "capture",
+            "range": {
+              "start": {
+                "line": 19,
+                "character": 0
+              },
+              "end": {
+                "line": 19,
+                "character": 7
+              }
+            },
+            "by_varlist": null,
+            "sort_varlist": null,
+            "arguments": null,
+            "options": [],
+            "frame": null
+          },
+          {
+            "name": "noisily",
+            "canonical_name": "noisily",
+            "range": {
+              "start": {
+                "line": 19,
+                "character": 8
+              },
+              "end": {
+                "line": 19,
+                "character": 15
+              }
+            },
+            "by_varlist": null,
+            "sort_varlist": null,
+            "arguments": null,
+            "options": [],
+            "frame": null
+          }
+        ],
+        "frame": "`f'",
+        "body": [
+          {
+            "kind": "command",
+            "range": {
+              "start": {
+                "line": 20,
+                "character": 4
+              },
+              "end": {
+                "line": 20,
+                "character": 17
+              }
+            },
+            "text": "replace x = 5",
+            "delimit": "cr",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "name": "replace",
+            "canonical_name": "replace",
+            "prefixes": [],
+            "args": [
+              {
+                "text": "x",
+                "range": {
+                  "start": {
+                    "line": 20,
+                    "character": 12
+                  },
+                  "end": {
+                    "line": 20,
+                    "character": 13
+                  }
+                }
+              }
+            ],
+            "varlist": {
+              "kind": "varlist",
+              "items": [
+                {
+                  "kind": "variable",
+                  "name": "x",
+                  "range": {
+                    "start": {
+                      "line": 20,
+                      "character": 12
+                    },
+                    "end": {
+                      "line": 20,
+                      "character": 13
+                    }
+                  }
+                }
+              ],
+              "range": {
+                "start": {
+                  "line": 20,
+                  "character": 12
+                },
+                "end": {
+                  "line": 20,
+                  "character": 13
+                }
+              }
+            },
+            "assignment": {
+              "text": "5",
+              "expression": {
+                "kind": "number",
+                "text": "5",
+                "value": 5,
+                "range": {
+                  "start": {
+                    "line": 20,
+                    "character": 16
+                  },
+                  "end": {
+                    "line": 20,
+                    "character": 17
+                  }
+                }
+              }
+            },
+            "if": null,
+            "assertion": null,
+            "display": null,
+            "in": null,
+            "weight": null,
+            "using": null,
+            "options": [],
+            "options_tail": []
+          }
+        ]
+      },
+      {
+        "kind": "frame",
+        "range": {
+          "start": {
+            "line": 22,
+            "character": 0
+          },
+          "end": {
+            "line": 24,
+            "character": 1
+          }
+        },
+        "text": "quietly capture frame $g {\n    replace x = 6\n}",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [
+          {
+            "name": "quietly",
+            "canonical_name": "quietly",
+            "range": {
+              "start": {
+                "line": 22,
+                "character": 0
+              },
+              "end": {
+                "line": 22,
+                "character": 7
+              }
+            },
+            "by_varlist": null,
+            "sort_varlist": null,
+            "arguments": null,
+            "options": [],
+            "frame": null
+          },
+          {
+            "name": "capture",
+            "canonical_name": "capture",
+            "range": {
+              "start": {
+                "line": 22,
+                "character": 8
+              },
+              "end": {
+                "line": 22,
+                "character": 15
+              }
+            },
+            "by_varlist": null,
+            "sort_varlist": null,
+            "arguments": null,
+            "options": [],
+            "frame": null
+          }
+        ],
+        "frame": "$g",
+        "body": [
+          {
+            "kind": "command",
+            "range": {
+              "start": {
+                "line": 23,
+                "character": 4
+              },
+              "end": {
+                "line": 23,
+                "character": 17
+              }
+            },
+            "text": "replace x = 6",
+            "delimit": "cr",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "name": "replace",
+            "canonical_name": "replace",
+            "prefixes": [],
+            "args": [
+              {
+                "text": "x",
+                "range": {
+                  "start": {
+                    "line": 23,
+                    "character": 12
+                  },
+                  "end": {
+                    "line": 23,
+                    "character": 13
+                  }
+                }
+              }
+            ],
+            "varlist": {
+              "kind": "varlist",
+              "items": [
+                {
+                  "kind": "variable",
+                  "name": "x",
+                  "range": {
+                    "start": {
+                      "line": 23,
+                      "character": 12
+                    },
+                    "end": {
+                      "line": 23,
+                      "character": 13
+                    }
+                  }
+                }
+              ],
+              "range": {
+                "start": {
+                  "line": 23,
+                  "character": 12
+                },
+                "end": {
+                  "line": 23,
+                  "character": 13
+                }
+              }
+            },
+            "assignment": {
+              "text": "6",
+              "expression": {
+                "kind": "number",
+                "text": "6",
+                "value": 6,
+                "range": {
+                  "start": {
+                    "line": 23,
+                    "character": 16
+                  },
+                  "end": {
+                    "line": 23,
+                    "character": 17
+                  }
+                }
+              }
+            },
+            "if": null,
+            "assertion": null,
+            "display": null,
+            "in": null,
+            "weight": null,
+            "using": null,
+            "options": [],
+            "options_tail": []
+          }
+        ]
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 27,
+            "character": 0
+          },
+          "end": {
+            "line": 27,
+            "character": 22
+          }
+        },
+        "text": "frame F: replace x = 7",
+        "delimit": "cr",
+        "comments": {
+          "leading": [
+            {
+              "style": "star",
+              "text": "* On one line, frame is a prefix of the command, not a block.",
+              "range": {
+                "start": {
+                  "line": 26,
+                  "character": 0
+                },
+                "end": {
+                  "line": 26,
+                  "character": 61
+                }
+              },
+              "directive": null
+            }
+          ],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "replace",
+        "canonical_name": "replace",
+        "prefixes": [
+          {
+            "name": "frame",
+            "canonical_name": "frame",
+            "range": {
+              "start": {
+                "line": 27,
+                "character": 0
+              },
+              "end": {
+                "line": 27,
+                "character": 8
+              }
+            },
+            "by_varlist": null,
+            "sort_varlist": null,
+            "arguments": null,
+            "options": [],
+            "frame": "F"
+          }
+        ],
+        "args": [
+          {
+            "text": "x",
+            "range": {
+              "start": {
+                "line": 27,
+                "character": 17
+              },
+              "end": {
+                "line": 27,
+                "character": 18
+              }
+            }
+          }
+        ],
+        "varlist": {
+          "kind": "varlist",
+          "items": [
+            {
+              "kind": "variable",
+              "name": "x",
+              "range": {
+                "start": {
+                  "line": 27,
+                  "character": 17
+                },
+                "end": {
+                  "line": 27,
+                  "character": 18
+                }
+              }
+            }
+          ],
+          "range": {
+            "start": {
+              "line": 27,
+              "character": 17
+            },
+            "end": {
+              "line": 27,
+              "character": 18
+            }
+          }
+        },
+        "assignment": {
+          "text": "7",
+          "expression": {
+            "kind": "number",
+            "text": "7",
+            "value": 7,
+            "range": {
+              "start": {
+                "line": 27,
+                "character": 21
+              },
+              "end": {
+                "line": 27,
+                "character": 22
+              }
+            }
+          }
+        },
+        "if": null,
+        "assertion": null,
+        "display": null,
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": [],
+        "options_tail": []
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 28,
+            "character": 0
+          },
+          "end": {
+            "line": 28,
+            "character": 40
+          }
+        },
+        "text": "capture noisily frame `f': replace x = 8",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "replace",
+        "canonical_name": "replace",
+        "prefixes": [
+          {
+            "name": "capture",
+            "canonical_name": "capture",
+            "range": {
+              "start": {
+                "line": 28,
+                "character": 0
+              },
+              "end": {
+                "line": 28,
+                "character": 7
+              }
+            },
+            "by_varlist": null,
+            "sort_varlist": null,
+            "arguments": null,
+            "options": [],
+            "frame": null
+          },
+          {
+            "name": "noisily",
+            "canonical_name": "noisily",
+            "range": {
+              "start": {
+                "line": 28,
+                "character": 8
+              },
+              "end": {
+                "line": 28,
+                "character": 15
+              }
+            },
+            "by_varlist": null,
+            "sort_varlist": null,
+            "arguments": null,
+            "options": [],
+            "frame": null
+          },
+          {
+            "name": "frame",
+            "canonical_name": "frame",
+            "range": {
+              "start": {
+                "line": 28,
+                "character": 16
+              },
+              "end": {
+                "line": 28,
+                "character": 26
+              }
+            },
+            "by_varlist": null,
+            "sort_varlist": null,
+            "arguments": null,
+            "options": [],
+            "frame": "`f'"
+          }
+        ],
+        "args": [
+          {
+            "text": "x",
+            "range": {
+              "start": {
+                "line": 28,
+                "character": 35
+              },
+              "end": {
+                "line": 28,
+                "character": 36
+              }
+            }
+          }
+        ],
+        "varlist": {
+          "kind": "varlist",
+          "items": [
+            {
+              "kind": "variable",
+              "name": "x",
+              "range": {
+                "start": {
+                  "line": 28,
+                  "character": 35
+                },
+                "end": {
+                  "line": 28,
+                  "character": 36
+                }
+              }
+            }
+          ],
+          "range": {
+            "start": {
+              "line": 28,
+              "character": 35
+            },
+            "end": {
+              "line": 28,
+              "character": 36
+            }
+          }
+        },
+        "assignment": {
+          "text": "8",
+          "expression": {
+            "kind": "number",
+            "text": "8",
+            "value": 8,
+            "range": {
+              "start": {
+                "line": 28,
+                "character": 39
+              },
+              "end": {
+                "line": 28,
+                "character": 40
+              }
+            }
+          }
+        },
+        "if": null,
+        "assertion": null,
+        "display": null,
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": [],
+        "options_tail": []
+      },
+      {
+        "kind": "foreach",
+        "range": {
+          "start": {
+            "line": 31,
+            "character": 0
+          },
+          "end": {
+            "line": 35,
+            "character": 1
+          }
+        },
+        "text": "foreach v in 9 10 {\n    frame F {\n        replace x = `v'\n    }\n}",
+        "delimit": "cr",
+        "comments": {
+          "leading": [
+            {
+              "style": "star",
+              "text": "* A frame block nested in a loop.",
+              "range": {
+                "start": {
+                  "line": 30,
+                  "character": 0
+                },
+                "end": {
+                  "line": 30,
+                  "character": 33
+                }
+              },
+              "directive": null
+            }
+          ],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [],
+        "variable": "v",
+        "spec": {
+          "keyword": "in",
+          "list_type": null,
+          "text": "in 9 10",
+          "items": [
+            {
+              "text": "9",
+              "range": {
+                "start": {
+                  "line": 31,
+                  "character": 13
+                },
+                "end": {
+                  "line": 31,
+                  "character": 14
+                }
+              }
+            },
+            {
+              "text": "10",
+              "range": {
+                "start": {
+                  "line": 31,
+                  "character": 15
+                },
+                "end": {
+                  "line": 31,
+                  "character": 17
+                }
+              }
+            }
+          ]
+        },
+        "body": [
+          {
+            "kind": "frame",
+            "range": {
+              "start": {
+                "line": 32,
+                "character": 4
+              },
+              "end": {
+                "line": 34,
+                "character": 5
+              }
+            },
+            "text": "frame F {\n        replace x = `v'\n    }",
+            "delimit": "cr",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "prefixes": [],
+            "frame": "F",
+            "body": [
+              {
+                "kind": "command",
+                "range": {
+                  "start": {
+                    "line": 33,
+                    "character": 8
+                  },
+                  "end": {
+                    "line": 33,
+                    "character": 23
+                  }
+                },
+                "text": "replace x = `v'",
+                "delimit": "cr",
+                "comments": {
+                  "leading": [],
+                  "trailing": [],
+                  "interior": [],
+                  "block_end": []
+                },
+                "name": "replace",
+                "canonical_name": "replace",
+                "prefixes": [],
+                "args": [
+                  {
+                    "text": "x",
+                    "range": {
+                      "start": {
+                        "line": 33,
+                        "character": 16
+                      },
+                      "end": {
+                        "line": 33,
+                        "character": 17
+                      }
+                    }
+                  }
+                ],
+                "varlist": {
+                  "kind": "varlist",
+                  "items": [
+                    {
+                      "kind": "variable",
+                      "name": "x",
+                      "range": {
+                        "start": {
+                          "line": 33,
+                          "character": 16
+                        },
+                        "end": {
+                          "line": 33,
+                          "character": 17
+                        }
+                      }
+                    }
+                  ],
+                  "range": {
+                    "start": {
+                      "line": 33,
+                      "character": 16
+                    },
+                    "end": {
+                      "line": 33,
+                      "character": 17
+                    }
+                  }
+                },
+                "assignment": {
+                  "text": "`v'",
+                  "expression": {
+                    "kind": "macro_ref",
+                    "scope": "local",
+                    "form": "name",
+                    "text": "`v'",
+                    "range": {
+                      "start": {
+                        "line": 33,
+                        "character": 20
+                      },
+                      "end": {
+                        "line": 33,
+                        "character": 23
+                      }
+                    },
+                    "name": "v"
+                  }
+                },
+                "if": null,
+                "assertion": null,
+                "display": null,
+                "in": null,
+                "weight": null,
+                "using": null,
+                "options": [],
+                "options_tail": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 36,
+            "character": 0
+          },
+          "end": {
+            "line": 36,
+            "character": 15
+          }
+        },
+        "text": "display \"after\"",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "display",
+        "canonical_name": "display",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "\"after\"",
+            "range": {
+              "start": {
+                "line": 36,
+                "character": 8
+              },
+              "end": {
+                "line": 36,
+                "character": 15
+              }
+            }
+          }
+        ],
+        "varlist": null,
+        "assignment": null,
+        "if": null,
+        "assertion": null,
+        "display": {
+          "items": [
+            {
+              "kind": "string",
+              "quote": "simple",
+              "text": "\"after\"",
+              "parts": [
+                {
+                  "kind": "text",
+                  "value": "after",
+                  "range": {
+                    "start": {
+                      "line": 36,
+                      "character": 9
+                    },
+                    "end": {
+                      "line": 36,
+                      "character": 14
+                    }
+                  }
+                }
+              ],
+              "range": {
+                "start": {
+                  "line": 36,
+                  "character": 8
+                },
+                "end": {
+                  "line": 36,
+                  "character": 15
+                }
+              },
+              "format": null
+            }
+          ]
+        },
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": [],
+        "options_tail": []
+      }
+    ],
+    "comments": [],
+    "errors": []
+  },
+  {
+    "schema_version": 1,
+    "sight_version": "<VERSION>",
+    "path": "<ROOT>/frame-unclosed.do",
+    "line_count": 12,
+    "statements": [
+      {
+        "kind": "program",
+        "range": {
+          "start": {
+            "line": 2,
+            "character": 0
+          },
+          "end": {
+            "line": 5,
+            "character": 3
+          }
+        },
+        "text": "program define unclosed_frame\n    capture noisily frame `0' {\n        replace x = 1\nend",
+        "delimit": "cr",
+        "comments": {
+          "leading": [
+            {
+              "style": "star",
+              "text": "* A frame block with no } before the program's end: as in Stata 18,",
+              "range": {
+                "start": {
+                  "line": 0,
+                  "character": 0
+                },
+                "end": {
+                  "line": 0,
+                  "character": 67
+                }
+              },
+              "directive": null
+            },
+            {
+              "style": "star",
+              "text": "* that end still ends the program.",
+              "range": {
+                "start": {
+                  "line": 1,
+                  "character": 0
+                },
+                "end": {
+                  "line": 1,
+                  "character": 34
+                }
+              },
+              "directive": null
+            }
+          ],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "unclosed_frame",
+        "define_options": null,
+        "args": [],
+        "syntax": null,
+        "body": [
+          {
+            "kind": "frame",
+            "range": {
+              "start": {
+                "line": 3,
+                "character": 4
+              },
+              "end": {
+                "line": 4,
+                "character": 21
+              }
+            },
+            "text": "capture noisily frame `0' {\n        replace x = 1",
+            "delimit": "cr",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "prefixes": [
+              {
+                "name": "capture",
+                "canonical_name": "capture",
+                "range": {
+                  "start": {
+                    "line": 3,
+                    "character": 4
+                  },
+                  "end": {
+                    "line": 3,
+                    "character": 11
+                  }
+                },
+                "by_varlist": null,
+                "sort_varlist": null,
+                "arguments": null,
+                "options": [],
+                "frame": null
+              },
+              {
+                "name": "noisily",
+                "canonical_name": "noisily",
+                "range": {
+                  "start": {
+                    "line": 3,
+                    "character": 12
+                  },
+                  "end": {
+                    "line": 3,
+                    "character": 19
+                  }
+                },
+                "by_varlist": null,
+                "sort_varlist": null,
+                "arguments": null,
+                "options": [],
+                "frame": null
+              }
+            ],
+            "frame": "`0'",
+            "body": [
+              {
+                "kind": "command",
+                "range": {
+                  "start": {
+                    "line": 4,
+                    "character": 8
+                  },
+                  "end": {
+                    "line": 4,
+                    "character": 21
+                  }
+                },
+                "text": "replace x = 1",
+                "delimit": "cr",
+                "comments": {
+                  "leading": [],
+                  "trailing": [],
+                  "interior": [],
+                  "block_end": []
+                },
+                "name": "replace",
+                "canonical_name": "replace",
+                "prefixes": [],
+                "args": [
+                  {
+                    "text": "x",
+                    "range": {
+                      "start": {
+                        "line": 4,
+                        "character": 16
+                      },
+                      "end": {
+                        "line": 4,
+                        "character": 17
+                      }
+                    }
+                  }
+                ],
+                "varlist": {
+                  "kind": "varlist",
+                  "items": [
+                    {
+                      "kind": "variable",
+                      "name": "x",
+                      "range": {
+                        "start": {
+                          "line": 4,
+                          "character": 16
+                        },
+                        "end": {
+                          "line": 4,
+                          "character": 17
+                        }
+                      }
+                    }
+                  ],
+                  "range": {
+                    "start": {
+                      "line": 4,
+                      "character": 16
+                    },
+                    "end": {
+                      "line": 4,
+                      "character": 17
+                    }
+                  }
+                },
+                "assignment": {
+                  "text": "1",
+                  "expression": {
+                    "kind": "number",
+                    "text": "1",
+                    "value": 1,
+                    "range": {
+                      "start": {
+                        "line": 4,
+                        "character": 20
+                      },
+                      "end": {
+                        "line": 4,
+                        "character": 21
+                      }
+                    }
+                  }
+                },
+                "if": null,
+                "assertion": null,
+                "display": null,
+                "in": null,
+                "weight": null,
+                "using": null,
+                "options": [],
+                "options_tail": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "kind": "frame",
+        "range": {
+          "start": {
+            "line": 8,
+            "character": 0
+          },
+          "end": {
+            "line": 11,
+            "character": 0
+          }
+        },
+        "text": "capture noisily frame F {\n    replace x = 2\ndisplay \"still in the block\"\n",
+        "delimit": "cr",
+        "comments": {
+          "leading": [
+            {
+              "style": "star",
+              "text": "* A frame block with no closing } runs to the end of the file.",
+              "range": {
+                "start": {
+                  "line": 7,
+                  "character": 0
+                },
+                "end": {
+                  "line": 7,
+                  "character": 62
+                }
+              },
+              "directive": null
+            }
+          ],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [
+          {
+            "name": "capture",
+            "canonical_name": "capture",
+            "range": {
+              "start": {
+                "line": 8,
+                "character": 0
+              },
+              "end": {
+                "line": 8,
+                "character": 7
+              }
+            },
+            "by_varlist": null,
+            "sort_varlist": null,
+            "arguments": null,
+            "options": [],
+            "frame": null
+          },
+          {
+            "name": "noisily",
+            "canonical_name": "noisily",
+            "range": {
+              "start": {
+                "line": 8,
+                "character": 8
+              },
+              "end": {
+                "line": 8,
+                "character": 15
+              }
+            },
+            "by_varlist": null,
+            "sort_varlist": null,
+            "arguments": null,
+            "options": [],
+            "frame": null
+          }
+        ],
+        "frame": "F",
+        "body": [
+          {
+            "kind": "command",
+            "range": {
+              "start": {
+                "line": 9,
+                "character": 4
+              },
+              "end": {
+                "line": 9,
+                "character": 17
+              }
+            },
+            "text": "replace x = 2",
+            "delimit": "cr",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "name": "replace",
+            "canonical_name": "replace",
+            "prefixes": [],
+            "args": [
+              {
+                "text": "x",
+                "range": {
+                  "start": {
+                    "line": 9,
+                    "character": 12
+                  },
+                  "end": {
+                    "line": 9,
+                    "character": 13
+                  }
+                }
+              }
+            ],
+            "varlist": {
+              "kind": "varlist",
+              "items": [
+                {
+                  "kind": "variable",
+                  "name": "x",
+                  "range": {
+                    "start": {
+                      "line": 9,
+                      "character": 12
+                    },
+                    "end": {
+                      "line": 9,
+                      "character": 13
+                    }
+                  }
+                }
+              ],
+              "range": {
+                "start": {
+                  "line": 9,
+                  "character": 12
+                },
+                "end": {
+                  "line": 9,
+                  "character": 13
+                }
+              }
+            },
+            "assignment": {
+              "text": "2",
+              "expression": {
+                "kind": "number",
+                "text": "2",
+                "value": 2,
+                "range": {
+                  "start": {
+                    "line": 9,
+                    "character": 16
+                  },
+                  "end": {
+                    "line": 9,
+                    "character": 17
+                  }
+                }
+              }
+            },
+            "if": null,
+            "assertion": null,
+            "display": null,
+            "in": null,
+            "weight": null,
+            "using": null,
+            "options": [],
+            "options_tail": []
+          },
+          {
+            "kind": "command",
+            "range": {
+              "start": {
+                "line": 10,
+                "character": 0
+              },
+              "end": {
+                "line": 10,
+                "character": 28
+              }
+            },
+            "text": "display \"still in the block\"",
+            "delimit": "cr",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "name": "display",
+            "canonical_name": "display",
+            "prefixes": [],
+            "args": [
+              {
+                "text": "\"still in the block\"",
+                "range": {
+                  "start": {
+                    "line": 10,
+                    "character": 8
+                  },
+                  "end": {
+                    "line": 10,
+                    "character": 28
+                  }
+                }
+              }
+            ],
+            "varlist": null,
+            "assignment": null,
+            "if": null,
+            "assertion": null,
+            "display": {
+              "items": [
+                {
+                  "kind": "string",
+                  "quote": "simple",
+                  "text": "\"still in the block\"",
+                  "parts": [
+                    {
+                      "kind": "text",
+                      "value": "still in the block",
+                      "range": {
+                        "start": {
+                          "line": 10,
+                          "character": 9
+                        },
+                        "end": {
+                          "line": 10,
+                          "character": 27
+                        }
+                      }
+                    }
+                  ],
+                  "range": {
+                    "start": {
+                      "line": 10,
+                      "character": 8
+                    },
+                    "end": {
+                      "line": 10,
+                      "character": 28
+                    }
+                  },
+                  "format": null
+                }
+              ]
+            },
+            "in": null,
+            "weight": null,
+            "using": null,
+            "options": [],
+            "options_tail": []
+          }
+        ]
+      }
+    ],
+    "comments": [],
+    "errors": [
+      {
+        "source": "parser",
+        "code": "SYNTAX_ERROR",
+        "severity": "error",
+        "message": "Missing closing brace for frame block",
+        "range": {
+          "start": {
+            "line": 8,
+            "character": 16
+          },
+          "end": {
+            "line": 8,
+            "character": 21
+          }
+        }
+      }
+    ]
   }
 ]

@@ -410,7 +410,7 @@ through that `end`, and the data lines are not statements.
   - `capture`, `quietly`, `noisily`, and their abbreviations;
   - `by` and `bysort` with `by_varlist`, `sort_varlist` (the parenthesized
     sort variables), and `options` (`, sort`);
-  - `frame name:` with `frame`;
+  - `frame name:` with `frame`, the name as written (`F`, `` `f' ``);
   - prefixes that take arguments before a colon: `svy`, `version`, `xi`,
     `bootstrap` (`bs`), `jackknife`, `simulate`, `statsby`, `rolling`,
     `permute`, `mi`, `nestreg`, `stepwise` (`sw`), `fp`, `mfp`, `collect`,
@@ -553,7 +553,13 @@ Items follow how Stata 18 reads `display`:
   written, each with its indentation.
 - `delimit`: `mode` (`cr` or `semicolon`), the mode from the next statement
   on.
-- `frame`: `frame name { ... }`: `frame`, `body`.
+- `frame`: `frame name { ... }`: `prefixes`, `frame`, `body`. `frame` is
+  the name as written, which may be a macro (`` `f' `` or `$g`).
+  `capture noisily frame F { ... }` is one `frame` statement with
+  `capture` and `noisily` in `prefixes`. A one-line `frame F: cmd` is not
+  a block: it is `cmd` with a `frame` prefix. A `frame` block with no
+  `}` runs to the end of the file and adds a `SYNTAX_ERROR` to `errors`,
+  unless the `end` of the program around it closes it first.
 
 #### Names built from macros
 
