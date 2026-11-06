@@ -496,7 +496,7 @@ The qualifiers may appear in any order in the source, as Stata allows.
   text. For the `value` form, `value_parts` splits it into text and
   `macro_ref` parts.
 - `embedded`: a Mata or Python block, kept opaque: `language` (`mata` or
-  `python`), `inline` (true for `mata: ...` on one line), `prefixes`,
+  `python`), `inline` (true for a one-line `mata: ...`, `mata : ...` or `mata ...`), `prefixes`,
   `content: {"text", "range"}`. For a block, `text` is its lines as
   written, each with its indentation.
 - `delimit`: `mode` (`cr` or `semicolon`), the mode from the next statement

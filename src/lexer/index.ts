@@ -463,6 +463,8 @@ export class StataLexer {
    *   - "mata: x = 5 // comment\n" (code + comment)
    *   - "mata: * note\n"    (`*` after the colon is code: Stata 18 runs
    *     it as Mata, giving r(3499) "note not found")
+   *   - "mata: ///\n x = 5\n" (`///` joins the next line, so the code
+   *     there follows the colon)
    */
   private is_only_whitespace_or_comment_until_newline(): boolean {
     let my_pos = this.position;
@@ -491,6 +493,17 @@ export class StataLexer {
       // Check for // line comment
       if (my_char === '/' && my_pos + 1 < this.source.length && 
           this.source[my_pos + 1] === '/') {
+        if (this.source[my_pos + 2] === '/') {
+          // `///` joins the next line to this one, so what follows the
+          // opener is on the next line: `capture mata: ///` then code
+          // is a one-line statement in Stata 18
+          const my_newline = this.source.indexOf('\n', my_pos);
+          if (my_newline < 0) {
+            return true;
+          }
+          my_pos = my_newline + 1;
+          continue;
+        }
         // Rest of line is a comment - treat as block mode
         return true;
       }
@@ -533,6 +546,48 @@ export class StataLexer {
     
     // Reached EOF - treat as end of line
     return true;
+  }
+
+  /**
+   * Whether `:` follows the word just scanned, after any spaces or tabs.
+   * Stata 18 reads `mata :` and `python :` as `mata:` and `python:`.
+   */
+  private colon_follows_blanks(): boolean {
+    let my_pos = this.position;
+    while (this.source[my_pos] === ' ' || this.source[my_pos] === '\t') {
+      my_pos++;
+    }
+    return this.source[my_pos] === ':';
+  }
+
+  /** Consume the blanks and `:` that `colon_follows_blanks` found. */
+  private consume_blanks_and_colon(): void {
+    while (this.peek() === ' ' || this.peek() === '\t') {
+      this.advance();
+    }
+    this.advance();
+  }
+
+  /**
+   * Whether `{` comes next, after blanks and any `///` continuations:
+   * the opening brace of `mata {` or `python {` on the keyword's
+   * logical line.
+   */
+  private brace_follows_blanks(): boolean {
+    let my_pos = this.position;
+    for (;;) {
+      while (this.source[my_pos] === ' ' || this.source[my_pos] === '\t') {
+        my_pos++;
+      }
+      if (!this.source.startsWith('///', my_pos)) {
+        return this.source[my_pos] === '{';
+      }
+      const my_newline = this.source.indexOf('\n', my_pos);
+      if (my_newline < 0) {
+        return false;
+      }
+      my_pos = my_newline + 1;
+    }
   }
 
   private get_current_context(): LanguageContext {
@@ -1968,11 +2023,15 @@ export class StataLexer {
         const prev_is_mata_inline = this.previous_token &&
           this.previous_token.type === 'MATA_INLINE';
         
-        // First check for mata: syntax (mata followed by colon)
-        // This takes precedence because "capture mata:" should be recognized
-        if (this.peek() === ':') {
-          this.advance(); // consume the colon
-          const full_value = value + ':';
+        // First check for mata: syntax (mata followed by colon, after
+        // any blanks). This takes precedence because "capture mata:"
+        // should be recognized.
+        if (this.colon_follows_blanks()) {
+          this.consume_blanks_and_colon();
+          // The opener as written (`mata:` or `mata :`), so formatting
+          // keeps it
+          const full_value = this.source.substring(
+            this.position_to_offset(startLine, startColumn), this.position);
           
           // Lookahead: check if there's content on the same line after the colon
           // (whitespace and comments don't count as content)
@@ -1996,6 +2055,17 @@ export class StataLexer {
         } else if (prev_is_word || prev_is_mata_inline) {
           // "mata" is an argument to a command or part of inline mata, not a block start
           // Fall through to return as WORD
+        } else if (
+          !this.is_only_whitespace_or_comment_until_newline() &&
+          !this.brace_follows_blanks()
+        ) {
+          // `mata x = 5`: code on the line makes a one-line statement,
+          // as with `mata:` (Stata 18 runs it and stays in Stata)
+          return {
+            type: 'MATA_INLINE',
+            value,
+            range: this.makeRange(startLine, startColumn, this.line, this.column),
+          };
         } else {
           // Regular mata block start
           this.push_context(LanguageContext.MATA);
@@ -2008,10 +2078,12 @@ export class StataLexer {
           };
         }
       } else if (this.is_python_start_delimiter(value)) {
-        // Check if next character is colon for python:
-        if (this.peek() === ':') {
-          this.advance(); // consume the colon
-          const full_value = value + ':';
+        // Check for python: (python followed by colon, after any blanks)
+        if (this.colon_follows_blanks()) {
+          this.consume_blanks_and_colon();
+          // The opener as written (`python:` or `python :`)
+          const full_value = this.source.substring(
+            this.position_to_offset(startLine, startColumn), this.position);
           
           // Lookahead: check if there's content on the same line after the colon
           // (whitespace and comments don't count as content)
@@ -2040,7 +2112,13 @@ export class StataLexer {
           this.previous_token.type === 'WORD' && 
           this.previous_token.value === 'end';
         
-        if (!prev_is_end) {
+        // `python query`, `python set exec …`: words after `python` make
+        // a one-line Stata subcommand, not a block
+        const is_subcommand =
+          !this.is_only_whitespace_or_comment_until_newline() &&
+          !this.brace_follows_blanks();
+        
+        if (!prev_is_end && !is_subcommand) {
           this.push_context(LanguageContext.PYTHON);
           this.note_python_block_opener();
           // Track the start line for brace-style block detection
