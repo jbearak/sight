@@ -1,0 +1,42 @@
+The operation completed successfully.
+
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:01.6127507Z","data":[{"title":"Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta","pid":12660,"command_line":"\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-registration-HKLM-9e847b15\\original0.do\" ","session":1,"start":"2026-11-07T19:54:02.5157495Z"},{"title":"2 - Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta","pid":10028,"command_line":"\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-registration-HKLM-9e847b15\\original1.do\" ","session":1,"start":"2026-11-07T19:54:03.2452259Z"}],"event":"before_case"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:01.6545929Z","data":{"message":"unsupported-registration-before original PID/start survives","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:01.6814863Z","data":{"message":"unsupported-registration-before one PID-targeted Command control","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:01.7790730Z","data":{"message":"closed ready/response: 20589b0bdba5419cb8830aa2df73e8ae.ok","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:01.7790730Z","data":{"message":"unsupported-registration-before state and nonce match","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:01.7790730Z","data":{"pid":12660,"response":"20589b0bdba5419cb8830aa2df73e8ae|STATE_OK|N=74|price1=918273|changed=1|marker=proof-registration-HKLM-9e847b15_original0","stage":"unsupported-registration-before","start":"2026-11-07T19:54:02.5157495Z"},"event":"original_state"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:01.7888609Z","data":{"message":"unsupported-registration-before original PID/start survives","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:01.7943612Z","data":{"message":"unsupported-registration-before one PID-targeted Command control","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:01.8710162Z","data":{"message":"closed ready/response: 2f34717a3f7a4fb2a4ad51655cb7403b.ok","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:01.8733185Z","data":{"message":"unsupported-registration-before state and nonce match","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:01.8733185Z","data":{"pid":10028,"response":"2f34717a3f7a4fb2a4ad51655cb7403b|STATE_OK|N=74|price1=918273|changed=1|marker=proof-registration-HKLM-9e847b15_original1","stage":"unsupported-registration-before","start":"2026-11-07T19:54:03.2452259Z"},"event":"original_state"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:01.9028448Z","data":{"cancel_stage":"none","pid":2100,"name":"consoleA","folder":"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-registration-HKLM-9e847b15\\consoleA"},"event":"driver_started"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:10.5638393Z","data":{"message":"Unsupported registration returns promptly","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:10.6235304Z","data":{"inventory":[{"title":"Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta","pid":12660,"command_line":"\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-registration-HKLM-9e847b15\\original0.do\" ","session":1,"start":"2026-11-07T19:54:02.5157495Z"},{"title":"2 - Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta","pid":10028,"command_line":"\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-registration-HKLM-9e847b15\\original1.do\" ","session":1,"start":"2026-11-07T19:54:03.2452259Z"}],"hive":"HKLM","driver_exit":87,"result":{"ok":false,"exit_code":87,"message":"Error: Stata\u0027s Automation registration (HKEY_LOCAL_MACHINE\\SOFTWARE\\Classes\\AppID\\{2887be01-ba32-4882-b349-b97fddef2aa3}) sets RunAs, which sight console doesn\u0027t support: it can\u0027t make sure an open Stata isn\u0027t handed to it."}},"event":"unsupported_result"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:10.6235304Z","data":{"message":"Unsupported registration exits 87","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:10.6554335Z","data":{"message":"Unsupported registration never reaches COM connect","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:10.6877387Z","data":{"message":"Unsupported registration starts no Stata","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:10.6877387Z","data":{"message":"unsupported-registration-after original PID/start survives","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:10.7037801Z","data":{"message":"unsupported-registration-after one PID-targeted Command control","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:10.7709805Z","data":{"message":"closed ready/response: f7a21339ee63469aad47c1d0353e9d16.ok","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:10.7756548Z","data":{"message":"unsupported-registration-after state and nonce match","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:10.7756548Z","data":{"pid":12660,"response":"f7a21339ee63469aad47c1d0353e9d16|STATE_OK|N=74|price1=918273|changed=1|marker=proof-registration-HKLM-9e847b15_original0","stage":"unsupported-registration-after","start":"2026-11-07T19:54:02.5157495Z"},"event":"original_state"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:10.7756548Z","data":{"message":"unsupported-registration-after original PID/start survives","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:10.7868102Z","data":{"message":"unsupported-registration-after one PID-targeted Command control","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:10.8543240Z","data":{"message":"closed ready/response: 486f81ff21e04e0eb9caa88314240716.ok","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:10.8543240Z","data":{"message":"unsupported-registration-after state and nonce match","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:10.8615667Z","data":{"pid":10028,"response":"486f81ff21e04e0eb9caa88314240716|STATE_OK|N=74|price1=918273|changed=1|marker=proof-registration-HKLM-9e847b15_original1","stage":"unsupported-registration-after","start":"2026-11-07T19:54:03.2452259Z"},"event":"original_state"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:55:10.8643060Z","data":{"hive":"HKLM","case":"unsupported-registration","status":"PASS"},"event":"verdict"}
+Cannot process argument because the value of argument "name" is not valid. Change the value of the "name" argument and run the operation again.
+18 |     const args = ['prlctl', 'exec', 'Windows 11'];
+19 |     if (hive === 'HKCU') args.push('--current-user');
+20 |     args.push('powershell.exe', '-Sta', '-NoProfile', '-ExecutionPolicy', 'Bypass',
+21 |         '-EncodedCommand', Buffer.from(command, 'utf16le').toString('base64'));
+22 |     const child = Bun.spawn(args, { stdout: 'inherit', stderr: 'inherit' });
+23 |     if (await child.exited !== 0) throw new Error(`Registry ${action} failed`);
+                                                 ^
+error: Registry restore failed
+      at registry (/Users/jmb/.t3/worktrees/sight/t3-fdcafb27/scripts/spike/windows-com/proof-registration.ts:23:45)
+
+Bun v1.4.4 (macOS arm64)

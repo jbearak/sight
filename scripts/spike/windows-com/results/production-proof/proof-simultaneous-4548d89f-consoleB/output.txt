@@ -1,0 +1,4 @@
+. display 772000 + 22
+772022
+
+. exit, clear

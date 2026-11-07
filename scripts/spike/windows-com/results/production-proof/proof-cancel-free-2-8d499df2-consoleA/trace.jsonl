@@ -1,0 +1,20 @@
+{"utc":"2026-11-07T19:59:01.202Z","event":"revision","data":{"commit":"2548950b8abb9d6f7f6c74727111a6ae6a58b04a","bridge_source_sha256":"0646095f5f254f258f0236459d20e2e9877440371619b4e9abb647f64ed75542","bun":"1.4.4","process_arch":"x64","pid":4744}}
+{"utc":"2026-11-07T19:59:01.235Z","event":"request","data":{"id":1,"op":"self_test","dir":"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-cancel-free-2-8d499df2\\sight-console\\aedbf48d440205b96cabc9f6c1245dbb"}}
+{"utc":"2026-11-07T19:59:06.297Z","event":"reply","data":{"op":"self_test","elapsed_ms":5061.785916,"reply":{"ok":true,"language_mode":"FullLanguage","id":1}}}
+{"utc":"2026-11-07T19:59:06.298Z","event":"request","data":{"id":2,"op":"prepare"}}
+{"utc":"2026-11-07T19:59:06.529Z","event":"reply","data":{"op":"prepare","elapsed_ms":230.71316699999988,"reply":{"id":2,"ok":true}}}
+{"utc":"2026-11-07T19:59:06.529Z","event":"request","data":{"id":3,"op":"sweep","root":"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-cancel-free-2-8d499df2\\sight-console","max_age_hours":24}}
+{"utc":"2026-11-07T19:59:06.630Z","event":"reply","data":{"op":"sweep","elapsed_ms":100.18183299999964,"reply":{"ok":true,"removed":0,"id":3}}}
+{"utc":"2026-11-07T19:59:06.630Z","event":"request","data":{"id":4,"op":"registered"}}
+{"utc":"2026-11-07T19:59:06.670Z","event":"reply","data":{"op":"registered","elapsed_ms":40.41112500000054,"reply":{"ok":true,"exe":"\"C:\\Program Files\\Stata18\\StataMP-64.exe\"","id":4}}}
+{"utc":"2026-11-07T19:59:06.671Z","event":"request","data":{"id":5,"op":"check_registration"}}
+{"utc":"2026-11-07T19:59:06.802Z","event":"reply","data":{"op":"check_registration","elapsed_ms":131.76274999999987,"reply":{"id":5,"ok":true}}}
+{"utc":"2026-11-07T19:59:06.804Z","event":"request","data":{"id":6,"op":"list_stata","strict":true,"acquire":true,"root":"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-cancel-free-2-8d499df2\\sight-console"}}
+{"utc":"2026-11-07T19:59:07.007Z","event":"reply","data":{"op":"list_stata","elapsed_ms":202.5831250000001,"reply":{"ok":true,"processes":[{"com_started":false,"pid":13876,"batch":false,"start":"2026-11-07T19:58:59.7549468Z","title":"Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta","has_window":true},{"com_started":false,"pid":5600,"batch":false,"start":"2026-11-07T19:59:00.3630588Z","title":"2 - Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta","has_window":true}],"id":6}}}
+{"utc":"2026-11-07T19:59:07.007Z","event":"request","data":{"id":7,"op":"connect","root":"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-cancel-free-2-8d499df2\\sight-console"}}
+{"utc":"2026-11-07T19:59:07.656Z","event":"reply","data":{"op":"connect","elapsed_ms":648.1841669999994,"reply":{"ok":true,"before":[{"com_started":false,"pid":13876,"batch":false,"start":"2026-11-07T19:58:59.7549468Z","title":"Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta","has_window":true},{"com_started":false,"pid":5600,"batch":false,"start":"2026-11-07T19:59:00.3630588Z","title":"2 - Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta","has_window":true}],"id":7,"drained":2,"after":[{"com_started":false,"pid":13876,"batch":false,"start":"2026-11-07T19:58:59.7549468Z","title":"Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta","has_window":true},{"com_started":false,"pid":5600,"batch":false,"start":"2026-11-07T19:59:00.3630588Z","title":"2 - Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta","has_window":true},{"com_started":true,"pid":9400,"batch":false,"start":"2026-11-07T19:59:07.2579299Z","title":"3 - Stata/MP 18.0","has_window":true}]}}}
+{"utc":"2026-11-07T19:59:07.656Z","event":"request","data":{"id":8,"op":"is_free"}}
+{"utc":"2026-11-07T19:59:07.657Z","event":"cancel","data":{"outcome":"graceful","own_pid":null}}
+{"utc":"2026-11-07T19:59:07.689Z","event":"cancel","data":{"outcome":"killed","own_pid":null}}
+{"utc":"2026-11-07T19:59:07.707Z","event":"bridge_ended","data":{"stderr":""}}
+{"utc":"2026-11-07T19:59:07.709Z","event":"open_result","data":{"ok":false,"exit_code":130,"message":null}}

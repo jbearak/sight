@@ -1,0 +1,13 @@
+{"utc":"2026-11-07T19:57:39.940Z","event":"revision","data":{"commit":"2548950b8abb9d6f7f6c74727111a6ae6a58b04a","bridge_source_sha256":"0646095f5f254f258f0236459d20e2e9877440371619b4e9abb647f64ed75542","bun":"1.4.4","process_arch":"x64","pid":3272}}
+{"utc":"2026-11-07T19:57:39.973Z","event":"request","data":{"id":1,"op":"self_test","dir":"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-registration-HKCU-a7f1d5fc\\sight-console\\26233c9caf18665a38c881a586e197a9"}}
+{"utc":"2026-11-07T19:57:44.745Z","event":"reply","data":{"op":"self_test","elapsed_ms":4771.728375,"reply":{"ok":true,"language_mode":"FullLanguage","id":1}}}
+{"utc":"2026-11-07T19:57:44.746Z","event":"request","data":{"id":2,"op":"prepare"}}
+{"utc":"2026-11-07T19:57:44.973Z","event":"reply","data":{"op":"prepare","elapsed_ms":226.7974579999991,"reply":{"id":2,"ok":true}}}
+{"utc":"2026-11-07T19:57:44.974Z","event":"request","data":{"id":3,"op":"sweep","root":"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-registration-HKCU-a7f1d5fc\\sight-console","max_age_hours":24}}
+{"utc":"2026-11-07T19:57:45.071Z","event":"reply","data":{"op":"sweep","elapsed_ms":97.38741599999958,"reply":{"ok":true,"removed":0,"id":3}}}
+{"utc":"2026-11-07T19:57:45.071Z","event":"request","data":{"id":4,"op":"registered"}}
+{"utc":"2026-11-07T19:57:45.109Z","event":"reply","data":{"op":"registered","elapsed_ms":37.601708000000144,"reply":{"ok":true,"exe":"\"C:\\Program Files\\Stata18\\StataMP-64.exe\"","id":4}}}
+{"utc":"2026-11-07T19:57:45.109Z","event":"request","data":{"id":5,"op":"check_registration"}}
+{"utc":"2026-11-07T19:57:45.308Z","event":"reply","data":{"op":"check_registration","elapsed_ms":198.999417,"reply":{"message":"unsupported_registration","id":5,"key":"HKEY_CURRENT_USER\\Software\\Classes\\AppID\\{cc518963-e9eb-41f4-a5b6-341af15551da}","error":"unsupported_registration","value":"RunAs","ok":false,"hresult":null}}}
+{"utc":"2026-11-07T19:57:45.394Z","event":"bridge_ended","data":{"stderr":""}}
+{"utc":"2026-11-07T19:57:45.396Z","event":"open_result","data":{"ok":false,"exit_code":87,"message":"Error: Stata's Automation registration (HKEY_CURRENT_USER\\Software\\Classes\\AppID\\{cc518963-e9eb-41f4-a5b6-341af15551da}) sets RunAs, which sight console doesn't support: it can't make sure an open Stata isn't handed to it."}}

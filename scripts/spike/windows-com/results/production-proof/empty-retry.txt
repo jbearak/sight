@@ -1,0 +1,5 @@
+CASE empty exit=0
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:42.8563458Z","data":{"inventory":[{"title":"Stata - sight console d4f562cb","pid":2864,"command_line":"\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding","session":1,"start":"2026-11-07T19:44:41.6352590Z"}],"name":"consoleA","notices":[],"identity":{"title":"Stata - sight console d4f562cb","pid":2864,"command_line":"\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding","session":1,"start":"2026-11-07T19:44:41.6352590Z"}},"event":"console_ready"}
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:46.3802663Z","data":{"inventory":[],"done":{"ok":true,"status":0,"own_pid":2864,"notices":[]},"name":"consoleA"},"event":"console_ended"}
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:46.4255479Z","data":{"case":"empty","status":"PASS"},"event":"verdict"}
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:46.4516696Z","data":[],"event":"final_inventory"}

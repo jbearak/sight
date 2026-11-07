@@ -1,0 +1,87 @@
+{"utc":"2026-11-07T19:44:36.019Z","event":"revision","data":{"commit":"2548950b8abb9d6f7f6c74727111a6ae6a58b04a","bridge_source_sha256":"0646095f5f254f258f0236459d20e2e9877440371619b4e9abb647f64ed75542","bun":"1.4.4","process_arch":"x64","pid":2808}}
+{"utc":"2026-11-07T19:44:36.054Z","event":"request","data":{"id":1,"op":"self_test","dir":"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-empty-b0fe7bce\\sight-console\\d4f562cb7002735a01e88d49f7b3faac"}}
+{"utc":"2026-11-07T19:44:40.838Z","event":"reply","data":{"op":"self_test","elapsed_ms":4784.093041,"reply":{"ok":true,"language_mode":"FullLanguage","id":1}}}
+{"utc":"2026-11-07T19:44:40.839Z","event":"request","data":{"id":2,"op":"prepare"}}
+{"utc":"2026-11-07T19:44:41.061Z","event":"reply","data":{"op":"prepare","elapsed_ms":222.57583299999988,"reply":{"id":2,"ok":true}}}
+{"utc":"2026-11-07T19:44:41.062Z","event":"request","data":{"id":3,"op":"sweep","root":"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-empty-b0fe7bce\\sight-console","max_age_hours":24}}
+{"utc":"2026-11-07T19:44:41.155Z","event":"reply","data":{"op":"sweep","elapsed_ms":92.86049999999977,"reply":{"ok":true,"removed":0,"id":3}}}
+{"utc":"2026-11-07T19:44:41.155Z","event":"request","data":{"id":4,"op":"registered"}}
+{"utc":"2026-11-07T19:44:41.190Z","event":"reply","data":{"op":"registered","elapsed_ms":34.887541999999485,"reply":{"ok":true,"exe":"\"C:\\Program Files\\Stata18\\StataMP-64.exe\"","id":4}}}
+{"utc":"2026-11-07T19:44:41.190Z","event":"request","data":{"id":5,"op":"check_registration"}}
+{"utc":"2026-11-07T19:44:41.310Z","event":"reply","data":{"op":"check_registration","elapsed_ms":120.20266699999956,"reply":{"id":5,"ok":true}}}
+{"utc":"2026-11-07T19:44:41.312Z","event":"request","data":{"id":6,"op":"list_stata","strict":true,"acquire":true,"root":"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-empty-b0fe7bce\\sight-console"}}
+{"utc":"2026-11-07T19:44:41.468Z","event":"reply","data":{"op":"list_stata","elapsed_ms":155.79658300000028,"reply":{"ok":true,"processes":[],"id":6}}}
+{"utc":"2026-11-07T19:44:41.469Z","event":"request","data":{"id":7,"op":"connect","root":"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-empty-b0fe7bce\\sight-console"}}
+{"utc":"2026-11-07T19:44:42.073Z","event":"reply","data":{"op":"connect","elapsed_ms":604.5508749999999,"reply":{"ok":true,"before":[],"id":7,"drained":0,"after":[{"com_started":true,"pid":2864,"batch":false,"start":"2026-11-07T19:44:41.6352590Z","title":"Stata/MP 18.0","has_window":true}]}}}
+{"utc":"2026-11-07T19:44:42.074Z","event":"request","data":{"id":8,"op":"is_free"}}
+{"utc":"2026-11-07T19:44:42.236Z","event":"reply","data":{"op":"is_free","elapsed_ms":162.1047920000001,"reply":{"free":true,"ok":true,"id":8}}}
+{"utc":"2026-11-07T19:44:42.237Z","event":"request","data":{"id":9,"op":"do_sync","cmd":"window manage maintitle \"Stata - sight console d4f562cb\""}}
+{"utc":"2026-11-07T19:44:42.268Z","event":"reply","data":{"op":"do_sync","elapsed_ms":31.18262500000037,"reply":{"rc":0,"ok":true,"id":9}}}
+{"utc":"2026-11-07T19:44:42.268Z","event":"request","data":{"id":10,"op":"title_pid","token8":"d4f562cb"}}
+{"utc":"2026-11-07T19:44:42.321Z","event":"reply","data":{"op":"title_pid","elapsed_ms":53.216833000000406,"reply":{"ok":true,"pid":2864,"id":10,"start":"2026-11-07T19:44:41.6352590Z"}}}
+{"utc":"2026-11-07T19:44:42.322Z","event":"request","data":{"id":11,"op":"write_pid","dir":"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-empty-b0fe7bce\\sight-console\\d4f562cb7002735a01e88d49f7b3faac","pid":2864}}
+{"utc":"2026-11-07T19:44:42.330Z","event":"reply","data":{"op":"write_pid","elapsed_ms":8.360124999999243,"reply":{"id":11,"ok":true}}}
+{"utc":"2026-11-07T19:44:42.331Z","event":"request","data":{"id":12,"op":"release_mutex"}}
+{"utc":"2026-11-07T19:44:42.338Z","event":"reply","data":{"op":"release_mutex","elapsed_ms":7.32733399999961,"reply":{"id":12,"ok":true}}}
+{"utc":"2026-11-07T19:44:42.338Z","event":"request","data":{"id":13,"op":"short_path","path":"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-empty-b0fe7bce\\sight-console\\d4f562cb7002735a01e88d49f7b3faac"}}
+{"utc":"2026-11-07T19:44:42.372Z","event":"reply","data":{"op":"short_path","elapsed_ms":33.09191699999974,"reply":{"ok":true,"path":"C:\\Users\\jmb\\AppData\\Local\\Temp\\PRB3F6~1\\SIGHT-~1\\D4F562~1","id":13}}}
+{"utc":"2026-11-07T19:44:42.372Z","event":"request","data":{"id":14,"op":"do_sync","cmd":"set more off"}}
+{"utc":"2026-11-07T19:44:42.376Z","event":"reply","data":{"op":"do_sync","elapsed_ms":4.17291699999987,"reply":{"rc":0,"ok":true,"id":14}}}
+{"utc":"2026-11-07T19:44:42.377Z","event":"request","data":{"id":15,"op":"do_sync","cmd":"quietly which vview"}}
+{"utc":"2026-11-07T19:44:42.382Z","event":"reply","data":{"op":"do_sync","elapsed_ms":5.2037090000003445,"reply":{"rc":0,"ok":true,"id":15}}}
+{"utc":"2026-11-07T19:44:42.382Z","event":"request","data":{"id":16,"op":"do_sync","cmd":"set linesize 90"}}
+{"utc":"2026-11-07T19:44:42.387Z","event":"reply","data":{"op":"do_sync","elapsed_ms":4.98883399999977,"reply":{"rc":0,"ok":true,"id":16}}}
+{"utc":"2026-11-07T19:44:42.388Z","event":"request","data":{"id":17,"op":"do_sync","cmd":"log using \"C:\\Users\\jmb\\AppData\\Local\\Temp\\PRB3F6~1\\SIGHT-~1\\D4F562~1\\out.log\", text replace name(_scd4f562cb)"}}
+{"utc":"2026-11-07T19:44:42.406Z","event":"reply","data":{"op":"do_sync","elapsed_ms":18.49462500000027,"reply":{"rc":0,"ok":true,"id":17}}}
+{"utc":"2026-11-07T19:44:42.407Z","event":"request","data":{"id":18,"op":"show"}}
+{"utc":"2026-11-07T19:44:42.438Z","event":"reply","data":{"op":"show","elapsed_ms":30.69220800000039,"reply":{"id":18,"ok":true}}}
+{"utc":"2026-11-07T19:44:42.741Z","event":"open_result","data":{"ok":true,"own_pid":2864,"notices":[]}}
+{"utc":"2026-11-07T19:44:42.742Z","event":"output","data":". "}
+{"utc":"2026-11-07T19:44:42.774Z","event":"request","data":{"id":19,"op":"is_free"}}
+{"utc":"2026-11-07T19:44:42.780Z","event":"reply","data":{"op":"is_free","elapsed_ms":5.8680420000000595,"reply":{"free":true,"ok":true,"id":19}}}
+{"utc":"2026-11-07T19:44:42.876Z","event":"control","data":{"nonce":"b5f481d95784413db8fdd5eda3baf562","op":"submit","line":"display 771000 + 11"}}
+{"utc":"2026-11-07T19:44:42.878Z","event":"request","data":{"id":20,"op":"do_async","cmd":"display 771000 + 11"}}
+{"utc":"2026-11-07T19:44:42.891Z","event":"reply","data":{"op":"do_async","elapsed_ms":13.63708299999962,"reply":{"id":20,"ok":true}}}
+{"utc":"2026-11-07T19:44:42.915Z","event":"output","data":"display 771000 + 11\r\n"}
+{"utc":"2026-11-07T19:44:42.915Z","event":"output","data":"771011\r\n"}
+{"utc":"2026-11-07T19:44:42.916Z","event":"output","data":"\r\n"}
+{"utc":"2026-11-07T19:44:42.916Z","event":"request","data":{"id":21,"op":"is_free"}}
+{"utc":"2026-11-07T19:44:42.919Z","event":"reply","data":{"op":"is_free","elapsed_ms":3.3335830000005444,"reply":{"free":true,"ok":true,"id":21}}}
+{"utc":"2026-11-07T19:44:42.941Z","event":"control","data":{"nonce":"7a6452fa3a7540cc8183e0542983d940","op":"submit","line":"do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-empty-b0fe7bce\\A-state.do\""}}
+{"utc":"2026-11-07T19:44:42.950Z","event":"request","data":{"id":22,"op":"is_free"}}
+{"utc":"2026-11-07T19:44:42.955Z","event":"reply","data":{"op":"is_free","elapsed_ms":4.774999999999636,"reply":{"free":true,"ok":true,"id":22}}}
+{"utc":"2026-11-07T19:44:42.992Z","event":"request","data":{"id":23,"op":"is_free"}}
+{"utc":"2026-11-07T19:44:42.994Z","event":"reply","data":{"op":"is_free","elapsed_ms":2.7048329999997804,"reply":{"free":true,"ok":true,"id":23}}}
+{"utc":"2026-11-07T19:44:42.995Z","event":"output","data":". "}
+{"utc":"2026-11-07T19:44:42.995Z","event":"request","data":{"id":24,"op":"do_async","cmd":"do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-empty-b0fe7bce\\A-state.do\""}}
+{"utc":"2026-11-07T19:44:42.998Z","event":"reply","data":{"op":"do_async","elapsed_ms":2.408625000000029,"reply":{"id":24,"ok":true}}}
+{"utc":"2026-11-07T19:44:43.033Z","event":"output","data":"do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-empty-b0fe7bce\\A-state.do\"\r\n"}
+{"utc":"2026-11-07T19:44:43.033Z","event":"output","data":"\r\n"}
+{"utc":"2026-11-07T19:44:43.034Z","event":"output","data":". set obs 1\r\n"}
+{"utc":"2026-11-07T19:44:43.034Z","event":"output","data":"Number of observations (_N) was 0, now 1.\r\n"}
+{"utc":"2026-11-07T19:44:43.034Z","event":"output","data":"\r\n"}
+{"utc":"2026-11-07T19:44:43.035Z","event":"output","data":". generate own_proof = 314159\r\n"}
+{"utc":"2026-11-07T19:44:43.035Z","event":"output","data":"\r\n"}
+{"utc":"2026-11-07T19:44:43.035Z","event":"output","data":". global PROOF_CONSOLE_A \"kept\"\r\n"}
+{"utc":"2026-11-07T19:44:43.035Z","event":"output","data":"\r\n"}
+{"utc":"2026-11-07T19:44:43.035Z","event":"output","data":". display 881000 + 122\r\n"}
+{"utc":"2026-11-07T19:44:43.036Z","event":"output","data":"881122\r\n"}
+{"utc":"2026-11-07T19:44:43.036Z","event":"output","data":"\r\n"}
+{"utc":"2026-11-07T19:44:43.036Z","event":"output","data":". \r\n"}
+{"utc":"2026-11-07T19:44:43.036Z","event":"output","data":"end of do-file\r\n"}
+{"utc":"2026-11-07T19:44:43.036Z","event":"output","data":"\r\n"}
+{"utc":"2026-11-07T19:44:43.037Z","event":"request","data":{"id":25,"op":"is_free"}}
+{"utc":"2026-11-07T19:44:43.041Z","event":"reply","data":{"op":"is_free","elapsed_ms":3.966917000000649,"reply":{"free":true,"ok":true,"id":25}}}
+{"utc":"2026-11-07T19:44:43.074Z","event":"request","data":{"id":26,"op":"is_free"}}
+{"utc":"2026-11-07T19:44:43.078Z","event":"reply","data":{"op":"is_free","elapsed_ms":3.103499999999258,"reply":{"free":true,"ok":true,"id":26}}}
+{"utc":"2026-11-07T19:44:43.092Z","event":"control","data":{"nonce":"051963173c11464bb97867af40a3f9ca","op":"submit","line":"exit, clear"}}
+{"utc":"2026-11-07T19:44:43.108Z","event":"request","data":{"id":27,"op":"is_free"}}
+{"utc":"2026-11-07T19:44:43.111Z","event":"reply","data":{"op":"is_free","elapsed_ms":2.157165999999961,"reply":{"free":true,"ok":true,"id":27}}}
+{"utc":"2026-11-07T19:44:43.111Z","event":"output","data":". "}
+{"utc":"2026-11-07T19:44:43.112Z","event":"request","data":{"id":28,"op":"do_async","cmd":"exit, clear"}}
+{"utc":"2026-11-07T19:44:43.114Z","event":"reply","data":{"op":"do_async","elapsed_ms":2.1089169999995647,"reply":{"id":28,"ok":true}}}
+{"utc":"2026-11-07T19:44:43.148Z","event":"output","data":"exit, clear\r\n"}
+{"utc":"2026-11-07T19:44:43.149Z","event":"request","data":{"id":29,"op":"is_free"}}
+{"utc":"2026-11-07T19:44:43.244Z","event":"reply","data":{"op":"is_free","elapsed_ms":95.27608299999974,"reply":{"ok":false,"error":"error","message":"The remote procedure call failed. (Exception from HRESULT: 0x800706BE)","id":29,"hresult":"0x800706BE"}}}
+{"utc":"2026-11-07T19:44:43.246Z","event":"backend_exit","data":{"status":0,"message":"Stata exited."}}
+{"utc":"2026-11-07T19:44:43.344Z","event":"bridge_ended","data":{"stderr":""}}

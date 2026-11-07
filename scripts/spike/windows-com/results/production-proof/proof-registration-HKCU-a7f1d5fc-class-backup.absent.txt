@@ -1,0 +1,1 @@
+Class key absent before test; restore must remove only the created key.

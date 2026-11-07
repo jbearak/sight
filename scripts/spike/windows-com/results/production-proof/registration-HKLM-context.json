@@ -1,0 +1,21 @@
+{
+  "originals": [
+    {
+      "token": "proof-registration-HKLM-9e847b15_original0",
+      "identity": {
+        "start": "2026-11-07T19:54:02.5157495Z",
+        "pid": 12660
+      }
+    },
+    {
+      "token": "proof-registration-HKLM-9e847b15_original1",
+      "identity": {
+        "start": "2026-11-07T19:54:03.2452259Z",
+        "pid": 10028
+      }
+    }
+  ],
+  "run": "proof-registration-HKLM-9e847b15",
+  "directory": "C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-registration-HKLM-9e847b15",
+  "hive": "HKLM"
+}

@@ -1,0 +1,67 @@
+{"utc":"2026-11-07T19:41:44.771Z","event":"revision","data":{"commit":"2548950b8abb9d6f7f6c74727111a6ae6a58b04a","bridge_source_sha256":"0646095f5f254f258f0236459d20e2e9877440371619b4e9abb647f64ed75542","bun":"1.4.4","process_arch":"x64","pid":14100}}
+{"utc":"2026-11-07T19:41:44.808Z","event":"request","data":{"id":1,"op":"self_test","dir":"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-simultaneous-4548d89f\\sight-console\\5ed41fe86193b2886f9a34233a99903d"}}
+{"utc":"2026-11-07T19:41:50.161Z","event":"reply","data":{"op":"self_test","elapsed_ms":5352.733625000001,"reply":{"ok":true,"language_mode":"FullLanguage","id":1}}}
+{"utc":"2026-11-07T19:41:50.162Z","event":"request","data":{"id":2,"op":"prepare"}}
+{"utc":"2026-11-07T19:41:50.404Z","event":"reply","data":{"op":"prepare","elapsed_ms":242.02095800000006,"reply":{"id":2,"ok":true}}}
+{"utc":"2026-11-07T19:41:50.404Z","event":"request","data":{"id":3,"op":"sweep","root":"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-simultaneous-4548d89f\\sight-console","max_age_hours":24}}
+{"utc":"2026-11-07T19:41:50.545Z","event":"reply","data":{"op":"sweep","elapsed_ms":140.3499159999992,"reply":{"ok":true,"removed":0,"id":3}}}
+{"utc":"2026-11-07T19:41:50.545Z","event":"request","data":{"id":4,"op":"registered"}}
+{"utc":"2026-11-07T19:41:50.634Z","event":"reply","data":{"op":"registered","elapsed_ms":88.42512499999975,"reply":{"ok":true,"exe":"\"C:\\Program Files\\Stata18\\StataMP-64.exe\"","id":4}}}
+{"utc":"2026-11-07T19:41:50.634Z","event":"request","data":{"id":5,"op":"check_registration"}}
+{"utc":"2026-11-07T19:41:50.868Z","event":"reply","data":{"op":"check_registration","elapsed_ms":233.54125000000022,"reply":{"id":5,"ok":true}}}
+{"utc":"2026-11-07T19:41:50.870Z","event":"request","data":{"id":6,"op":"list_stata","strict":true,"acquire":true,"root":"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-simultaneous-4548d89f\\sight-console"}}
+{"utc":"2026-11-07T19:41:51.410Z","event":"reply","data":{"op":"list_stata","elapsed_ms":540.0645839999997,"reply":{"id":6,"event":"mutex_wait"}}}
+{"utc":"2026-11-07T19:41:51.410Z","event":"notice","data":"Another sight console is connecting; waiting. Ctrl+C cancels."}
+{"utc":"2026-11-07T19:41:51.918Z","event":"reply","data":{"op":"list_stata","elapsed_ms":1048.4744170000004,"reply":{"id":6,"event":"mutex_wait"}}}
+{"utc":"2026-11-07T19:41:52.242Z","event":"reply","data":{"op":"list_stata","elapsed_ms":1371.8687090000003,"reply":{"ok":true,"processes":[{"com_started":false,"pid":10648,"batch":false,"start":"2026-11-07T19:41:43.1848978Z","title":"Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta","has_window":true},{"com_started":false,"pid":408,"batch":false,"start":"2026-11-07T19:41:43.8263693Z","title":"2 - Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta","has_window":true}],"id":6}}}
+{"utc":"2026-11-07T19:41:52.242Z","event":"request","data":{"id":7,"op":"connect","root":"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-simultaneous-4548d89f\\sight-console"}}
+{"utc":"2026-11-07T19:41:52.989Z","event":"reply","data":{"op":"connect","elapsed_ms":746.966542000001,"reply":{"ok":true,"before":[{"com_started":false,"pid":10648,"batch":false,"start":"2026-11-07T19:41:43.1848978Z","title":"Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta","has_window":true},{"com_started":false,"pid":408,"batch":false,"start":"2026-11-07T19:41:43.8263693Z","title":"2 - Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta","has_window":true}],"id":7,"drained":0,"after":[{"com_started":false,"pid":10648,"batch":false,"start":"2026-11-07T19:41:43.1848978Z","title":"Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta","has_window":true},{"com_started":false,"pid":408,"batch":false,"start":"2026-11-07T19:41:43.8263693Z","title":"2 - Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta","has_window":true},{"com_started":true,"pid":13384,"batch":false,"start":"2026-11-07T19:41:52.4899042Z","title":"3 - Stata/MP 18.0","has_window":true}]}}}
+{"utc":"2026-11-07T19:41:52.990Z","event":"request","data":{"id":8,"op":"is_free"}}
+{"utc":"2026-11-07T19:41:53.178Z","event":"reply","data":{"op":"is_free","elapsed_ms":187.635542,"reply":{"free":true,"ok":true,"id":8}}}
+{"utc":"2026-11-07T19:41:53.178Z","event":"request","data":{"id":9,"op":"do_sync","cmd":"window manage maintitle \"Stata - sight console 5ed41fe8\""}}
+{"utc":"2026-11-07T19:41:53.214Z","event":"reply","data":{"op":"do_sync","elapsed_ms":35.833833999999115,"reply":{"rc":0,"ok":true,"id":9}}}
+{"utc":"2026-11-07T19:41:53.214Z","event":"request","data":{"id":10,"op":"title_pid","token8":"5ed41fe8"}}
+{"utc":"2026-11-07T19:41:53.292Z","event":"reply","data":{"op":"title_pid","elapsed_ms":78.01475000000028,"reply":{"ok":true,"pid":13384,"id":10,"start":"2026-11-07T19:41:52.4899042Z"}}}
+{"utc":"2026-11-07T19:41:53.293Z","event":"request","data":{"id":11,"op":"write_pid","dir":"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-simultaneous-4548d89f\\sight-console\\5ed41fe86193b2886f9a34233a99903d","pid":13384}}
+{"utc":"2026-11-07T19:41:53.301Z","event":"reply","data":{"op":"write_pid","elapsed_ms":7.95258400000057,"reply":{"id":11,"ok":true}}}
+{"utc":"2026-11-07T19:41:53.302Z","event":"request","data":{"id":12,"op":"release_mutex"}}
+{"utc":"2026-11-07T19:41:53.311Z","event":"reply","data":{"op":"release_mutex","elapsed_ms":9.427792000000409,"reply":{"id":12,"ok":true}}}
+{"utc":"2026-11-07T19:41:53.312Z","event":"request","data":{"id":13,"op":"short_path","path":"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-simultaneous-4548d89f\\sight-console\\5ed41fe86193b2886f9a34233a99903d"}}
+{"utc":"2026-11-07T19:41:53.350Z","event":"reply","data":{"op":"short_path","elapsed_ms":38.6512500000008,"reply":{"ok":true,"path":"C:\\Users\\jmb\\AppData\\Local\\Temp\\PROOF-~4\\SIGHT-~1\\5ED41F~1","id":13}}}
+{"utc":"2026-11-07T19:41:53.351Z","event":"request","data":{"id":14,"op":"do_sync","cmd":"set more off"}}
+{"utc":"2026-11-07T19:41:53.355Z","event":"reply","data":{"op":"do_sync","elapsed_ms":4.008749999999054,"reply":{"rc":0,"ok":true,"id":14}}}
+{"utc":"2026-11-07T19:41:53.355Z","event":"request","data":{"id":15,"op":"do_sync","cmd":"quietly which vview"}}
+{"utc":"2026-11-07T19:41:53.362Z","event":"reply","data":{"op":"do_sync","elapsed_ms":5.864125000000058,"reply":{"rc":0,"ok":true,"id":15}}}
+{"utc":"2026-11-07T19:41:53.362Z","event":"request","data":{"id":16,"op":"do_sync","cmd":"set linesize 90"}}
+{"utc":"2026-11-07T19:41:53.367Z","event":"reply","data":{"op":"do_sync","elapsed_ms":5.468833999999333,"reply":{"rc":0,"ok":true,"id":16}}}
+{"utc":"2026-11-07T19:41:53.368Z","event":"request","data":{"id":17,"op":"do_sync","cmd":"log using \"C:\\Users\\jmb\\AppData\\Local\\Temp\\PROOF-~4\\SIGHT-~1\\5ED41F~1\\out.log\", text replace name(_sc5ed41fe8)"}}
+{"utc":"2026-11-07T19:41:53.391Z","event":"reply","data":{"op":"do_sync","elapsed_ms":22.631458999998358,"reply":{"rc":0,"ok":true,"id":17}}}
+{"utc":"2026-11-07T19:41:53.391Z","event":"request","data":{"id":18,"op":"show"}}
+{"utc":"2026-11-07T19:41:53.411Z","event":"reply","data":{"op":"show","elapsed_ms":20.414583000001585,"reply":{"id":18,"ok":true}}}
+{"utc":"2026-11-07T19:41:53.713Z","event":"open_result","data":{"ok":true,"own_pid":13384,"notices":["Another sight console is connecting; waiting. Ctrl+C cancels."]}}
+{"utc":"2026-11-07T19:41:53.714Z","event":"output","data":". "}
+{"utc":"2026-11-07T19:41:53.746Z","event":"request","data":{"id":19,"op":"is_free"}}
+{"utc":"2026-11-07T19:41:53.752Z","event":"reply","data":{"op":"is_free","elapsed_ms":6.247833999999784,"reply":{"free":true,"ok":true,"id":19}}}
+{"utc":"2026-11-07T19:41:53.829Z","event":"control","data":{"nonce":"56f73a716fc34b969e54de6c1153aa35","op":"submit","line":"display 772000 + 22"}}
+{"utc":"2026-11-07T19:41:53.831Z","event":"request","data":{"id":20,"op":"do_async","cmd":"display 772000 + 22"}}
+{"utc":"2026-11-07T19:41:53.844Z","event":"reply","data":{"op":"do_async","elapsed_ms":13.850125000000844,"reply":{"id":20,"ok":true}}}
+{"utc":"2026-11-07T19:41:53.874Z","event":"output","data":"display 772000 + 22\r\n"}
+{"utc":"2026-11-07T19:41:53.875Z","event":"output","data":"772022\r\n"}
+{"utc":"2026-11-07T19:41:53.875Z","event":"output","data":"\r\n"}
+{"utc":"2026-11-07T19:41:53.876Z","event":"request","data":{"id":21,"op":"is_free"}}
+{"utc":"2026-11-07T19:41:53.879Z","event":"reply","data":{"op":"is_free","elapsed_ms":3.362082999999984,"reply":{"free":true,"ok":true,"id":21}}}
+{"utc":"2026-11-07T19:41:53.910Z","event":"request","data":{"id":22,"op":"is_free"}}
+{"utc":"2026-11-07T19:41:53.914Z","event":"reply","data":{"op":"is_free","elapsed_ms":4.057749999999942,"reply":{"free":true,"ok":true,"id":22}}}
+{"utc":"2026-11-07T19:41:53.950Z","event":"request","data":{"id":23,"op":"is_free"}}
+{"utc":"2026-11-07T19:41:53.953Z","event":"reply","data":{"op":"is_free","elapsed_ms":3.260874999999942,"reply":{"free":true,"ok":true,"id":23}}}
+{"utc":"2026-11-07T19:41:53.954Z","event":"output","data":". "}
+{"utc":"2026-11-07T19:41:54.268Z","event":"request","data":{"id":24,"op":"is_free"}}
+{"utc":"2026-11-07T19:41:54.271Z","event":"reply","data":{"op":"is_free","elapsed_ms":3.632999999999811,"reply":{"free":true,"ok":true,"id":24}}}
+{"utc":"2026-11-07T19:41:54.292Z","event":"control","data":{"nonce":"d9966dfb4629432ba5e71320dbc99ca1","op":"submit","line":"exit, clear"}}
+{"utc":"2026-11-07T19:41:54.292Z","event":"request","data":{"id":25,"op":"do_async","cmd":"exit, clear"}}
+{"utc":"2026-11-07T19:41:54.295Z","event":"reply","data":{"op":"do_async","elapsed_ms":3.288458000000901,"reply":{"id":25,"ok":true}}}
+{"utc":"2026-11-07T19:41:54.329Z","event":"output","data":"exit, clear\r\n"}
+{"utc":"2026-11-07T19:41:54.330Z","event":"request","data":{"id":26,"op":"is_free"}}
+{"utc":"2026-11-07T19:41:54.494Z","event":"reply","data":{"op":"is_free","elapsed_ms":164.18433300000106,"reply":{"ok":false,"error":"error","message":"The remote procedure call failed. (Exception from HRESULT: 0x800706BE)","id":26,"hresult":"0x800706BE"}}}
+{"utc":"2026-11-07T19:41:54.496Z","event":"backend_exit","data":{"status":0,"message":"Stata exited."}}
+{"utc":"2026-11-07T19:41:54.670Z","event":"bridge_ended","data":{"stderr":""}}

@@ -1,0 +1,1 @@
+{"ok":true,"status":1,"own_pid":null,"notices":["sight console couldn't confirm which Stata window it is connected to. That Stata closes when the console ends, so save any work in it first if needed.","Ctrl+C came while connecting, but this Stata wasn't started by the console, so it was kept; type exit to end the console."]}

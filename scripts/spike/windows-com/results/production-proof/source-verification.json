@@ -1,0 +1,6 @@
+{
+  "tested_commit": "2548950b8abb9d6f7f6c74727111a6ae6a58b04a",
+  "files": 172,
+  "mismatches": [],
+  "production_diff": "git diff -- src client: empty"
+}

@@ -1,0 +1,86 @@
+{
+  "unit": "ms",
+  "scope": "prepare request to reply, successful production-driver runs (fresh PowerShell helpers)",
+  "count": 19,
+  "min": 217.76025000000027,
+  "median": 225.51566700000058,
+  "max": 242.02095800000006,
+  "samples": [
+    {
+      "file": "proof-race-same-ea04a80e-consoleA/trace.jsonl",
+      "elapsed_ms": 223.1472079999994
+    },
+    {
+      "file": "proof-originals-031fb281-consoleA/trace.jsonl",
+      "elapsed_ms": 223.87824999999975
+    },
+    {
+      "file": "proof-registration-HKCU-a7f1d5fc-consoleA/trace.jsonl",
+      "elapsed_ms": 226.7974579999991
+    },
+    {
+      "file": "proof-race-connect-55ef83b6-consoleA/trace.jsonl",
+      "elapsed_ms": 225.72599999999966
+    },
+    {
+      "file": "proof-registration-HKLM-9e847b15-consoleA/trace.jsonl",
+      "elapsed_ms": 224.39125000000058
+    },
+    {
+      "file": "proof-cancel-title-2-8cfd0eb6-consoleA/trace.jsonl",
+      "elapsed_ms": 224.5092079999995
+    },
+    {
+      "file": "proof-held-6690dcf1-consoleA/trace.jsonl",
+      "elapsed_ms": 225.51566700000058
+    },
+    {
+      "file": "proof-sequential-c8c4ff1d-consoleB/trace.jsonl",
+      "elapsed_ms": 236.05645900000036
+    },
+    {
+      "file": "proof-simultaneous-4548d89f-consoleA/trace.jsonl",
+      "elapsed_ms": 240.95720900000015
+    },
+    {
+      "file": "proof-race-connect-a2e234c8-consoleA/trace.jsonl",
+      "elapsed_ms": 224.25458400000025
+    },
+    {
+      "file": "proof-empty-b0fe7bce-consoleA/trace.jsonl",
+      "elapsed_ms": 222.57583299999988
+    },
+    {
+      "file": "proof-cancel-free-2-f734cea9-consoleA/trace.jsonl",
+      "elapsed_ms": 235.83350000000064
+    },
+    {
+      "file": "proof-cancel-free-2-8d499df2-consoleA/trace.jsonl",
+      "elapsed_ms": 230.71316699999988
+    },
+    {
+      "file": "proof-race-connect-f9e96f7f-consoleA/trace.jsonl",
+      "elapsed_ms": 224.21704099999988
+    },
+    {
+      "file": "proof-cancel-free-1-88b2f72c-consoleA/trace.jsonl",
+      "elapsed_ms": 217.76025000000027
+    },
+    {
+      "file": "proof-cancel-title-1-9ce35de7-consoleA/trace.jsonl",
+      "elapsed_ms": 226.6660410000004
+    },
+    {
+      "file": "proof-simultaneous-4548d89f-consoleB/trace.jsonl",
+      "elapsed_ms": 242.02095800000006
+    },
+    {
+      "file": "proof-race-before-3d222dee-consoleA/trace.jsonl",
+      "elapsed_ms": 224.4292919999998
+    },
+    {
+      "file": "proof-sequential-c8c4ff1d-consoleA/trace.jsonl",
+      "elapsed_ms": 225.69295899999997
+    }
+  ]
+}

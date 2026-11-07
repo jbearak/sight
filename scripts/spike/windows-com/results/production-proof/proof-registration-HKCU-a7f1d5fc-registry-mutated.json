@@ -1,0 +1,24 @@
+{
+    "class":  {
+                  "values":  {
+                                 "AppID":  {
+                                               "kind":  "String",
+                                               "value":  "{cc518963-e9eb-41f4-a5b6-341af15551da}"
+                                           }
+                             },
+                  "children":  {
+
+                               }
+              },
+    "appid":  {
+                  "values":  {
+                                 "RunAs":  {
+                                               "kind":  "String",
+                                               "value":  "Interactive User"
+                                           }
+                             },
+                  "children":  {
+
+                               }
+              }
+}

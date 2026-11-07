@@ -1,0 +1,19 @@
+. display 771000 + 11
+771011
+
+. do "C:\Users\jmb\AppData\Local\Temp\proof-empty-b0fe7bce\A-state.do"
+
+. set obs 1
+Number of observations (_N) was 0, now 1.
+
+. generate own_proof = 314159
+
+. global PROOF_CONSOLE_A "kept"
+
+. display 881000 + 122
+881122
+
+. 
+end of do-file
+
+. exit, clear

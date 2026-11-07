@@ -1,0 +1,28 @@
+. display 771000 + 11
+771011
+
+. do "C:\Users\jmb\AppData\Local\Temp\proof-simultaneous-4548d89f\A-state.do"
+
+. set obs 1
+Number of observations (_N) was 0, now 1.
+
+. generate own_proof = 314159
+
+. global PROOF_CONSOLE_A "kept"
+
+. display 881000 + 122
+881122
+
+. 
+end of do-file
+
+. display 773000 + 33
+773033
+
+. display cond(_N == 1 & own_proof[1] == 314159 & "$PROOF_CONSOLE_A" == "kept", 882000 + 233, 0)
+882233
+
+. display 774000 + 44
+774044
+
+. exit, clear

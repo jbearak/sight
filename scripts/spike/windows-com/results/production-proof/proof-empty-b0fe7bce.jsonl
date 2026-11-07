@@ -1,0 +1,24 @@
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:35.5533982Z","data":"2548950b8abb9d6f7f6c74727111a6ae6a58b04a","event":"tested_commit"}
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:35.7458604Z","data":[],"event":"initial_inventory"}
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:35.7733149Z","data":{"message":"No unrelated preexisting Stata in any session","ok":true},"event":"assert"}
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:35.7808491Z","data":{"message":"Desktop session 1, not session 0","ok":true},"event":"assert"}
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:35.7907438Z","data":[],"event":"before_case"}
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:35.8276791Z","data":{"cancel_stage":"none","pid":2808,"name":"consoleA","folder":"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-empty-b0fe7bce\\consoleA"},"event":"driver_started"}
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:42.7769302Z","data":{"message":"Production console connected successfully","ok":true},"event":"assert"}
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:42.7950260Z","data":{"message":"Production title identifies own Stata","ok":true},"event":"assert"}
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:42.7978730Z","data":{"message":"No not-own or takeover notice","ok":true},"event":"assert"}
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:42.8364345Z","data":{"message":"Console got a distinct new PID/start","ok":true},"event":"assert"}
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:42.8563458Z","data":{"inventory":[{"title":"Stata - sight console d4f562cb","pid":2864,"command_line":"\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding","session":1,"start":"2026-11-07T19:44:41.6352590Z"}],"name":"consoleA","notices":[],"identity":{"title":"Stata - sight console d4f562cb","pid":2864,"command_line":"\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding","session":1,"start":"2026-11-07T19:44:41.6352590Z"}},"event":"console_ready"}
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:42.9253190Z","data":{"message":"Console command output: 771011","ok":true},"event":"assert"}
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:42.9294913Z","data":{"needle":"771011","name":"consoleA","line":"display 771000 + 11"},"event":"command_pass"}
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:43.0661137Z","data":{"message":"Console command output: 881122","ok":true},"event":"assert"}
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:43.0661137Z","data":{"needle":"881122","name":"consoleA","line":"do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-empty-b0fe7bce\\A-state.do\""},"event":"command_pass"}
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:46.3184758Z","data":{"message":"Console exits after exit, clear","ok":true},"event":"assert"}
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:46.3407200Z","data":{"backend_status":0,"driver_exit":0},"event":"exit_observation"}
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:46.3433309Z","data":{"message":"Console exit status is zero","ok":true},"event":"assert"}
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:46.3548498Z","data":{"message":"Only console-owned Stata closes","ok":true},"event":"assert"}
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:46.3802663Z","data":{"inventory":[],"done":{"ok":true,"status":0,"own_pid":2864,"notices":[]},"name":"consoleA"},"event":"console_ended"}
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:46.4052953Z","data":{"message":"NO_SPARE_EMBEDDING after console exit","ok":true},"event":"assert"}
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:46.4255479Z","data":[],"event":"after_case"}
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:46.4255479Z","data":{"case":"empty","status":"PASS"},"event":"verdict"}
+{"run":"proof-empty-b0fe7bce","utc":"2026-11-07T19:44:46.4516696Z","data":[],"event":"final_inventory"}

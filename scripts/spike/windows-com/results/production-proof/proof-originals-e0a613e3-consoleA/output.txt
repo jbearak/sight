@@ -1,0 +1,4 @@
+. display 771000 + 11
+771011
+
+. exit, clear

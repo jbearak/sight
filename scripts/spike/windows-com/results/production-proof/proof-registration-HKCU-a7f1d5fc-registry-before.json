@@ -1,0 +1,17 @@
+{
+    "app_path":  "SOFTWARE\\Classes\\AppID\\{cc518963-e9eb-41f4-a5b6-341af15551da}",
+    "old_kind":  null,
+    "appid":  "{cc518963-e9eb-41f4-a5b6-341af15551da}",
+    "class_path":  "SOFTWARE\\Classes\\CLSID\\{D3D9A260-CA12-48EE-A6B8-492AD0E71E70}",
+    "user":  "WIN-VM\\jmb",
+    "session":  1,
+    "parents":  {
+                    "SOFTWARE\\Classes\\CLSID":  true,
+                    "SOFTWARE\\Classes\\AppID":  true
+                },
+    "old_appid":  null,
+    "before":  null,
+    "had_appid":  false,
+    "class_existed":  false,
+    "hive":  "HKCU"
+}

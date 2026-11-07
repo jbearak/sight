@@ -1,0 +1,25 @@
+{
+    "os_architecture":  "ARM 64-bit Processor",
+    "clsid":  "{D3D9A260-CA12-48EE-A6B8-492AD0E71E70}",
+    "windows":  "Microsoft Windows 11 Pro",
+    "stata_exe":  "C:\\Program Files\\Stata18\\StataMP-64.exe",
+    "version":  "10.0.26200",
+    "utc":  "2026-11-07T20:14:08.0679202Z",
+    "powershell":  "5.1.26100.9818",
+    "stata_file_version":  "521,18,0,188",
+    "registration":  {
+                         "HKLM":  {
+                                      "class_present":  true,
+                                      "appid":  "",
+                                      "local_server":  "\"C:\\Program Files\\Stata18\\StataMP-64.exe\""
+                                  },
+                         "HKCU":  {
+                                      "class_present":  false,
+                                      "appid":  null,
+                                      "local_server":  null
+                                  }
+                     },
+    "helper_architecture":  "Arm64",
+    "session":  1,
+    "build":  "26200"
+}

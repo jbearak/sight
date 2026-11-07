@@ -1,0 +1,66 @@
+{
+    "values":  {
+                   "":  {
+                            "kind":  "String",
+                            "value":  "StataOLEApp Class"
+                        },
+                   "AppID":  {
+                                 "kind":  "String",
+                                 "value":  ""
+                             }
+               },
+    "children":  {
+                     "LocalServer32":  {
+                                           "values":  {
+                                                          "":  {
+                                                                   "kind":  "String",
+                                                                   "value":  "\"C:\\Program Files\\Stata18\\StataMP-64.exe\""
+                                                               }
+                                                      },
+                                           "children":  {
+
+                                                        }
+                                       },
+                     "ProgID":  {
+                                    "values":  {
+                                                   "":  {
+                                                            "kind":  "String",
+                                                            "value":  "stata.StataOLEApp.1"
+                                                        }
+                                               },
+                                    "children":  {
+
+                                                 }
+                                },
+                     "Programmable":  {
+                                          "values":  {
+
+                                                     },
+                                          "children":  {
+
+                                                       }
+                                      },
+                     "TypeLib":  {
+                                     "values":  {
+                                                    "":  {
+                                                             "kind":  "String",
+                                                             "value":  "{76656110-CB0F-44B4-90D2-D584B6768509}"
+                                                         }
+                                                },
+                                     "children":  {
+
+                                                  }
+                                 },
+                     "VersionIndependentProgID":  {
+                                                      "values":  {
+                                                                     "":  {
+                                                                              "kind":  "String",
+                                                                              "value":  "stata.StataOLEApp"
+                                                                          }
+                                                                 },
+                                                      "children":  {
+
+                                                                   }
+                                                  }
+                 }
+}

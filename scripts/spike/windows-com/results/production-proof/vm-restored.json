@@ -1,0 +1,9 @@
+{
+  "utc": "2026-11-07T20:14:29.900Z",
+  "commands": [
+    "prlctl set Windows 11 --pause-idle on",
+    "prlctl pause Windows 11"
+  ],
+  "state": "paused",
+  "pause_idle": "on"
+}

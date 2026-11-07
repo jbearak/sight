@@ -1,0 +1,4 @@
+. display 776000 + 66
+776066
+
+. exit, clear

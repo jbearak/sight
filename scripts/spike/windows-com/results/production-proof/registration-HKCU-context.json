@@ -1,0 +1,21 @@
+{
+    "originals":  [
+                      {
+                          "token":  "proof-registration-HKCU-a7f1d5fc_original0",
+                          "identity":  {
+                                           "start":  "2026-11-07T19:57:34.3926167Z",
+                                           "pid":  3452
+                                       }
+                      },
+                      {
+                          "token":  "proof-registration-HKCU-a7f1d5fc_original1",
+                          "identity":  {
+                                           "start":  "2026-11-07T19:57:35.0986175Z",
+                                           "pid":  6516
+                                       }
+                      }
+                  ],
+    "run":  "proof-registration-HKCU-a7f1d5fc",
+    "directory":  "C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-registration-HKCU-a7f1d5fc",
+    "hive":  "HKCU"
+}

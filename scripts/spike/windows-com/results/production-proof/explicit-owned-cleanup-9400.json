@@ -1,0 +1,6 @@
+{
+    "pid":  9400,
+    "command_line":  "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding",
+    "reason":  "Explicit experiment-owned identity from double-cancel transcript",
+    "start":  "2026-11-07T19:59:07.2579299Z"
+}

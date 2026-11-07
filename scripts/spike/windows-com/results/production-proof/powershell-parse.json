@@ -1,0 +1,83 @@
+{
+    "checks":  [
+                   {
+                       "errors":  [
+
+                                  ],
+                       "file":  "proof-registry.ps1"
+                   },
+                   {
+                       "errors":  [
+
+                                  ],
+                       "file":  "proof-pty.ps1"
+                   },
+                   {
+                       "errors":  [
+
+                                  ],
+                       "file":  "proof-cancel.ps1"
+                   },
+                   {
+                       "errors":  [
+
+                                  ],
+                       "file":  "proof-registration.ps1"
+                   },
+                   {
+                       "errors":  [
+
+                                  ],
+                       "file":  "proof-run.ps1"
+                   },
+                   {
+                       "errors":  [
+
+                                  ],
+                       "file":  "proof-task-manager.ps1"
+                   },
+                   {
+                       "errors":  [
+
+                                  ],
+                       "file":  "proof-setup.ps1"
+                   },
+                   {
+                       "errors":  [
+
+                                  ],
+                       "file":  "proof-cleanup.ps1"
+                   },
+                   {
+                       "errors":  [
+
+                                  ],
+                       "file":  "proof-common.ps1"
+                   },
+                   {
+                       "errors":  [
+
+                                  ],
+                       "file":  "proof-client.ps1"
+                   },
+                   {
+                       "errors":  [
+
+                                  ],
+                       "file":  "proof-verify.ps1"
+                   },
+                   {
+                       "errors":  [
+
+                                  ],
+                       "file":  "debug-conpty.ps1"
+                   },
+                   {
+                       "errors":  [
+
+                                  ],
+                       "file":  "strategy-common.ps1"
+                   }
+               ],
+    "utc":  "2026-11-07T20:14:08.8373598Z"
+}

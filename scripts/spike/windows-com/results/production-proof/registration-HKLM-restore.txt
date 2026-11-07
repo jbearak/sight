@@ -1,0 +1,14 @@
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:56:49.1113821Z","data":"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-registration-HKLM-9e847b15","event":"registry_helper_synced"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:56:52.4553212Z","data":{"message":"Registry matches exported backup","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:56:52.5039321Z","data":{"message":"registry-restored-originals-intact original PID/start survives","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:56:52.5373712Z","data":{"message":"registry-restored-originals-intact one PID-targeted Command control","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:56:52.5848948Z","data":{"message":"closed ready/response: 4b73ea9fec5b480f9135e562c478b649.ok","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:56:52.6005370Z","data":{"message":"registry-restored-originals-intact state and nonce match","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:56:52.6047363Z","data":{"pid":12660,"response":"4b73ea9fec5b480f9135e562c478b649|STATE_OK|N=74|price1=918273|changed=1|marker=proof-registration-HKLM-9e847b15_original0","stage":"registry-restored-originals-intact","start":"2026-11-07T19:54:02.5157495Z"},"event":"original_state"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:56:52.6073609Z","data":{"message":"registry-restored-originals-intact original PID/start survives","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:56:52.6145997Z","data":{"message":"registry-restored-originals-intact one PID-targeted Command control","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:56:52.6703884Z","data":{"message":"closed ready/response: fadb88f5e2b94b50b13e6cc17c273ea8.ok","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:56:52.6703884Z","data":{"message":"registry-restored-originals-intact state and nonce match","ok":true},"event":"assert"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:56:52.6703884Z","data":{"pid":10028,"response":"fadb88f5e2b94b50b13e6cc17c273ea8|STATE_OK|N=74|price1=918273|changed=1|marker=proof-registration-HKLM-9e847b15_original1","stage":"registry-restored-originals-intact","start":"2026-11-07T19:54:03.2452259Z"},"event":"original_state"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:56:52.7370475Z","data":{"verified":{"hive":"HKLM","temporary_appid_absent":true,"class_matches_backup":true},"hive":"HKLM"},"event":"registry_restored"}
+{"run":"proof-registration-HKLM-9e847b15","utc":"2026-11-07T19:56:52.9346892Z","data":[],"event":"final_inventory"}

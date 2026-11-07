@@ -1,0 +1,20 @@
+102 |         await controls;
+103 |         fs.writeFileSync(path.join(dir, 'done.json'), JSON.stringify(opened));
+104 |         process.exitCode = opened.exit_code;
+105 |     } else {
+106 |         backend = opened.connection.start_backend({
+107 |             on_output: (text) => { output += text; record('output', text); fs.writeFileSync(path.join(dir, 'output.txt'), output); },
+                                                                                    ^
+EBUSY: resource busy or locked, open 'C:\Users\jmb\AppData\Local\Temp\proof-empty-f0d206cf\consoleA\output.txt'
+    path: "C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-empty-f0d206cf\\consoleA\\output.txt",
+ syscall: "open",
+   errno: -4082,
+    code: "EBUSY"
+
+      at on_output (C:\sight-target-proof\scripts\spike\windows-com\proof-driver.ts:107:79)
+      at emit_raw (C:\sight-target-proof\src\console\automation\automation-backend.ts:708:21)
+      at emit (C:\sight-target-proof\src\console\automation\automation-backend.ts:693:14)
+      at flush_held_lines (C:\sight-target-proof\src\console\automation\automation-backend.ts:613:18)
+      at read_log (C:\sight-target-proof\src\console\automation\automation-backend.ts:573:14)
+      at tick (C:\sight-target-proof\src\console\automation\automation-backend.ts:385:18)
+      at <anonymous> (C:\sight-target-proof\src\console\automation\automation-backend.ts:368:23)

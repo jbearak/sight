@@ -1,0 +1,27 @@
+{"utc":"2026-11-07T20:01:14.227Z","event":"revision","data":{"commit":"2548950b8abb9d6f7f6c74727111a6ae6a58b04a","bridge_source_sha256":"0646095f5f254f258f0236459d20e2e9877440371619b4e9abb647f64ed75542","bun":"1.4.4","process_arch":"x64","pid":11760}}
+{"utc":"2026-11-07T20:01:14.261Z","event":"request","data":{"id":1,"op":"self_test","dir":"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-cancel-title-2-4aea216e\\sight-console\\b34af6e5a2a846782c1bfe4618f8f757"}}
+{"utc":"2026-11-07T20:01:19.286Z","event":"reply","data":{"op":"self_test","elapsed_ms":5025.314584,"reply":{"ok":true,"language_mode":"FullLanguage","id":1}}}
+{"utc":"2026-11-07T20:01:19.288Z","event":"request","data":{"id":2,"op":"prepare"}}
+{"utc":"2026-11-07T20:01:19.516Z","event":"reply","data":{"op":"prepare","elapsed_ms":228.48508399999992,"reply":{"id":2,"ok":true}}}
+{"utc":"2026-11-07T20:01:19.517Z","event":"request","data":{"id":3,"op":"sweep","root":"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-cancel-title-2-4aea216e\\sight-console","max_age_hours":24}}
+{"utc":"2026-11-07T20:01:19.622Z","event":"reply","data":{"op":"sweep","elapsed_ms":105.02849999999944,"reply":{"ok":true,"removed":0,"id":3}}}
+{"utc":"2026-11-07T20:01:19.622Z","event":"request","data":{"id":4,"op":"registered"}}
+{"utc":"2026-11-07T20:01:19.662Z","event":"reply","data":{"op":"registered","elapsed_ms":39.701083999999355,"reply":{"ok":true,"exe":"\"C:\\Program Files\\Stata18\\StataMP-64.exe\"","id":4}}}
+{"utc":"2026-11-07T20:01:19.662Z","event":"request","data":{"id":5,"op":"check_registration"}}
+{"utc":"2026-11-07T20:01:19.787Z","event":"reply","data":{"op":"check_registration","elapsed_ms":124.36345900000015,"reply":{"id":5,"ok":true}}}
+{"utc":"2026-11-07T20:01:19.789Z","event":"request","data":{"id":6,"op":"list_stata","strict":true,"acquire":true,"root":"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-cancel-title-2-4aea216e\\sight-console"}}
+{"utc":"2026-11-07T20:01:20.023Z","event":"reply","data":{"op":"list_stata","elapsed_ms":234.49904199999946,"reply":{"ok":true,"processes":[{"com_started":false,"pid":1836,"batch":false,"start":"2026-11-07T20:01:12.7972360Z","title":"Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta","has_window":true},{"com_started":false,"pid":5808,"batch":false,"start":"2026-11-07T20:01:13.4016273Z","title":"2 - Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta","has_window":true}],"id":6}}}
+{"utc":"2026-11-07T20:01:20.024Z","event":"request","data":{"id":7,"op":"connect","root":"C:\\Users\\jmb\\AppData\\Local\\Temp\\proof-cancel-title-2-4aea216e\\sight-console"}}
+{"utc":"2026-11-07T20:01:20.707Z","event":"reply","data":{"op":"connect","elapsed_ms":683.0506670000004,"reply":{"ok":true,"before":[{"com_started":false,"pid":1836,"batch":false,"start":"2026-11-07T20:01:12.7972360Z","title":"Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta","has_window":true},{"com_started":false,"pid":5808,"batch":false,"start":"2026-11-07T20:01:13.4016273Z","title":"2 - Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta","has_window":true}],"id":7,"drained":2,"after":[{"com_started":false,"pid":1836,"batch":false,"start":"2026-11-07T20:01:12.7972360Z","title":"Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta","has_window":true},{"com_started":false,"pid":5808,"batch":false,"start":"2026-11-07T20:01:13.4016273Z","title":"2 - Stata/MP 18.0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta","has_window":true},{"com_started":true,"pid":11416,"batch":false,"start":"2026-11-07T20:01:20.2926152Z","title":"3 - Stata/MP 18.0","has_window":true}]}}}
+{"utc":"2026-11-07T20:01:20.708Z","event":"request","data":{"id":8,"op":"is_free"}}
+{"utc":"2026-11-07T20:01:20.875Z","event":"reply","data":{"op":"is_free","elapsed_ms":167.67674999999963,"reply":{"free":true,"ok":true,"id":8}}}
+{"utc":"2026-11-07T20:01:20.876Z","event":"request","data":{"id":9,"op":"do_sync","cmd":"window manage maintitle \"Stata - sight console b34af6e5\""}}
+{"utc":"2026-11-07T20:01:20.876Z","event":"cancel","data":{"outcome":"graceful","own_pid":null}}
+{"utc":"2026-11-07T20:01:20.908Z","event":"cancel","data":{"outcome":"killed","own_pid":null}}
+{"utc":"2026-11-07T20:01:20.928Z","event":"bridge_ended","data":{"stderr":""}}
+{"utc":"2026-11-07T20:01:20.928Z","event":"notice","data":"sight console couldn't confirm which Stata window it is connected to. That Stata closes when the console ends, so save any work in it first if needed."}
+{"utc":"2026-11-07T20:01:20.929Z","event":"notice","data":"Ctrl+C came while connecting, but this Stata wasn't started by the console, so it was kept; type exit to end the console."}
+{"utc":"2026-11-07T20:01:21.234Z","event":"open_result","data":{"ok":true,"own_pid":null,"notices":["sight console couldn't confirm which Stata window it is connected to. That Stata closes when the console ends, so save any work in it first if needed.","Ctrl+C came while connecting, but this Stata wasn't started by the console, so it was kept; type exit to end the console."]}}
+{"utc":"2026-11-07T20:01:21.239Z","event":"sight_text","data":"Stata couldn't open Sight's log, so output shows only in the Stata window. You can still type commands here, save, and exit."}
+{"utc":"2026-11-07T20:01:21.240Z","event":"output","data":". "}
+{"utc":"2026-11-07T20:01:21.247Z","event":"backend_exit","data":{"status":1,"message":"Lost the connection to Stata; its window may still be open."}}

@@ -1,0 +1,1 @@
+Stopping after Stata answers; press Ctrl+C again to stop at once (a Stata being started may then stay running without a window).

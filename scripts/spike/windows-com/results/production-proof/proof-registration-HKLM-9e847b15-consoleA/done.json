@@ -1,0 +1,1 @@
+{"ok":false,"exit_code":87,"message":"Error: Stata's Automation registration (HKEY_LOCAL_MACHINE\\SOFTWARE\\Classes\\AppID\\{2887be01-ba32-4882-b349-b97fddef2aa3}) sets RunAs, which sight console doesn't support: it can't make sure an open Stata isn't handed to it."}
