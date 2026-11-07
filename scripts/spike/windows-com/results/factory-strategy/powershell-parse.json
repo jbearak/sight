@@ -1,0 +1,72 @@
+{
+    "powershell":  "5.1.26100.9818",
+    "utc":  "2026-11-07T18:31:41.0686473Z",
+    "checks":  [
+                   {
+                       "file":  "strategy-probe.ps1",
+                       "parser_errors":  [
+
+                                         ]
+                   },
+                   {
+                       "file":  "strategy-environment.ps1",
+                       "parser_errors":  [
+
+                                         ]
+                   },
+                   {
+                       "file":  "strategy-validate.ps1",
+                       "parser_errors":  [
+
+                                         ]
+                   },
+                   {
+                       "file":  "strategy-common.ps1",
+                       "parser_errors":  [
+
+                                         ]
+                   },
+                   {
+                       "file":  "strategy-client.ps1",
+                       "parser_errors":  [
+
+                                         ]
+                   },
+                   {
+                       "file":  "strategy-identity-preflight.ps1",
+                       "parser_errors":  [
+
+                                         ]
+                   },
+                   {
+                       "file":  "strategy-reserver.ps1",
+                       "parser_errors":  [
+
+                                         ]
+                   },
+                   {
+                       "file":  "strategy-x64.ps1",
+                       "parser_errors":  [
+
+                                         ]
+                   },
+                   {
+                       "file":  "strategy-api.ps1",
+                       "parser_errors":  [
+
+                                         ]
+                   },
+                   {
+                       "file":  "factory-probe.ps1",
+                       "parser_errors":  [
+
+                                         ]
+                   },
+                   {
+                       "file":  "factory-inventory.ps1",
+                       "parser_errors":  [
+
+                                         ]
+                   }
+               ]
+}

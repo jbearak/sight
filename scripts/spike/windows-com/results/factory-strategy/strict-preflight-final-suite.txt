@@ -1,0 +1,86 @@
+Starting bound, policy=strict, expected_exit=3
+{"run":"strategy-bound-strict-5af307db","utc":"2026-11-07T18:26:32.7275357Z","data":{"createinstance_calls":0,"limit":1,"reason":"DRAIN_BOUND_EXCEEDED"},"event":"fail_closed"}
+{"run":"strategy-bound-strict-5af307db","utc":"2026-11-07T18:26:32.7346312Z","data":{"ok":false,"code":"DRAIN_BOUND_EXCEEDED","owned_session_created":false},"event":"strategy_result"}
+{"run":"strategy-bound-strict-5af307db","utc":"2026-11-07T18:26:33.1567755Z","data":{"status":"PASS","case":"bound","policy":"strict","interpretation":"Fail-closed prerequisite handling; no claim of a fresh session when identity is unavailable"},"event":"verdict"}
+{"run":"strategy-bound-strict-5af307db","utc":"2026-11-07T18:26:33.2896845Z","data":[],"event":"final_inventory"}
+Starting zero, policy=strict, expected_exit=3
+{"run":"strategy-zero-strict-570b5cd2","utc":"2026-11-07T18:26:35.7216493Z","data":{"meaning":"exhaustion only under measured registration/security assumptions","hr":"0x80070005","limit":8,"acquired":0},"event":"drain_complete"}
+{"run":"strategy-zero-strict-570b5cd2","utc":"2026-11-07T18:26:36.6443872Z","data":{"createinstance_calls":0,"global_fallback_calls":0,"reason":"IDENTITY_PREREQUISITE_UNAVAILABLE","owned_candidate_launches":0},"event":"fail_closed"}
+{"run":"strategy-zero-strict-570b5cd2","utc":"2026-11-07T18:26:36.6481472Z","data":{"ok":false,"code":"IDENTITY_PREREQUISITE_UNAVAILABLE","owned_session_created":false},"event":"strategy_result"}
+{"run":"strategy-zero-strict-570b5cd2","utc":"2026-11-07T18:26:36.6570025Z","data":{"status":"PASS","case":"zero","policy":"strict","interpretation":"Fail-closed prerequisite handling; no claim of a fresh session when identity is unavailable"},"event":"verdict"}
+{"run":"strategy-zero-strict-570b5cd2","utc":"2026-11-07T18:26:36.6866082Z","data":[],"event":"final_inventory"}
+Starting one, policy=strict, expected_exit=3
+{"run":"strategy-one-strict-b56140a2","utc":"2026-11-07T18:26:39.7723181Z","data":{"meaning":"exhaustion only under measured registration/security assumptions","hr":"0x80070005","limit":8,"acquired":1},"event":"drain_complete"}
+{"run":"strategy-one-strict-b56140a2","utc":"2026-11-07T18:26:40.7272648Z","data":{"createinstance_calls":0,"global_fallback_calls":0,"reason":"IDENTITY_PREREQUISITE_UNAVAILABLE","owned_candidate_launches":0},"event":"fail_closed"}
+{"run":"strategy-one-strict-b56140a2","utc":"2026-11-07T18:26:40.7272648Z","data":{"ok":false,"code":"IDENTITY_PREREQUISITE_UNAVAILABLE","owned_session_created":false},"event":"strategy_result"}
+{"run":"strategy-one-strict-b56140a2","utc":"2026-11-07T18:26:40.8165144Z","data":{"status":"PASS","case":"one","policy":"strict","interpretation":"Fail-closed prerequisite handling; no claim of a fresh session when identity is unavailable"},"event":"verdict"}
+{"run":"strategy-one-strict-b56140a2","utc":"2026-11-07T18:26:40.8989414Z","data":[],"event":"final_inventory"}
+Starting multiple, policy=strict, expected_exit=3
+{"run":"strategy-multiple-strict-e6b6491a","utc":"2026-11-07T18:26:45.3575309Z","data":{"meaning":"exhaustion only under measured registration/security assumptions","hr":"0x80070005","limit":8,"acquired":3},"event":"drain_complete"}
+{"run":"strategy-multiple-strict-e6b6491a","utc":"2026-11-07T18:26:46.4983483Z","data":{"createinstance_calls":0,"global_fallback_calls":0,"reason":"IDENTITY_PREREQUISITE_UNAVAILABLE","owned_candidate_launches":0},"event":"fail_closed"}
+{"run":"strategy-multiple-strict-e6b6491a","utc":"2026-11-07T18:26:46.5024964Z","data":{"ok":false,"code":"IDENTITY_PREREQUISITE_UNAVAILABLE","owned_session_created":false},"event":"strategy_result"}
+{"run":"strategy-multiple-strict-e6b6491a","utc":"2026-11-07T18:26:46.7674875Z","data":{"status":"PASS","case":"multiple","policy":"strict","interpretation":"Fail-closed prerequisite handling; no claim of a fresh session when identity is unavailable"},"event":"verdict"}
+{"run":"strategy-multiple-strict-e6b6491a","utc":"2026-11-07T18:26:46.8915299Z","data":[],"event":"final_inventory"}
+Starting mixed, policy=strict, expected_exit=3
+{"run":"strategy-mixed-strict-f698f675","utc":"2026-11-07T18:26:52.7964252Z","data":{"meaning":"exhaustion only under measured registration/security assumptions","hr":"0x80070005","limit":8,"acquired":1},"event":"drain_complete"}
+{"run":"strategy-mixed-strict-f698f675","utc":"2026-11-07T18:26:53.9995256Z","data":{"createinstance_calls":0,"global_fallback_calls":0,"reason":"IDENTITY_PREREQUISITE_UNAVAILABLE","owned_candidate_launches":0},"event":"fail_closed"}
+{"run":"strategy-mixed-strict-f698f675","utc":"2026-11-07T18:26:54.0022858Z","data":{"ok":false,"code":"IDENTITY_PREREQUISITE_UNAVAILABLE","owned_session_created":false},"event":"strategy_result"}
+{"run":"strategy-mixed-strict-f698f675","utc":"2026-11-07T18:26:54.2840459Z","data":{"status":"PASS","case":"mixed","policy":"strict","interpretation":"Fail-closed prerequisite handling; no claim of a fresh session when identity is unavailable"},"event":"verdict"}
+{"run":"strategy-mixed-strict-f698f675","utc":"2026-11-07T18:26:54.4988732Z","data":[],"event":"final_inventory"}
+Starting repeated, policy=strict, expected_exit=3
+{"run":"strategy-repeated-strict-b08a3e75","utc":"2026-11-07T18:26:57.6175597Z","data":{"meaning":"exhaustion only under measured registration/security assumptions","hr":"0x80070005","limit":8,"acquired":1},"event":"drain_complete"}
+{"run":"strategy-repeated-strict-b08a3e75","utc":"2026-11-07T18:26:58.5470591Z","data":{"createinstance_calls":0,"global_fallback_calls":0,"reason":"IDENTITY_PREREQUISITE_UNAVAILABLE","owned_candidate_launches":0},"event":"fail_closed"}
+{"run":"strategy-repeated-strict-b08a3e75","utc":"2026-11-07T18:26:58.5470591Z","data":{"ok":false,"code":"IDENTITY_PREREQUISITE_UNAVAILABLE","owned_session_created":false},"event":"strategy_result"}
+{"run":"strategy-repeated-strict-b08a3e75","utc":"2026-11-07T18:26:58.6227179Z","data":{"status":"PASS","case":"repeated","policy":"strict","interpretation":"Fail-closed prerequisite handling; no claim of a fresh session when identity is unavailable"},"event":"verdict"}
+{"run":"strategy-repeated-strict-b08a3e75","utc":"2026-11-07T18:26:58.6840474Z","data":[],"event":"final_inventory"}
+Starting helper-exit, policy=strict, expected_exit=3
+{"run":"strategy-helper-exit-strict-b2faeded","utc":"2026-11-07T18:27:03.3304660Z","data":{"meaning":"exhaustion only under measured registration/security assumptions","hr":"0x80070005","limit":8,"acquired":0},"event":"drain_complete"}
+{"run":"strategy-helper-exit-strict-b2faeded","utc":"2026-11-07T18:27:04.2444916Z","data":{"createinstance_calls":0,"global_fallback_calls":0,"reason":"IDENTITY_PREREQUISITE_UNAVAILABLE","owned_candidate_launches":0},"event":"fail_closed"}
+{"run":"strategy-helper-exit-strict-b2faeded","utc":"2026-11-07T18:27:04.2482473Z","data":{"ok":false,"code":"IDENTITY_PREREQUISITE_UNAVAILABLE","owned_session_created":false},"event":"strategy_result"}
+{"run":"strategy-helper-exit-strict-b2faeded","utc":"2026-11-07T18:27:04.3504935Z","data":{"status":"PASS","case":"helper-exit","policy":"strict","interpretation":"Fail-closed prerequisite handling; no claim of a fresh session when identity is unavailable"},"event":"verdict"}
+{"run":"strategy-helper-exit-strict-b2faeded","utc":"2026-11-07T18:27:04.4216272Z","data":[],"event":"final_inventory"}
+Starting helper-kill, policy=strict, expected_exit=3
+{"run":"strategy-helper-kill-strict-a3dec0eb","utc":"2026-11-07T18:27:08.8469331Z","data":{"meaning":"exhaustion only under measured registration/security assumptions","hr":"0x80070005","limit":8,"acquired":0},"event":"drain_complete"}
+{"run":"strategy-helper-kill-strict-a3dec0eb","utc":"2026-11-07T18:27:09.7758360Z","data":{"createinstance_calls":0,"global_fallback_calls":0,"reason":"IDENTITY_PREREQUISITE_UNAVAILABLE","owned_candidate_launches":0},"event":"fail_closed"}
+{"run":"strategy-helper-kill-strict-a3dec0eb","utc":"2026-11-07T18:27:09.7816038Z","data":{"ok":false,"code":"IDENTITY_PREREQUISITE_UNAVAILABLE","owned_session_created":false},"event":"strategy_result"}
+{"run":"strategy-helper-kill-strict-a3dec0eb","utc":"2026-11-07T18:27:09.8732311Z","data":{"status":"PASS","case":"helper-kill","policy":"strict","interpretation":"Fail-closed prerequisite handling; no claim of a fresh session when identity is unavailable"},"event":"verdict"}
+{"run":"strategy-helper-kill-strict-a3dec0eb","utc":"2026-11-07T18:27:09.9313410Z","data":[],"event":"final_inventory"}
+Starting original-exit, policy=strict, expected_exit=3
+{"run":"strategy-original-exit-strict-2c3ea90f","utc":"2026-11-07T18:27:13.1161133Z","data":{"meaning":"exhaustion only under measured registration/security assumptions","hr":"0x80070005","limit":8,"acquired":1},"event":"drain_complete"}
+{"run":"strategy-original-exit-strict-2c3ea90f","utc":"2026-11-07T18:27:13.9635600Z","data":{"createinstance_calls":0,"global_fallback_calls":0,"reason":"IDENTITY_PREREQUISITE_UNAVAILABLE","owned_candidate_launches":0},"event":"fail_closed"}
+{"run":"strategy-original-exit-strict-2c3ea90f","utc":"2026-11-07T18:27:13.9693464Z","data":{"ok":false,"code":"IDENTITY_PREREQUISITE_UNAVAILABLE","owned_session_created":false},"event":"strategy_result"}
+{"run":"strategy-original-exit-strict-2c3ea90f","utc":"2026-11-07T18:27:13.9713557Z","data":{"status":"PASS","case":"original-exit","policy":"strict","interpretation":"Fail-closed prerequisite handling; no claim of a fresh session when identity is unavailable"},"event":"verdict"}
+{"run":"strategy-original-exit-strict-2c3ea90f","utc":"2026-11-07T18:27:14.0272313Z","data":[],"event":"final_inventory"}
+Starting manual-race, policy=strict, expected_exit=3
+{"run":"strategy-manual-race-strict-13768c59","utc":"2026-11-07T18:27:17.0667729Z","data":{"meaning":"exhaustion only under measured registration/security assumptions","hr":"0x80070005","limit":8,"acquired":1},"event":"drain_complete"}
+{"run":"strategy-manual-race-strict-13768c59","utc":"2026-11-07T18:27:18.0126123Z","data":{"createinstance_calls":0,"global_fallback_calls":0,"reason":"IDENTITY_PREREQUISITE_UNAVAILABLE","owned_candidate_launches":0},"event":"fail_closed"}
+{"run":"strategy-manual-race-strict-13768c59","utc":"2026-11-07T18:27:18.0146212Z","data":{"ok":false,"code":"IDENTITY_PREREQUISITE_UNAVAILABLE","owned_session_created":false},"event":"strategy_result"}
+{"run":"strategy-manual-race-strict-13768c59","utc":"2026-11-07T18:27:18.0963254Z","data":{"status":"PASS","case":"manual-race","policy":"strict","interpretation":"Fail-closed prerequisite handling; no claim of a fresh session when identity is unavailable"},"event":"verdict"}
+{"run":"strategy-manual-race-strict-13768c59","utc":"2026-11-07T18:27:18.1683907Z","data":[],"event":"final_inventory"}
+Starting external-race, policy=strict, expected_exit=3
+{"run":"strategy-external-race-strict-319971dc","utc":"2026-11-07T18:27:21.3833018Z","data":{"meaning":"exhaustion only under measured registration/security assumptions","hr":"0x80070005","limit":8,"acquired":1},"event":"drain_complete"}
+{"run":"strategy-external-race-strict-319971dc","utc":"2026-11-07T18:27:22.3562774Z","data":{"createinstance_calls":0,"global_fallback_calls":0,"reason":"IDENTITY_PREREQUISITE_UNAVAILABLE","owned_candidate_launches":0},"event":"fail_closed"}
+{"run":"strategy-external-race-strict-319971dc","utc":"2026-11-07T18:27:22.3562774Z","data":{"ok":false,"code":"IDENTITY_PREREQUISITE_UNAVAILABLE","owned_session_created":false},"event":"strategy_result"}
+{"run":"strategy-external-race-strict-319971dc","utc":"2026-11-07T18:27:22.4388153Z","data":{"status":"PASS","case":"external-race","policy":"strict","interpretation":"Fail-closed prerequisite handling; no claim of a fresh session when identity is unavailable"},"event":"verdict"}
+{"run":"strategy-external-race-strict-319971dc","utc":"2026-11-07T18:27:22.5133785Z","data":[],"event":"final_inventory"}
+Starting two-new-race, policy=strict, expected_exit=3
+{"run":"strategy-two-new-race-strict-1d3ed15a","utc":"2026-11-07T18:27:25.5286697Z","data":{"meaning":"exhaustion only under measured registration/security assumptions","hr":"0x80070005","limit":8,"acquired":1},"event":"drain_complete"}
+{"run":"strategy-two-new-race-strict-1d3ed15a","utc":"2026-11-07T18:27:26.4480528Z","data":{"createinstance_calls":0,"global_fallback_calls":0,"reason":"IDENTITY_PREREQUISITE_UNAVAILABLE","owned_candidate_launches":0},"event":"fail_closed"}
+{"run":"strategy-two-new-race-strict-1d3ed15a","utc":"2026-11-07T18:27:26.4520713Z","data":{"ok":false,"code":"IDENTITY_PREREQUISITE_UNAVAILABLE","owned_session_created":false},"event":"strategy_result"}
+{"run":"strategy-two-new-race-strict-1d3ed15a","utc":"2026-11-07T18:27:26.5256010Z","data":{"status":"PASS","case":"two-new-race","policy":"strict","interpretation":"Fail-closed prerequisite handling; no claim of a fresh session when identity is unavailable"},"event":"verdict"}
+{"run":"strategy-two-new-race-strict-1d3ed15a","utc":"2026-11-07T18:27:26.6057319Z","data":[],"event":"final_inventory"}
+Starting concurrent-manual, policy=strict, expected_exit=3
+{"run":"strategy-concurrent-manual-strict-0fa8a069","utc":"2026-11-07T18:27:29.6505774Z","data":{"meaning":"exhaustion only under measured registration/security assumptions","hr":"0x80070005","limit":8,"acquired":1},"event":"drain_complete"}
+{"run":"strategy-concurrent-manual-strict-0fa8a069","utc":"2026-11-07T18:27:31.7425010Z","data":{"createinstance_calls":0,"global_fallback_calls":0,"reason":"IDENTITY_PREREQUISITE_UNAVAILABLE","owned_candidate_launches":0},"event":"fail_closed"}
+{"run":"strategy-concurrent-manual-strict-0fa8a069","utc":"2026-11-07T18:27:31.7425010Z","data":{"ok":false,"code":"IDENTITY_PREREQUISITE_UNAVAILABLE","owned_session_created":false},"event":"strategy_result"}
+{"run":"strategy-concurrent-manual-strict-0fa8a069","utc":"2026-11-07T18:27:31.9256095Z","data":{"status":"PASS","case":"concurrent-manual","policy":"strict","interpretation":"Fail-closed prerequisite handling; no claim of a fresh session when identity is unavailable"},"event":"verdict"}
+{"run":"strategy-concurrent-manual-strict-0fa8a069","utc":"2026-11-07T18:27:32.0269990Z","data":[],"event":"final_inventory"}
+Starting registration-refusal, policy=strict, expected_exit=3
+{"run":"strategy-registration-refusal-strict-169b0a44","utc":"2026-11-07T18:27:34.1584360Z","data":{"createinstance_calls":0,"no_registry_mutation":true,"reason":"UNSUPPORTED_REGISTRATION","injected_snapshot_only":true,"acquisition_calls":0},"event":"fail_closed"}
+{"run":"strategy-registration-refusal-strict-169b0a44","utc":"2026-11-07T18:27:34.1661723Z","data":{"ok":false,"code":"UNSUPPORTED_REGISTRATION","owned_session_created":false},"event":"strategy_result"}
+{"run":"strategy-registration-refusal-strict-169b0a44","utc":"2026-11-07T18:27:34.1661723Z","data":{"status":"PASS","case":"registration-refusal","policy":"strict","interpretation":"Unsupported registration refused before COM"},"event":"verdict"}
+{"run":"strategy-registration-refusal-strict-169b0a44","utc":"2026-11-07T18:27:34.2037652Z","data":[],"event":"final_inventory"}
+Starting identity-preflight, policy=strict, expected_exit=3
+{"run":"strategy-identity-preflight-strict-59b92437","utc":"2026-11-07T18:27:37.2901091Z","data":{"ok":false,"code":"IDENTITY_PREREQUISITE_UNAVAILABLE","owned_session_created":false},"event":"strategy_result"}
+{"run":"strategy-identity-preflight-strict-59b92437","utc":"2026-11-07T18:27:37.2901091Z","data":{"status":"PASS","case":"identity-preflight","policy":"strict","capability":false},"event":"verdict"}
+{"run":"strategy-identity-preflight-strict-59b92437","utc":"2026-11-07T18:27:37.3069412Z","data":[],"event":"final_inventory"}

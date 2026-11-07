@@ -1,0 +1,24 @@
+2026-11-07, follow-up spike; no production integration or PR.
+bun run typecheck:scripts: PASS (final source).
+bunx eslint scripts/spike/windows-com/factory-host.ts scripts/spike/windows-com/strategy-suite.ts: PASS.
+bun run check:line-endings: PASS (tracked files).
+Explicit scan/normalization of new spike source and result text: PASS.
+Real Windows PowerShell parser checks: PASS; see powershell-parse.json.
+C# native, x64 decode, identity helper and marshaling code: compiled and exercised on VM.
+
+Counting repro: expected exit 1, NO_UNWANTED_EXTRA_SERVERS failed.
+Representative strategy matrix: 28 cases; summary.json identifies exact runs.
+11 green diagnostic cases, 13 owned sessions; two expected race controls red.
+15 final strict cases: explicit refusal exit 3, zero CreateInstance calls,
+zero owned Stata candidate launches, no global activation fallback.
+975 assertions, with two intentional failures in the race controls;
+145 independent UI state checks and 10 ongoing-client command acknowledgements.
+All representative initial and final Stata inventories empty.
+Final independent inventory: no Stata or experiment helpers.
+VM restored to paused, pause-idle on; see vm-restored.txt.
+
+The full repository suite was not repeated: changes are confined to the spike
+and its host runner. Previous full-suite results remain in the preceding spike.
+Initial TypeScript ES2022 findLast incompatibility was fixed with reverse/find.
+Initial exit-3 replay exposed PowerShell -Command's exit-code collapsing;
+the host now propagates LASTEXITCODE. Failed/development transcripts retained.

@@ -1,0 +1,58 @@
+Starting release, originals=1
+{"run":"release-cc02681f9780","utc":"2026-11-07T17:49:15.4709212Z","data":{"originals":1,"status":"PASS","case":"release"},"event":"verdict"}
+{"run":"release-cc02681f9780","utc":"2026-11-07T17:49:15.5285189Z","data":[],"event":"final_inventory"}
+Starting activate, originals=1
+{"run":"activate-b0273d42d284","utc":"2026-11-07T17:49:24.5544883Z","data":{"originals":1,"status":"PASS","case":"activate"},"event":"verdict"}
+{"run":"activate-b0273d42d284","utc":"2026-11-07T17:49:24.5964673Z","data":[],"event":"final_inventory"}
+Starting factory-first, originals=1
+{"run":"factory-first-157fe6d58e10","utc":"2026-11-07T17:49:35.6821301Z","data":{"originals":1,"status":"PASS","case":"factory-first"},"event":"verdict"}
+{"run":"factory-first-157fe6d58e10","utc":"2026-11-07T17:49:35.7488668Z","data":[],"event":"final_inventory"}
+Starting availability, originals=1
+{"run":"availability-d896077b2c0a","utc":"2026-11-07T17:49:42.4171505Z","data":{"inventory":[{"title":"availability-d896077b2c0a_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta","pid":14148,"command_line":"\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-availability-d896077b2c0a\\original0.do\" ","session":1,"start":"2026-11-07T17:49:37.9066638Z"},{"title":"availability-d896077b2c0a_AVAILABILITY","pid":5008,"command_line":"\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding","session":1,"start":"2026-11-07T17:49:41.8964367Z"}],"original_available":false,"returned_identity":{"title":"availability-d896077b2c0a_AVAILABILITY","pid":5008,"command_line":"\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding","session":1,"start":"2026-11-07T17:49:41.8964367Z"},"returned_marker":""},"event":"availability_result"}
+{"run":"availability-d896077b2c0a","utc":"2026-11-07T17:49:44.5922089Z","data":{"originals":1,"status":"PASS","case":"availability"},"event":"verdict"}
+{"run":"availability-d896077b2c0a","utc":"2026-11-07T17:49:44.6662283Z","data":[],"event":"final_inventory"}
+Starting exit, originals=1
+{"run":"exit-b9167852a0ac","utc":"2026-11-07T17:49:53.0916686Z","data":{"inventory":[{"title":"exit-b9167852a0ac_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta","pid":1592,"command_line":"\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-exit-b9167852a0ac\\original0.do\" ","session":1,"start":"2026-11-07T17:49:46.9438303Z"},{"title":"exit-b9167852a0ac_AVAILABILITY","pid":1784,"command_line":"\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding","session":1,"start":"2026-11-07T17:49:52.5512531Z"}],"original_available":false,"returned_identity":{"title":"exit-b9167852a0ac_AVAILABILITY","pid":1784,"command_line":"\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding","session":1,"start":"2026-11-07T17:49:52.5512531Z"},"returned_marker":""},"event":"availability_result"}
+{"run":"exit-b9167852a0ac","utc":"2026-11-07T17:49:55.2826518Z","data":{"originals":1,"status":"PASS","case":"exit"},"event":"verdict"}
+{"run":"exit-b9167852a0ac","utc":"2026-11-07T17:49:55.3506584Z","data":[],"event":"final_inventory"}
+Starting kill, originals=1
+{"run":"kill-3fdc74e2c451","utc":"2026-11-07T17:50:30.7154820Z","data":{"inventory":[{"title":"kill-3fdc74e2c451_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta","pid":7132,"command_line":"\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-kill-3fdc74e2c451\\original0.do\" ","session":1,"start":"2026-11-07T17:49:57.5705060Z"},{"title":"kill-3fdc74e2c451_AVAILABILITY","pid":2856,"command_line":"\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding","session":1,"start":"2026-11-07T17:50:29.9937888Z"}],"original_available":false,"returned_identity":{"title":"kill-3fdc74e2c451_AVAILABILITY","pid":2856,"command_line":"\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding","session":1,"start":"2026-11-07T17:50:29.9937888Z"},"returned_marker":""},"event":"availability_result"}
+{"run":"kill-3fdc74e2c451","utc":"2026-11-07T17:50:32.8965990Z","data":{"originals":1,"status":"PASS","case":"kill"},"event":"verdict"}
+{"run":"kill-3fdc74e2c451","utc":"2026-11-07T17:50:33.0043742Z","data":[],"event":"final_inventory"}
+Starting multi, originals=2
+PrlJob_Wait: Invalid argument. An invalid argument was passed.
+
+
+Starting multi, originals=2
+{"run":"multi-2f2da4af8560","utc":"2026-11-07T17:52:55.5900070Z","data":{"originals":2,"status":"PASS","case":"multi"},"event":"verdict"}
+{"run":"multi-2f2da4af8560","utc":"2026-11-07T17:52:55.6819828Z","data":[],"event":"final_inventory"}
+Starting multi, originals=3
+{"run":"multi-d3a496e9a81a","utc":"2026-11-07T17:53:06.8413537Z","data":{"originals":3,"status":"PASS","case":"multi"},"event":"verdict"}
+{"run":"multi-d3a496e9a81a","utc":"2026-11-07T17:53:06.9526773Z","data":[],"event":"final_inventory"}
+Starting activate, originals=1
+{"run":"activate-2ce9f83b7f20","utc":"2026-11-07T17:53:16.3088422Z","data":{"originals":1,"status":"PASS","case":"activate"},"event":"verdict"}
+{"run":"activate-2ce9f83b7f20","utc":"2026-11-07T17:53:16.3675778Z","data":[],"event":"final_inventory"}
+Starting activate, originals=1
+{"run":"activate-e2a516a79f17","utc":"2026-11-07T17:53:25.5001735Z","data":{"originals":1,"status":"PASS","case":"activate"},"event":"verdict"}
+{"run":"activate-e2a516a79f17","utc":"2026-11-07T17:53:25.5618668Z","data":[],"event":"final_inventory"}
+Starting activate, originals=1
+{"run":"activate-c8cb614652fb","utc":"2026-11-07T17:53:34.5682385Z","data":{"originals":1,"status":"PASS","case":"activate"},"event":"verdict"}
+{"run":"activate-c8cb614652fb","utc":"2026-11-07T17:53:34.6199925Z","data":[],"event":"final_inventory"}
+Starting client-control, originals=1
+{"run":"client-control-dc927ddb6e51","utc":"2026-11-07T17:53:43.2039554Z","data":{"originals":1,"status":"PASS","case":"client-control"},"event":"verdict"}
+{"run":"client-control-dc927ddb6e51","utc":"2026-11-07T17:53:43.2349055Z","data":[],"event":"final_inventory"}
+Starting client-reserved, originals=1
+{"run":"client-reserved-0cad544f2e4c","utc":"2026-11-07T17:53:52.4176535Z","data":{"originals":1,"status":"PASS","case":"client-reserved"},"event":"verdict"}
+{"run":"client-reserved-0cad544f2e4c","utc":"2026-11-07T17:53:52.4790855Z","data":[],"event":"final_inventory"}
+Starting client-control, originals=1
+{"run":"client-control-6f057c0eac1a","utc":"2026-11-07T17:54:01.7842697Z","data":{"originals":1,"status":"PASS","case":"client-control"},"event":"verdict"}
+{"run":"client-control-6f057c0eac1a","utc":"2026-11-07T17:54:01.8218204Z","data":[],"event":"final_inventory"}
+Starting client-reserved, originals=1
+{"run":"client-reserved-b1fe6167c6be","utc":"2026-11-07T17:54:11.7685906Z","data":{"originals":1,"status":"PASS","case":"client-reserved"},"event":"verdict"}
+{"run":"client-reserved-b1fe6167c6be","utc":"2026-11-07T17:54:11.8158913Z","data":[],"event":"final_inventory"}
+Starting concurrent, originals=2
+{"run":"concurrent-0063e22309d9","utc":"2026-11-07T17:54:24.9452282Z","data":{"originals":2,"status":"PASS","case":"concurrent"},"event":"verdict"}
+{"run":"concurrent-0063e22309d9","utc":"2026-11-07T17:54:25.0392583Z","data":[],"event":"final_inventory"}
+Starting excess, originals=2
+{"run":"excess-b2e540e59b6f","utc":"2026-11-07T17:54:32.4436583Z","data":{"originals":2,"status":"PASS","case":"excess"},"event":"verdict"}
+{"run":"excess-b2e540e59b6f","utc":"2026-11-07T17:54:32.5393288Z","data":[],"event":"final_inventory"}

@@ -1,0 +1,73 @@
+{
+  "utc": "2026-11-07T18:33:29.416Z",
+  "files": [
+    {
+      "file": "factory-host.ts",
+      "sha256": "1a8feefa6d80a4be11f01c65d2b373df1e51ca04a5072ec983636912578460a1"
+    },
+    {
+      "file": "factory-inventory.ps1",
+      "sha256": "68f69bc4f9977092a2c517b94e3ee7d595cb7c77a0671a7c07197b9cf6aa2442"
+    },
+    {
+      "file": "factory-probe.ps1",
+      "sha256": "d02d017402984a6e98ebc2a10afcfc06a5b4903182fc89a452af18d2a42a68bd"
+    },
+    {
+      "file": "strategy-api.ps1",
+      "sha256": "ff4657198b495bd20bd7f768e9677ac5a329c7f28202a8fbf7e5d76cf8dee73a"
+    },
+    {
+      "file": "strategy-client.ps1",
+      "sha256": "8c2aa9c589f440b0534ed16a7c8cf14d882ec5ede2f039ac721c9e2ec2a251f1"
+    },
+    {
+      "file": "strategy-common.ps1",
+      "sha256": "159396848c0d36dccf91730e52c2e3d769ecb58e4f8b8c2b96f679708c7337d0"
+    },
+    {
+      "file": "strategy-decode-x64.cs",
+      "sha256": "5b0f07efb5eca96bbc84ba9b142de6ea3e62c8b4eede408dd1f6a76f3f4c318c"
+    },
+    {
+      "file": "strategy-environment.ps1",
+      "sha256": "ed6e604cea37e4df13e075538d6f440739982d28391d51fbd8b0c9ad2621e6e8"
+    },
+    {
+      "file": "strategy-identity-preflight.ps1",
+      "sha256": "0aa889dc8bc7c4c6fc1a079c68fde06b95bec0a5f9f496072f7bd133be3b8ad5"
+    },
+    {
+      "file": "strategy-identity-server.cs",
+      "sha256": "886e745c70997b3734d418252696ff2302349094eb143e2e39fd0f67d527b73d"
+    },
+    {
+      "file": "strategy-marshal.cs",
+      "sha256": "3637d6885843418d5d62b26001e8da290eb7a049a0141b354759b1c778d94f48"
+    },
+    {
+      "file": "strategy-native.cs",
+      "sha256": "9fb15ff55a780873d46a5b5dee53b204e03cd5c112dbb2c449bc35c2be7333d8"
+    },
+    {
+      "file": "strategy-probe.ps1",
+      "sha256": "92dbf792346dbdcc58bd4f355e8232b152a8b77e6da3e531a5a0def474732229"
+    },
+    {
+      "file": "strategy-reserver.ps1",
+      "sha256": "232816ea37bb242ba88787805f3e7bbb0a7f7017e158f602fc9ab5fb7a387e05"
+    },
+    {
+      "file": "strategy-suite.ts",
+      "sha256": "4f3d7c5de1789ca493a19774a812d4f016d37dd9c94aff3b0e65105930a95d8a"
+    },
+    {
+      "file": "strategy-validate.ps1",
+      "sha256": "560cd575556db9131ee384e3ca4becc3c32e4b7ff76070ae7657bafe930000a2"
+    },
+    {
+      "file": "strategy-x64.ps1",
+      "sha256": "174f638c37efef3068988c3f44571cd694b2570970ef5b7daedc4b5b2731a59a"
+    }
+  ]
+}

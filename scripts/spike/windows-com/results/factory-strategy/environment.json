@@ -1,0 +1,198 @@
+{
+    "elevated":  false,
+    "registration":  [
+                         {
+                             "hive":  "LocalMachine",
+                             "path":  "SOFTWARE\\Classes\\stata.StataOLEApp\\CLSID",
+                             "view":  "Registry64",
+                             "values":  {
+                                            "":  "{D3D9A260-CA12-48EE-A6B8-492AD0E71E70}"
+                                        },
+                             "present":  true
+                         },
+                         {
+                             "hive":  "LocalMachine",
+                             "path":  "SOFTWARE\\Classes\\CLSID\\{D3D9A260-CA12-48EE-A6B8-492AD0E71E70}",
+                             "view":  "Registry64",
+                             "values":  {
+                                            "AppID":  "",
+                                            "":  "StataOLEApp Class"
+                                        },
+                             "present":  true
+                         },
+                         {
+                             "hive":  "LocalMachine",
+                             "path":  "SOFTWARE\\Classes\\CLSID\\{D3D9A260-CA12-48EE-A6B8-492AD0E71E70}\\LocalServer32",
+                             "view":  "Registry64",
+                             "values":  {
+                                            "":  "\"C:\\Program Files\\Stata18\\StataMP-64.exe\""
+                                        },
+                             "present":  true
+                         },
+                         {
+                             "hive":  "LocalMachine",
+                             "path":  "SOFTWARE\\Classes\\AppID\\StataMP-64.exe",
+                             "view":  "Registry64",
+                             "values":  {
+
+                                        },
+                             "present":  false
+                         },
+                         {
+                             "hive":  "LocalMachine",
+                             "path":  "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\AppModelUnlock",
+                             "view":  "Registry64",
+                             "values":  {
+
+                                        },
+                             "present":  true
+                         },
+                         {
+                             "hive":  "CurrentUser",
+                             "path":  "SOFTWARE\\Classes\\stata.StataOLEApp\\CLSID",
+                             "view":  "Registry64",
+                             "values":  {
+
+                                        },
+                             "present":  false
+                         },
+                         {
+                             "hive":  "CurrentUser",
+                             "path":  "SOFTWARE\\Classes\\CLSID\\{D3D9A260-CA12-48EE-A6B8-492AD0E71E70}",
+                             "view":  "Registry64",
+                             "values":  {
+
+                                        },
+                             "present":  false
+                         },
+                         {
+                             "hive":  "CurrentUser",
+                             "path":  "SOFTWARE\\Classes\\CLSID\\{D3D9A260-CA12-48EE-A6B8-492AD0E71E70}\\LocalServer32",
+                             "view":  "Registry64",
+                             "values":  {
+
+                                        },
+                             "present":  false
+                         },
+                         {
+                             "hive":  "CurrentUser",
+                             "path":  "SOFTWARE\\Classes\\AppID\\StataMP-64.exe",
+                             "view":  "Registry64",
+                             "values":  {
+
+                                        },
+                             "present":  false
+                         },
+                         {
+                             "hive":  "CurrentUser",
+                             "path":  "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\AppModelUnlock",
+                             "view":  "Registry64",
+                             "values":  {
+
+                                        },
+                             "present":  false
+                         },
+                         {
+                             "hive":  "LocalMachine",
+                             "path":  "SOFTWARE\\Classes\\stata.StataOLEApp\\CLSID",
+                             "view":  "Registry32",
+                             "values":  {
+                                            "":  "{D3D9A260-CA12-48EE-A6B8-492AD0E71E70}"
+                                        },
+                             "present":  true
+                         },
+                         {
+                             "hive":  "LocalMachine",
+                             "path":  "SOFTWARE\\Classes\\CLSID\\{D3D9A260-CA12-48EE-A6B8-492AD0E71E70}",
+                             "view":  "Registry32",
+                             "values":  {
+
+                                        },
+                             "present":  false
+                         },
+                         {
+                             "hive":  "LocalMachine",
+                             "path":  "SOFTWARE\\Classes\\CLSID\\{D3D9A260-CA12-48EE-A6B8-492AD0E71E70}\\LocalServer32",
+                             "view":  "Registry32",
+                             "values":  {
+
+                                        },
+                             "present":  false
+                         },
+                         {
+                             "hive":  "LocalMachine",
+                             "path":  "SOFTWARE\\Classes\\AppID\\StataMP-64.exe",
+                             "view":  "Registry32",
+                             "values":  {
+
+                                        },
+                             "present":  false
+                         },
+                         {
+                             "hive":  "LocalMachine",
+                             "path":  "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\AppModelUnlock",
+                             "view":  "Registry32",
+                             "values":  {
+
+                                        },
+                             "present":  false
+                         },
+                         {
+                             "hive":  "CurrentUser",
+                             "path":  "SOFTWARE\\Classes\\stata.StataOLEApp\\CLSID",
+                             "view":  "Registry32",
+                             "values":  {
+
+                                        },
+                             "present":  false
+                         },
+                         {
+                             "hive":  "CurrentUser",
+                             "path":  "SOFTWARE\\Classes\\CLSID\\{D3D9A260-CA12-48EE-A6B8-492AD0E71E70}",
+                             "view":  "Registry32",
+                             "values":  {
+
+                                        },
+                             "present":  false
+                         },
+                         {
+                             "hive":  "CurrentUser",
+                             "path":  "SOFTWARE\\Classes\\CLSID\\{D3D9A260-CA12-48EE-A6B8-492AD0E71E70}\\LocalServer32",
+                             "view":  "Registry32",
+                             "values":  {
+
+                                        },
+                             "present":  false
+                         },
+                         {
+                             "hive":  "CurrentUser",
+                             "path":  "SOFTWARE\\Classes\\AppID\\StataMP-64.exe",
+                             "view":  "Registry32",
+                             "values":  {
+
+                                        },
+                             "present":  false
+                         },
+                         {
+                             "hive":  "CurrentUser",
+                             "path":  "SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\AppModelUnlock",
+                             "view":  "Registry32",
+                             "values":  {
+
+                                        },
+                             "present":  false
+                         }
+                     ],
+    "helper_architecture":  "Arm64",
+    "stata_version":  "521,18,0,188",
+    "utc":  "2026-11-07T18:16:57.2271961Z",
+    "os":  {
+               "Caption":  "Microsoft Windows 11 Pro",
+               "Version":  "10.0.26200",
+               "BuildNumber":  "26200",
+               "OSArchitecture":  "ARM 64-bit Processor"
+           },
+    "powershell":  "5.1.26100.9818",
+    "session":  1,
+    "clr":  "4.0.30319.42000"
+}

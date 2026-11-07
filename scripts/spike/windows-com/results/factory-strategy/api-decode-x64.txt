@@ -1,0 +1,4 @@
+architecture=X64;pid=7284;session=1;acquire=0x00000000
+decode=0x80070005;server_pid=0
+helper_exit=3
+original_alive=True

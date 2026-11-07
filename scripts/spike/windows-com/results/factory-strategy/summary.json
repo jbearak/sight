@@ -1,0 +1,1024 @@
+{
+  "case_count": 28,
+  "green_diagnostic_cases": 11,
+  "expected_red_factory_identity_cases": 2,
+  "final_strict_refusal_cases": 15,
+  "owned_sessions_measured": 13,
+  "assertions": 975,
+  "expected_failed_assertions": 2,
+  "independent_ui_checks": 145,
+  "existing_client_command_acks": 10,
+  "counting_red_separate": "excess-1293af210f80.jsonl",
+  "verdict": "Viable implementation basis under the tested registration/security assumptions: count-free drain protects available existing originals, and exact-factory creation obtains the session without spare servers in the successful runs. Persistent blocking and the narrow connection-time manual-launch race are accepted. CoDecodeProxy availability and arbitrary-concurrency ownership proof are optional stronger guarantees, not mandatory blockers.",
+  "accepted_policy": {
+    "persistent_blocking": true,
+    "manual_launch_race": "After Sight starts connecting and drains currently available original factories, a user manually opens another Stata before Sight finishes acquiring its session factory; that new window may become Sight's session and follow its Automation lifetime.",
+    "later_windows": "After the actual session Automation object is held, later windows do not redirect it.",
+    "identity_scope": "Successful fixture marker/title/PID checks establish the measured returned object's identity after creation; they do not prove raw-factory ownership before CreateInstance under arbitrary competition.",
+    "remaining_assumptions": "Tested registration/security configuration, bounded acquisition/error handling, and readiness/registration of preexisting originals. A preexisting process registering late is not automatically covered by acceptance of a new manual launch after initiating Sight.",
+    "strict_results": "The preserved refusals and red race controls concern an optional stronger guarantee. Their historical outcomes and all measurements remain unchanged.",
+    "production_integration_authorized": false
+  },
+  "cases": [
+    {
+      "key": "zero|quiescent-diagnostic",
+      "run": "strategy-zero-quiescent-f981b17b",
+      "expected": "GREEN_DIAGNOSTIC",
+      "verdict": {
+        "status": "PASS",
+        "case": "zero",
+        "policy": "quiescent-diagnostic",
+        "interpretation": "Diagnostic under controlled quiescence; not a concurrency guarantee"
+      },
+      "assertion_count": 18,
+      "ui_state_checks": 1,
+      "existing_client_acks": 0,
+      "owned_sessions": 1,
+      "createinstance_calls": 1,
+      "strategy_results": [],
+      "drain": [
+        {
+          "meaning": "exhaustion only under measured registration/security assumptions",
+          "hr": "0x80070005",
+          "limit": 8,
+          "acquired": 0
+        }
+      ],
+      "oracles": [
+        {
+          "is_owned": true,
+          "expected_owned_marker": "strategy-zero-quiescent-f981b17b_owned0",
+          "candidate": {
+            "start": "2026-11-07T18:15:25.8907869Z",
+            "pid": 5160
+          },
+          "manual_racer": null,
+          "returned_marker": "strategy-zero-quiescent-f981b17b_owned0"
+        }
+      ],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "one|quiescent-diagnostic",
+      "run": "strategy-one-quiescent-fa4da7bc",
+      "expected": "GREEN_DIAGNOSTIC",
+      "verdict": {
+        "status": "PASS",
+        "case": "one",
+        "policy": "quiescent-diagnostic",
+        "interpretation": "Diagnostic under controlled quiescence; not a concurrency guarantee"
+      },
+      "assertion_count": 37,
+      "ui_state_checks": 5,
+      "existing_client_acks": 0,
+      "owned_sessions": 1,
+      "createinstance_calls": 1,
+      "strategy_results": [],
+      "drain": [
+        {
+          "meaning": "exhaustion only under measured registration/security assumptions",
+          "hr": "0x80070005",
+          "limit": 8,
+          "acquired": 1
+        }
+      ],
+      "oracles": [
+        {
+          "is_owned": true,
+          "expected_owned_marker": "strategy-one-quiescent-fa4da7bc_owned0",
+          "candidate": {
+            "start": "2026-11-07T18:29:30.0404762Z",
+            "pid": 2484
+          },
+          "manual_racer": null,
+          "returned_marker": "strategy-one-quiescent-fa4da7bc_owned0"
+        }
+      ],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "multiple|quiescent-diagnostic",
+      "run": "strategy-multiple-quiescent-92dc6951",
+      "expected": "GREEN_DIAGNOSTIC",
+      "verdict": {
+        "status": "PASS",
+        "case": "multiple",
+        "policy": "quiescent-diagnostic",
+        "interpretation": "Diagnostic under controlled quiescence; not a concurrency guarantee"
+      },
+      "assertion_count": 75,
+      "ui_state_checks": 13,
+      "existing_client_acks": 0,
+      "owned_sessions": 1,
+      "createinstance_calls": 1,
+      "strategy_results": [],
+      "drain": [
+        {
+          "meaning": "exhaustion only under measured registration/security assumptions",
+          "hr": "0x80070005",
+          "limit": 8,
+          "acquired": 3
+        }
+      ],
+      "oracles": [
+        {
+          "is_owned": true,
+          "expected_owned_marker": "strategy-multiple-quiescent-92dc6951_owned0",
+          "candidate": {
+            "start": "2026-11-07T18:17:05.7782568Z",
+            "pid": 11440
+          },
+          "manual_racer": null,
+          "returned_marker": "strategy-multiple-quiescent-92dc6951_owned0"
+        }
+      ],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "mixed|quiescent-diagnostic",
+      "run": "strategy-mixed-quiescent-96e5c3f8",
+      "expected": "GREEN_DIAGNOSTIC",
+      "verdict": {
+        "status": "PASS",
+        "case": "mixed",
+        "policy": "quiescent-diagnostic",
+        "interpretation": "Diagnostic under controlled quiescence; not a concurrency guarantee"
+      },
+      "assertion_count": 79,
+      "ui_state_checks": 13,
+      "existing_client_acks": 3,
+      "owned_sessions": 1,
+      "createinstance_calls": 1,
+      "strategy_results": [],
+      "drain": [
+        {
+          "meaning": "exhaustion only under measured registration/security assumptions",
+          "hr": "0x80070005",
+          "limit": 8,
+          "acquired": 1
+        }
+      ],
+      "oracles": [
+        {
+          "is_owned": true,
+          "expected_owned_marker": "strategy-mixed-quiescent-96e5c3f8_owned0",
+          "candidate": {
+            "start": "2026-11-07T18:17:13.6978652Z",
+            "pid": 6308
+          },
+          "manual_racer": null,
+          "returned_marker": "strategy-mixed-quiescent-96e5c3f8_owned0"
+        }
+      ],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "repeated|quiescent-diagnostic",
+      "run": "strategy-repeated-quiescent-6ba066cf",
+      "expected": "GREEN_DIAGNOSTIC",
+      "verdict": {
+        "status": "PASS",
+        "case": "repeated",
+        "policy": "quiescent-diagnostic",
+        "interpretation": "Diagnostic under controlled quiescence; not a concurrency guarantee"
+      },
+      "assertion_count": 93,
+      "ui_state_checks": 13,
+      "existing_client_acks": 0,
+      "owned_sessions": 3,
+      "createinstance_calls": 3,
+      "strategy_results": [],
+      "drain": [
+        {
+          "meaning": "exhaustion only under measured registration/security assumptions",
+          "hr": "0x80070005",
+          "limit": 8,
+          "acquired": 1
+        },
+        {
+          "meaning": "exhaustion only under measured registration/security assumptions",
+          "hr": "0x80070005",
+          "limit": 8,
+          "acquired": 0
+        },
+        {
+          "meaning": "exhaustion only under measured registration/security assumptions",
+          "hr": "0x80070005",
+          "limit": 8,
+          "acquired": 0
+        }
+      ],
+      "oracles": [
+        {
+          "is_owned": true,
+          "expected_owned_marker": "strategy-repeated-quiescent-6ba066cf_owned0",
+          "candidate": {
+            "start": "2026-11-07T18:17:18.7467251Z",
+            "pid": 4496
+          },
+          "manual_racer": null,
+          "returned_marker": "strategy-repeated-quiescent-6ba066cf_owned0"
+        },
+        {
+          "is_owned": true,
+          "expected_owned_marker": "strategy-repeated-quiescent-6ba066cf_owned1",
+          "candidate": {
+            "start": "2026-11-07T18:17:20.0536061Z",
+            "pid": 5980
+          },
+          "manual_racer": null,
+          "returned_marker": "strategy-repeated-quiescent-6ba066cf_owned1"
+        },
+        {
+          "is_owned": true,
+          "expected_owned_marker": "strategy-repeated-quiescent-6ba066cf_owned2",
+          "candidate": {
+            "start": "2026-11-07T18:17:21.5018558Z",
+            "pid": 13376
+          },
+          "manual_racer": null,
+          "returned_marker": "strategy-repeated-quiescent-6ba066cf_owned2"
+        }
+      ],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "helper-exit|quiescent-diagnostic",
+      "run": "strategy-helper-exit-quiescent-d1ea0c03",
+      "expected": "GREEN_DIAGNOSTIC",
+      "verdict": {
+        "status": "PASS",
+        "case": "helper-exit",
+        "policy": "quiescent-diagnostic",
+        "interpretation": "Diagnostic under controlled quiescence; not a concurrency guarantee"
+      },
+      "assertion_count": 41,
+      "ui_state_checks": 6,
+      "existing_client_acks": 0,
+      "owned_sessions": 1,
+      "createinstance_calls": 1,
+      "strategy_results": [],
+      "drain": [
+        {
+          "meaning": "exhaustion only under measured registration/security assumptions",
+          "hr": "0x80070005",
+          "limit": 8,
+          "acquired": 0
+        }
+      ],
+      "oracles": [
+        {
+          "is_owned": true,
+          "expected_owned_marker": "strategy-helper-exit-quiescent-d1ea0c03_owned0",
+          "candidate": {
+            "start": "2026-11-07T18:17:27.3233823Z",
+            "pid": 2400
+          },
+          "manual_racer": null,
+          "returned_marker": "strategy-helper-exit-quiescent-d1ea0c03_owned0"
+        }
+      ],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "helper-kill|quiescent-diagnostic",
+      "run": "strategy-helper-kill-quiescent-b6898b8f",
+      "expected": "GREEN_DIAGNOSTIC",
+      "verdict": {
+        "status": "PASS",
+        "case": "helper-kill",
+        "policy": "quiescent-diagnostic",
+        "interpretation": "Diagnostic under controlled quiescence; not a concurrency guarantee"
+      },
+      "assertion_count": 40,
+      "ui_state_checks": 6,
+      "existing_client_acks": 0,
+      "owned_sessions": 1,
+      "createinstance_calls": 1,
+      "strategy_results": [],
+      "drain": [
+        {
+          "meaning": "exhaustion only under measured registration/security assumptions",
+          "hr": "0x80070005",
+          "limit": 8,
+          "acquired": 0
+        }
+      ],
+      "oracles": [
+        {
+          "is_owned": true,
+          "expected_owned_marker": "strategy-helper-kill-quiescent-b6898b8f_owned0",
+          "candidate": {
+            "start": "2026-11-07T18:17:33.0794852Z",
+            "pid": 13840
+          },
+          "manual_racer": null,
+          "returned_marker": "strategy-helper-kill-quiescent-b6898b8f_owned0"
+        }
+      ],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "original-exit|quiescent-diagnostic",
+      "run": "strategy-original-exit-quiescent-aa713539",
+      "expected": "GREEN_DIAGNOSTIC",
+      "verdict": {
+        "status": "PASS",
+        "case": "original-exit",
+        "policy": "quiescent-diagnostic",
+        "interpretation": "Diagnostic under controlled quiescence; not a concurrency guarantee"
+      },
+      "assertion_count": 25,
+      "ui_state_checks": 2,
+      "existing_client_acks": 0,
+      "owned_sessions": 1,
+      "createinstance_calls": 1,
+      "strategy_results": [],
+      "drain": [
+        {
+          "meaning": "exhaustion only under measured registration/security assumptions",
+          "hr": "0x80070005",
+          "limit": 8,
+          "acquired": 1
+        }
+      ],
+      "oracles": [
+        {
+          "is_owned": true,
+          "expected_owned_marker": "strategy-original-exit-quiescent-aa71353_owned0",
+          "candidate": {
+            "start": "2026-11-07T18:17:37.5400386Z",
+            "pid": 12968
+          },
+          "manual_racer": null,
+          "returned_marker": "strategy-original-exit-quiescent-aa71353_owned0"
+        }
+      ],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "external-race|quiescent-diagnostic",
+      "run": "strategy-external-race-quiescent-7fabb1b0",
+      "expected": "GREEN_DIAGNOSTIC",
+      "verdict": {
+        "status": "PASS",
+        "case": "external-race",
+        "policy": "quiescent-diagnostic",
+        "interpretation": "Diagnostic under controlled quiescence; not a concurrency guarantee"
+      },
+      "assertion_count": 55,
+      "ui_state_checks": 8,
+      "existing_client_acks": 2,
+      "owned_sessions": 1,
+      "createinstance_calls": 1,
+      "strategy_results": [],
+      "drain": [
+        {
+          "meaning": "exhaustion only under measured registration/security assumptions",
+          "hr": "0x80070005",
+          "limit": 8,
+          "acquired": 1
+        }
+      ],
+      "oracles": [
+        {
+          "is_owned": true,
+          "expected_owned_marker": "strategy-external-race-quiescent-7fabb1b_owned0",
+          "candidate": {
+            "start": "2026-11-07T18:17:42.0708366Z",
+            "pid": 4900
+          },
+          "manual_racer": null,
+          "returned_marker": "strategy-external-race-quiescent-7fabb1b_owned0"
+        }
+      ],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "bound|strict",
+      "run": "strategy-bound-strict-5af307db",
+      "expected": "REFUSAL_EXIT_3",
+      "verdict": {
+        "status": "PASS",
+        "case": "bound",
+        "policy": "strict",
+        "interpretation": "Fail-closed prerequisite handling; no claim of a fresh session when identity is unavailable"
+      },
+      "assertion_count": 32,
+      "ui_state_checks": 6,
+      "existing_client_acks": 0,
+      "owned_sessions": 0,
+      "createinstance_calls": 0,
+      "strategy_results": [
+        {
+          "ok": false,
+          "code": "DRAIN_BOUND_EXCEEDED",
+          "owned_session_created": false
+        }
+      ],
+      "drain": [],
+      "oracles": [],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "manual-race|quiescent-diagnostic",
+      "run": "strategy-manual-race-quiescent-d56109aa",
+      "expected": "RED_IDENTITY_MISMATCH",
+      "verdict": {
+        "stack": "at Assert, \\\\Mac\\Home\\.t3\\worktrees\\sight\\t3-fdcafb27\\scripts\\spike\\windows-com\\strategy-common.ps1: line 10\r\nat <ScriptBlock>, \\\\Mac\\Home\\.t3\\worktrees\\sight\\t3-fdcafb27\\scripts\\spike\\windows-com\\strategy-probe.ps1: line 235\r\nat <ScriptBlock>, <No file>: line 1",
+        "status": "FAIL",
+        "case": "manual-race",
+        "policy": "quiescent-diagnostic",
+        "message": "RED_FACTORY_IDENTITY: exact factory belongs to a manual original, not owned candidate"
+      },
+      "assertion_count": 35,
+      "ui_state_checks": 6,
+      "existing_client_acks": 0,
+      "owned_sessions": 0,
+      "createinstance_calls": 1,
+      "strategy_results": [],
+      "drain": [
+        {
+          "meaning": "exhaustion only under measured registration/security assumptions",
+          "hr": "0x80070005",
+          "limit": 8,
+          "acquired": 1
+        }
+      ],
+      "oracles": [
+        {
+          "is_owned": false,
+          "expected_owned_marker": "strategy-manual-race-quiescent-d56109aa_owned0",
+          "candidate": {
+            "start": "2026-11-07T18:17:53.8222733Z",
+            "pid": 2376
+          },
+          "manual_racer": {
+            "start": "2026-11-07T18:17:54.4348867Z",
+            "pid": 7360
+          },
+          "returned_marker": "strategy-manual-race-quiescent-d56109aa_manual_racer"
+        }
+      ],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "two-new-race|quiescent-diagnostic",
+      "run": "strategy-two-new-race-quiescent-be540328",
+      "expected": "RED_IDENTITY_MISMATCH",
+      "verdict": {
+        "stack": "at Assert, \\\\Mac\\Home\\.t3\\worktrees\\sight\\t3-fdcafb27\\scripts\\spike\\windows-com\\strategy-common.ps1: line 10\r\nat <ScriptBlock>, \\\\Mac\\Home\\.t3\\worktrees\\sight\\t3-fdcafb27\\scripts\\spike\\windows-com\\strategy-probe.ps1: line 235\r\nat <ScriptBlock>, <No file>: line 1",
+        "status": "FAIL",
+        "case": "two-new-race",
+        "policy": "quiescent-diagnostic",
+        "message": "RED_FACTORY_IDENTITY: exact factory belongs to a manual original, not owned candidate"
+      },
+      "assertion_count": 47,
+      "ui_state_checks": 8,
+      "existing_client_acks": 1,
+      "owned_sessions": 0,
+      "createinstance_calls": 1,
+      "strategy_results": [],
+      "drain": [
+        {
+          "meaning": "exhaustion only under measured registration/security assumptions",
+          "hr": "0x80070005",
+          "limit": 8,
+          "acquired": 1
+        }
+      ],
+      "oracles": [
+        {
+          "is_owned": false,
+          "expected_owned_marker": "strategy-two-new-race-quiescent-be540328_owned0",
+          "candidate": {
+            "start": "2026-11-07T18:17:59.1062247Z",
+            "pid": 12840
+          },
+          "manual_racer": {
+            "start": "2026-11-07T18:17:59.7260459Z",
+            "pid": 9688
+          },
+          "returned_marker": "strategy-two-new-race-quiescent-be540328_manual_racer"
+        }
+      ],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "zero|strict",
+      "run": "strategy-zero-strict-570b5cd2",
+      "expected": "REFUSAL_EXIT_3",
+      "verdict": {
+        "status": "PASS",
+        "case": "zero",
+        "policy": "strict",
+        "interpretation": "Fail-closed prerequisite handling; no claim of a fresh session when identity is unavailable"
+      },
+      "assertion_count": 6,
+      "ui_state_checks": 0,
+      "existing_client_acks": 0,
+      "owned_sessions": 0,
+      "createinstance_calls": 0,
+      "strategy_results": [
+        {
+          "ok": false,
+          "code": "IDENTITY_PREREQUISITE_UNAVAILABLE",
+          "owned_session_created": false
+        }
+      ],
+      "drain": [
+        {
+          "meaning": "exhaustion only under measured registration/security assumptions",
+          "hr": "0x80070005",
+          "limit": 8,
+          "acquired": 0
+        }
+      ],
+      "oracles": [],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "one|strict",
+      "run": "strategy-one-strict-b56140a2",
+      "expected": "REFUSAL_EXIT_3",
+      "verdict": {
+        "status": "PASS",
+        "case": "one",
+        "policy": "strict",
+        "interpretation": "Fail-closed prerequisite handling; no claim of a fresh session when identity is unavailable"
+      },
+      "assertion_count": 21,
+      "ui_state_checks": 3,
+      "existing_client_acks": 0,
+      "owned_sessions": 0,
+      "createinstance_calls": 0,
+      "strategy_results": [
+        {
+          "ok": false,
+          "code": "IDENTITY_PREREQUISITE_UNAVAILABLE",
+          "owned_session_created": false
+        }
+      ],
+      "drain": [
+        {
+          "meaning": "exhaustion only under measured registration/security assumptions",
+          "hr": "0x80070005",
+          "limit": 8,
+          "acquired": 1
+        }
+      ],
+      "oracles": [],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "multiple|strict",
+      "run": "strategy-multiple-strict-e6b6491a",
+      "expected": "REFUSAL_EXIT_3",
+      "verdict": {
+        "status": "PASS",
+        "case": "multiple",
+        "policy": "strict",
+        "interpretation": "Fail-closed prerequisite handling; no claim of a fresh session when identity is unavailable"
+      },
+      "assertion_count": 51,
+      "ui_state_checks": 9,
+      "existing_client_acks": 0,
+      "owned_sessions": 0,
+      "createinstance_calls": 0,
+      "strategy_results": [
+        {
+          "ok": false,
+          "code": "IDENTITY_PREREQUISITE_UNAVAILABLE",
+          "owned_session_created": false
+        }
+      ],
+      "drain": [
+        {
+          "meaning": "exhaustion only under measured registration/security assumptions",
+          "hr": "0x80070005",
+          "limit": 8,
+          "acquired": 3
+        }
+      ],
+      "oracles": [],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "mixed|strict",
+      "run": "strategy-mixed-strict-f698f675",
+      "expected": "REFUSAL_EXIT_3",
+      "verdict": {
+        "status": "PASS",
+        "case": "mixed",
+        "policy": "strict",
+        "interpretation": "Fail-closed prerequisite handling; no claim of a fresh session when identity is unavailable"
+      },
+      "assertion_count": 53,
+      "ui_state_checks": 9,
+      "existing_client_acks": 2,
+      "owned_sessions": 0,
+      "createinstance_calls": 0,
+      "strategy_results": [
+        {
+          "ok": false,
+          "code": "IDENTITY_PREREQUISITE_UNAVAILABLE",
+          "owned_session_created": false
+        }
+      ],
+      "drain": [
+        {
+          "meaning": "exhaustion only under measured registration/security assumptions",
+          "hr": "0x80070005",
+          "limit": 8,
+          "acquired": 1
+        }
+      ],
+      "oracles": [],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "repeated|strict",
+      "run": "strategy-repeated-strict-b08a3e75",
+      "expected": "REFUSAL_EXIT_3",
+      "verdict": {
+        "status": "PASS",
+        "case": "repeated",
+        "policy": "strict",
+        "interpretation": "Fail-closed prerequisite handling; no claim of a fresh session when identity is unavailable"
+      },
+      "assertion_count": 21,
+      "ui_state_checks": 3,
+      "existing_client_acks": 0,
+      "owned_sessions": 0,
+      "createinstance_calls": 0,
+      "strategy_results": [
+        {
+          "ok": false,
+          "code": "IDENTITY_PREREQUISITE_UNAVAILABLE",
+          "owned_session_created": false
+        }
+      ],
+      "drain": [
+        {
+          "meaning": "exhaustion only under measured registration/security assumptions",
+          "hr": "0x80070005",
+          "limit": 8,
+          "acquired": 1
+        }
+      ],
+      "oracles": [],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "helper-exit|strict",
+      "run": "strategy-helper-exit-strict-b2faeded",
+      "expected": "REFUSAL_EXIT_3",
+      "verdict": {
+        "status": "PASS",
+        "case": "helper-exit",
+        "policy": "strict",
+        "interpretation": "Fail-closed prerequisite handling; no claim of a fresh session when identity is unavailable"
+      },
+      "assertion_count": 25,
+      "ui_state_checks": 4,
+      "existing_client_acks": 0,
+      "owned_sessions": 0,
+      "createinstance_calls": 0,
+      "strategy_results": [
+        {
+          "ok": false,
+          "code": "IDENTITY_PREREQUISITE_UNAVAILABLE",
+          "owned_session_created": false
+        }
+      ],
+      "drain": [
+        {
+          "meaning": "exhaustion only under measured registration/security assumptions",
+          "hr": "0x80070005",
+          "limit": 8,
+          "acquired": 0
+        }
+      ],
+      "oracles": [],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "helper-kill|strict",
+      "run": "strategy-helper-kill-strict-a3dec0eb",
+      "expected": "REFUSAL_EXIT_3",
+      "verdict": {
+        "status": "PASS",
+        "case": "helper-kill",
+        "policy": "strict",
+        "interpretation": "Fail-closed prerequisite handling; no claim of a fresh session when identity is unavailable"
+      },
+      "assertion_count": 24,
+      "ui_state_checks": 4,
+      "existing_client_acks": 0,
+      "owned_sessions": 0,
+      "createinstance_calls": 0,
+      "strategy_results": [
+        {
+          "ok": false,
+          "code": "IDENTITY_PREREQUISITE_UNAVAILABLE",
+          "owned_session_created": false
+        }
+      ],
+      "drain": [
+        {
+          "meaning": "exhaustion only under measured registration/security assumptions",
+          "hr": "0x80070005",
+          "limit": 8,
+          "acquired": 0
+        }
+      ],
+      "oracles": [],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "original-exit|strict",
+      "run": "strategy-original-exit-strict-2c3ea90f",
+      "expected": "REFUSAL_EXIT_3",
+      "verdict": {
+        "status": "PASS",
+        "case": "original-exit",
+        "policy": "strict",
+        "interpretation": "Fail-closed prerequisite handling; no claim of a fresh session when identity is unavailable"
+      },
+      "assertion_count": 13,
+      "ui_state_checks": 1,
+      "existing_client_acks": 0,
+      "owned_sessions": 0,
+      "createinstance_calls": 0,
+      "strategy_results": [
+        {
+          "ok": false,
+          "code": "IDENTITY_PREREQUISITE_UNAVAILABLE",
+          "owned_session_created": false
+        }
+      ],
+      "drain": [
+        {
+          "meaning": "exhaustion only under measured registration/security assumptions",
+          "hr": "0x80070005",
+          "limit": 8,
+          "acquired": 1
+        }
+      ],
+      "oracles": [],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "manual-race|strict",
+      "run": "strategy-manual-race-strict-13768c59",
+      "expected": "REFUSAL_EXIT_3",
+      "verdict": {
+        "status": "PASS",
+        "case": "manual-race",
+        "policy": "strict",
+        "interpretation": "Fail-closed prerequisite handling; no claim of a fresh session when identity is unavailable"
+      },
+      "assertion_count": 21,
+      "ui_state_checks": 3,
+      "existing_client_acks": 0,
+      "owned_sessions": 0,
+      "createinstance_calls": 0,
+      "strategy_results": [
+        {
+          "ok": false,
+          "code": "IDENTITY_PREREQUISITE_UNAVAILABLE",
+          "owned_session_created": false
+        }
+      ],
+      "drain": [
+        {
+          "meaning": "exhaustion only under measured registration/security assumptions",
+          "hr": "0x80070005",
+          "limit": 8,
+          "acquired": 1
+        }
+      ],
+      "oracles": [],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "external-race|strict",
+      "run": "strategy-external-race-strict-319971dc",
+      "expected": "REFUSAL_EXIT_3",
+      "verdict": {
+        "status": "PASS",
+        "case": "external-race",
+        "policy": "strict",
+        "interpretation": "Fail-closed prerequisite handling; no claim of a fresh session when identity is unavailable"
+      },
+      "assertion_count": 21,
+      "ui_state_checks": 3,
+      "existing_client_acks": 0,
+      "owned_sessions": 0,
+      "createinstance_calls": 0,
+      "strategy_results": [
+        {
+          "ok": false,
+          "code": "IDENTITY_PREREQUISITE_UNAVAILABLE",
+          "owned_session_created": false
+        }
+      ],
+      "drain": [
+        {
+          "meaning": "exhaustion only under measured registration/security assumptions",
+          "hr": "0x80070005",
+          "limit": 8,
+          "acquired": 1
+        }
+      ],
+      "oracles": [],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "two-new-race|strict",
+      "run": "strategy-two-new-race-strict-1d3ed15a",
+      "expected": "REFUSAL_EXIT_3",
+      "verdict": {
+        "status": "PASS",
+        "case": "two-new-race",
+        "policy": "strict",
+        "interpretation": "Fail-closed prerequisite handling; no claim of a fresh session when identity is unavailable"
+      },
+      "assertion_count": 21,
+      "ui_state_checks": 3,
+      "existing_client_acks": 0,
+      "owned_sessions": 0,
+      "createinstance_calls": 0,
+      "strategy_results": [
+        {
+          "ok": false,
+          "code": "IDENTITY_PREREQUISITE_UNAVAILABLE",
+          "owned_session_created": false
+        }
+      ],
+      "drain": [
+        {
+          "meaning": "exhaustion only under measured registration/security assumptions",
+          "hr": "0x80070005",
+          "limit": 8,
+          "acquired": 1
+        }
+      ],
+      "oracles": [],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "adaptive|quiescent-diagnostic",
+      "run": "strategy-adaptive-quiescent-aa2e103f",
+      "expected": "GREEN_DIAGNOSTIC",
+      "verdict": {
+        "status": "PASS",
+        "case": "adaptive",
+        "policy": "quiescent-diagnostic",
+        "interpretation": "Quiescent diagnostic only; PID delta does not authorize CreateInstance under races"
+      },
+      "assertion_count": 28,
+      "ui_state_checks": 3,
+      "existing_client_acks": 0,
+      "owned_sessions": 1,
+      "createinstance_calls": 1,
+      "strategy_results": [],
+      "drain": [],
+      "oracles": [],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "adaptive-mixed|quiescent-diagnostic",
+      "run": "strategy-adaptive-mixed-quiescent-3387e1ef",
+      "expected": "GREEN_DIAGNOSTIC",
+      "verdict": {
+        "status": "PASS",
+        "case": "adaptive-mixed",
+        "policy": "quiescent-diagnostic",
+        "interpretation": "Quiescent diagnostic only; PID delta does not authorize CreateInstance under races"
+      },
+      "assertion_count": 60,
+      "ui_state_checks": 9,
+      "existing_client_acks": 2,
+      "owned_sessions": 1,
+      "createinstance_calls": 1,
+      "strategy_results": [],
+      "drain": [],
+      "oracles": [],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "concurrent-manual|strict",
+      "run": "strategy-concurrent-manual-strict-0fa8a069",
+      "expected": "REFUSAL_EXIT_3",
+      "verdict": {
+        "status": "PASS",
+        "case": "concurrent-manual",
+        "policy": "strict",
+        "interpretation": "Fail-closed prerequisite handling; no claim of a fresh session when identity is unavailable"
+      },
+      "assertion_count": 27,
+      "ui_state_checks": 4,
+      "existing_client_acks": 0,
+      "owned_sessions": 0,
+      "createinstance_calls": 0,
+      "strategy_results": [
+        {
+          "ok": false,
+          "code": "IDENTITY_PREREQUISITE_UNAVAILABLE",
+          "owned_session_created": false
+        }
+      ],
+      "drain": [
+        {
+          "meaning": "exhaustion only under measured registration/security assumptions",
+          "hr": "0x80070005",
+          "limit": 8,
+          "acquired": 1
+        }
+      ],
+      "oracles": [],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "registration-refusal|strict",
+      "run": "strategy-registration-refusal-strict-169b0a44",
+      "expected": "REFUSAL_EXIT_3",
+      "verdict": {
+        "status": "PASS",
+        "case": "registration-refusal",
+        "policy": "strict",
+        "interpretation": "Unsupported registration refused before COM"
+      },
+      "assertion_count": 2,
+      "ui_state_checks": 0,
+      "existing_client_acks": 0,
+      "owned_sessions": 0,
+      "createinstance_calls": 0,
+      "strategy_results": [
+        {
+          "ok": false,
+          "code": "UNSUPPORTED_REGISTRATION",
+          "owned_session_created": false
+        }
+      ],
+      "drain": [],
+      "oracles": [],
+      "initial_stata": 0,
+      "final_stata": 0
+    },
+    {
+      "key": "identity-preflight|strict",
+      "run": "strategy-identity-preflight-strict-59b92437",
+      "expected": "REFUSAL_EXIT_3",
+      "verdict": {
+        "status": "PASS",
+        "case": "identity-preflight",
+        "policy": "strict",
+        "capability": false
+      },
+      "assertion_count": 4,
+      "ui_state_checks": 0,
+      "existing_client_acks": 0,
+      "owned_sessions": 0,
+      "createinstance_calls": 0,
+      "strategy_results": [
+        {
+          "ok": false,
+          "code": "IDENTITY_PREREQUISITE_UNAVAILABLE",
+          "owned_session_created": false
+        }
+      ],
+      "drain": [],
+      "oracles": [],
+      "initial_stata": 0,
+      "final_stata": 0
+    }
+  ]
+}

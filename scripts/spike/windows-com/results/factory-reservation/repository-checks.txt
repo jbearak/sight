@@ -1,0 +1,20 @@
+2026-11-07, Cyllene, this checkout; no production source changes.
+bun install --frozen-lockfile: PASS; lockfiles unchanged.
+bun run check:line-endings: PASS.
+bun run typecheck: PASS.
+bun run typecheck:scripts (after resume-index addition): PASS.
+bun run lint: PASS.
+bun test ./tests: PASS, 8020 pass, 12 skip, 0 fail;
+412387 expect() calls; 8032 tests across 659 files, 60.82s.
+
+Windows final replay: 17 completed measurement scenarios;
+583 passing assertions, 93 UI state checks, 22 disposable originals.
+All 93 datasignature confirm commands are present in the final Stata logs;
+no nonzero r(...) errors in those final logs.
+Availability-restoration hypothesis: FAIL in all 3 endpoint tests.
+User criterion: restoring availability is not required. Those 3 observations
+support continued COM blocking and do not count against the practical verdict.
+All final scenario inventories empty; final independent inventory empty.
+Typecheck/lint initially lacked installed binaries; passed after Bun install.
+One Parallels transport failure is retained in final-suite.txt and was
+followed by an independent empty inventory before resuming at index 6.

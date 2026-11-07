@@ -1,0 +1,1045 @@
+{
+  "scenario_count": 17,
+  "passing_preservation_and_measurement_scenarios": 17,
+  "assertion_count": 583,
+  "note": "The user requires blocking COM availability, not restoring it. All three endpoint tests found the original unavailable, supporting continued blocking. Historical restoration-hypothesis FAIL labels below are preserved and are not failures of the blocking criterion.",
+  "practical_verdict": "PASS for blocking existing originals while preserving usable unsaved GUI state on this build. The follow-up count-free drain plus exact-factory creation is a viable implementation basis under the tested registration/security assumptions, with persistent blocking and the narrow connection-time manual-launch race accepted. Broader identity guarantees remain optional; indefinite blocking duration and other configurations were not established.",
+  "scenarios": [
+    {
+      "run": "release-cc02681f9780",
+      "originals": [
+        {
+          "inventory": [
+            {
+              "title": "release-cc02681f9780_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 3492,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-release-cc02681f9780\\original0.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:49:11.4719950Z"
+            }
+          ],
+          "version": "Stata=18|born=13 Oct 2026|machine=PC (64-bit x86-64)\r\n",
+          "architecture": "process=0x0000;native=0xAA64",
+          "token": "release-cc02681f9780_original_0",
+          "identity": {
+            "start": "2026-11-07T17:49:11.4719950Z",
+            "pid": 3492
+          }
+        }
+      ],
+      "status": "PASS",
+      "case": "release",
+      "assertions": 16,
+      "state_checks": 3,
+      "new_objects": [],
+      "observations": [],
+      "initial_stata_count": 0,
+      "final_stata_count": 0
+    },
+    {
+      "run": "activate-b0273d42d284",
+      "originals": [
+        {
+          "inventory": [
+            {
+              "title": "activate-b0273d42d284_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 13432,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-activate-b0273d42d284\\original0.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:49:17.6715655Z"
+            }
+          ],
+          "version": "Stata=18|born=13 Oct 2026|machine=PC (64-bit x86-64)\r\n",
+          "architecture": "process=0x0000;native=0xAA64",
+          "token": "activate-b0273d42d284_original_0",
+          "identity": {
+            "start": "2026-11-07T17:49:17.6715655Z",
+            "pid": 13432
+          }
+        }
+      ],
+      "status": "PASS",
+      "case": "activate",
+      "assertions": 36,
+      "state_checks": 5,
+      "new_objects": [
+        {
+          "title": "activate-b0273d42d284_NEW",
+          "pid": 12784,
+          "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding",
+          "session": 1,
+          "start": "2026-11-07T17:49:18.4843636Z"
+        }
+      ],
+      "observations": [],
+      "initial_stata_count": 0,
+      "final_stata_count": 0
+    },
+    {
+      "run": "factory-first-157fe6d58e10",
+      "originals": [
+        {
+          "inventory": [
+            {
+              "title": "factory-first-157fe6d58e10_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 5804,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-factory-first-157fe6d58e10\\original0.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:49:26.7744319Z"
+            }
+          ],
+          "version": "Stata=18|born=13 Oct 2026|machine=PC (64-bit x86-64)\r\n",
+          "architecture": "process=0x0000;native=0xAA64",
+          "token": "factory-first-157fe6d58e10_original_0",
+          "identity": {
+            "start": "2026-11-07T17:49:26.7744319Z",
+            "pid": 5804
+          }
+        }
+      ],
+      "status": "PASS",
+      "case": "factory-first",
+      "assertions": 40,
+      "state_checks": 6,
+      "new_objects": [
+        {
+          "title": "factory-first-157fe6d58e10_NEW",
+          "pid": 10580,
+          "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding",
+          "session": 1,
+          "start": "2026-11-07T17:49:27.5685492Z"
+        }
+      ],
+      "observations": [],
+      "initial_stata_count": 0,
+      "final_stata_count": 0
+    },
+    {
+      "run": "availability-d896077b2c0a",
+      "originals": [
+        {
+          "inventory": [
+            {
+              "title": "availability-d896077b2c0a_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 14148,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-availability-d896077b2c0a\\original0.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:49:37.9066638Z"
+            }
+          ],
+          "version": "Stata=18|born=13 Oct 2026|machine=PC (64-bit x86-64)\r\n",
+          "architecture": "process=0x0000;native=0xAA64",
+          "token": "availability-d896077b2c0a_original_0",
+          "identity": {
+            "start": "2026-11-07T17:49:37.9066638Z",
+            "pid": 14148
+          }
+        }
+      ],
+      "status": "PASS",
+      "case": "availability",
+      "assertions": 22,
+      "state_checks": 4,
+      "new_objects": [],
+      "observations": [
+        {
+          "event": "availability_result",
+          "data": {
+            "inventory": [
+              {
+                "title": "availability-d896077b2c0a_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+                "pid": 14148,
+                "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-availability-d896077b2c0a\\original0.do\" ",
+                "session": 1,
+                "start": "2026-11-07T17:49:37.9066638Z"
+              },
+              {
+                "title": "availability-d896077b2c0a_AVAILABILITY",
+                "pid": 5008,
+                "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding",
+                "session": 1,
+                "start": "2026-11-07T17:49:41.8964367Z"
+              }
+            ],
+            "original_available": false,
+            "returned_identity": {
+              "title": "availability-d896077b2c0a_AVAILABILITY",
+              "pid": 5008,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding",
+              "session": 1,
+              "start": "2026-11-07T17:49:41.8964367Z"
+            },
+            "returned_marker": ""
+          }
+        },
+        {
+          "event": "availability_verdict",
+          "data": {
+            "hypothesis": "Factory release restores original availability",
+            "status": "FAIL"
+          }
+        }
+      ],
+      "initial_stata_count": 0,
+      "final_stata_count": 0
+    },
+    {
+      "run": "exit-b9167852a0ac",
+      "originals": [
+        {
+          "inventory": [
+            {
+              "title": "exit-b9167852a0ac_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 1592,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-exit-b9167852a0ac\\original0.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:49:46.9438303Z"
+            }
+          ],
+          "version": "Stata=18|born=13 Oct 2026|machine=PC (64-bit x86-64)\r\n",
+          "architecture": "process=0x0000;native=0xAA64",
+          "token": "exit-b9167852a0ac_original_0",
+          "identity": {
+            "start": "2026-11-07T17:49:46.9438303Z",
+            "pid": 1592
+          }
+        }
+      ],
+      "status": "PASS",
+      "case": "exit",
+      "assertions": 24,
+      "state_checks": 4,
+      "new_objects": [],
+      "observations": [
+        {
+          "event": "availability_result",
+          "data": {
+            "inventory": [
+              {
+                "title": "exit-b9167852a0ac_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+                "pid": 1592,
+                "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-exit-b9167852a0ac\\original0.do\" ",
+                "session": 1,
+                "start": "2026-11-07T17:49:46.9438303Z"
+              },
+              {
+                "title": "exit-b9167852a0ac_AVAILABILITY",
+                "pid": 1784,
+                "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding",
+                "session": 1,
+                "start": "2026-11-07T17:49:52.5512531Z"
+              }
+            ],
+            "original_available": false,
+            "returned_identity": {
+              "title": "exit-b9167852a0ac_AVAILABILITY",
+              "pid": 1784,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding",
+              "session": 1,
+              "start": "2026-11-07T17:49:52.5512531Z"
+            },
+            "returned_marker": ""
+          }
+        },
+        {
+          "event": "availability_verdict",
+          "data": {
+            "hypothesis": "Factory release restores original availability",
+            "status": "FAIL"
+          }
+        }
+      ],
+      "initial_stata_count": 0,
+      "final_stata_count": 0
+    },
+    {
+      "run": "kill-3fdc74e2c451",
+      "originals": [
+        {
+          "inventory": [
+            {
+              "title": "kill-3fdc74e2c451_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 7132,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-kill-3fdc74e2c451\\original0.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:49:57.5705060Z"
+            }
+          ],
+          "version": "Stata=18|born=13 Oct 2026|machine=PC (64-bit x86-64)\r\n",
+          "architecture": "process=0x0000;native=0xAA64",
+          "token": "kill-3fdc74e2c451_original_0",
+          "identity": {
+            "start": "2026-11-07T17:49:57.5705060Z",
+            "pid": 7132
+          }
+        }
+      ],
+      "status": "PASS",
+      "case": "kill",
+      "assertions": 27,
+      "state_checks": 5,
+      "new_objects": [],
+      "observations": [
+        {
+          "event": "availability_result",
+          "data": {
+            "inventory": [
+              {
+                "title": "kill-3fdc74e2c451_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+                "pid": 7132,
+                "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-kill-3fdc74e2c451\\original0.do\" ",
+                "session": 1,
+                "start": "2026-11-07T17:49:57.5705060Z"
+              },
+              {
+                "title": "kill-3fdc74e2c451_AVAILABILITY",
+                "pid": 2856,
+                "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding",
+                "session": 1,
+                "start": "2026-11-07T17:50:29.9937888Z"
+              }
+            ],
+            "original_available": false,
+            "returned_identity": {
+              "title": "kill-3fdc74e2c451_AVAILABILITY",
+              "pid": 2856,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding",
+              "session": 1,
+              "start": "2026-11-07T17:50:29.9937888Z"
+            },
+            "returned_marker": ""
+          }
+        },
+        {
+          "event": "availability_verdict",
+          "data": {
+            "hypothesis": "Factory release restores original availability",
+            "status": "FAIL"
+          }
+        }
+      ],
+      "initial_stata_count": 0,
+      "final_stata_count": 0
+    },
+    {
+      "run": "multi-2f2da4af8560",
+      "originals": [
+        {
+          "inventory": [
+            {
+              "title": "multi-2f2da4af8560_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 13724,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-multi-2f2da4af8560\\original0.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:52:47.6997026Z"
+            }
+          ],
+          "version": "Stata=18|born=13 Oct 2026|machine=PC (64-bit x86-64)\r\n",
+          "architecture": "process=0x0000;native=0xAA64",
+          "token": "multi-2f2da4af8560_original_0",
+          "identity": {
+            "start": "2026-11-07T17:52:47.6997026Z",
+            "pid": 13724
+          }
+        },
+        {
+          "inventory": [
+            {
+              "title": "multi-2f2da4af8560_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 13724,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-multi-2f2da4af8560\\original0.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:52:47.6997026Z"
+            },
+            {
+              "title": "multi-2f2da4af8560_original_1 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 12128,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-multi-2f2da4af8560\\original1.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:52:48.3963286Z"
+            }
+          ],
+          "version": "Stata=18|born=13 Oct 2026|machine=PC (64-bit x86-64)\r\n",
+          "architecture": "process=0x0000;native=0xAA64",
+          "token": "multi-2f2da4af8560_original_1",
+          "identity": {
+            "start": "2026-11-07T17:52:48.3963286Z",
+            "pid": 12128
+          }
+        }
+      ],
+      "status": "PASS",
+      "case": "multi",
+      "assertions": 57,
+      "state_checks": 10,
+      "new_objects": [
+        {
+          "title": "multi-2f2da4af8560_NEW",
+          "pid": 10772,
+          "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding",
+          "session": 1,
+          "start": "2026-11-07T17:52:49.2795840Z"
+        }
+      ],
+      "observations": [],
+      "initial_stata_count": 0,
+      "final_stata_count": 0
+    },
+    {
+      "run": "multi-d3a496e9a81a",
+      "originals": [
+        {
+          "inventory": [
+            {
+              "title": "multi-d3a496e9a81a_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 11408,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-multi-d3a496e9a81a\\original0.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:52:57.8666861Z"
+            }
+          ],
+          "version": "Stata=18|born=13 Oct 2026|machine=PC (64-bit x86-64)\r\n",
+          "architecture": "process=0x0000;native=0xAA64",
+          "token": "multi-d3a496e9a81a_original_0",
+          "identity": {
+            "start": "2026-11-07T17:52:57.8666861Z",
+            "pid": 11408
+          }
+        },
+        {
+          "inventory": [
+            {
+              "title": "multi-d3a496e9a81a_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 11408,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-multi-d3a496e9a81a\\original0.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:52:57.8666861Z"
+            },
+            {
+              "title": "multi-d3a496e9a81a_original_1 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 4144,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-multi-d3a496e9a81a\\original1.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:52:58.5198779Z"
+            }
+          ],
+          "version": "Stata=18|born=13 Oct 2026|machine=PC (64-bit x86-64)\r\n",
+          "architecture": "process=0x0000;native=0xAA64",
+          "token": "multi-d3a496e9a81a_original_1",
+          "identity": {
+            "start": "2026-11-07T17:52:58.5198779Z",
+            "pid": 4144
+          }
+        },
+        {
+          "inventory": [
+            {
+              "title": "multi-d3a496e9a81a_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 11408,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-multi-d3a496e9a81a\\original0.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:52:57.8666861Z"
+            },
+            {
+              "title": "multi-d3a496e9a81a_original_1 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 4144,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-multi-d3a496e9a81a\\original1.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:52:58.5198779Z"
+            },
+            {
+              "title": "multi-d3a496e9a81a_original_2 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 8740,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-multi-d3a496e9a81a\\original2.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:52:59.1084485Z"
+            }
+          ],
+          "version": "Stata=18|born=13 Oct 2026|machine=PC (64-bit x86-64)\r\n",
+          "architecture": "process=0x0000;native=0xAA64",
+          "token": "multi-d3a496e9a81a_original_2",
+          "identity": {
+            "start": "2026-11-07T17:52:59.1084485Z",
+            "pid": 8740
+          }
+        }
+      ],
+      "status": "PASS",
+      "case": "multi",
+      "assertions": 78,
+      "state_checks": 15,
+      "new_objects": [
+        {
+          "title": "multi-d3a496e9a81a_NEW",
+          "pid": 2132,
+          "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding",
+          "session": 1,
+          "start": "2026-11-07T17:53:00.2152490Z"
+        }
+      ],
+      "observations": [],
+      "initial_stata_count": 0,
+      "final_stata_count": 0
+    },
+    {
+      "run": "activate-2ce9f83b7f20",
+      "originals": [
+        {
+          "inventory": [
+            {
+              "title": "activate-2ce9f83b7f20_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 12592,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-activate-2ce9f83b7f20\\original0.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:53:09.3054411Z"
+            }
+          ],
+          "version": "Stata=18|born=13 Oct 2026|machine=PC (64-bit x86-64)\r\n",
+          "architecture": "process=0x0000;native=0xAA64",
+          "token": "activate-2ce9f83b7f20_original_0",
+          "identity": {
+            "start": "2026-11-07T17:53:09.3054411Z",
+            "pid": 12592
+          }
+        }
+      ],
+      "status": "PASS",
+      "case": "activate",
+      "assertions": 36,
+      "state_checks": 5,
+      "new_objects": [
+        {
+          "title": "activate-2ce9f83b7f20_NEW",
+          "pid": 1164,
+          "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding",
+          "session": 1,
+          "start": "2026-11-07T17:53:10.1656261Z"
+        }
+      ],
+      "observations": [],
+      "initial_stata_count": 0,
+      "final_stata_count": 0
+    },
+    {
+      "run": "activate-e2a516a79f17",
+      "originals": [
+        {
+          "inventory": [
+            {
+              "title": "activate-e2a516a79f17_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 10232,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-activate-e2a516a79f17\\original0.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:53:18.5424828Z"
+            }
+          ],
+          "version": "Stata=18|born=13 Oct 2026|machine=PC (64-bit x86-64)\r\n",
+          "architecture": "process=0x0000;native=0xAA64",
+          "token": "activate-e2a516a79f17_original_0",
+          "identity": {
+            "start": "2026-11-07T17:53:18.5424828Z",
+            "pid": 10232
+          }
+        }
+      ],
+      "status": "PASS",
+      "case": "activate",
+      "assertions": 36,
+      "state_checks": 5,
+      "new_objects": [
+        {
+          "title": "activate-e2a516a79f17_NEW",
+          "pid": 7752,
+          "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding",
+          "session": 1,
+          "start": "2026-11-07T17:53:19.3452878Z"
+        }
+      ],
+      "observations": [],
+      "initial_stata_count": 0,
+      "final_stata_count": 0
+    },
+    {
+      "run": "activate-c8cb614652fb",
+      "originals": [
+        {
+          "inventory": [
+            {
+              "title": "activate-c8cb614652fb_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 5420,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-activate-c8cb614652fb\\original0.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:53:27.7746695Z"
+            }
+          ],
+          "version": "Stata=18|born=13 Oct 2026|machine=PC (64-bit x86-64)\r\n",
+          "architecture": "process=0x0000;native=0xAA64",
+          "token": "activate-c8cb614652fb_original_0",
+          "identity": {
+            "start": "2026-11-07T17:53:27.7746695Z",
+            "pid": 5420
+          }
+        }
+      ],
+      "status": "PASS",
+      "case": "activate",
+      "assertions": 36,
+      "state_checks": 5,
+      "new_objects": [
+        {
+          "title": "activate-c8cb614652fb_NEW",
+          "pid": 5940,
+          "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding",
+          "session": 1,
+          "start": "2026-11-07T17:53:28.5620327Z"
+        }
+      ],
+      "observations": [],
+      "initial_stata_count": 0,
+      "final_stata_count": 0
+    },
+    {
+      "run": "client-control-dc927ddb6e51",
+      "originals": [
+        {
+          "inventory": [
+            {
+              "title": "client-control-dc927ddb6e51_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 4484,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-client-control-dc927ddb6e51\\original0.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:53:36.7786044Z"
+            }
+          ],
+          "version": "Stata=18|born=13 Oct 2026|machine=PC (64-bit x86-64)\r\n",
+          "architecture": "process=0x0000;native=0xAA64",
+          "token": "client-control-dc927ddb6e51_original_0",
+          "identity": {
+            "start": "2026-11-07T17:53:36.7786044Z",
+            "pid": 4484
+          }
+        }
+      ],
+      "status": "PASS",
+      "case": "client-control",
+      "assertions": 20,
+      "state_checks": 2,
+      "new_objects": [],
+      "observations": [
+        {
+          "event": "external_client_result",
+          "data": {
+            "reserved": false,
+            "marker_before": "client-control-dc927ddb6e51_original_0",
+            "marker_after": "client-control-dc927ddb6e51_vbscript",
+            "client_architecture": "process=0x0000;native=0xAA64",
+            "client_exe": "C:\\WINDOWS\\system32\\cscript.exe",
+            "client": "vbscript",
+            "client_file_version": "10.0.26100.4768",
+            "helper_version": [
+              "10.0.26100.9818"
+            ],
+            "returned_identity": {
+              "title": "client-control-dc927ddb6e51_vbscript",
+              "pid": 4484,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-client-control-dc927ddb6e51\\original0.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:53:36.7786044Z"
+            },
+            "inventory": [
+              {
+                "title": "client-control-dc927ddb6e51_vbscript",
+                "pid": 4484,
+                "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-client-control-dc927ddb6e51\\original0.do\" ",
+                "session": 1,
+                "start": "2026-11-07T17:53:36.7786044Z"
+              }
+            ]
+          }
+        }
+      ],
+      "initial_stata_count": 0,
+      "final_stata_count": 0
+    },
+    {
+      "run": "client-reserved-0cad544f2e4c",
+      "originals": [
+        {
+          "inventory": [
+            {
+              "title": "client-reserved-0cad544f2e4c_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 8748,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-client-reserved-0cad544f2e4c\\original0.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:53:45.4520519Z"
+            }
+          ],
+          "version": "Stata=18|born=13 Oct 2026|machine=PC (64-bit x86-64)\r\n",
+          "architecture": "process=0x0000;native=0xAA64",
+          "token": "client-reserved-0cad544f2e4c_original_0",
+          "identity": {
+            "start": "2026-11-07T17:53:45.4520519Z",
+            "pid": 8748
+          }
+        }
+      ],
+      "status": "PASS",
+      "case": "client-reserved",
+      "assertions": 28,
+      "state_checks": 4,
+      "new_objects": [],
+      "observations": [
+        {
+          "event": "external_client_result",
+          "data": {
+            "reserved": true,
+            "marker_before": "",
+            "marker_after": "client-reserved-0cad544f2e4c_vbscript",
+            "client_architecture": "process=0x0000;native=0xAA64",
+            "client_exe": "C:\\WINDOWS\\system32\\cscript.exe",
+            "client": "vbscript",
+            "client_file_version": "10.0.26100.4768",
+            "helper_version": [
+              "10.0.26100.9818"
+            ],
+            "returned_identity": {
+              "title": "client-reserved-0cad544f2e4c_vbscript",
+              "pid": 11256,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding",
+              "session": 1,
+              "start": "2026-11-07T17:53:46.4580722Z"
+            },
+            "inventory": [
+              {
+                "title": "client-reserved-0cad544f2e4c_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+                "pid": 8748,
+                "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-client-reserved-0cad544f2e4c\\original0.do\" ",
+                "session": 1,
+                "start": "2026-11-07T17:53:45.4520519Z"
+              },
+              {
+                "title": "client-reserved-0cad544f2e4c_vbscript",
+                "pid": 11256,
+                "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding",
+                "session": 1,
+                "start": "2026-11-07T17:53:46.4580722Z"
+              }
+            ]
+          }
+        }
+      ],
+      "initial_stata_count": 0,
+      "final_stata_count": 0
+    },
+    {
+      "run": "client-control-6f057c0eac1a",
+      "originals": [
+        {
+          "inventory": [
+            {
+              "title": "client-control-6f057c0eac1a_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 620,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-client-control-6f057c0eac1a\\original0.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:53:55.1945877Z"
+            }
+          ],
+          "version": "Stata=18|born=13 Oct 2026|machine=PC (64-bit x86-64)\r\n",
+          "architecture": "process=0x0000;native=0xAA64",
+          "token": "client-control-6f057c0eac1a_original_0",
+          "identity": {
+            "start": "2026-11-07T17:53:55.1945877Z",
+            "pid": 620
+          }
+        }
+      ],
+      "status": "PASS",
+      "case": "client-control",
+      "assertions": 20,
+      "state_checks": 2,
+      "new_objects": [],
+      "observations": [
+        {
+          "event": "external_client_result",
+          "data": {
+            "reserved": false,
+            "marker_before": "client-control-6f057c0eac1a_original_0",
+            "marker_after": "client-control-6f057c0eac1a_vbnet",
+            "client_architecture": "process=0x0000;native=0xAA64",
+            "client_exe": "C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-client-control-6f057c0eac1a\\factory-client.exe",
+            "client": "vbnet",
+            "client_file_version": "0.0.0.0",
+            "helper_version": [
+              "X64",
+              "4.0.30319.42000"
+            ],
+            "returned_identity": {
+              "title": "client-control-6f057c0eac1a_vbnet",
+              "pid": 620,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-client-control-6f057c0eac1a\\original0.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:53:55.1945877Z"
+            },
+            "inventory": [
+              {
+                "title": "client-control-6f057c0eac1a_vbnet",
+                "pid": 620,
+                "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-client-control-6f057c0eac1a\\original0.do\" ",
+                "session": 1,
+                "start": "2026-11-07T17:53:55.1945877Z"
+              }
+            ]
+          }
+        }
+      ],
+      "initial_stata_count": 0,
+      "final_stata_count": 0
+    },
+    {
+      "run": "client-reserved-b1fe6167c6be",
+      "originals": [
+        {
+          "inventory": [
+            {
+              "title": "client-reserved-b1fe6167c6be_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 6024,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-client-reserved-b1fe6167c6be\\original0.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:54:04.5387752Z"
+            }
+          ],
+          "version": "Stata=18|born=13 Oct 2026|machine=PC (64-bit x86-64)\r\n",
+          "architecture": "process=0x0000;native=0xAA64",
+          "token": "client-reserved-b1fe6167c6be_original_0",
+          "identity": {
+            "start": "2026-11-07T17:54:04.5387752Z",
+            "pid": 6024
+          }
+        }
+      ],
+      "status": "PASS",
+      "case": "client-reserved",
+      "assertions": 28,
+      "state_checks": 4,
+      "new_objects": [],
+      "observations": [
+        {
+          "event": "external_client_result",
+          "data": {
+            "reserved": true,
+            "marker_before": "",
+            "marker_after": "client-reserved-b1fe6167c6be_vbnet",
+            "client_architecture": "process=0x0000;native=0xAA64",
+            "client_exe": "C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-client-reserved-b1fe6167c6be\\factory-client.exe",
+            "client": "vbnet",
+            "client_file_version": "0.0.0.0",
+            "helper_version": [
+              "X64",
+              "4.0.30319.42000"
+            ],
+            "returned_identity": {
+              "title": "client-reserved-b1fe6167c6be_vbnet",
+              "pid": 7604,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding",
+              "session": 1,
+              "start": "2026-11-07T17:54:05.7636842Z"
+            },
+            "inventory": [
+              {
+                "title": "client-reserved-b1fe6167c6be_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+                "pid": 6024,
+                "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-client-reserved-b1fe6167c6be\\original0.do\" ",
+                "session": 1,
+                "start": "2026-11-07T17:54:04.5387752Z"
+              },
+              {
+                "title": "client-reserved-b1fe6167c6be_vbnet",
+                "pid": 7604,
+                "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding",
+                "session": 1,
+                "start": "2026-11-07T17:54:05.7636842Z"
+              }
+            ]
+          }
+        }
+      ],
+      "initial_stata_count": 0,
+      "final_stata_count": 0
+    },
+    {
+      "run": "concurrent-0063e22309d9",
+      "originals": [
+        {
+          "inventory": [
+            {
+              "title": "concurrent-0063e22309d9_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 8352,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-concurrent-0063e22309d9\\original0.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:54:14.0392740Z"
+            }
+          ],
+          "version": "Stata=18|born=13 Oct 2026|machine=PC (64-bit x86-64)\r\n",
+          "architecture": "process=0x0000;native=0xAA64",
+          "token": "concurrent-0063e22309d9_original_0",
+          "identity": {
+            "start": "2026-11-07T17:54:14.0392740Z",
+            "pid": 8352
+          }
+        },
+        {
+          "inventory": [
+            {
+              "title": "concurrent-0063e22309d9_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 8352,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-concurrent-0063e22309d9\\original0.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:54:14.0392740Z"
+            },
+            {
+              "title": "concurrent-0063e22309d9_original_1 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 13556,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-concurrent-0063e22309d9\\original1.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:54:14.6980192Z"
+            }
+          ],
+          "version": "Stata=18|born=13 Oct 2026|machine=PC (64-bit x86-64)\r\n",
+          "architecture": "process=0x0000;native=0xAA64",
+          "token": "concurrent-0063e22309d9_original_1",
+          "identity": {
+            "start": "2026-11-07T17:54:14.6980192Z",
+            "pid": 13556
+          }
+        }
+      ],
+      "status": "PASS",
+      "case": "concurrent",
+      "assertions": 49,
+      "state_checks": 8,
+      "new_objects": [],
+      "observations": [
+        {
+          "event": "concurrent_result",
+          "data": {
+            "client": {
+              "before": "",
+              "returned": "2026-11-07T17:54:18.5642458Z",
+              "pid": 4092,
+              "token": "concurrent-0063e22309d9_CONCURRENT_0",
+              "start": "2026-11-07T17:54:18.0115847Z"
+            },
+            "identity": {
+              "title": "concurrent-0063e22309d9_CONCURRENT_0",
+              "pid": 5964,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding",
+              "session": 1,
+              "start": "2026-11-07T17:54:18.0248958Z"
+            }
+          }
+        },
+        {
+          "event": "concurrent_result",
+          "data": {
+            "client": {
+              "before": "",
+              "returned": "2026-11-07T17:54:18.8692743Z",
+              "pid": 14004,
+              "token": "concurrent-0063e22309d9_CONCURRENT_1",
+              "start": "2026-11-07T17:54:18.0787924Z"
+            },
+            "identity": {
+              "title": "concurrent-0063e22309d9_CONCURRENT_1",
+              "pid": 12416,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding",
+              "session": 1,
+              "start": "2026-11-07T17:54:18.2762175Z"
+            }
+          }
+        }
+      ],
+      "initial_stata_count": 0,
+      "final_stata_count": 0
+    },
+    {
+      "run": "excess-b2e540e59b6f",
+      "originals": [
+        {
+          "inventory": [
+            {
+              "title": "excess-b2e540e59b6f_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 9364,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-excess-b2e540e59b6f\\original0.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:54:27.2623265Z"
+            }
+          ],
+          "version": "Stata=18|born=13 Oct 2026|machine=PC (64-bit x86-64)\r\n",
+          "architecture": "process=0x0000;native=0xAA64",
+          "token": "excess-b2e540e59b6f_original_0",
+          "identity": {
+            "start": "2026-11-07T17:54:27.2623265Z",
+            "pid": 9364
+          }
+        },
+        {
+          "inventory": [
+            {
+              "title": "excess-b2e540e59b6f_original_0 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 9364,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-excess-b2e540e59b6f\\original0.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:54:27.2623265Z"
+            },
+            {
+              "title": "excess-b2e540e59b6f_original_1 - C:\\Program Files\\Stata18\\ado\\base\\a\\auto.dta",
+              "pid": 6416,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" do \"C:\\Users\\jmb\\AppData\\Local\\Temp\\sight-factory-excess-b2e540e59b6f\\original1.do\" ",
+              "session": 1,
+              "start": "2026-11-07T17:54:27.9125678Z"
+            }
+          ],
+          "version": "Stata=18|born=13 Oct 2026|machine=PC (64-bit x86-64)\r\n",
+          "architecture": "process=0x0000;native=0xAA64",
+          "token": "excess-b2e540e59b6f_original_1",
+          "identity": {
+            "start": "2026-11-07T17:54:27.9125678Z",
+            "pid": 6416
+          }
+        }
+      ],
+      "status": "PASS",
+      "case": "excess",
+      "assertions": 30,
+      "state_checks": 6,
+      "new_objects": [],
+      "observations": [
+        {
+          "event": "excess_factory_server",
+          "data": {
+            "title": "",
+            "pid": 7980,
+            "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding",
+            "session": 1,
+            "start": "2026-11-07T17:54:28.8244499Z"
+          }
+        },
+        {
+          "event": "excess_server_after_factory_release",
+          "data": {
+            "alive": true,
+            "identity": {
+              "title": "",
+              "pid": 7980,
+              "command_line": "\"C:\\Program Files\\Stata18\\StataMP-64.exe\" -Embedding",
+              "session": 1,
+              "start": "2026-11-07T17:54:28.8244499Z"
+            }
+          }
+        }
+      ],
+      "initial_stata_count": 0,
+      "final_stata_count": 0
+    }
+  ]
+}

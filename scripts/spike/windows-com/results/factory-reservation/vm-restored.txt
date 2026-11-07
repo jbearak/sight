@@ -1,0 +1,2 @@
+State: paused
+  Pause idle: on

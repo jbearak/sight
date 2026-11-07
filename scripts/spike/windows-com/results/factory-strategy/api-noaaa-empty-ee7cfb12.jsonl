@@ -1,0 +1,8 @@
+{"run":"api-noaaa-empty-ee7cfb12","utc":"2026-11-07T18:10:05.5820059Z","data":[],"event":"initial_inventory"}
+{"run":"api-noaaa-empty-ee7cfb12","utc":"2026-11-07T18:10:05.6777130Z","data":{"message":"No preexisting Stata","ok":true},"event":"assert"}
+{"run":"api-noaaa-empty-ee7cfb12","utc":"2026-11-07T18:10:05.6834863Z","data":{"message":"Desktop session","ok":true},"event":"assert"}
+{"run":"api-noaaa-empty-ee7cfb12","utc":"2026-11-07T18:10:05.7093285Z","data":{"elevated":false,"architecture":"Arm64","powershell":"5.1.26100.9818","pid":3436,"session":1,"server_information_size":16},"event":"helper"}
+{"run":"api-noaaa-empty-ee7cfb12","utc":"2026-11-07T18:10:05.7318781Z","data":[],"event":"pre_com_inventory"}
+{"run":"api-noaaa-empty-ee7cfb12","utc":"2026-11-07T18:10:05.7844052Z","data":{"pointer_nonzero":false,"hr":"0x80070005","after":[],"before":[],"context":"0x8004","index":0},"event":"api_acquisition"}
+{"run":"api-noaaa-empty-ee7cfb12","utc":"2026-11-07T18:10:05.7844052Z","data":{"status":"MEASURED","mode":"noaaa-empty"},"event":"verdict"}
+{"run":"api-noaaa-empty-ee7cfb12","utc":"2026-11-07T18:10:05.8062543Z","data":[],"event":"final_inventory"}
