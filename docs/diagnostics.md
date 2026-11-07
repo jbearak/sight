@@ -27,7 +27,8 @@ same rule IDs in its bracketed suffixes, for example `[undefined_macro]`.
   `// sight: ignore-next` on its own line above the offending statement, or
   add `// sight: ignore` as a trailing comment on the offending line.
   Suppresses undefined-symbol (`UNDEFINED_MACRO`, `UNDEFINED_VARIABLE`,
-  `OUT_OF_SCOPE_SYMBOL`) and operator-style diagnostics on the targeted line.
+  `OUT_OF_SCOPE_SYMBOL`), operator-style, and loop-range
+  (`EMPTY_FORVALUES_RANGE`) diagnostics on the targeted line.
   Lexer, parser / brace-style, and indentation diagnostics are not silenced
   this way — fix lexer/parser issues at the source, or turn indentation off via
   `sight.diagnostics.indentation` (it ships off by default).
@@ -182,6 +183,40 @@ existing operator diagnostics; see
 [#268](https://github.com/jbearak/sight/issues/268) for the known edge cases
 and the command-context improvement tracked for later.
 
+## Loop range diagnostics
+
+| Rule ID | Default | Severity key | Trigger |
+|---|---|---|---|
+| <a id="empty-forvalues-range"></a>`EMPTY_FORVALUES_RANGE` | warning | `emptyForvaluesRange` | A `forvalues` range whose bounds and step are all numeric literals runs no times. Stata runs such a loop zero times and prints nothing. |
+
+`forvalues i = a/b` always counts up by 1, so `forvalues i = 3/1` runs
+no times. That is almost always a countdown written as `a/b`, so the
+message suggests the `a(-1)b` form:
+
+```text
+`forvalues` range `3/1` runs no times (`a/b` counts up); did you mean `3(-1)1`?
+```
+
+A stepped range `a(s)b` and a `to` range `a t to b` (or `a t : b`, with
+implied step `t - a`) are reported when the step points away from `b`.
+Their messages say the range runs no times, with no suggested rewrite:
+
+```text
+`forvalues` range `1(-1)3` runs no times (step `-1` counts away from `3`)
+`forvalues` range `3 4 to 1` runs no times (the step from `3` to `4` counts away from `1`)
+```
+
+Not reported:
+
+- ranges that run at least once, such as `3/3`, `3(-1)1`, or `10 8 to 3`;
+- ranges with a macro or an expression anywhere in the bounds or step,
+  such as ``1/`n'`` or `1/(2+1)`;
+- a step of 0 (`1(0)3`, `3 3 to 1`), which Stata rejects with
+  "increment may not be zero" rather than running zero times.
+
+The range of the diagnostic covers the range expression after `=`. The
+diagnostic carries no quick fix; Sight does not provide code actions.
+
 ## Indentation diagnostics
 
 Off by default. Enable with `sight.diagnostics.indentation: true`.
@@ -284,7 +319,8 @@ Diagnostics keys live under `sight.*` in VS Code's `settings.json`:
   "sight.diagnostics.severity.cStyleLogicalInControlFlow":  "information",
   "sight.diagnostics.severity.mixedLogicalOperators":       "warning",
   "sight.diagnostics.severity.chainedComparison":           "warning",
-  "sight.diagnostics.severity.literalMacroAdjacency":       "hint"
+  "sight.diagnostics.severity.literalMacroAdjacency":       "hint",
+  "sight.diagnostics.severity.emptyForvaluesRange":         "warning"
 }
 ```
 
@@ -325,8 +361,8 @@ Each severity key accepts `"error"`, `"warning"`, `"information"`,
 
 | Directive | Effect |
 |---|---|
-| `// sight: ignore` | On its own comment line, suppresses undefined-symbol and operator-style diagnostics on the next non-trivia statement. As a trailing `//` comment, suppresses those diagnostics on the same line. Does not silence lexer, parser / brace-style, or indentation diagnostics. |
-| `// sight: ignore-next` | Suppresses undefined-symbol and operator-style diagnostics on the next non-trivia statement. It does not suppress diagnostics on its own source line. |
+| `// sight: ignore` | On its own comment line, suppresses undefined-symbol, operator-style, and loop-range diagnostics on the next non-trivia statement. As a trailing `//` comment, suppresses those diagnostics on the same line. Does not silence lexer, parser / brace-style, or indentation diagnostics. |
+| `// sight: ignore-next` | Suppresses undefined-symbol, operator-style, and loop-range diagnostics on the next non-trivia statement. It does not suppress diagnostics on its own source line. |
 
 When the next statement spans several physical lines — via `///`
 continuations, or under `#delimit ;` — a standalone `sight: ignore` /

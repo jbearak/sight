@@ -275,6 +275,25 @@
             "Disable this diagnostic"
           ]
         },
+        "sight.diagnostics.severity.emptyForvaluesRange": {
+          "type": "string",
+          "enum": [
+            "error",
+            "warning",
+            "information",
+            "hint",
+            "off"
+          ],
+          "default": "warning",
+          "description": "Severity level for a 'forvalues' range of numeric literals that runs no times (e.g., 'forvalues i = 3/1', where 'a/b' counts up). Set to 'off' to disable.",
+          "enumDescriptions": [
+            "Show as error",
+            "Show as warning",
+            "Show as information",
+            "Show as hint",
+            "Disable this diagnostic"
+          ]
+        },
         "sight.diagnostics.indentation": {
           "type": "boolean",
           "default": false,

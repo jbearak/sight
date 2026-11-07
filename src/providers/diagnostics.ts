@@ -53,6 +53,7 @@ import { OperatorSequenceAnalyzer } from './operator-sequence-diagnostics';
 import { MixedLogicalOperatorAnalyzer } from './mixed-logical-diagnostics';
 import { ChainedComparisonAnalyzer } from './chained-comparison-diagnostics';
 import { LiteralMacroAdjacencyAnalyzer } from './literal-macro-adjacency-diagnostics';
+import { EmptyForvaluesRangeAnalyzer } from './forvalues-range-diagnostics';
 import {
     DiagnosticsPublishGate,
     DiagnosticsTrigger,
@@ -199,6 +200,7 @@ export class DiagnosticsProvider {
     private mixed_logical_analyzer = new MixedLogicalOperatorAnalyzer();
     private chained_comparison_analyzer = new ChainedComparisonAnalyzer();
     private literal_macro_adjacency_analyzer = new LiteralMacroAdjacencyAnalyzer();
+    private empty_forvalues_range_analyzer = new EmptyForvaluesRangeAnalyzer();
     private dependency_graph?: import('../dependency-graph').DependencyGraph;
 
     private publish_gate = new DiagnosticsPublishGate();
@@ -846,6 +848,15 @@ export class DiagnosticsProvider {
         for (const my_adjacency_diag of literal_macro_adjacency_diagnostics) {
             if (!this.is_in_embedded_context(my_adjacency_diag.range.start, the_context_ranges)) {
                 the_diagnostics.push(my_adjacency_diag);
+            }
+        }
+
+        // Add empty forvalues range diagnostics (e.g., 'forvalues i = 3/1')
+        const empty_forvalues_range_diagnostics =
+            this.empty_forvalues_range_analyzer.analyze(document, config);
+        for (const my_range_diag of empty_forvalues_range_diagnostics) {
+            if (!this.is_in_embedded_context(my_range_diag.range.start, the_context_ranges)) {
+                the_diagnostics.push(my_range_diag);
             }
         }
 
