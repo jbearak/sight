@@ -142,6 +142,17 @@ describe('BridgeClient', () => {
         });
     });
 
+    it('passes a named error\'s hresult through as failure.hresult', async () => {
+        const transport = new FakeTransport();
+        const client = new BridgeClient(transport);
+        const pending = client.request('connect');
+        // What the bridge sends for a drain_failed error.
+        transport.reply({ id: 1, ok: false, error: 'drain_failed', message: 'drain_failed', hresult: '0x80004005' });
+        expect(await pending).toMatchObject({
+            ok: false, failure: { error: 'drain_failed', hresult: '0x80004005', detail: {} },
+        });
+    });
+
     it('recognizes the COM errors that mean Stata is gone', () => {
         expect(is_server_gone({ ok: false, failure: { error: 'com', hresult: '0x800706BA', detail: {} } })).toBe(true);
         expect(is_server_gone({ ok: false, failure: { error: 'com', hresult: '0x80004005', detail: {} } })).toBe(false);
@@ -173,6 +184,10 @@ describe('BRIDGE_SCRIPT', () => {
         // The C# returns HRESULTs: PowerShell would wrap a thrown
         // exception's message, and the error names wouldn't match.
         expect(BRIDGE_SCRIPT).not.toContain('ThrowExceptionForHR');
+    });
+
+    it('returns the title window\'s start time with its pid', () => {
+        expect(BRIDGE_SCRIPT).toContain('return @{ pid = $candidate.pid; start = $candidate.start }');
     });
 
     it('refuses registrations that could start Stata during the drain', () => {

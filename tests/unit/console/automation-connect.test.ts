@@ -44,6 +44,8 @@ interface Script {
     on_connect?: () => void;
     /** Called when `is_free` is requested. */
     on_free?: () => void;
+    /** The bridge ends at this request. */
+    gone_at?: 'do_sync' | 'title_pid';
 }
 
 class ScriptedBridge implements Bridge {
@@ -58,6 +60,9 @@ class ScriptedBridge implements Bridge {
     request(op: string, params: Record<string, unknown> = {}, _options: RequestOptions = {}): Promise<BridgeReply> {
         this.ops.push(op);
         const ok = (value: Record<string, unknown>): Promise<BridgeReply> => Promise.resolve({ ok: true, value });
+        if (op === this.script.gone_at) {
+            return Promise.resolve({ ok: false, bridge_gone: true });
+        }
         switch (op) {
             case 'list_stata':
                 return ok({ processes: [] });
@@ -244,6 +249,15 @@ describe('connect_to_stata', () => {
         expect(bridge.sync_commands[0]).not.toContain('window manage');
     });
 
+    it.each(['do_sync', 'title_pid'] as const)('ends when the bridge is gone at %s, not keeping a dead session', async (op) => {
+        const bridge = new ScriptedBridge({ after: [fresh(10)], title_pid: 10, gone_at: op });
+        const { deps: d, said } = deps(bridge);
+        const result = await connect_to_stata(d);
+        expect(result).toMatchObject({ ok: false, exit_code: 1 });
+        expect(said).toEqual([]);
+        expect(bridge.ops).not.toContain('release_mutex');
+    });
+
     it('ends when Stata is gone while waiting for it', async () => {
         const bridge = new ScriptedBridge({ after: [fresh(10)], free_hresult: '0x800706BA' });
         const result = await connect_to_stata(deps(bridge).deps);
@@ -257,7 +271,11 @@ describe('connect_to_stata', () => {
         ['session_failed', { hresult: '0x80080005', stray_pid: 77 }, 'could not start Stata (0x80080005). A Stata started meanwhile (process 77)'],
         ['session_failed', { wrap_failed: true }, 'couldn\'t be used, so it was closed'],
     ] as const)('reports a %s connect error and sends nothing more', async (error, detail, text) => {
-        const bridge = new ScriptedBridge({ connect_error: { error, detail } });
+        // As BridgeClient parses it: hresult is its own field.
+        const { hresult, ...rest } = detail as Record<string, unknown>;
+        const bridge = new ScriptedBridge({
+            connect_error: { error, hresult: typeof hresult === 'string' ? hresult : undefined, detail: rest },
+        });
         const result = await connect_to_stata(deps(bridge).deps);
         expect(result).toMatchObject({ ok: false, exit_code: 1 });
         if (result.ok) {

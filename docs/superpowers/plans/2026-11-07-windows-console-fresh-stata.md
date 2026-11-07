@@ -1,6 +1,6 @@
 # Windows console: always start its own Stata
 
-Status: plan, revision 9 (Sonnet approved revision 7; Terra review 4 folded in).
+Status: plan, revision 10 (Sonnet approved revision 7; Terra review 5 folded in).
 
 ## Problem
 
@@ -213,8 +213,9 @@ it, as for 84/85.
   Once step 5 succeeds the RCW stays held until stdin closes, as today.
 - Drop the `expect`/`listing_changed` check (no consent to re-check).
   `list_stata` stays (it takes the mutex).
-- `write_pid`, `sweep`, `owner`, `title_pid`, `Get-OwnedPids` unchanged
-  (sweep and listing use them).
+- `title_pid` also returns the window's process start time (for
+  pid-and-start matching). `write_pid`, `sweep`, `owner`,
+  `Get-OwnedPids` unchanged (sweep and listing use them).
 
 ### `src/console/automation/connect.ts`
 
@@ -240,7 +241,10 @@ it, as for 84/85.
   the failure is server-gone (`is_server_gone`), Stata is already gone:
   exit 1 as today. Any other failure in the free-wait or title marker
   means ownership is unknown: skip to the unknown outcome below (keep
-  the Stata, notice), never close it.
+  the Stata, notice), never close it. A `bridge_gone` reply anywhere before
+  identification is different: nothing holds Stata any more, so the
+  console exits 1 (or 130 when cancelled) instead of reporting a kept
+  session.
 - Step 5, identify, by pid **and** start time, using only the
   title-correlated pid for ownership. `title_pid` returns the pid and
   its start time; a title pid that isn't in `after` with the same start

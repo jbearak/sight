@@ -124,7 +124,7 @@ function stray_text(detail: Record<string, unknown>): string {
 /** The message for a `connect` error reply (no reference is held). */
 function connect_failure(failure_reply: BridgeFailure): ConnectResult {
     const detail = failure_reply.detail;
-    const hresult = typeof detail.hresult === 'string' ? ` (${detail.hresult})` : '';
+    const hresult = failure_reply.hresult ? ` (${failure_reply.hresult})` : '';
     let message: string;
     switch (failure_reply.error) {
         case 'drain_failed':
@@ -241,8 +241,15 @@ async function connect_and_set_up(deps: ConnectDeps): Promise<ConnectResult> {
         const marked = await bridge.request('do_sync', {
             cmd: `window manage maintitle "Stata - sight console ${short}"`,
         }, { slow_ms: SETUP_SLOW_MS, on_slow: () => deps.say('Stata is slow to answer; waiting.') });
+        if (!marked.ok && 'bridge_gone' in marked) {
+            // Nothing holds Stata any more: there's no session to keep.
+            return deps.is_cancelled() ? cancelled : failure(marked, 'Stata stopped answering');
+        }
         if (marked.ok && marked.value.rc === 0) {
             const found = await bridge.request('title_pid', { token8: short });
+            if (!found.ok && 'bridge_gone' in found) {
+                return deps.is_cancelled() ? cancelled : failure(found, 'Stata stopped answering');
+            }
             if (found.ok && typeof found.value.pid === 'number'
                 && typeof found.value.start === 'string') {
                 const key = identity(found.value.pid, found.value.start);
