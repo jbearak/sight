@@ -171,18 +171,6 @@ export function run_tty_console(args: TtyConsoleArgs): void {
         },
         columns: () => stdout.columns || DEFAULT_COLUMNS,
         rows: () => stdout.rows || DEFAULT_ROWS,
-        // Only the Windows console asks, and Perch runs on macOS and
-        // Linux; answer on the terminal anyway.
-        ask: async (question) => {
-            const send_key = question.allow_send_instead ? '/s' : '';
-            stdout.write(`\r\n${question.text} [y/N${send_key}] `);
-            const key = (await read_key()).trim().toLowerCase();
-            stdout.write('\r\n');
-            if (key === 'y') {
-                return 'yes';
-            }
-            return key === 's' && question.allow_send_instead ? 'send' : 'no';
-        },
         env: process.env,
         working_directory: args.working_directory,
         pty: { helper_path: args.helper_path, stata_path: args.stata_path },

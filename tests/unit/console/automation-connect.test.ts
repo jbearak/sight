@@ -1,75 +1,88 @@
 /**
  * Connect-sequence tests for sight console on Windows, with a scripted
- * fake bridge. They pin the ownership rules: no COM call before
- * consent, asking (or, with --yes, refusing) when several Statas are
- * open and naming the one taken, ending at once when
- * the open Stata is held elsewhere, asking after the fact when an
- * unexpected Stata answered, and keeping the mutex when this console's
- * Stata can't be identified.
+ * fake bridge. They pin the ownership rules: the console never asks to
+ * take over a window; it calls a Stata its own only when the title
+ * marker finds a new, COM-started process (by pid and start time);
+ * otherwise it keeps that Stata and says so. A cancel ends only the
+ * console's own new Stata. The mutex is held until identification.
  */
 
 import { describe, expect, it } from 'bun:test';
 import type { Bridge, BridgeReply, RequestOptions } from '../../../src/console/automation/bridge';
 import {
+    CANCELLED_STATUS,
     connect_to_stata,
-    type ConnectAnswer,
-    type ConnectQuestion,
+    type ConnectStage,
     type StataProcess,
 } from '../../../src/console/automation/connect';
-import {
-    EXIT_SEND_FROM_EDITOR,
-    EXIT_SEVERAL_STATA_OPEN,
-    EXIT_STATA_HELD_ELSEWHERE,
-    EXIT_TAKEOVER_DECLINED,
-} from '../../../src/console/automation/exit-codes';
 
 function stata(pid: number, extra: Partial<StataProcess> = {}): StataProcess {
     return { pid, start: `t${pid}`, title: `Stata/MP 18.0 #${pid}`, has_window: true, com_started: false, ...extra };
 }
 
+/** A new Stata COM started for the console. */
+function fresh(pid: number): StataProcess {
+    return stata(pid, { com_started: true, has_window: false, title: '' });
+}
+
 interface Script {
-    open: StataProcess[][];
     before?: StataProcess[];
     after?: StataProcess[];
+    /** The bridge's error reply to `connect`, instead of a session. */
+    connect_error?: { error: string; hresult?: string; detail?: Record<string, unknown> };
+    /** Reply to `connect` as if the bridge had ended. */
+    connect_gone?: boolean;
     title_pid?: number | null;
+    /** Start time `title_pid` reports (defaults to the listed one). */
+    title_start?: string;
     title_rc?: number;
     vview_rc?: number;
     busy_polls?: number;
+    /** `is_free` fails with this HRESULT. */
+    free_hresult?: string;
+    /** Called when `connect` is requested, before it's answered. */
+    on_connect?: () => void;
+    /** Called when `is_free` is requested. */
+    on_free?: () => void;
 }
 
 class ScriptedBridge implements Bridge {
     ops: string[] = [];
-    connect_expects: number[][] = [];
     sync_commands: string[] = [];
-    private listing_index = 0;
+    pid_writes: number[] = [];
     private busy_left: number;
     readonly ended = new Promise<string>(() => undefined);
     constructor(private readonly script: Script) {
         this.busy_left = script.busy_polls ?? 0;
-    }
-    private listing(): StataProcess[] {
-        const listings = this.script.open;
-        const index = Math.min(this.listing_index, listings.length - 1);
-        return listings[index] ?? [];
     }
     request(op: string, params: Record<string, unknown> = {}, _options: RequestOptions = {}): Promise<BridgeReply> {
         this.ops.push(op);
         const ok = (value: Record<string, unknown>): Promise<BridgeReply> => Promise.resolve({ ok: true, value });
         switch (op) {
             case 'list_stata':
-                return ok({ processes: this.listing() });
+                return ok({ processes: [] });
             case 'connect': {
-                const expected_pids = params.expect as number[];
-                this.connect_expects.push([...expected_pids]);
-                const expect = expected_pids.join(',');
-                this.listing_index++;
-                const now = this.listing().map((my_process) => my_process.pid).join(',');
-                if (this.listing_index < this.script.open.length && now !== expect) {
-                    return ok({ listing_changed: true, processes: this.listing() });
+                this.script.on_connect?.();
+                const error = this.script.connect_error;
+                if (error) {
+                    return Promise.resolve({
+                        ok: false,
+                        failure: { error: error.error, hresult: error.hresult, detail: error.detail ?? {} },
+                    });
                 }
-                return ok({ listing_changed: false, before: this.script.before ?? [], after: this.script.after ?? [] });
+                if (this.script.connect_gone) {
+                    return Promise.resolve({ ok: false, bridge_gone: true });
+                }
+                return ok({ before: this.script.before ?? [], after: this.script.after ?? [], drained: 0 });
             }
             case 'is_free':
+                this.script.on_free?.();
+                if (this.script.free_hresult) {
+                    return Promise.resolve({
+                        ok: false,
+                        failure: { error: 'error', hresult: this.script.free_hresult, detail: {} },
+                    });
+                }
                 if (this.busy_left > 0) {
                     this.busy_left--;
                     return ok({ free: false });
@@ -84,8 +97,14 @@ class ScriptedBridge implements Bridge {
                     return ok({ rc: this.script.vview_rc ?? 0 });
                 }
                 return ok({ rc: 0 });
-            case 'title_pid':
-                return ok({ pid: this.script.title_pid ?? null });
+            case 'title_pid': {
+                const pid = this.script.title_pid ?? null;
+                const listed = (this.script.after ?? []).find((my_process) => my_process.pid === pid);
+                return ok({ pid, start: this.script.title_start ?? listed?.start ?? (pid === null ? null : `t${pid}`) });
+            }
+            case 'write_pid':
+                this.pid_writes.push(Number(params.pid));
+                return ok({});
             case 'short_path':
                 return ok({ path: 'C:\\Users\\X\\AppData\\Local\\Temp\\SIGHT-~1\\ABC' });
             default:
@@ -96,46 +115,45 @@ class ScriptedBridge implements Bridge {
     kill(): void {}
 }
 
-function deps(bridge: Bridge, answers: string[] = [], extra: { yes?: boolean; from_editor?: boolean } = {}) {
-    const questions: ConnectQuestion[] = [];
+function deps(bridge: Bridge, cancel?: { value: boolean }) {
     const said: string[] = [];
+    const stages: ConnectStage[] = [];
     return {
-        questions,
         said,
+        stages,
         deps: {
             bridge,
-            ask: (question: ConnectQuestion): Promise<ConnectAnswer> => {
-                questions.push(question);
-                const answer = answers.shift() ?? '';
-                return Promise.resolve(answer === 'y' ? 'yes' : answer === 's' ? 'send' : 'no');
-            },
             say: (text: string) => said.push(text),
             sleep: () => Promise.resolve(),
             file_size: () => 1234,
             dir: 'C:\\tmp\\sight-console\\abc',
             root: 'C:\\tmp\\sight-console',
             token: 'abcdef0123456789',
-            yes: extra.yes ?? false,
-            from_editor: extra.from_editor ?? false,
             columns: 100,
+            is_cancelled: () => cancel?.value ?? false,
+            on_stage: (stage: ConnectStage) => stages.push(stage),
         },
     };
 }
 
+const NOT_STARTED = 'a Stata it didn\'t start';
+const UNCONFIRMED = 'couldn\'t confirm which Stata window';
+
 describe('connect_to_stata', () => {
-    it('starts a new Stata when none is open, without asking', async () => {
-        const bridge = new ScriptedBridge({
-            open: [[]],
-            after: [stata(10, { com_started: true })],
-            title_pid: 10,
-        });
-        const { deps: d, questions } = deps(bridge);
+    it('starts its own Stata when none is open, without a notice', async () => {
+        const bridge = new ScriptedBridge({ after: [fresh(10)], title_pid: 10 });
+        const { deps: d, said, stages } = deps(bridge);
         const result = await connect_to_stata(d);
         expect(result).toMatchObject({
             ok: true, pid: 10, start_size: 1234, log_rc: 0, has_vview: true,
         });
-        expect(questions).toEqual([]);
-        expect(bridge.ops).toContain('release_mutex');
+        expect(said).toEqual([]);
+        expect(stages).toEqual(['graceful', 'done']);
+        expect(bridge.pid_writes).toEqual([10]);
+        // The mutex is held until this console has identified its Stata.
+        expect(bridge.ops.slice(0, 7)).toEqual([
+            'list_stata', 'connect', 'is_free', 'do_sync', 'title_pid', 'write_pid', 'release_mutex',
+        ]);
         expect(bridge.sync_commands).toEqual([
             'window manage maintitle "Stata - sight console abcdef01"',
             'set more off',
@@ -145,205 +163,197 @@ describe('connect_to_stata', () => {
         ]);
     });
 
-    it('with --yes, refuses when two or more Statas are open, before any COM call', async () => {
-        const bridge = new ScriptedBridge({ open: [[stata(1), stata(2)]] });
-        const { deps: d, questions } = deps(bridge, [], { yes: true });
-        const result = await connect_to_stata(d);
-        expect(result).toMatchObject({ ok: false, exit_code: EXIT_SEVERAL_STATA_OPEN });
-        expect(questions).toEqual([]);
-        expect(bridge.ops).not.toContain('connect');
-        if (result.ok) {
-            throw new Error('expected a refusal');
-        }
-        // The listing already leaves out other consoles' Statas, so the
-        // message must not read as a count of every Stata window.
-        expect(result.message).toContain(
-            '2 Stata windows that no sight console owns are open'
-        );
-        expect(result.message).toContain('run without --yes to be asked');
-    });
-
-    it('asks once before taking over one of several, saying it can\'t choose', async () => {
-        const bridge = new ScriptedBridge({ open: [[stata(1), stata(2)]] });
-        const { deps: d, questions } = deps(bridge, ['n']);
-        const result = await connect_to_stata(d);
-        expect(result).toMatchObject({ ok: false, exit_code: EXIT_TAKEOVER_DECLINED });
-        expect(questions.length).toBe(1);
-        expect(questions[0]).toMatchObject({ kind: 'take_over', stata_count: 2 });
-        expect(questions[0]?.text).toContain('one of the 2 open Statas');
-        expect(questions[0]?.text).toContain('Stata/MP 18.0 #1; Stata/MP 18.0 #2');
-        expect(questions[0]?.text).toContain('can\'t choose which');
-        expect(bridge.ops).not.toContain('connect');
-    });
-
-    it('offers s for several from the editor', async () => {
-        const bridge = new ScriptedBridge({ open: [[stata(1), stata(2)]] });
-        const { deps: d } = deps(bridge, ['s'], { from_editor: true });
-        expect(await connect_to_stata(d)).toMatchObject({
-            ok: false, exit_code: EXIT_SEND_FROM_EDITOR,
-        });
-        expect(bridge.ops).not.toContain('connect');
-    });
-
-    it('takes whichever of several answered, and names it', async () => {
+    it('asks nothing and says nothing when other Statas are open', async () => {
         const bridge = new ScriptedBridge({
-            open: [[stata(1), stata(2)]],
             before: [stata(1), stata(2)],
-            after: [stata(1), stata(2)],
-            title_pid: 2,
+            after: [stata(1), stata(2), fresh(10)],
+            title_pid: 10,
         });
-        const { deps: d, questions, said } = deps(bridge, ['y']);
-        const result = await connect_to_stata(d);
-        expect(result).toMatchObject({ ok: true, pid: 2 });
-        // The bridge rechecks the listing against every consented PID.
-        expect(bridge.connect_expects).toEqual([[1, 2]]);
-        // Consent covered either one: no second question.
-        expect(questions.length).toBe(1);
-        expect(said).toContain(
-            'sight console took over the open Stata (Stata/MP 18.0 #2); its title now '
-            + 'shows "sight console abcdef01".'
-        );
+        const { deps: d, said } = deps(bridge);
+        expect(await connect_to_stata(d)).toMatchObject({ ok: true, pid: 10 });
+        expect(said).toEqual([]);
+    });
+
+    it('keeps a Stata that was open before, and says so', async () => {
+        const bridge = new ScriptedBridge({ before: [stata(5)], after: [stata(5)], title_pid: 5 });
+        const { deps: d, said } = deps(bridge);
+        expect(await connect_to_stata(d)).toMatchObject({ ok: true, pid: 5 });
+        expect(said.length).toBe(1);
+        expect(said[0]).toContain(`${NOT_STARTED} (Stata/MP 18.0 #5)`);
+        expect(said[0]).toContain('closes when the console ends');
+        expect(bridge.pid_writes).toEqual([5]);
         expect(bridge.ops).toContain('release_mutex');
     });
 
-    it('asks about one of several it can\'t identify, and keeps the mutex', async () => {
-        const bridge = new ScriptedBridge({
-            open: [[stata(1), stata(2)]],
-            before: [stata(1), stata(2)],
-            after: [stata(1), stata(2)],
-            title_rc: 198,
-        });
-        const { deps: d, questions } = deps(bridge, ['y', 'y']);
-        const result = await connect_to_stata(d);
-        expect(result).toMatchObject({ ok: true, pid: null });
-        expect(questions.map((my_question) => my_question.kind)).toEqual(['take_over', 'keep']);
-        expect(questions[1]?.text).toContain('couldn\'t identify');
-        expect(bridge.ops).not.toContain('release_mutex');
+    it('keeps a new Stata opened by hand meanwhile, and says so', async () => {
+        const bridge = new ScriptedBridge({ before: [], after: [stata(12)], title_pid: 12 });
+        const { deps: d, said } = deps(bridge);
+        expect(await connect_to_stata(d)).toMatchObject({ ok: true, pid: 12 });
+        expect(said[0]).toContain(NOT_STARTED);
     });
 
-    it('ends at once when COM started a new Stata past several held ones', async () => {
+    it('treats a reused pid (another start time) as new', async () => {
         const bridge = new ScriptedBridge({
-            open: [[stata(1), stata(2)]],
-            before: [stata(1), stata(2)],
-            after: [stata(1), stata(2), stata(11, { com_started: true })],
+            before: [stata(10, { start: 'old' })],
+            after: [fresh(10)],
+            title_pid: 10,
         });
-        const result = await connect_to_stata(deps(bridge, ['y']).deps);
-        expect(result).toMatchObject({ ok: false, exit_code: EXIT_STATA_HELD_ELSEWHERE });
+        const { deps: d, said } = deps(bridge);
+        expect(await connect_to_stata(d)).toMatchObject({ ok: true, pid: 10 });
+        expect(said).toEqual([]);
+    });
+
+    it('calls the Stata unconfirmed when its title can\'t be set, without a pid file', async () => {
+        const bridge = new ScriptedBridge({ after: [fresh(10)], title_rc: 198 });
+        const { deps: d, said } = deps(bridge);
+        expect(await connect_to_stata(d)).toMatchObject({ ok: true, pid: null });
+        expect(said[0]).toContain(UNCONFIRMED);
+        expect(bridge.pid_writes).toEqual([]);
+        expect(bridge.ops).not.toContain('title_pid');
+        expect(bridge.ops).toContain('release_mutex');
+    });
+
+    it('calls it unconfirmed with two new Statas and no title match', async () => {
+        const bridge = new ScriptedBridge({ after: [fresh(10), fresh(11)], title_pid: null });
+        const { deps: d, said } = deps(bridge);
+        expect(await connect_to_stata(d)).toMatchObject({ ok: true, pid: null });
+        expect(said[0]).toContain(UNCONFIRMED);
+        expect(bridge.pid_writes).toEqual([]);
+    });
+
+    it('calls it unconfirmed when the title pid\'s start time doesn\'t match', async () => {
+        const bridge = new ScriptedBridge({ after: [fresh(10)], title_pid: 10, title_start: 'other' });
+        const { deps: d, said } = deps(bridge);
+        expect(await connect_to_stata(d)).toMatchObject({ ok: true, pid: null });
+        expect(said[0]).toContain(UNCONFIRMED);
+        expect(bridge.pid_writes).toEqual([]);
+    });
+
+    it('calls it unconfirmed when the bridge could not list Statas afterwards', async () => {
+        const bridge = new ScriptedBridge({ after: [], title_pid: 10 });
+        const { deps: d, said } = deps(bridge);
+        expect(await connect_to_stata(d)).toMatchObject({ ok: true, pid: null });
+        expect(said[0]).toContain(UNCONFIRMED);
+    });
+
+    it('keeps Stata, unconfirmed, when waiting for it fails other than Stata being gone', async () => {
+        const bridge = new ScriptedBridge({ after: [fresh(10)], title_pid: 10, free_hresult: '0x80004005' });
+        const { deps: d, said } = deps(bridge);
+        expect(await connect_to_stata(d)).toMatchObject({ ok: true, pid: null });
+        expect(said[0]).toContain(UNCONFIRMED);
+        expect(bridge.sync_commands[0]).not.toContain('window manage');
+    });
+
+    it('ends when Stata is gone while waiting for it', async () => {
+        const bridge = new ScriptedBridge({ after: [fresh(10)], free_hresult: '0x800706BA' });
+        const result = await connect_to_stata(deps(bridge).deps);
+        expect(result).toMatchObject({ ok: false, exit_code: 1 });
+    });
+
+    it.each([
+        ['drain_failed', { hresult: '0x80004005' }, 'couldn\'t make sure that no open Stata is handed to it (0x80004005)'],
+        ['drain_limit', { count: 16 }, 'More than 16 Stata windows are open'],
+        ['drain_launched', { stray_pid: 4242 }, 'process 4242'],
+        ['session_failed', { hresult: '0x80080005', stray_pid: 77 }, 'could not start Stata (0x80080005). A Stata started meanwhile (process 77)'],
+        ['session_failed', { wrap_failed: true }, 'couldn\'t be used, so it was closed'],
+    ] as const)('reports a %s connect error and sends nothing more', async (error, detail, text) => {
+        const bridge = new ScriptedBridge({ connect_error: { error, detail } });
+        const result = await connect_to_stata(deps(bridge).deps);
+        expect(result).toMatchObject({ ok: false, exit_code: 1 });
         if (result.ok) {
-            throw new Error('expected a refusal');
+            throw new Error('expected a failure');
         }
-        expect(result.message).toContain('The open Statas are in use');
-        expect(bridge.ops).not.toContain('do_sync');
-    });
-
-    it('asks before taking over the open Stata, and stops on no', async () => {
-        const bridge = new ScriptedBridge({ open: [[stata(5)]] });
-        const { deps: d, questions } = deps(bridge, ['n']);
-        const result = await connect_to_stata(d);
-        expect(result).toMatchObject({ ok: false, exit_code: EXIT_TAKEOVER_DECLINED });
-        expect(questions[0]).toMatchObject({ kind: 'take_over', allow_send_instead: false });
-        expect(questions[0]?.text).toContain('take over the open Stata (Stata/MP 18.0 #5)');
-        expect(bridge.ops).not.toContain('connect');
-    });
-
-    it('offers s from the editor and makes no COM call for it', async () => {
-        const bridge = new ScriptedBridge({ open: [[stata(5)]] });
-        const { deps: d, questions } = deps(bridge, ['s'], { from_editor: true });
-        const result = await connect_to_stata(d);
-        expect(result).toMatchObject({ ok: false, exit_code: EXIT_SEND_FROM_EDITOR });
-        expect(questions[0]).toMatchObject({ kind: 'take_over', allow_send_instead: true });
-        expect(bridge.ops).not.toContain('connect');
-    });
-
-    it('shares the open Stata on yes', async () => {
-        const bridge = new ScriptedBridge({ open: [[stata(5)]], before: [stata(5)], after: [stata(5)], title_pid: 5 });
-        const result = await connect_to_stata(deps(bridge, ['y']).deps);
-        expect(result).toMatchObject({ ok: true, pid: 5 });
-    });
-
-    it('skips the question with --yes', async () => {
-        const bridge = new ScriptedBridge({ open: [[stata(5)]], before: [stata(5)], after: [stata(5)], title_pid: 5 });
-        const { deps: d, questions } = deps(bridge, [], { yes: true });
-        expect(await connect_to_stata(d)).toMatchObject({ ok: true, pid: 5 });
-        expect(questions).toEqual([]);
-    });
-
-    it('ends at once when COM started a new Stata instead of the shared one', async () => {
-        const bridge = new ScriptedBridge({
-            open: [[stata(5)]],
-            before: [stata(5)],
-            after: [stata(5), stata(11, { com_started: true })],
-        });
-        const result = await connect_to_stata(deps(bridge, ['y']).deps);
-        expect(result).toMatchObject({ ok: false, exit_code: EXIT_STATA_HELD_ELSEWHERE });
-        expect(bridge.ops).not.toContain('do_sync');
+        expect(result.message).toContain(text);
+        expect(bridge.ops).toEqual(['list_stata', 'connect']);
     });
 
     it('notes when Sight\'s vview isn\'t installed', async () => {
-        const bridge = new ScriptedBridge({
-            open: [[]],
-            after: [stata(10, { com_started: true })],
-            title_pid: 10,
-            vview_rc: 111,
-        });
-        const { deps: d } = deps(bridge);
-        const result = await connect_to_stata(d);
+        const bridge = new ScriptedBridge({ after: [fresh(10)], title_pid: 10, vview_rc: 111 });
+        const result = await connect_to_stata(deps(bridge).deps);
         expect(result).toMatchObject({ ok: true, has_vview: false, log_rc: 0 });
     });
 
-    it('asks again when the set of open Statas changed before connecting', async () => {
-        const bridge = new ScriptedBridge({
-            open: [[], [stata(7)], [stata(7)]],
-            before: [stata(7)],
-            after: [stata(7)],
-            title_pid: 7,
-        });
-        const { deps: d, questions } = deps(bridge, ['y']);
-        expect(await connect_to_stata(d)).toMatchObject({ ok: true, pid: 7 });
-        expect(questions.length).toBe(1);
-    });
-
-    it('asks after the fact when a Stata nobody agreed to answered', async () => {
-        const bridge = new ScriptedBridge({
-            open: [[]],
-            before: [],
-            after: [stata(12, { com_started: false, title: 'Stata/MP 18.0' })],
-            title_pid: 12,
-        });
-        const { deps: d, questions } = deps(bridge, ['n']);
-        const result = await connect_to_stata(d);
-        expect(result).toMatchObject({ ok: false, exit_code: 0 });
-        expect(questions.length).toBe(1);
-        expect(questions[0]?.kind).toBe('keep');
-        expect(questions[0]?.text).toContain('just opened');
-    });
-
-    it('keeps the mutex when its Stata cannot be identified', async () => {
-        const bridge = new ScriptedBridge({
-            open: [[]],
-            before: [],
-            after: [],
-            title_rc: 198,
-        });
-        const { deps: d, questions } = deps(bridge, ['y']);
-        const result = await connect_to_stata(d);
-        expect(result).toMatchObject({ ok: true, pid: null });
-        expect(questions[0]?.text).toContain('couldn\'t identify');
-        expect(bridge.ops).not.toContain('release_mutex');
-    });
-
     it('sends nothing until Stata is free', async () => {
-        const bridge = new ScriptedBridge({
-            open: [[stata(5)]],
-            before: [stata(5)],
-            after: [stata(5)],
-            title_pid: 5,
-            busy_polls: 3,
-        });
-        await connect_to_stata(deps(bridge, ['y']).deps);
+        const bridge = new ScriptedBridge({ after: [fresh(10)], title_pid: 10, busy_polls: 3 });
+        await connect_to_stata(deps(bridge).deps);
         const first_sync = bridge.ops.indexOf('do_sync');
         const last_free = bridge.ops.lastIndexOf('is_free');
         expect(first_sync).toBeGreaterThan(last_free);
         expect(bridge.ops.filter((my_op) => my_op === 'is_free').length).toBe(4);
+    });
+
+    describe('cancelling', () => {
+        it('never sends connect after a cancel during the listing', async () => {
+            const cancel = { value: true };
+            const bridge = new ScriptedBridge({});
+            const { deps: d, stages } = deps(bridge, cancel);
+            const result = await connect_to_stata(d);
+            expect(result).toMatchObject({ ok: false, exit_code: CANCELLED_STATUS, cancelled: true });
+            expect(bridge.ops).toEqual(['list_stata']);
+            expect(stages).toEqual(['done']);
+        });
+
+        it('ends its own new Stata after identifying it', async () => {
+            const cancel = { value: false };
+            const bridge = new ScriptedBridge({
+                after: [fresh(10)], title_pid: 10, on_connect: () => { cancel.value = true; },
+            });
+            const result = await connect_to_stata(deps(bridge, cancel).deps);
+            expect(result).toMatchObject({ ok: false, exit_code: CANCELLED_STATUS, cancelled: true });
+            expect(bridge.ops).toContain('title_pid');
+            expect(bridge.ops).toContain('release_mutex');
+            expect(bridge.ops).not.toContain('short_path');
+        });
+
+        it('waits for identification when cancelled while Stata is busy', async () => {
+            const cancel = { value: false };
+            const bridge = new ScriptedBridge({
+                after: [fresh(10)], title_pid: 10, busy_polls: 2, on_free: () => { cancel.value = true; },
+            });
+            const result = await connect_to_stata(deps(bridge, cancel).deps);
+            expect(result).toMatchObject({ ok: false, exit_code: CANCELLED_STATUS });
+            expect(bridge.ops).toContain('title_pid');
+        });
+
+        it('keeps a Stata it didn\'t start, and says why', async () => {
+            const cancel = { value: false };
+            const bridge = new ScriptedBridge({
+                before: [stata(5)], after: [stata(5)], title_pid: 5,
+                on_connect: () => { cancel.value = true; },
+            });
+            const { deps: d, said } = deps(bridge, cancel);
+            expect(await connect_to_stata(d)).toMatchObject({ ok: true, pid: 5 });
+            expect(said[0]).toContain(NOT_STARTED);
+            expect(said[1]).toContain('Ctrl+C came while connecting');
+        });
+
+        it('keeps an unconfirmed Stata too', async () => {
+            const cancel = { value: false };
+            const bridge = new ScriptedBridge({
+                after: [fresh(10)], title_rc: 198, on_connect: () => { cancel.value = true; },
+            });
+            const { deps: d, said } = deps(bridge, cancel);
+            expect(await connect_to_stata(d)).toMatchObject({ ok: true, pid: null });
+            expect(said[0]).toContain(UNCONFIRMED);
+        });
+
+        it('reports a connect error rather than a silent cancel', async () => {
+            const cancel = { value: false };
+            const bridge = new ScriptedBridge({
+                connect_error: { error: 'session_failed', detail: { stray_pid: 9 } },
+                on_connect: () => { cancel.value = true; },
+            });
+            const result = await connect_to_stata(deps(bridge, cancel).deps);
+            expect(result).toMatchObject({ ok: false, exit_code: 1 });
+        });
+
+        it('returns cancelled when a forced stop ended the bridge', async () => {
+            const cancel = { value: false };
+            const bridge = new ScriptedBridge({
+                connect_gone: true, on_connect: () => { cancel.value = true; },
+            });
+            const result = await connect_to_stata(deps(bridge, cancel).deps);
+            expect(result).toMatchObject({ ok: false, exit_code: CANCELLED_STATUS });
+        });
     });
 });

@@ -14,7 +14,6 @@
  * only when needed; the extension mirrors these types.
  */
 
-import type { ConnectAnswer, ConnectQuestion } from './automation/connect';
 import { open_automation_console } from './automation/open';
 import { DEFAULT_STATA_ARGS } from './args';
 import { spawn_helper_pty, type HelperPty } from './helper-pty';
@@ -36,8 +35,6 @@ export interface EditorConsoleHost {
     write(text: string): void;
     columns(): number;
     rows(): number;
-    /** Ask the user (a dialog); a dismissed question counts as no. */
-    ask(question: ConnectQuestion): Promise<ConnectAnswer>;
     env: NodeJS.ProcessEnv;
     /**
      * Where relative paths complete from; on macOS and Linux also
@@ -50,9 +47,9 @@ export interface EditorConsoleHost {
 
 export interface EditorConsoleEnd {
     /**
-     * 0 after a normal end; 80-85 when the console didn't take Stata
-     * (see docs/console.md, "Exit codes on Windows"); 130 if cancelled;
-     * otherwise an error.
+     * 0 after a normal end; 84, 85 or 87 when the console didn't get
+     * Stata (see docs/console.md, "Exit codes on Windows"); 130 if
+     * cancelled; otherwise an error.
      */
     code: number;
     /** True if the console had Stata (its session ran). */
@@ -68,7 +65,7 @@ export interface EditorConsoleEnd {
 export interface EditorConsole {
     handle_input(text: string): void;
     handle_resize(): void;
-    /** The pane was closed: end, which closes Stata if it was taken. */
+    /** The pane was closed: end, which closes the console's Stata. */
     close(): void;
     /** Resolves true at the first prompt, or false if it ends first. */
     readonly ready: Promise<boolean>;
@@ -76,6 +73,8 @@ export interface EditorConsole {
 }
 
 const BRACKETED_PASTE_ON = '\x1b[?2004h';
+/** Closed while connecting: end the bridge after this long anyway. */
+const CLOSE_KILL_MS = 15000;
 
 /** Turn bare newlines into the CR LF a terminal needs. */
 function as_terminal_text(text: string): string {
@@ -95,10 +94,7 @@ export function start_editor_console(host: EditorConsoleHost): EditorConsole {
 
     const opening = open_automation_console({
         env: host.env,
-        yes: false,
-        from_editor: true,
         columns: host.columns(),
-        ask: host.ask,
         say: (text) => host.write(`${as_terminal_text(text)}\r\n`),
     });
 
@@ -151,8 +147,11 @@ export function start_editor_console(host: EditorConsoleHost): EditorConsole {
             closed = true;
             if (session) {
                 void session.shutdown('user', 0);
-            } else {
-                opening.cancel();
+            } else if (opening.cancel() === 'graceful') {
+                // The pane is gone, so nobody can press Ctrl+C again: if
+                // connecting doesn't end in time, stop at once.
+                const timer = setTimeout(() => opening.cancel(), CLOSE_KILL_MS);
+                void opening.result.then(() => clearTimeout(timer));
             }
         },
         ready,

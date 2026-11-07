@@ -1,19 +1,16 @@
 /**
  * `sight console` on Windows, in a terminal: open an Automation
- * connection to Stata (asking on the terminal before taking over an
- * open one), then run the interactive front end on it.
+ * connection to a new Stata of the console's own, then run the
+ * interactive front end on it.
  */
 
-import * as readline from 'readline';
 import type { ColorOutputMode } from '../output-colorizer';
-import type { ConnectAnswer, ConnectQuestion } from './connect';
 import { EXIT_TERMINAL_UNSUPPORTED } from './exit-codes';
 import { open_automation_console } from './open';
 
 export interface AutomationConsoleOptions {
     color_output: ColorOutputMode;
     history: boolean;
-    yes: boolean;
     env: NodeJS.ProcessEnv;
 }
 
@@ -31,34 +28,6 @@ function terminal_supports_raw_mode(): boolean {
     }
 }
 
-function ask_on_terminal(question: ConnectQuestion): Promise<ConnectAnswer> {
-    const choices = question.allow_send_instead ? '[y/N/s]' : '[y/N]';
-    const extra = question.allow_send_instead
-        ? '\n  s: leave this Stata alone and send code to it from the editor instead'
-        : '';
-    const tail = question.kind === 'take_over' ? `${extra}\nContinue? ${choices} ` : ` ${choices} `;
-    return new Promise((resolve) => {
-        const rl = readline.createInterface({ input: process.stdin, output: process.stdout });
-        rl.question(question.text + tail, (answer) => {
-            rl.close();
-            // The answer letters are Sight's own prompt, not Stata
-            // syntax, so case doesn't matter here.
-            const text = answer.trim().toLowerCase();
-            if (text === 'y' || text === 'yes') {
-                resolve('yes');
-            } else if (question.allow_send_instead && text === 's') {
-                resolve('send');
-            } else {
-                resolve('no');
-            }
-        });
-        rl.on('SIGINT', () => {
-            rl.close();
-            process.emit('SIGINT');
-        });
-    });
-}
-
 export async function run_automation_console(options: AutomationConsoleOptions): Promise<number> {
     if (!terminal_supports_raw_mode()) {
         console.error('Error: sight console needs a terminal that supports raw input.');
@@ -67,16 +36,18 @@ export async function run_automation_console(options: AutomationConsoleOptions):
 
     const opening = open_automation_console({
         env: options.env,
-        yes: options.yes,
-        from_editor: false,
         columns: process.stdout.columns || 80,
-        ask: ask_on_terminal,
         say: (text) => console.error(text),
     });
-    // Ctrl+C before the interactive front end starts ends the bridge,
-    // which releases any reference (closing that Stata, as the waiting
-    // notices say).
-    const on_sigint = (): void => opening.cancel();
+    // Ctrl+C before the interactive front end starts cancels: at once
+    // before connecting, and while connecting once Stata answers (see
+    // OpenHandle.cancel); a second Ctrl+C then stops at once.
+    const on_sigint = (): void => {
+        if (opening.cancel() === 'graceful') {
+            console.error('Stopping after Stata answers; press Ctrl+C again to stop at once (a '
+                + 'Stata being started may then stay running without a window).');
+        }
+    };
     process.on('SIGINT', on_sigint);
     const opened = await opening.result;
     process.off('SIGINT', on_sigint);

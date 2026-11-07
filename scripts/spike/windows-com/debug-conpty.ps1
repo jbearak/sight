@@ -1,5 +1,5 @@
 param(
-    [ValidateSet('basic', 'editing', 'lostlog', 'blockbreak', 'rev9', 'decline', 'share', 'yes', 'two')][string]$Scenario = 'basic',
+    [ValidateSet('basic', 'editing', 'lostlog', 'blockbreak', 'rev9', 'share', 'yes', 'two')][string]$Scenario = 'basic',
     [string]$OutputPath = "$PSScriptRoot\results\debug-conpty-$Scenario.bin"
 )
 $ErrorActionPreference = 'Stop'
@@ -77,17 +77,6 @@ public static class SightConpty {
         Func<string> snapshot = () => { lock (observed) { return observed.ToString(); } };
         Action<string> send = text => { byte[] bytes=Encoding.UTF8.GetBytes(text); writer.Write(bytes,0,bytes.Length); writer.Flush(); };
         try {
-            if (scenario == "decline" || scenario == "share") {
-                Thread.Sleep(7000); send(scenario == "decline" ? "n\r" : "y\r");
-            }
-            if (scenario == "decline" || scenario == "two") {
-                WaitForSingleObject(info.process, 15000);
-                uint early; GetExitCodeProcess(info.process, out early);
-                if (early == 259) { TerminateProcess(info.process, 99); early = 99; }
-                writer.Dispose(); ClosePseudoConsole(pseudo); readTask.Wait(5000);
-                File.WriteAllBytes(output, transcript.ToArray());
-                return (int)early;
-            }
             Thread.Sleep(14000);
             send("sysuse auto, clear\r"); Thread.Sleep(2500);
             if (scenario == "rev9") {
@@ -157,7 +146,7 @@ $repo = 'C:\sight-debug'
 if (Get-Process Stata* -ErrorAction SilentlyContinue) { throw 'Existing Stata; stopping.' }
 $owned = @()
 try {
-    $count = if ($Scenario -eq 'two') { 2 } elseif ($Scenario -in @('share','yes','decline')) { 1 } else { 0 }
+    $count = if ($Scenario -eq 'two') { 2 } elseif ($Scenario -in @('share','yes')) { 1 } else { 0 }
     for ($i = 0; $i -lt $count; $i++) {
         $owned += Start-Process 'C:\Program Files\Stata18\StataMP-64.exe' -PassThru
         Start-Sleep -Seconds 2
@@ -167,23 +156,21 @@ try {
     Write-Output "$(Get-Date -Format o) scenario=$Scenario owned=$($owned.Id) starting $command"
     $code = [SightConpty]::Run($command, $repo, $OutputPath, $Scenario)
     $text = [Text.Encoding]::UTF8.GetString([IO.File]::ReadAllBytes($OutputPath))
-    $expected = if ($Scenario -eq 'decline') { 81 } elseif ($Scenario -eq 'two') { 80 } else { 0 }
+    # The console starts its own Stata; open ones must survive untouched.
+    $expected = 0
     if ($code -ne $expected) { throw "Expected exit $expected, got $code; transcript: $text" }
-    if ($Scenario -in @('decline', 'two')) {
+    if ($Scenario -in @('share', 'yes', 'two')) {
         foreach ($process in $owned) {
             $process.Refresh()
             if ($process.HasExited) { throw 'A pre-existing Stata exited unexpectedly' }
         }
     }
-    if ($Scenario -eq 'decline' -and $text -notmatch 'take over') { throw 'No takeover prompt' }
-    if ($Scenario -eq 'two' -and $text -notmatch 'Stata windows are open') { throw 'No multiple-Stata message' }
-    if ($Scenario -in @('basic', 'editing', 'share', 'yes')) {
+    if ($Scenario -in @('basic', 'editing', 'share', 'yes', 'two')) {
         foreach ($needle in @('1978 automobile data', '1234567', 'no_such_variable', '--Break--', 'Stata exited')) {
             if (-not $text.Contains($needle)) { throw "Missing $needle in transcript" }
         }
     }
-    if ($Scenario -eq 'share' -and $text -notmatch 'take over') { throw 'No takeover prompt' }
-    if ($Scenario -eq 'yes' -and $text -match 'take over') { throw 'Unexpected takeover prompt' }
+    if ($text -match "take over|didn't start|couldn't confirm") { throw 'The console did not get its own Stata' }
     if ($Scenario -eq 'rev9') {
         foreach ($needle in @('Stata still waits for the rest of this', '90801', '90802', '343434', '7654321', 'Stata exited')) {
             if (-not $text.Contains($needle)) { throw "Missing $needle in transcript" }

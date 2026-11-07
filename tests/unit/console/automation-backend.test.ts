@@ -83,7 +83,7 @@ class FakeBridge implements Bridge {
         if (this.gone_hresult) {
             return Promise.resolve({
                 ok: false,
-                failure: { error: 'com', hresult: this.gone_hresult },
+                failure: { error: 'com', hresult: this.gone_hresult, detail: {} },
             });
         }
         if (this.timeouts && op === 'is_free') {

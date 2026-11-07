@@ -2,7 +2,7 @@
  * The extension's side of `sight console` panes, without VS Code:
  * per-pane readiness, the queue of sends made before readiness, and,
  * on Windows, the offer to use send-to-stata (the Stata app) when the
- * console ends without taking Stata.
+ * console ends without getting Stata.
  *
  * Every pending send ends exactly once: typed into its ready terminal
  * (or, for one its command line carried, run there), dispatched to the
@@ -11,40 +11,20 @@
 
 import type { StataCommand } from './index.js';
 
-// Codes from `sight console` when it didn't take Stata. These mirror
+// Codes from `sight console` when it didn't get Stata. These mirror
 // src/console/automation/exit-codes.ts; keep them in sync. (Code 86,
-// no raw terminal input, can't happen in the extension's own pane.)
-export const CONSOLE_EXIT_SEVERAL_STATA_WINDOWS = 80;
-export const CONSOLE_EXIT_TAKE_OVER_DECLINED = 81;
-export const CONSOLE_EXIT_SEND_FROM_EDITOR = 82;
-export const CONSOLE_EXIT_STATA_HELD_ELSEWHERE = 83;
+// no raw terminal input, can't happen in the extension's own pane;
+// 80-83 are retired: they were the take-over cases.)
 export const CONSOLE_EXIT_AUTOMATION_NOT_REGISTERED = 84;
 export const CONSOLE_EXIT_BRIDGE_BLOCKED = 85;
+export const CONSOLE_EXIT_AUTOMATION_UNSUPPORTED = 87;
 
 /**
  * Why the console couldn't use Stata, worded for what send-to-stata
  * will do instead. The console's own text is gone with its terminal.
- * Code 82 (the user answered `s`) has no reason: it never asks.
  */
-export const CONSOLE_OFFER_REASONS: ReadonlyMap<number, string | null> =
-    new Map<number, string | null>([
-        [
-            CONSOLE_EXIT_SEVERAL_STATA_WINDOWS,
-            'several Stata windows are open. send-to-stata will send to '
-            + 'one of them; to choose, close the others.',
-        ],
-        [
-            CONSOLE_EXIT_TAKE_OVER_DECLINED,
-            'you chose to keep your open Stata to yourself. '
-            + 'send-to-stata sends to it without taking it over; with '
-            + 'several open, it picks one.',
-        ],
-        [CONSOLE_EXIT_SEND_FROM_EDITOR, null],
-        [
-            CONSOLE_EXIT_STATA_HELD_ELSEWHERE,
-            'the open Stata is in use by another program (such as '
-            + 'Jupyter). send-to-stata would type into that same window.',
-        ],
+export const CONSOLE_OFFER_REASONS: ReadonlyMap<number, string> =
+    new Map<number, string>([
         [
             CONSOLE_EXIT_AUTOMATION_NOT_REGISTERED,
             "Stata's Automation isn't registered (run Stata's .exe with "
@@ -56,6 +36,11 @@ export const CONSOLE_OFFER_REASONS: ReadonlyMap<number, string | null> =
             'PowerShell, which the console uses to reach Stata, is '
             + 'blocked here (by its language mode or a policy). '
             + "send-to-stata doesn't use PowerShell.",
+        ],
+        [
+            CONSOLE_EXIT_AUTOMATION_UNSUPPORTED,
+            "Stata's Automation registration has a setting the console "
+            + "doesn't support. send-to-stata doesn't use Automation.",
         ],
     ]);
 
@@ -308,13 +293,6 @@ export class ConsoleTerminalQueue<TTerminal> {
             return Promise.resolve();
         }
 
-        if (exit.code === CONSOLE_EXIT_SEND_FROM_EDITOR) {
-            // The user chose to send from the editor: act as "This
-            // session" without asking, and don't wait on a showing
-            // offer.
-            this.host.set_session_override();
-            return this.dispatch(the_sends, 1);
-        }
         if (this.host.is_fallback_in_effect()) {
             return this.dispatch(the_sends, 1);
         }
@@ -326,7 +304,7 @@ export class ConsoleTerminalQueue<TTerminal> {
             this.report_pending_count();
             return this.showing_offer.done;
         }
-        return this.make_offer(reason ?? '', the_sends);
+        return this.make_offer(reason, the_sends);
     }
 
     /**

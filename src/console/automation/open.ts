@@ -1,11 +1,12 @@
 /**
  * Opens an Automation connection to Stata for a console on Windows:
  * starts the COM bridge, checks it and the registration, and connects
- * (asking before taking over an open Stata). Shared by the `sight
- * console` CLI and the VS Code extension's console pane.
+ * to a new Stata of the console's own. Shared by the `sight console`
+ * CLI and the VS Code extension's console pane.
  *
- * Before any COM call, failing is harmless. After it, ending closes
- * that Stata.
+ * Before `connect` is sent, failing or cancelling is harmless. After
+ * it, ending closes whatever Stata the bridge holds, so a cancel then
+ * waits for connect.ts to say whether that Stata is the console's own.
  */
 
 import * as crypto from 'crypto';
@@ -14,27 +15,24 @@ import * as os from 'os';
 import * as path from 'path';
 import type { BackendEvents, BackendHandle } from '../backend';
 import { AutomationBackend } from './automation-backend';
-import { BridgeClient } from './bridge';
+import { BridgeClient, reply_text } from './bridge';
 import { BRIDGE_SCRIPT } from './bridge-script';
+import { CANCELLED_STATUS, connect_to_stata, NOT_REGISTERED_MESSAGE } from './connect';
 import {
-    connect_to_stata,
-    NOT_REGISTERED_MESSAGE,
-    type ConnectAnswer,
-    type ConnectQuestion,
-} from './connect';
-import { EXIT_AUTOMATION_NOT_REGISTERED, EXIT_BRIDGE_BLOCKED } from './exit-codes';
+    EXIT_AUTOMATION_NOT_REGISTERED,
+    EXIT_AUTOMATION_UNSUPPORTED,
+    EXIT_BRIDGE_BLOCKED,
+} from './exit-codes';
 import { LogTail } from './log-tail';
-import { start_powershell_bridge } from './process-transport';
+import { start_powershell_bridge, type ProcessTransport } from './process-transport';
 
 export interface OpenOptions {
     env: NodeJS.ProcessEnv;
-    yes: boolean;
-    /** Offer "send code from the editor instead" at the take-over question. */
-    from_editor: boolean;
     columns: number;
-    ask(question: ConnectQuestion): Promise<ConnectAnswer>;
     /** A progress line for the user, before the session starts. */
     say(text: string): void;
+    /** Test seam: start the bridge (default: Windows PowerShell). */
+    start_bridge?: (script_path: string) => ProcessTransport;
 }
 
 export interface AutomationConnection {
@@ -48,45 +46,64 @@ export type OpenResult =
     | { ok: true; connection: AutomationConnection }
     | { ok: false; exit_code: number; message: string | null };
 
+/**
+ * What a cancel did: `killed` ended the bridge at once; `graceful`
+ * only asked connect.ts to stop once Stata answers and is identified
+ * (a second cancel kills).
+ */
+export type CancelOutcome = 'killed' | 'graceful';
+
 export interface OpenHandle {
     readonly result: Promise<OpenResult>;
     /**
-     * Stop connecting. Ends the bridge, which releases any reference
-     * already taken (closing that Stata, as the waiting notices say).
+     * Stop connecting. Before `connect` is sent no Stata can be held,
+     * so this ends the bridge at once. While connecting, ending the
+     * bridge could leave a Stata starting with nobody holding it, or
+     * close a window the user opened by hand in that moment, so the
+     * first cancel only marks the console cancelled: connect.ts ends
+     * the console once it knows the Stata is its own, and keeps one it
+     * didn't start. A second cancel ends the bridge anyway.
      */
-    cancel(): void;
+    cancel(): CancelOutcome;
 }
 
 const STALE_DIR_HOURS = 24;
 const BRIDGE_END_GRACE_MS = 3000;
-/** Status when connecting was cancelled (as for SIGINT). */
-export const CANCELLED_STATUS = 130;
+const PREPARE_SLOW_MS = 2000;
+
+export { CANCELLED_STATUS };
 
 function console_root(env: NodeJS.ProcessEnv): string {
     const base = env.SIGHT_CONSOLE_TMPDIR || os.tmpdir();
     return path.join(base, 'sight-console');
 }
 
+interface CancelState {
+    cancelled: boolean;
+    /** Set by connect.ts's stages: no killing at the first cancel. */
+    graceful: boolean;
+    kill: () => void;
+}
+
 export function open_automation_console(options: OpenOptions): OpenHandle {
-    let cancel_now: () => void = () => undefined;
-    let cancelled = false;
-    const result = open(options, (cancel) => {
-        cancel_now = cancel;
-    }, () => cancelled);
+    const state: CancelState = { cancelled: false, graceful: false, kill: () => undefined };
+    const result = open(options, state);
     return {
         result,
         cancel: () => {
-            cancelled = true;
-            cancel_now();
+            const first = !state.cancelled;
+            state.cancelled = true;
+            if (first && state.graceful) {
+                return 'graceful';
+            }
+            state.kill();
+            return 'killed';
         },
     };
 }
 
-async function open(
-    options: OpenOptions,
-    set_cancel: (cancel: () => void) => void,
-    is_cancelled: () => boolean,
-): Promise<OpenResult> {
+async function open(options: OpenOptions, state: CancelState): Promise<OpenResult> {
+    const is_cancelled = (): boolean => state.cancelled;
     const root = console_root(options.env);
     const token = crypto.randomBytes(16).toString('hex');
     const dir = path.join(root, token);
@@ -106,9 +123,9 @@ async function open(
     const script_path = path.join(dir, 'bridge.ps1');
     fs.writeFileSync(script_path, BRIDGE_SCRIPT, 'utf8');
 
-    const transport = start_powershell_bridge(script_path);
+    const transport = (options.start_bridge ?? start_powershell_bridge)(script_path);
     const bridge = new BridgeClient(transport);
-    set_cancel(() => transport.kill());
+    state.kill = () => transport.kill();
     const wait_for_bridge = async (): Promise<void> => {
         await Promise.race([
             transport.ended,
@@ -135,29 +152,56 @@ async function open(
                 + 'block it).';
         return give_up(EXIT_BRIDGE_BLOCKED, `Error: ${reason}`);
     }
+    // Add-Type runs the C# compiler, which policies sometimes block.
+    const prepared = await bridge.request('prepare', {}, {
+        slow_ms: PREPARE_SLOW_MS,
+        on_slow: () => options.say('Preparing sight console\'s COM helper.'),
+    });
+    if (is_cancelled()) {
+        return give_up(CANCELLED_STATUS, null);
+    }
+    if (!prepared.ok) {
+        return give_up(EXIT_BRIDGE_BLOCKED, 'Error: PowerShell couldn\'t compile sight console\'s '
+            + 'COM helper (a security policy may block it).');
+    }
     await bridge.request('sweep', { root, max_age_hours: STALE_DIR_HOURS });
     const registered = await bridge.request('registered');
     if (!registered.ok) {
         return give_up(EXIT_AUTOMATION_NOT_REGISTERED,
             `Error: ${NOT_REGISTERED_MESSAGE('StataMP-64.exe (or your edition\'s exe)')}`);
     }
+    const supported = await bridge.request('check_registration');
+    if (!supported.ok) {
+        if (!('failure' in supported) || supported.failure.error !== 'unsupported_registration') {
+            return give_up(1, `Error: could not check Stata's Automation registration: `
+                + `${reply_text(supported)}`);
+        }
+        const detail = supported.failure.detail;
+        const key = typeof detail.key === 'string' ? detail.key : 'its registry key';
+        const value = typeof detail.value === 'string' && detail.value ? ` sets ${detail.value}` : ' couldn\'t be read';
+        return give_up(EXIT_AUTOMATION_UNSUPPORTED, `Error: Stata's Automation registration (${key})`
+            + `${value}, which sight console doesn't support: it can't make sure an open Stata `
+            + 'isn\'t handed to it.');
+    }
+    if (is_cancelled()) {
+        return give_up(CANCELLED_STATUS, null);
+    }
 
+    // connect.ts decides about cancelling from here on.
     const connected = await connect_to_stata({
         bridge,
-        ask: options.ask,
         say: options.say,
         sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
         file_size: (file_path) => fs.statSync(file_path).size,
         dir,
         root,
         token,
-        yes: options.yes,
-        from_editor: options.from_editor,
         columns: options.columns,
+        is_cancelled,
+        on_stage: (stage) => {
+            state.graceful = stage === 'graceful';
+        },
     });
-    if (is_cancelled()) {
-        return give_up(CANCELLED_STATUS, null);
-    }
     if (!connected.ok) {
         return give_up(connected.exit_code, connected.message);
     }

@@ -18,16 +18,6 @@ import * as vscode from 'vscode';
 
 export const EDITOR_CONSOLE_API_VERSION = 2;
 
-export type ConsoleAnswer = 'yes' | 'no' | 'send';
-
-export interface ConsoleQuestion {
-    kind: 'take_over' | 'keep';
-    text: string;
-    allow_send_instead: boolean;
-    /** How many open Statas a take-over could get (absent means one). */
-    stata_count?: number;
-}
-
 export interface EditorConsolePty {
     helper_path: string;
     stata_path: string;
@@ -37,7 +27,6 @@ export interface EditorConsoleHost {
     write(text: string): void;
     columns(): number;
     rows(): number;
-    ask(question: ConsoleQuestion): Promise<ConsoleAnswer>;
     env: NodeJS.ProcessEnv;
     working_directory?: string;
     pty?: EditorConsolePty;
@@ -105,7 +94,6 @@ export type PaneEnd =
 
 export interface ConsolePaneOptions {
     load_module: () => Promise<EditorConsoleModule>;
-    ask: (question: ConsoleQuestion) => Promise<ConsoleAnswer>;
     working_directory?: string;
     /** macOS and Linux: the helper and Stata to run. */
     pty?: EditorConsolePty;
@@ -178,7 +166,6 @@ export function create_console_pane(
             write,
             columns: () => columns,
             rows: () => rows,
-            ask: options.ask,
             env: process.env,
             working_directory: options.working_directory,
             pty: options.pty,
@@ -235,32 +222,4 @@ export function create_console_pane(
             the_console.handle_input(`${text}\r`);
         },
     };
-}
-
-/** Ask the console's questions as VS Code dialogs. */
-export async function ask_with_dialog(
-    question: ConsoleQuestion
-): Promise<ConsoleAnswer> {
-    if (question.kind === 'take_over') {
-        const take_over = 'Take over';
-        // send-to-stata also picks one itself when several are open.
-        const send_instead = (question.stata_count ?? 1) > 1
-            ? 'Send code to one of them instead'
-            : 'Send code to it instead';
-        const the_items = question.allow_send_instead
-            ? [take_over, send_instead]
-            : [take_over];
-        const choice = await vscode.window.showWarningMessage(
-            question.text, { modal: true }, ...the_items
-        );
-        if (choice === take_over) {
-            return 'yes';
-        }
-        return choice === send_instead ? 'send' : 'no';
-    }
-    const keep = 'Keep using it';
-    const choice = await vscode.window.showWarningMessage(
-        question.text, { modal: true }, keep
-    );
-    return choice === keep ? 'yes' : 'no';
 }

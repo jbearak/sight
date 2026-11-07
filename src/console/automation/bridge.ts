@@ -16,7 +16,14 @@ export interface BridgeFailure {
     error: string;
     hresult?: string;
     message?: string;
+    /** The reply's other fields (such as `stray_pid`, `key`, `value`). */
+    detail: Record<string, unknown>;
 }
+
+/** Reply fields that BridgeFailure carries outside `detail`. */
+const FAILURE_FIELDS: ReadonlySet<string> = new Set([
+    'id', 'ok', 'error', 'hresult', 'message', 'event',
+]);
 
 export type BridgeReply =
     | { ok: true; value: Record<string, unknown> }
@@ -187,12 +194,19 @@ export class BridgeClient implements Bridge {
             entry.resolve({ ok: true, value: record });
             return;
         }
+        const detail: Record<string, unknown> = {};
+        for (const [my_key, my_value] of Object.entries(record)) {
+            if (!FAILURE_FIELDS.has(my_key) && my_value !== null) {
+                detail[my_key] = my_value;
+            }
+        }
         entry.resolve({
             ok: false,
             failure: {
                 error: typeof record.error === 'string' ? record.error : 'error',
                 hresult: typeof record.hresult === 'string' ? record.hresult : undefined,
                 message: typeof record.message === 'string' ? record.message : undefined,
+                detail,
             },
         });
     }

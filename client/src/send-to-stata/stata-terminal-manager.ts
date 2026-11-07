@@ -7,12 +7,9 @@ import { wrap_path_for_stata_terminal } from './terminal.js';
 import { schedule_temp_file_cleanup } from './temp-file.js';
 import { send_to_stata_windows } from './windows-sender.js';
 import {
-    ask_with_dialog,
     create_console_pane,
     load_console_module,
     type ConsolePane,
-    type ConsoleAnswer,
-    type ConsoleQuestion,
     type EditorConsoleModule,
     type EditorConsolePty,
     type PaneEnd,
@@ -119,10 +116,8 @@ interface PaneEntry extends PaneState {
 const the_pending_profile_panes = new Map<vscode.Pseudoterminal, PaneEntry>();
 const the_console_panes = new Map<vscode.Terminal, ConsolePane>();
 
-// Test hooks: a fake console runtime and question answers.
+// Test hook: a fake console runtime.
 let console_module_override: (() => Promise<EditorConsoleModule>) | null = null;
-let console_ask_override:
-    ((question: ConsoleQuestion) => Promise<ConsoleAnswer>) | null = null;
 
 let console_queue: ConsoleTerminalQueue<vscode.Terminal> | null = null;
 let console_queue_timings: Partial<ConsoleQueueTimings> = {};
@@ -304,7 +299,6 @@ function create_pane_entry(pty?: EditorConsolePty): PaneEntry {
     };
     const pane = create_console_pane({
         load_module,
-        ask: question => (console_ask_override ?? ask_with_dialog)(question),
         working_directory:
             vscode.workspace.workspaceFolders?.[0]?.uri.fsPath,
         pty,
@@ -1795,7 +1789,6 @@ export function reset_stata_terminal_manager_for_tests(
         context?: vscode.ExtensionContext | null;
         timings?: Partial<ConsoleQueueTimings>;
         load_console_module?: () => Promise<EditorConsoleModule>;
-        ask?: (question: ConsoleQuestion) => Promise<ConsoleAnswer>;
         /**
          * The sight-pty helper to report (null: none); by default it
          * is looked up in the extension.
@@ -1821,7 +1814,6 @@ export function reset_stata_terminal_manager_for_tests(
     console_queue_timings = options.timings ?? {};
     extension_context = options.context ?? null;
     console_module_override = options.load_console_module ?? null;
-    console_ask_override = options.ask ?? null;
     the_pending_profile_panes.clear();
     the_console_panes.clear();
     pending_status_item = null;
