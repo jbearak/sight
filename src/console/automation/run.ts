@@ -44,8 +44,8 @@ export async function run_automation_console(options: AutomationConsoleOptions):
     // OpenHandle.cancel); a second Ctrl+C then stops at once.
     const on_sigint = (): void => {
         if (opening.cancel() === 'graceful') {
-            console.error('Stopping after Stata answers; press Ctrl+C again to stop at once (a '
-                + 'Stata being started may then stay running without a window).');
+            console.error('Stopping after Stata answers; press Ctrl+C again to stop at once (the '
+                + 'console\'s Stata may then stay running without a window).');
         }
     };
     process.on('SIGINT', on_sigint);

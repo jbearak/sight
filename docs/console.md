@@ -234,10 +234,10 @@ Stata window also ends the console.
 Ctrl+C while the console is starting stops it. Once it has asked Stata
 to start, it first waits until Stata answers, so that it can close only
 a Stata it started (one you opened in that moment stays open, and the
-console then starts as usual). Press Ctrl+C again to stop at once; a
-Stata that was still starting may then keep running without a window.
-If so, end it in Task Manager (a `StataMP-64.exe`, or your edition's,
-with no window). The same can happen if the console crashes after a
+console then starts as usual). Press Ctrl+C again to stop at once; the
+console's Stata may then keep running without a window. If so, end it
+in Task Manager (a `StataMP-64.exe`, or your edition's, with no
+window). The same can happen if the console crashes after a
 Stata it couldn't identify started.
 
 ### Limits on Windows

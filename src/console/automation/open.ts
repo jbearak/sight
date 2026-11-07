@@ -62,7 +62,8 @@ export interface OpenHandle {
      * close a window the user opened by hand in that moment, so the
      * first cancel only marks the console cancelled: connect.ts ends
      * the console once it knows the Stata is its own, and keeps one it
-     * didn't start. A second cancel ends the bridge anyway.
+     * didn't start. A second cancel ends the bridge anyway, which can
+     * leave the console's Stata running without a window.
      */
     cancel(): CancelOutcome;
 }
