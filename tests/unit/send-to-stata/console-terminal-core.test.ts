@@ -1,11 +1,8 @@
 import { describe, expect, test } from 'bun:test';
 import {
     CONSOLE_EXIT_AUTOMATION_NOT_REGISTERED,
+    CONSOLE_EXIT_AUTOMATION_UNSUPPORTED,
     CONSOLE_EXIT_BRIDGE_BLOCKED,
-    CONSOLE_EXIT_SEND_FROM_EDITOR,
-    CONSOLE_EXIT_SEVERAL_STATA_WINDOWS,
-    CONSOLE_EXIT_STATA_HELD_ELSEWHERE,
-    CONSOLE_EXIT_TAKE_OVER_DECLINED,
     CONSOLE_OFFER_REASONS,
     ConsoleExit,
     ConsoleQueueHost,
@@ -306,18 +303,15 @@ describe('console terminal queue: closes without an offer', () => {
 
 describe('console terminal queue: the offer', () => {
     const OFFER_CODES = [
-        CONSOLE_EXIT_SEVERAL_STATA_WINDOWS,
-        CONSOLE_EXIT_TAKE_OVER_DECLINED,
-        CONSOLE_EXIT_STATA_HELD_ELSEWHERE,
         CONSOLE_EXIT_AUTOMATION_NOT_REGISTERED,
         CONSOLE_EXIT_BRIDGE_BLOCKED,
+        CONSOLE_EXIT_AUTOMATION_UNSUPPORTED,
     ];
 
-    test('the exit codes are 80 to 85', () => {
+    test('the exit codes are 84, 85 and 87 (80-83 are retired)', () => {
         expect([...CONSOLE_OFFER_REASONS.keys()].sort()).toEqual(
-            [80, 81, 82, 83, 84, 85]
+            [84, 85, 87]
         );
-        expect(CONSOLE_EXIT_SEND_FROM_EDITOR).toBe(82);
     });
 
     for (const my_code of OFFER_CODES) {
@@ -361,7 +355,7 @@ describe('console terminal queue: the offer', () => {
         queue.send(terminal, send('/b.do'));
         queue.send(terminal, send('/c.do'));
 
-        const done = queue.handle_closed(terminal, process_exit(80));
+        const done = queue.handle_closed(terminal, process_exit(84));
         // Temp files stay intact while the offer shows.
         expect(host.the_deleted).toEqual([]);
         host.the_offer_answers[0].resolve(OFFER_CHOICE_SESSION);
@@ -385,7 +379,7 @@ describe('console terminal queue: the offer', () => {
         queue.track(terminal);
         queue.send(terminal, send('/a.do'));
 
-        const done = queue.handle_closed(terminal, process_exit(81));
+        const done = queue.handle_closed(terminal, process_exit(84));
         host.the_offer_answers[0].resolve(OFFER_CHOICE_ALWAYS);
         await done;
 
@@ -403,7 +397,7 @@ describe('console terminal queue: the offer', () => {
         queue.track(terminal);
         queue.send(terminal, send('/a.do'));
 
-        const done = queue.handle_closed(terminal, process_exit(81));
+        const done = queue.handle_closed(terminal, process_exit(84));
         host.the_offer_answers[0].resolve(OFFER_CHOICE_ALWAYS);
         await done;
 
@@ -421,7 +415,7 @@ describe('console terminal queue: the offer', () => {
         queue.track(first);
         queue.send(first, send('/a.do'));
 
-        const done = queue.handle_closed(first, process_exit(80));
+        const done = queue.handle_closed(first, process_exit(84));
         host.the_offer_answers[0].resolve(OFFER_CHOICE_CANCEL);
         await done;
 
@@ -435,7 +429,7 @@ describe('console terminal queue: the offer', () => {
         const second = { id: 't2' };
         queue.track(second);
         queue.send(second, send('/b.do'));
-        const second_done = queue.handle_closed(second, process_exit(80));
+        const second_done = queue.handle_closed(second, process_exit(84));
         expect(host.the_offers).toHaveLength(2);
         host.the_offer_answers[1].resolve(OFFER_CHOICE_SESSION);
         await second_done;
@@ -449,7 +443,7 @@ describe('console terminal queue: the offer', () => {
         queue.track(terminal);
         queue.send(terminal, send('/a.do'));
 
-        const done = queue.handle_closed(terminal, process_exit(80));
+        const done = queue.handle_closed(terminal, process_exit(84));
         host.the_offer_answers[0].resolve(undefined);
         await done;
 
@@ -464,7 +458,7 @@ describe('console terminal queue: the offer', () => {
         queue.track(terminal);
         queue.send(terminal, send('/a.do'));
 
-        await queue.handle_closed(terminal, process_exit(80));
+        await queue.handle_closed(terminal, process_exit(84));
         expect(host.the_dispatched).toEqual([]);
         expect(host.the_deleted).toContain('/a.do');
         expect(host.the_notices).toHaveLength(1);
@@ -487,25 +481,9 @@ describe('console terminal queue: the offer', () => {
         queue.track(terminal);
         queue.send(terminal, send('/a.do'));
 
-        await queue.handle_closed(terminal, process_exit(80));
+        await queue.handle_closed(terminal, process_exit(84));
         expect(host.the_offers).toEqual([]);
         expect(host.the_dispatched).toEqual(['/a.do']);
-    });
-
-    test('code 82 dispatches at once as This session', async () => {
-        const host = new FakeHost();
-        const queue = create_queue(host);
-        const terminal = { id: 't1' };
-        queue.track(terminal);
-        queue.send(terminal, send('/a.do'));
-        queue.send(terminal, send('/b.do'));
-
-        await queue.handle_closed(
-            terminal, process_exit(CONSOLE_EXIT_SEND_FROM_EDITOR)
-        );
-        expect(host.the_offers).toEqual([]);
-        expect(host.override_set_count).toBe(1);
-        expect(host.the_dispatched).toEqual(['/a.do', '/b.do']);
     });
 });
 
@@ -532,10 +510,10 @@ describe('console terminal queue: overlapping closes', () => {
             queue.send(second, send('/c.do'));
 
             const first_done = queue.handle_closed(
-                first, process_exit(80)
+                first, process_exit(84)
             );
             const second_done = queue.handle_closed(
-                second, process_exit(83)
+                second, process_exit(85)
             );
             // One notification for both.
             expect(host.the_offers).toHaveLength(1);
@@ -573,7 +551,7 @@ describe('console terminal queue: overlapping closes', () => {
         queue.send(first, send('/a.do'));
         queue.send(second, send('/b.do'));
 
-        const first_done = queue.handle_closed(first, process_exit(80));
+        const first_done = queue.handle_closed(first, process_exit(84));
         await queue.handle_closed(second, { reason: 'user', code: 1 });
         expect(host.the_deleted).toContain('/b.do');
         expect(host.the_deleted).not.toContain('/a.do');
@@ -581,31 +559,6 @@ describe('console terminal queue: overlapping closes', () => {
         host.the_offer_answers[0].resolve(OFFER_CHOICE_SESSION);
         await first_done;
         expect(host.the_dispatched).toEqual(['/a.do']);
-    });
-
-    test('code 82 while an offer shows does not wait on it', async () => {
-        const host = new FakeHost();
-        const queue = create_queue(host);
-        const first = { id: 't1' };
-        const second = { id: 't2' };
-        queue.track(first);
-        queue.track(second);
-        queue.send(first, send('/a.do'));
-        queue.send(second, send('/b.do'));
-
-        const first_done = queue.handle_closed(first, process_exit(80));
-        await queue.handle_closed(
-            second, process_exit(CONSOLE_EXIT_SEND_FROM_EDITOR)
-        );
-        expect(host.the_dispatched).toEqual(['/b.do']);
-        expect(host.override_set_count).toBe(1);
-        // The showing offer keeps only its own sends.
-        expect(queue.pending_count()).toBe(1);
-
-        host.the_offer_answers[0].resolve(OFFER_CHOICE_CANCEL);
-        await first_done;
-        expect(host.the_dispatched).toEqual(['/b.do']);
-        expect(host.resolutions_of('/a.do')).toBe(1);
     });
 
     test('two dispatches at once keep their own sends when one helper fails', async () => {
@@ -625,15 +578,16 @@ describe('console terminal queue: overlapping closes', () => {
         host.the_dispatch_gates.set('/a1.do', gate.promise);
         host.the_dispatch_gates.set('/b1.do', gate.promise);
 
-        const first_done = queue.handle_closed(first, process_exit(80));
+        const first_done = queue.handle_closed(first, process_exit(84));
         host.the_offer_answers[0].resolve(OFFER_CHOICE_SESSION);
         await wait_until(
             () => host.the_events.includes('dispatch /a1.do'),
             'the first dispatch to start',
             1000
         );
+        // "This session" is now in effect: no second offer.
         const second_done = queue.handle_closed(
-            second, process_exit(CONSOLE_EXIT_SEND_FROM_EDITOR)
+            second, process_exit(CONSOLE_EXIT_BRIDGE_BLOCKED)
         );
         await wait_until(
             () => host.the_events.includes('dispatch /b1.do'),
@@ -669,7 +623,7 @@ describe('console terminal queue: overlapping closes', () => {
         queue.send(terminal, send('/b.do'));
         queue.send(terminal, send('/c.do'));
 
-        const done = queue.handle_closed(terminal, process_exit(80));
+        const done = queue.handle_closed(terminal, process_exit(84));
         host.the_offer_answers[0].resolve(OFFER_CHOICE_SESSION);
         await done;
 

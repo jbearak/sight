@@ -30,17 +30,24 @@ let output = '';
 const sight_messages: string[] = [];
 try {
     await request('self_test', { dir });
+    await request('prepare');
     await request('registered');
+    await request('check_registration');
+    // Open Statas are fine: the console must leave them alone.
     const existing = await request('list_stata', { strict: false, root });
-    assert.deepEqual(existing.processes, [], 'An existing Stata must not be touched');
+    console.log('EXISTING', JSON.stringify(existing.processes));
+    const notices: string[] = [];
     const connected = await connect_to_stata({
-        bridge, dir, root, token, yes: false, from_editor: false, columns: 80,
-        ask: async (question) => { throw new Error(`Unexpected question: ${question}`); },
-        say: (text) => console.log('NOTICE', text), sleep,
+        bridge, dir, root, token, columns: 80,
+        say: (text) => { notices.push(text); console.log('NOTICE', text); }, sleep,
         file_size: (file) => fs.statSync(file).size,
+        is_cancelled: () => false,
+        on_stage: (stage) => console.log('STAGE', stage),
     });
     console.log('CONNECT', JSON.stringify(connected));
     assert.ok(connected.ok);
+    assert.deepEqual(notices.filter((text) => /didn't start|couldn't confirm/.test(text)), [],
+        'The console must get its own new Stata');
     assert.equal(connected.log_rc, 0);
     const backend = new AutomationBackend({
         bridge, log: new LogTail(connected.log_path, connected.start_size),

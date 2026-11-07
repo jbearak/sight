@@ -85,28 +85,27 @@ What differs from the pane described above:
 
 On native Windows (not in a remote session), the `integrated` target and the "Stata" terminal profile open a **Stata pane** in VS Code's terminal panel that runs [sight console](console.md) inside the extension. There's no separate program to install. The console drives the Stata application through its Automation interface, so it needs Stata's Automation registered. See [console.md](console.md) for what the console does.
 
-Each pane has its own Stata. When no Stata is open, the pane starts one, so a second pane gets a second Stata window. Stata windows that other panes own don't count as open here or below. If a Stata window is already open, the extension asks, in a dialog, whether sight console may take it over: it then belongs to the console and closes when the pane closes. Choose **Send code to it instead** to leave that Stata alone and use send-to-stata (below) for this session. With several Stata windows open, the dialog says the console can't choose which one it takes over, and the pane names the one it took once connected; the button reads **Send code to one of them instead**, since send-to-stata picks one too.
+Each pane starts its own Stata, in a new window, so a second pane gets a second Stata window. Stata windows you already have open stay open and untouched; the console never takes one over (see [Which Stata it uses](console.md#which-stata-it-uses), including what that means for other Automation programs). To work in a Stata window that is already open, use the `external` target, which sends code to it.
 
-Code you send while the console is starting waits in a queue, and the status bar shows how many sends are waiting. The queued sends are typed into the console, in order, once it shows its first prompt; there's no time limit on answering the dialog.
+Code you send while the console is starting waits in a queue, and the status bar shows how many sends are waiting. The queued sends are typed into the console, in order, once it shows its first prompt.
 
-The console doesn't take Stata when:
+The console doesn't get Stata when:
 
-- you decline the take-over;
-- the open Stata is in use by another program, such as Jupyter;
 - Stata's Automation isn't registered;
-- PowerShell, which the console uses to reach Stata, is blocked by its language mode or a policy.
+- PowerShell, which the console uses to reach Stata, is blocked by its language mode or a policy;
+- Stata's Automation registration has a setting the console doesn't support (it runs Stata as another user, as a service or remotely).
 
 In each of these cases the extension asks whether to send code to the open Stata window instead, using the same send-to-stata helper as the `external` target:
 
 - **This session**: use the Stata GUI until VS Code reloads or `sight.sendToStata.target` changes.
 - **Always**: set `sight.sendToStata.target` to `"external"` in your user settings. If a workspace or folder setting overrides it, the extension says so and uses the GUI for this session.
-- **Cancel**: drop the waiting sends. The next send opens a new pane, since the cause (for example, a second Stata window) may be gone by then.
+- **Cancel**: drop the waiting sends. The next send opens a new pane, since the cause may be gone by then.
 
-Choosing **Send code to it instead** at the take-over dialog acts as **This session** without asking again. With **This session** or **Always**, the waiting sends go to Stata in order. If you dismiss the question or leave it unanswered for 60 seconds, the waiting sends are dropped.
+With **This session** or **Always**, the waiting sends go to Stata in order. If you dismiss the question or leave it unanswered for 60 seconds, the waiting sends are dropped.
 
 The send-to-stata helper doesn't take over Stata or use Automation: it pastes into the Stata window. With several Stata windows open it picks one itself (the first it finds); to choose, close the others. It is downloaded on first use.
 
-Closing the pane ends the console and closes its Stata, with any unsaved data. When the console ends normally (`exit`), the pane closes; after an error it stays open until you press a key, so you can read why. If the pane closes before the console is ready, its waiting sends are dropped, and a notice says how many (except when you closed the pane yourself).
+Closing the pane ends the console and closes its Stata, with any unsaved data. If you close it while the console is connecting, the console first waits (up to 15 seconds) for Stata to answer, then closes it. In the rare case that the console got a Stata you opened by hand in that moment, that Stata closes too. When the console ends normally (`exit`), the pane closes; after an error it stays open until you press a key, so you can read why. If the pane closes before the console is ready, its waiting sends are dropped, and a notice says how many (except when you closed the pane yourself).
 
 ## Keyboard Shortcuts
 

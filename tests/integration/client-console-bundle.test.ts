@@ -42,7 +42,6 @@ const { pathToFileURL } = require('url');
         write: (text) => written.push(text),
         columns: () => 80,
         rows: () => 24,
-        ask: async () => 'no',
         env: { ...process.env, SIGHT_CONSOLE_TMPDIR: require('os').tmpdir() },
         pty: {
             helper_path: require('path').join(require('os').tmpdir(), 'no-such-sight-pty'),

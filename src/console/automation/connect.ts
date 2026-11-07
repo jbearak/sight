@@ -1,29 +1,26 @@
 /**
- * Connecting `sight console` to a Stata GUI instance on Windows.
+ * Connecting `sight console` to its own Stata on Windows.
  *
- * Releasing a COM reference quits that Stata, so the console never
- * takes a reference it doesn't keep, and asks before taking over a
- * Stata the user already has open. With several open, COM hands out
- * one of them and Sight can't choose which, so the console says so
- * before asking, and the window-title marker shows afterwards which
- * one it got. One rule governs everything after
- * `CreateObject`: once a reference may exist, no timeout ends the
- * console (ending would close Stata); the user can, with Ctrl+C.
+ * The bridge's `connect` takes every open Stata out of COM's hands
+ * (their windows keep running with their data) and starts a new Stata
+ * for the console; see bridge-script.ts. It never asks to take over an
+ * open window. One race remains, accepted: a Stata the user opens by
+ * hand while the console connects can become the console's. So after
+ * connecting, the console marks the window's title and identifies the
+ * Stata it got; if it isn't one COM started for the console, it says
+ * so (that Stata closes when the console ends) and keeps it.
+ *
+ * Releasing a COM reference quits that Stata, so once a reference may
+ * exist nothing here ends the console on its own except when that
+ * Stata is known to be the console's new one, or is already gone.
  *
  * Sight's consoles take turns through a named mutex the bridge holds
- * from the first listing until this console's Stata is marked as its
- * own (a `pid` file), so a second console never claims it.
+ * from the first listing until this console has identified its Stata.
  */
 
-import type { Bridge, BridgeReply } from './bridge';
-import { reply_text } from './bridge';
-import {
-    EXIT_AUTOMATION_NOT_REGISTERED,
-    EXIT_SEND_FROM_EDITOR,
-    EXIT_SEVERAL_STATA_OPEN,
-    EXIT_STATA_HELD_ELSEWHERE,
-    EXIT_TAKEOVER_DECLINED,
-} from './exit-codes';
+import type { Bridge, BridgeFailure, BridgeReply } from './bridge';
+import { is_server_gone, reply_text } from './bridge';
+import { EXIT_AUTOMATION_NOT_REGISTERED } from './exit-codes';
 
 export interface StataProcess {
     pid: number;
@@ -33,22 +30,15 @@ export interface StataProcess {
     com_started: boolean;
 }
 
-export type ConnectAnswer = 'yes' | 'no' | 'send';
-
-export interface ConnectQuestion {
-    /** Before connecting, or about a Stata that answered unexpectedly. */
-    kind: 'take_over' | 'keep';
-    text: string;
-    /** Offer "send code from the editor instead" (editors only). */
-    allow_send_instead: boolean;
-    /** How many open Statas a take-over could get (absent means one). */
-    stata_count?: number;
-}
+/**
+ * `graceful` right before `connect` is sent: from then on, until
+ * `connect_to_stata` returns, a cancel must not end the bridge at once
+ * (see open.ts). `done` when it returns.
+ */
+export type ConnectStage = 'graceful' | 'done';
 
 export interface ConnectDeps {
     bridge: Bridge;
-    /** Ask the user; a dismissed question counts as no. */
-    ask(question: ConnectQuestion): Promise<ConnectAnswer>;
     /** Print a line for the user. */
     say(text: string): void;
     sleep(ms: number): Promise<void>;
@@ -57,9 +47,10 @@ export interface ConnectDeps {
     dir: string;
     root: string;
     token: string;
-    yes: boolean;
-    from_editor: boolean;
     columns: number;
+    /** True once the user asked to stop (Ctrl+C, a closed pane). */
+    is_cancelled(): boolean;
+    on_stage(stage: ConnectStage): void;
 }
 
 export type ConnectResult =
@@ -68,7 +59,14 @@ export type ConnectResult =
         /** Sight's `vview` is installed (see browse-alias.ts). */
         has_vview: boolean;
     }
-    | { ok: false; exit_code: number; message: string | null };
+    | {
+        ok: false; exit_code: number; message: string | null;
+        /** Stopped on request; nothing of the user's is held. */
+        cancelled?: true;
+    };
+
+/** Status when connecting was cancelled (as for SIGINT). */
+export const CANCELLED_STATUS = 130;
 
 const WAIT_NOTE_MS = 2000;
 const FREE_POLL_MS = 250;
@@ -107,219 +105,188 @@ function as_processes(value: unknown): StataProcess[] {
     return result;
 }
 
-function describe_stata(process: StataProcess | undefined): string {
-    if (!process || process.title.length === 0) {
-        return 'the open Stata';
-    }
-    return `the open Stata (${process.title})`;
+/** A process's identity: a pid alone can be reused. */
+function identity(pid: number, start: string): string {
+    return `${pid}|${start}`;
 }
 
-/** The take-over question for one open Stata, or for several. */
-function take_over_text(the_open: StataProcess[]): string {
-    if (the_open.length === 1) {
-        return `sight console will take over ${describe_stata(the_open[0])}. It closes `
-            + 'when the console ends, so unsaved work in it would be lost then.';
-    }
-    const titles = the_open
-        .map((my_process) => my_process.title)
-        .filter((my_title) => my_title.length > 0);
-    const listed = titles.length > 0 ? ` (${titles.join('; ')})` : '';
-    return `sight console will take over one of the ${the_open.length} open Statas`
-        + `${listed}, and it can't choose which. The one it takes closes when the `
-        + 'console ends, so unsaved work in it would be lost then; save your work in '
-        + 'each first if needed.';
-}
-
-/** Fail on an error reply, except for the ones the caller handles. */
 function failure(reply: BridgeReply, what: string): ConnectResult {
     return { ok: false, exit_code: 1, message: `Error: ${what}: ${reply_text(reply)}` };
 }
 
+function stray_text(detail: Record<string, unknown>): string {
+    return typeof detail.stray_pid === 'number'
+        ? ` A Stata started meanwhile (process ${detail.stray_pid}) may still be running `
+            + 'without a window; if so, end it in Task Manager.'
+        : '';
+}
+
+/** The message for a `connect` error reply (no reference is held). */
+function connect_failure(failure_reply: BridgeFailure): ConnectResult {
+    const detail = failure_reply.detail;
+    const hresult = failure_reply.hresult ? ` (${failure_reply.hresult})` : '';
+    let message: string;
+    switch (failure_reply.error) {
+        case 'drain_failed':
+            message = 'sight console couldn\'t make sure that no open Stata is handed to it'
+                + `${hresult}, so it stopped. Open Stata windows keep running; some may no `
+                + 'longer be available to other Automation programs. Close open Stata '
+                + 'windows and try again.';
+            break;
+        case 'drain_limit':
+            message = `More than ${typeof detail.count === 'number' ? detail.count : 'a few'} `
+                + 'Stata windows are open, so sight console stopped before making sure none '
+                + 'of them is handed to it. Close the ones you don\'t need and try again.';
+            break;
+        case 'drain_launched':
+            message = 'A Stata started while sight console was making sure that no open Stata '
+                + 'is handed to it, so it stopped (Stata\'s Automation registration may start '
+                + `Stata in a way sight console doesn't support).${stray_text(detail)}`;
+            break;
+        case 'session_failed':
+            message = `could not start Stata${hresult}.`
+                + (detail.wrap_failed === true
+                    ? ' Stata started but couldn\'t be used, so it was closed.'
+                    : '')
+                + stray_text(detail);
+            break;
+        case 'native_unavailable':
+            message = 'sight console\'s COM helper isn\'t available.';
+            break;
+        default:
+            message = `could not connect to Stata: ${failure_reply.message ?? failure_reply.error}`;
+    }
+    return { ok: false, exit_code: 1, message: `Error: ${message}` };
+}
+
 export async function connect_to_stata(deps: ConnectDeps): Promise<ConnectResult> {
+    try {
+        return await connect_and_set_up(deps);
+    } finally {
+        deps.on_stage('done');
+    }
+}
+
+async function connect_and_set_up(deps: ConnectDeps): Promise<ConnectResult> {
     const bridge = deps.bridge;
-
-    // Steps 1-3: decide with the user, connect, and re-decide if the
-    // set of open Stata windows changed meanwhile.
-    let consented: StataProcess[] = [];
-    let before: StataProcess[] = [];
-    let after: StataProcess[] = [];
-    for (;;) {
-        let waiting_said = false;
-        const listing = await bridge.request('list_stata', { strict: true, acquire: true, root: deps.root }, {
-            on_event: () => {
-                if (!waiting_said) {
-                    waiting_said = true;
-                    deps.say('Another sight console is connecting; waiting. Ctrl+C cancels.');
-                }
-            },
-        });
-        if (!listing.ok) {
-            return failure(listing, 'could not list Stata processes');
-        }
-        // The listing leaves out Statas other consoles own (their pid
-        // files), so `open` counts only the user's own windows.
-        const open = as_processes(listing.value.processes);
-        if (open.length >= 2 && deps.yes) {
-            // Nobody would see that Sight can't choose which one.
-            return {
-                ok: false,
-                exit_code: EXIT_SEVERAL_STATA_OPEN,
-                message: `${open.length} Stata windows that no sight console owns are open, and `
-                    + 'with --yes sight console won\'t take over one it can\'t choose. Close all '
-                    + 'but the one to use, or all of them for a new Stata, or run without --yes '
-                    + 'to be asked. Windows that other sight consoles own can stay open.',
-            };
-        }
-        consented = open;
-        if (consented.length > 0 && !deps.yes) {
-            const answer = await deps.ask({
-                kind: 'take_over',
-                text: take_over_text(consented),
-                allow_send_instead: deps.from_editor,
-                stata_count: consented.length,
-            });
-            if (deps.from_editor && answer === 'send') {
-                return { ok: false, exit_code: EXIT_SEND_FROM_EDITOR, message: null };
-            }
-            if (answer !== 'yes') {
-                return { ok: false, exit_code: EXIT_TAKEOVER_DECLINED, message: null };
-            }
-        }
-        const expect = consented.map((my_process) => my_process.pid);
-        const connected = await bridge.request('connect', { expect, root: deps.root }, {
-            slow_ms: CONNECT_SLOW_MS,
-            on_slow: () => deps.say('Waiting for Stata to answer. Ctrl+C cancels; if Stata has '
-                + 'already answered, that closes it.'),
-        });
-        if (!connected.ok) {
-            return failure(connected, 'could not connect to Stata');
-        }
-        if (connected.value.listing_changed === true) {
-            continue;
-        }
-        before = as_processes(connected.value.before);
-        after = as_processes(connected.value.after);
-        break;
-    }
-
-    // Step 4: work out which Stata answered.
-    const before_pids = new Set(before.map((my_process) => my_process.pid));
-    const consented_by_pid = new Map(
-        consented.map((my_process) => [my_process.pid, my_process])
-    );
-    const fresh = after.filter((my_process) => !before_pids.has(my_process.pid));
-    const only_fresh = fresh.length === 1 ? fresh[0] : undefined;
-    const only_consented = consented.length === 1 ? consented[0] : undefined;
-    let pid: number | null = null;
-    let unconsented: StataProcess | null = null;
-    let identified_unknown = false;
-    if (consented.length === 0 && only_fresh && only_fresh.com_started) {
-        pid = only_fresh.pid;
-    } else if (only_consented && fresh.length === 0) {
-        pid = only_consented.pid;
-    } else if (consented.length >= 2 && fresh.length === 0) {
-        // One of the consented Statas answered; step 6's title marker
-        // says which. If it can't, `pid` stays null and the console
-        // asks about "a Stata it couldn't identify".
-    } else if (consented.length > 0 && only_fresh && only_fresh.com_started) {
-        // COM started a new Stata, so every open one is held elsewhere.
-        const several = consented.length >= 2;
-        return {
-            ok: false,
-            exit_code: EXIT_STATA_HELD_ELSEWHERE,
-            message: several
-                ? 'The open Statas are in use by other programs (such as Jupyter); close '
-                    + 'those programs, or those Statas, and try again.'
-                : 'The open Stata is in use by another program (such as Jupyter); close that '
-                    + 'program, or that Stata, and try again.',
-        };
-    } else if (only_fresh) {
-        unconsented = only_fresh;
-        pid = only_fresh.pid;
-    } else {
-        identified_unknown = true;
-    }
-    if (pid !== null) {
-        await bridge.request('write_pid', { dir: deps.dir, pid });
-    }
-    const asked = new Set<number>();
-    const ask_after_the_fact = async (process: StataProcess | null): Promise<boolean> => {
-        if (process) {
-            asked.add(process.pid);
-        }
-        const what = process
-            ? `the Stata you just opened${process.title ? ` (${process.title})` : ''}`
-            : 'a Stata it couldn\'t identify';
-        const answer = await deps.ask({
-            kind: 'keep',
-            text: `sight console is now connected to ${what}. Keep using it here? It closes `
-                + 'when the console ends; answering no closes it now, so save your work in it '
-                + 'first if needed.',
-            allow_send_instead: false,
-        });
-        return answer === 'yes';
+    const cancelled: ConnectResult = {
+        ok: false, exit_code: CANCELLED_STATUS, message: null, cancelled: true,
     };
-    if (unconsented && !deps.yes && !await ask_after_the_fact(unconsented)) {
-        return { ok: false, exit_code: 0, message: 'Closed that Stata.' };
+
+    // Step 1: take turns with other consoles.
+    let waiting_said = false;
+    const listing = await bridge.request('list_stata', { strict: true, acquire: true, root: deps.root }, {
+        on_event: () => {
+            if (!waiting_said) {
+                waiting_said = true;
+                deps.say('Another sight console is connecting; waiting. Ctrl+C cancels.');
+            }
+        },
+    });
+    // A cancel here (or a forced one later) ended the bridge.
+    if (deps.is_cancelled() && (listing.ok || 'bridge_gone' in listing)) {
+        return cancelled;
+    }
+    if (!listing.ok) {
+        return failure(listing, 'could not list Stata processes');
     }
 
-    // Step 5: nothing is sent until Stata is free.
+    // Step 2: connect to a new Stata. From here a reference may exist.
+    deps.on_stage('graceful');
+    const connected = await bridge.request('connect', { root: deps.root }, {
+        slow_ms: CONNECT_SLOW_MS,
+        on_slow: () => deps.say('Waiting for Stata to start. Ctrl+C stops once Stata answers.'),
+    });
+    if (!connected.ok) {
+        if ('failure' in connected) {
+            return connect_failure(connected.failure);
+        }
+        return deps.is_cancelled() ? cancelled : failure(connected, 'could not connect to Stata');
+    }
+    const before = as_processes(connected.value.before);
+    const after = as_processes(connected.value.after);
+
+    // Step 3: nothing is sent until Stata is free. A failure that isn't
+    // Stata being gone leaves ownership unknown, and Stata is kept.
     const wait_started = Date.now();
     let wait_said = false;
+    let reachable = true;
     for (;;) {
         const reply = await bridge.request('is_free');
         if (!reply.ok) {
-            return failure(reply, 'Stata stopped answering');
+            if ('bridge_gone' in reply && deps.is_cancelled()) {
+                return cancelled;
+            }
+            if (is_server_gone(reply) || ('bridge_gone' in reply)) {
+                return failure(reply, 'Stata stopped answering');
+            }
+            reachable = false;
+            break;
         }
         if (reply.value.free === true) {
             break;
         }
         if (!wait_said && Date.now() - wait_started >= WAIT_NOTE_MS) {
             wait_said = true;
-            deps.say('Waiting for Stata to finish what it\'s doing (in its window). Ctrl+C ends '
-                + 'the console and closes Stata, including anything running.');
+            deps.say('Waiting for Stata to finish what it\'s doing (in its window). Pressing '
+                + 'Ctrl+C twice ends the console and closes Stata, including anything running.');
         }
         await deps.sleep(FREE_POLL_MS);
     }
 
-    // Step 6: mark the window and confirm the PID by its title.
+    // Step 4: mark the window, find it by its title, and identify it.
     const short = token8(deps.token);
-    const titled = await bridge.request('do_sync', {
-        cmd: `window manage maintitle "Stata - sight console ${short}"`,
-    }, { slow_ms: SETUP_SLOW_MS, on_slow: () => deps.say('Stata is slow to answer; waiting.') });
-    if (titled.ok && titled.value.rc === 0) {
-        const found = await bridge.request('title_pid', { token8: short });
-        const title_pid = found.ok && typeof found.value.pid === 'number' ? found.value.pid : null;
-        if (title_pid !== null && title_pid !== pid) {
-            pid = title_pid;
-            identified_unknown = false;
-            await bridge.request('write_pid', { dir: deps.dir, pid });
-            const taken = consented_by_pid.get(title_pid);
-            if (taken && consented.length >= 2) {
-                // The title marker replaced the window's title, so name
-                // the one taken by its title from before.
-                deps.say(`sight console took over ${describe_stata(taken)}; its title now `
-                    + `shows "sight console ${short}".`);
+    let titled: StataProcess | undefined;
+    if (reachable) {
+        const marked = await bridge.request('do_sync', {
+            cmd: `window manage maintitle "Stata - sight console ${short}"`,
+        }, { slow_ms: SETUP_SLOW_MS, on_slow: () => deps.say('Stata is slow to answer; waiting.') });
+        if (!marked.ok && 'bridge_gone' in marked) {
+            // Nothing holds Stata any more: there's no session to keep.
+            return deps.is_cancelled() ? cancelled : failure(marked, 'Stata stopped answering');
+        }
+        if (marked.ok && marked.value.rc === 0) {
+            const found = await bridge.request('title_pid', { token8: short });
+            if (!found.ok && 'bridge_gone' in found) {
+                return deps.is_cancelled() ? cancelled : failure(found, 'Stata stopped answering');
             }
-            if (!taken && !asked.has(title_pid) && !deps.yes) {
-                const known = after.find((my_process) => my_process.pid === title_pid) ?? null;
-                if (!await ask_after_the_fact(known)) {
-                    return { ok: false, exit_code: 0, message: 'Closed that Stata.' };
-                }
+            if (found.ok && typeof found.value.pid === 'number'
+                && typeof found.value.start === 'string') {
+                const key = identity(found.value.pid, found.value.start);
+                titled = after.find((my_process) => identity(my_process.pid, my_process.start) === key);
             }
         }
     }
-    if (pid === null || identified_unknown) {
-        // No reliable ownership marker: keep the mutex for the whole
-        // session, so another console can't claim this Stata.
-        if (!deps.yes && !await ask_after_the_fact(null)) {
-            return { ok: false, exit_code: 0, message: 'Closed that Stata.' };
+    const before_keys = new Set(before.map((my_process) => identity(my_process.pid, my_process.start)));
+    // Own: new since before the drain, and started by COM. Such a Stata
+    // registers one single-use factory and stays hidden until a client
+    // shows it; the console holds that factory's only object, so it
+    // can't hold anyone's work, even if another program's activation
+    // triggered its launch.
+    const own = titled !== undefined && titled.com_started
+        && !before_keys.has(identity(titled.pid, titled.start));
+    const pid = titled?.pid ?? null;
+    if (titled) {
+        await bridge.request('write_pid', { dir: deps.dir, pid: titled.pid });
+    }
+    if (!own) {
+        deps.say(titled
+            ? `sight console is connected to a Stata it didn't start`
+                + `${titled.title ? ` (${titled.title})` : ''}. It closes when the console `
+                + 'ends, so save your work in it first if needed.'
+            : 'sight console couldn\'t confirm which Stata window it is connected to. That '
+                + 'Stata closes when the console ends, so save any work in it first if needed.');
+    }
+    await bridge.request('release_mutex');
+    if (deps.is_cancelled()) {
+        if (own) {
+            return cancelled;
         }
-    } else {
-        await bridge.request('release_mutex');
+        deps.say('Ctrl+C came while connecting, but this Stata wasn\'t started by the console, '
+            + 'so it was kept; type exit to end the console.');
     }
 
-    // Step 7: setup. A failure keeps the console up without output.
+    // Step 5: setup. A failure keeps the console up without output.
     const short_dir = await bridge.request('short_path', { path: deps.dir });
     const dir_path = short_dir.ok && typeof short_dir.value.path === 'string'
         ? short_dir.value.path
@@ -329,7 +296,7 @@ export async function connect_to_stata(deps: ConnectDeps): Promise<ConnectResult
         deps.say(`Warning: the log path ${log_path} can't be passed to Stata; set `
             + 'SIGHT_CONSOLE_TMPDIR to a plain ASCII directory. Output will show only in the '
             + 'Stata window.');
-        return { ok: true, log_path, start_size: 0, pid, log_rc: -1, has_vview: false };
+        return finish(deps, own, { ok: true, log_path, start_size: 0, pid, log_rc: -1, has_vview: false });
     }
     const linesize = Math.min(255, Math.max(40, deps.columns));
     const setup = [
@@ -353,7 +320,7 @@ export async function connect_to_stata(deps: ConnectDeps): Promise<ConnectResult
         }
     }
 
-    // Step 8: show the window; tail from where setup left the log.
+    // Step 6: show the window; tail from where setup left the log.
     await bridge.request('show');
     await deps.sleep(SETUP_SETTLE_MS);
     let start_size = 0;
@@ -362,7 +329,15 @@ export async function connect_to_stata(deps: ConnectDeps): Promise<ConnectResult
     } catch {
         start_size = 0;
     }
-    return { ok: true, log_path, start_size, pid, log_rc, has_vview };
+    return finish(deps, own, { ok: true, log_path, start_size, pid, log_rc, has_vview });
+}
+
+/** A cancel during setup ends only the console's own new Stata. */
+function finish(deps: ConnectDeps, own: boolean, result: ConnectResult): ConnectResult {
+    if (own && deps.is_cancelled()) {
+        return { ok: false, exit_code: CANCELLED_STATUS, message: null, cancelled: true };
+    }
+    return result;
 }
 
 /** Fails (r(111)) unless Sight's `vview` is on the ado-path. */

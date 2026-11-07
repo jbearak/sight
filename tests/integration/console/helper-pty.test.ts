@@ -375,7 +375,6 @@ describe_helper('editor console over sight-pty', () => {
             },
             columns: () => 80,
             rows: () => 24,
-            ask: async () => 'no',
             env: { ...process.env, FAKE_STATA_MODE: 'raw', NO_COLOR: '1', TERM: '' },
             working_directory: BUILD_DIR,
             pty: { helper_path: HELPER, stata_path },
@@ -409,7 +408,6 @@ describe_helper('editor console over sight-pty', () => {
             },
             columns: () => 80,
             rows: () => 24,
-            ask: async () => 'no',
             env: process.env,
             pty: { helper_path: path.join(BUILD_DIR, 'missing-helper'), stata_path: FAKE_STATA },
         });

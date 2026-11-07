@@ -834,11 +834,6 @@ interface FakeConsole {
     done: Deferred<ConsoleEndResult>;
     host: {
         write(text: string): void;
-        ask(question: {
-            kind: 'take_over' | 'keep';
-            text: string;
-            allow_send_instead: boolean;
-        }): Promise<'yes' | 'no' | 'send'>;
         pty?: { helper_path: string; stata_path: string };
     };
 }
@@ -1170,51 +1165,6 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
         expect(fake.the_inputs).toEqual([`do ${wrap(my_file)}\r`]);
     });
 
-    test('the console\'s questions are modal dialogs', async () => {
-        const harness = await create_console_harness();
-        await harness.terminal_manager.send_to_stata_terminal(
-            'do', await create_tracked_send_file('a.do')
-        );
-        const fake = await console_started(harness);
-
-        const take_over = fake.host.ask({
-            kind: 'take_over',
-            text: 'sight console will take over the open Stata.',
-            allow_send_instead: true,
-        });
-        const call = harness.vscode_state.the_warning_calls[0];
-        expect(call.modal).toBe(true);
-        expect(call.the_items).toEqual([
-            'Take over', 'Send code to it instead',
-        ]);
-        call.answer.resolve('Send code to it instead');
-        expect(await take_over).toBe('send');
-
-        // With several open, send-to-stata picks one too.
-        const take_one = fake.host.ask({
-            kind: 'take_over',
-            text: 'sight console will take over one of the 2 open Statas.',
-            allow_send_instead: true,
-            stata_count: 2,
-        });
-        const several_call = harness.vscode_state.the_warning_calls[1];
-        expect(several_call.the_items).toEqual([
-            'Take over', 'Send code to one of them instead',
-        ]);
-        several_call.answer.resolve('Send code to one of them instead');
-        expect(await take_one).toBe('send');
-
-        const keep = fake.host.ask({
-            kind: 'keep', text: 'Keep using it here?',
-            allow_send_instead: false,
-        });
-        const keep_call = harness.vscode_state.the_warning_calls[2];
-        expect(keep_call.the_items).toEqual(['Keep using it']);
-        // Dismissing a modal (Cancel) counts as no.
-        keep_call.answer.resolve(undefined);
-        expect(await keep).toBe('no');
-    });
-
     test('integrated resolves to the pane, with no warning', async () => {
         const { vscode_state, commands_module } =
             await create_console_harness();
@@ -1260,10 +1210,10 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
             await terminal_manager.send_to_stata_terminal('do', my_file);
         }
 
-        await end_console(harness, 80);
+        await end_console(harness, 84);
         expect(vscode_state.the_warning_calls).toHaveLength(1);
         const offer = vscode_state.the_warning_calls[0];
-        expect(offer.message).toContain('several Stata windows are open');
+        expect(offer.message).toContain("Automation isn't registered");
         expect(offer.the_items).toEqual([
             'This session', 'Always', 'Cancel',
         ]);
@@ -1310,7 +1260,7 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
             'do', await create_tracked_send_file('a.do')
         );
 
-        await end_console(harness, 81);
+        await end_console(harness, 84);
         vscode_state.the_warning_calls[0].answer.resolve('Always');
         await wait_until(
             () => vscode_state.the_app_dispatches.length === 1,
@@ -1335,7 +1285,7 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
             'do', await create_tracked_send_file('a.do')
         );
 
-        await end_console(harness, 81);
+        await end_console(harness, 84);
         vscode_state.the_warning_calls[0].answer.resolve('Always');
         await wait_until(
             () => vscode_state.the_app_dispatches.length === 1,
@@ -1357,7 +1307,7 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
         const my_file = await create_tracked_send_file('a.do');
         await terminal_manager.send_to_stata_terminal('do', my_file);
 
-        await end_console(harness, 80);
+        await end_console(harness, 84);
         vscode_state.the_warning_calls[0].answer.resolve('Cancel');
         await wait_until(
             () => !fs.existsSync(my_file),
@@ -1375,24 +1325,6 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
         expect(vscode_state.create_terminal_calls).toBe(2);
     });
 
-    test('code 82 dispatches at once without asking', async () => {
-        const harness = await create_console_harness();
-        const { vscode_state, terminal_manager } = harness;
-        await terminal_manager.send_to_stata_terminal(
-            'do', await create_tracked_send_file('a.do')
-        );
-
-        await end_console(harness, 82);
-        await wait_until(
-            () => vscode_state.the_app_dispatches.length === 1,
-            'the send to reach the app',
-            2000
-        );
-        expect(vscode_state.the_warning_calls).toEqual([]);
-        expect(terminal_manager.is_console_session_override_set())
-            .toBe(true);
-    });
-
     test('a helper failure during dispatch shows the error and drops the rest', async () => {
         const harness = await create_console_harness();
         const { vscode_state, terminal_manager } = harness;
@@ -1402,7 +1334,8 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
         await terminal_manager.send_to_stata_terminal('do', second);
         vscode_state.the_failing_app_paths.add(first);
 
-        await end_console(harness, 82);
+        await end_console(harness, 84);
+        vscode_state.the_warning_calls[0].answer.resolve('This session');
         await wait_until(
             () => !fs.existsSync(first) && !fs.existsSync(second),
             'both temp files to be deleted',
@@ -1464,7 +1397,7 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
 
         // Readiness or an end reported after the close changes nothing.
         fake.ready.resolve(true);
-        fake.done.resolve({ code: 81, took_stata: false });
+        fake.done.resolve({ code: 84, took_stata: false });
         await new Promise(resolve => setTimeout(resolve, 10));
         expect(fake.the_inputs).toEqual([]);
         expect(vscode_state.the_warning_calls).toEqual([]);
@@ -1573,12 +1506,13 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
 
         expect(vscode_state.the_error_messages).toEqual([]);
         expect(vscode_state.create_terminal_calls).toBe(1);
-        // However long the take-over question takes, the queued file
-        // has no cleanup scheduled.
+        // However long connecting takes, the queued file has no cleanup
+        // scheduled.
         expect(vscode_state.the_cleanups).toEqual([]);
         expect(vscode_state.status_item?.text).toContain('1 send');
 
-        await end_console(harness, 82);
+        await end_console(harness, 84);
+        vscode_state.the_warning_calls[0].answer.resolve('This session');
         await wait_until(
             () => vscode_state.the_cleanups.length === 1,
             'the dispatched send to be scheduled for cleanup',
@@ -1684,7 +1618,7 @@ describe.serial('Feature: Stata pane running sight console on macOS and Linux', 
         const harness = await create_console_harness(60000, HELPER_PATH);
         const first = await create_tracked_send_file('first');
         await harness.terminal_manager.send_to_stata_terminal('do', first);
-        await end_console(harness, 81);
+        await end_console(harness, 84);
         await wait_until(
             () => harness.vscode_state.the_info_messages.length > 0,
             'the drop notice',

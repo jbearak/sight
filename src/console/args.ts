@@ -9,7 +9,10 @@ export interface ConsoleArgs {
     color_output: ColorOutputMode;
     history: boolean;
     stata_echoes: boolean;
-    /** Windows: take over an open Stata without asking. */
+    /**
+     * Accepted for older scripts; no effect. It answered the Windows
+     * take-over question, which no longer exists.
+     */
     yes: boolean;
     help: boolean;
     /** Arguments passed to Stata. */
@@ -127,7 +130,7 @@ OPTIONS:
     --no-color              Same as --color-output off
     --no-history            Don't read or write the history file
     --stata-echoes          Stata echoes input itself; show it only once
-    -y, --yes               Windows: take over an open Stata without asking
+    -y, --yes               Accepted for older scripts; no effect
     -h, --help              Show this help
 
 STATA_ARGS default to "-q". Arguments after "--" replace them.

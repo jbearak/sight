@@ -102,7 +102,6 @@ async function run_windows_console(
     return run_automation_console({
         color_output: env.NO_COLOR ? 'off' : args.color_output,
         history: args.history,
-        yes: args.yes,
         env,
     });
 }

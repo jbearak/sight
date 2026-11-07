@@ -50,7 +50,7 @@ sight console [OPTIONS] [-- STATA_ARGS...]
 | `--no-color` | Same as `--color-output off` |
 | `--no-history` | Don't read or write the history file |
 | `--stata-echoes` | Stata echoes input itself; show each line once |
-| `-y`, `--yes` | Windows: take over an open Stata without asking (not when several are open) |
+| `-y`, `--yes` | Accepted for older scripts; no effect |
 
 Stata starts with `-q` (no banner). Arguments after `--` replace that,
 for example `sight console -- -q -b`. `NO_COLOR` turns colors off.
@@ -180,37 +180,65 @@ Register Stata's Automation interface once: open a command prompt as
 administrator in your Stata folder and run, for example,
 `StataMP-64.exe /Register`. The console uses whichever Stata edition is
 registered; `--stata` doesn't apply on Windows. It runs a small helper
-script with Windows PowerShell, which managed machines sometimes block.
+script with Windows PowerShell (the one included with Windows), which
+compiles a small COM helper when the console starts; managed machines
+sometimes block either.
 
 ### Which Stata it uses
 
-A Stata that another sight console owns doesn't count as open below:
-each console has its own Stata, so you can run several consoles at
-once, each in its own Stata window.
+The console starts a Stata of its own, in a new window, and never takes
+over a Stata you already have open. So you can run several consoles at
+once, each in its own Stata window, next to Statas you opened yourself.
 
-- No Stata open: the console starts one.
-- One Stata open: the console asks before taking it over. A taken-over
-  Stata belongs to the console from then on. `--yes` skips the question.
-- Two or more open: the console asks whether to take over one of them,
-  and says that it can't choose which: Windows hands out one of them,
-  and Sight has no say in which. After connecting, it names the one it
-  took (if it can't tell, it asks whether to keep it). With `--yes` it
-  won't start instead; close all but the one to use, or all of them.
-- The open Stata is in use by another program (such as Jupyter's
-  stata_kernel): the console won't start.
+Stata's Automation interface would normally hand a new client an open
+Stata that no program is using. To prevent that, the console first
+takes those Statas out of Automation's hands; their windows keep
+running with their data, untouched. Until you close them, other
+Automation programs (such as Jupyter's stata_kernel in Automation mode,
+or a script using `CreateObject`) get a new Stata instead of one of
+those windows, which is what Stata's documentation says Automation does
+anyway. Statas that another program already uses are left alone and
+keep working.
+
+There is no way to connect the console to a Stata that is already open,
+for example one with data loaded. In VS Code, send-to-stata sends code
+to an open Stata window instead (see
+[Send to Stata](send-to-stata.md)); in a terminal, load the data in the
+console's Stata.
 
 The console's Stata shows `sight console` and a short code in its title.
-If you open a Stata in the second or so while the console connects, the
-console may get that one instead; it then asks whether to keep using it.
+If you open a Stata in the second or so while the console connects, or
+one you started just before hasn't finished starting, the console may
+get that one instead. It then says so: that Stata closes when the
+console ends, so save your work in it first. If the console can't tell
+which window it got, it says that too.
+
+The console doesn't start in these cases, and leaves open Statas
+running:
+
+- Stata's Automation registration runs Stata as another user, as a
+  service or on another machine (exit code 87). The console can't be
+  sure there that an open Stata isn't handed to it.
+- Something unexpected happens while it takes open Statas out of
+  Automation's hands. The ones it took stay open, but other Automation
+  programs can no longer use them.
 
 ### When the console ends
 
 **The console's Stata closes when the console ends**, with any unsaved
 data, as when you close a terminal running console Stata on macOS or
-Linux. That includes a Stata you let it take over. Type `exit` (or press
-Ctrl+D) to quit as usual; Stata refuses if data in memory changed, and
-`exit, clear` quits anyway. Closing the Stata window also ends the
-console.
+Linux. Type `exit` (or press Ctrl+D) to quit as usual; Stata refuses if
+data in memory changed, and `exit, clear` quits anyway. Closing the
+Stata window also ends the console.
+
+Ctrl+C while the console is starting stops it. Once it has asked Stata
+to start, it first waits until Stata answers, so that it can close only
+a Stata it started (one you opened in that moment stays open, and the
+console then starts as usual). Press Ctrl+C again to stop at once; the
+console's Stata may then keep running without a window. If so, end it
+in Task Manager (a `StataMP-64.exe`, or your edition's, with no
+window). The same can happen if the console crashes after a
+Stata it couldn't identify started.
 
 ### Limits on Windows
 
@@ -240,22 +268,22 @@ console.
 
 ### Exit codes on Windows
 
-When the console doesn't take Stata, it exits with a code editors can act
-on (Sight's VS Code extension offers to send code to the open Stata
-window instead):
+When the console doesn't get Stata, it exits with a code editors can act
+on (Sight's VS Code extension offers to send code to the Stata window
+instead):
 
 | Code | Meaning |
 |---|---|
-| 80 | With `--yes`, two or more Stata windows are open that no other sight console owns |
-| 81 | You declined to let the console take over the open Stata |
-| 82 | You chose to send code from the editor instead (`s`, only when started by the editor) |
-| 83 | The open Stata is in use by another program |
 | 84 | Stata's Automation interface isn't registered |
 | 85 | PowerShell couldn't run the console's helper (a security policy) |
 | 86 | The terminal doesn't support raw input |
+| 87 | Stata's Automation registration has a setting the console doesn't support |
+
+Codes 80 to 83 are no longer used: they were the cases where the console
+took over an open Stata, which it no longer does.
 
 The VS Code extension's pane gets the same results directly, without
-exit codes, and offers send-to-stata for 80-85.
+exit codes, and offers send-to-stata for 84, 85 and 87.
 
 ## See also
 
