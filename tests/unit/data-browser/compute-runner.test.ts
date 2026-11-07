@@ -15,6 +15,7 @@ import type {
     ComputeJob,
     OrderResult,
 } from '../../../client/src/data-browser/compute-jobs';
+import { STUCK_ENTRY_ID } from './stuck-compute-worker';
 
 // The step worker runs from source here: Bun loads TypeScript workers.
 const WORKER_PATH = path.resolve(
@@ -22,18 +23,24 @@ const WORKER_PATH = path.resolve(
     '../../../client/src/data-browser/compute-worker.ts'
 );
 
-// A district regex that backtracks exponentially on every row (the
-// benchmark's catastrophic case): it never finishes on 100k rows.
+// Runs real jobs in compute-worker.ts, but spins forever on
+// STUCK_FILTER, so a stuck job never finishes on any engine.
+const STUCK_WORKER_PATH = path.resolve(
+    import.meta.dir,
+    'stuck-compute-worker.ts'
+);
+
+// A filter the stuck worker never finishes. The predicate is never run.
 const STUCK_FILTER: ComputeJob = {
     kind: 'order',
     sort: null,
     filter: {
         entries: [{
-            id: 'f1',
+            id: STUCK_ENTRY_ID,
             col_index: 8,
             predicate: {
-                kind: 'strRegex',
-                pattern: '^([a-z_]+\\d?)+!$',
+                kind: 'strStartsWith',
+                value: 'district_',
                 case_sensitive: true,
             },
             enabled: true,
@@ -70,7 +77,7 @@ afterAll(() => {
 
 function make_runner(deadline_ms?: number): WorkerComputeRunner {
     return new WorkerComputeRunner({
-        script_path: WORKER_PATH,
+        script_path: STUCK_WORKER_PATH,
         fd: the_fd,
         identity: file_identity(fs.fstatSync(the_fd)),
         deadline_ms,
@@ -117,7 +124,11 @@ describe('WorkerComputeRunner', () => {
             expect(my_file.variables[8].name).toBe('district');
             const my_expected = await new InProcessComputeRunner(my_file)
                 .run(SORT_INCOME, 'transform') as OrderResult;
-            const my_runner = make_runner();
+            const my_runner = new WorkerComputeRunner({
+                script_path: WORKER_PATH,
+                fd: the_fd,
+                identity: file_identity(fs.fstatSync(the_fd)),
+            });
             const my_actual = await my_runner.run(
                 SORT_INCOME,
                 'transform'
@@ -132,7 +143,7 @@ describe('WorkerComputeRunner', () => {
         }
     });
 
-    it('stops a stuck regex at once on abort and keeps working', async () => {
+    it('stops a stuck job at once on abort and keeps working', async () => {
         const my_runner = make_runner();
         const my_abort = new AbortController();
         const my_stuck = my_runner.run(
@@ -185,7 +196,7 @@ describe('WorkerComputeRunner', () => {
     it('runs at most two jobs per pool; a third waits', async () => {
         let my_spawns = 0;
         const my_runner = new WorkerComputeRunner({
-            script_path: WORKER_PATH,
+            script_path: STUCK_WORKER_PATH,
             fd: the_fd,
             identity: file_identity(fs.fstatSync(the_fd)),
             on_spawn: () => { my_spawns++; },
