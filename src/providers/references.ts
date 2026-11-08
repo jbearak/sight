@@ -53,6 +53,56 @@ export function line_within_scan_range(
     return line <= range.scan_through_line;
 }
 
+/**
+ * Factor-variable and time-series operator words that the lexer emits
+ * directly before a `.name` WORD: `i`, `c`, `ib3`, `ibn`, `bn` (after
+ * a level number such as `2bn.x`), `io2`, `L2`, `LD`. Time-series
+ * operators may be typed in either case in Stata; factor operators are
+ * lowercase only.
+ */
+const FACTOR_OPERATOR_PATTERN = /^[0-9icobnLFDSlfds]+$/;
+
+/**
+ * `.a` through `.z` lex as NUMBER (extended missing values), so the
+ * `.x` in `i.x` arrives as a NUMBER rather than a WORD.
+ */
+const EXTENDED_MISSING_PATTERN = /^\.[a-z]$/;
+
+/**
+ * Whether `tokens[index]` is the `.name` half of an operator-prefixed
+ * variable. The lexer splits `i.foo` into WORD `i` and WORD `.foo`,
+ * `ib(first).foo` into `ib ( first )` and `.foo`, and `_b[2.foo]` into
+ * NUMBER `2` and `.foo`. Go-to-definition reads `foo` out of `.foo` by
+ * identifier characters; find-references needs the same name. The
+ * operator must touch the dot, so `save results.dta` does not count as
+ * a use of a variable named `dta`.
+ */
+function is_operator_prefixed_name(tokens: Token[], index: number): boolean {
+    const token = tokens[index];
+    const is_dotted_name = token.type === 'WORD'
+        ? token.value.length >= 2 && token.value[0] === '.'
+        : token.type === 'NUMBER' &&
+            EXTENDED_MISSING_PATTERN.test(token.value);
+    if (!is_dotted_name) return false;
+    const previous = tokens[index - 1];
+    if (!previous) return false;
+    if (
+        previous.range.end.line !== token.range.start.line ||
+        previous.range.end.character !== token.range.start.character
+    ) {
+        return false;
+    }
+    switch (previous.type) {
+        case 'NUMBER':
+        case 'RPAREN':
+            return true;
+        case 'WORD':
+            return FACTOR_OPERATOR_PATTERN.test(previous.value);
+        default:
+            return false;
+    }
+}
+
 export interface TokenMatch {
     uri: string;
     range: Range;
@@ -145,6 +195,9 @@ export class ReferencesProvider {
 
             const token = tokens[i];
             let token_name: string | null = null;
+            // Characters between the token start and the name, for
+            // `.foo` in `i.foo` where the match is `foo` alone.
+            let name_offset = 0;
 
             // Extract name based on token type and search context
             switch (search_context.symbol_type) {
@@ -158,8 +211,15 @@ export class ReferencesProvider {
                         token_name = this.extract_global_macro_name(token.value);
                     }
                     break;
-                case 'program':
                 case 'variable':
+                    if (is_operator_prefixed_name(tokens, i)) {
+                        token_name = token.value.slice(1);
+                        name_offset = 1;
+                    } else if (token.type === 'WORD') {
+                        token_name = token.value;
+                    }
+                    break;
+                case 'program':
                 case 'scalar':
                 case 'matrix':
                     if (token.type === 'WORD') {
@@ -175,10 +235,17 @@ export class ReferencesProvider {
                     continue;
                 }
                 
-                matches.push({
-                    uri,
-                    range: token.range
-                });
+                const range = name_offset === 0
+                    ? token.range
+                    : {
+                        start: {
+                            line: token.range.start.line,
+                            character:
+                                token.range.start.character + name_offset,
+                        },
+                        end: token.range.end,
+                    };
+                matches.push({ uri, range });
             }
         }
 
@@ -747,7 +814,8 @@ export class ReferencesProvider {
                 ? document.token_line_index.get(position.line)
                 : document.tokens;
         if (the_tokens_to_check) {
-            for (const my_token of the_tokens_to_check) {
+            for (let i = 0; i < the_tokens_to_check.length; i++) {
+                const my_token = the_tokens_to_check[i];
                 if (this.position_in_range(position, my_token.range)) {
                     switch (my_token.type) {
                         case 'MACRO_REF_LOCAL':
@@ -756,6 +824,13 @@ export class ReferencesProvider {
                             return { name: word, type: 'global_macro', range };
                         case 'WORD':
                             return await this.classify_word_symbol(word, range, document, workspace_indexer, cross_file_config, cancellation_token);
+                        case 'NUMBER':
+                            // `.x` in `i.x` lexes as an extended
+                            // missing value; treat it as the name.
+                            if (is_operator_prefixed_name(the_tokens_to_check, i)) {
+                                return await this.classify_word_symbol(word, range, document, workspace_indexer, cross_file_config, cancellation_token);
+                            }
+                            break;
                     }
                 }
             }
