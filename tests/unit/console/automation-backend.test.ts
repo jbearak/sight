@@ -80,6 +80,8 @@ class FakeBridge implements Bridge {
     breaks = 0;
     timeouts = false;
     gone_hresult: string | null = null;
+    /** If set, `do_async` waits for this reply. */
+    do_async_reply: Promise<BridgeReply> | null = null;
     closed = false;
     private end_bridge: (text: string) => void = () => undefined;
     readonly ended = new Promise<string>((resolve) => {
@@ -100,7 +102,7 @@ class FakeBridge implements Bridge {
                 return Promise.resolve({ ok: true, value: { free: this.free } });
             case 'do_async':
                 this.commands.push(String(params.cmd));
-                return Promise.resolve({ ok: true, value: {} });
+                return this.do_async_reply ?? Promise.resolve({ ok: true, value: {} });
             case 'break':
                 this.breaks++;
                 return Promise.resolve({ ok: true, value: {} });
@@ -221,6 +223,39 @@ describe('AutomationBackend', () => {
         expect(the_reports).toEqual(['sent']);
     });
 
+    it('reports a line sent only once Stata accepts it', async () => {
+        const { backend, bridge, advance } = setup();
+        const the_reports: string[] = [];
+        let reply: (value: BridgeReply) => void = () => undefined;
+        bridge.do_async_reply = new Promise<BridgeReply>((resolve) => {
+            reply = resolve;
+        });
+        backend.submit_line('do "a.do"', true, (sent) => {
+            the_reports.push(sent ? 'sent' : 'dropped');
+        });
+        await advance(10);
+        expect(bridge.commands).toEqual(['do "a.do"']);
+        // The helper is blocked: Stata may not have the line yet.
+        expect(the_reports).toEqual([]);
+        reply({ ok: false, bridge_gone: true });
+        await advance(10);
+        expect(the_reports).toEqual(['dropped']);
+    });
+
+    it('shows a partial line that grows across polls whole', async () => {
+        const { backend, bridge, log, advance, screen } = setup();
+        bridge.free = false;
+        backend.submit_line('display 1', true);
+        log.append('. display 1\nA');
+        await advance(400);
+        expect(screen().endsWith('A')).toBe(true);
+        log.append('B');
+        await advance(100);
+        log.append('C\n');
+        await advance(100);
+        expect(screen()).toContain('ABC\r\n');
+    });
+
     it('reports queued lines dropped by Ctrl+C or the end of the session', async () => {
         const { backend, bridge, advance } = setup();
         const the_reports: string[] = [];
@@ -232,14 +267,15 @@ describe('AutomationBackend', () => {
         backend.submit_line('display 2', false, report('second'));
         backend.interrupt();
         await advance(100);
-        expect(the_reports).toEqual(['first sent', 'second dropped']);
+        // The drop is at once; `first` is reported when Stata accepts it.
+        expect(the_reports).toEqual(['second dropped', 'first sent']);
         backend.submit_line('display 3', false, report('third'));
         const shutdown = backend.handle().lifecycle.shutdown('user');
         bridge.die();
         await shutdown;
         backend.submit_line('display 4', false, report('fourth'));
         expect(the_reports).toEqual([
-            'first sent', 'second dropped', 'third dropped', 'fourth dropped',
+            'second dropped', 'first sent', 'third dropped', 'fourth dropped',
         ]);
     });
 
