@@ -180,58 +180,72 @@ function make_default_fs(): RichResolveFs {
     };
 }
 
-type CachedOutcome<T> = { ok: true; value: T } | { ok: false; error: unknown };
+/**
+ * How long after a directory last changed its listing may be cached.
+ * A change within the same timestamp tick as an earlier read would not
+ * move the directory's timestamps, so a listing read this soon after a
+ * change is read again next time (as git treats "racily clean" files).
+ * Two seconds covers the coarsest common timestamp (FAT).
+ */
+const DEFAULT_LISTING_SETTLE_MS = 2000;
+
+interface CachedListing {
+    mtime_ns: bigint;
+    ctime_ns: bigint;
+    entries: ReturnType<RichResolveFs['readdirSync']>;
+}
 
 /**
- * A Node-backed `RichResolveFs` that answers each path once and then
- * from memory, failures included. Only for a run that treats the disk
- * as a fixed snapshot, such as `sight check`: every target re-resolves
- * the calls of the files above it, and each case-aware resolution lists
- * every directory on the path, so a large directory would otherwise be
- * listed once per call per target.
+ * A Node-backed `RichResolveFs` that reuses a directory's listing while
+ * the directory is unchanged, for `sight check`: every target resolves
+ * the calls of the files above it again, and each case-aware resolution
+ * lists every directory on its path, so a large directory would
+ * otherwise be listed once per call per target.
+ *
+ * Each reuse first reads the directory's timestamps, so a file created,
+ * removed or renamed in it since the last listing is seen at once, as
+ * with the plain Node `fs`. Existence and stat checks are not cached.
  */
-export function create_snapshot_resolve_fs(): RichResolveFs {
+export function create_listing_cache_resolve_fs(
+    options: { settle_ms?: number } = {},
+): RichResolveFs {
+    const settle_ns = BigInt(
+        options.settle_ms ?? DEFAULT_LISTING_SETTLE_MS) * 1_000_000n;
     const base = make_default_fs();
-    const the_listings = new Map<
-        string,
-        CachedOutcome<ReturnType<RichResolveFs['readdirSync']>>
-    >();
-    const the_stats = new Map<
-        string,
-        CachedOutcome<ReturnType<RichResolveFs['statSync']>>
-    >();
-    const the_existence = new Map<string, boolean>();
-    const remember = <T>(
-        the_cache: Map<string, CachedOutcome<T>>,
-        key: string,
-        read: () => T,
-    ): T => {
-        let outcome = the_cache.get(key);
-        if (outcome === undefined) {
-            try {
-                outcome = { ok: true, value: read() };
-            } catch (error) {
-                outcome = { ok: false, error };
-            }
-            the_cache.set(key, outcome);
-        }
-        if (!outcome.ok) {
-            throw outcome.error;
-        }
-        return outcome.value;
-    };
+    const the_listings = new Map<string, CachedListing>();
     return {
-        readdirSync: (p, opts) =>
-            remember(the_listings, p, () => base.readdirSync(p, opts)),
-        existsSync: (p) => {
-            let exists = the_existence.get(p);
-            if (exists === undefined) {
-                exists = base.existsSync(p);
-                the_existence.set(p, exists);
+        readdirSync: (p, opts) => {
+            let stat: node_fs.BigIntStats;
+            try {
+                stat = node_fs.statSync(p, { bigint: true });
+            } catch {
+                the_listings.delete(p);
+                return base.readdirSync(p, opts);
             }
-            return exists;
+            const cached = the_listings.get(p);
+            if (
+                cached !== undefined &&
+                cached.mtime_ns === stat.mtimeNs &&
+                cached.ctime_ns === stat.ctimeNs
+            ) {
+                return cached.entries;
+            }
+            const entries = base.readdirSync(p, opts);
+            const read_ns = BigInt(Date.now()) * 1_000_000n;
+            if (read_ns - stat.mtimeNs >= settle_ns &&
+                read_ns - stat.ctimeNs >= settle_ns) {
+                the_listings.set(p, {
+                    mtime_ns: stat.mtimeNs,
+                    ctime_ns: stat.ctimeNs,
+                    entries,
+                });
+            } else {
+                the_listings.delete(p);
+            }
+            return entries;
         },
-        statSync: (p) => remember(the_stats, p, () => base.statSync(p)),
+        existsSync: base.existsSync,
+        statSync: base.statSync,
     };
 }
 

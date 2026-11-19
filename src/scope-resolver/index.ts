@@ -249,7 +249,11 @@ export class ScopeResolver {
     // the result is too, so the repeat (a case-aware path walk per
     // parent) is skipped. Any other registration drops the entry, and
     // reset_reverse_deps (paired with a graph reset) clears them all.
-    private auto_registration_keys = new Map<string, string>();
+    // Only `sight check` turns this on (enable_auto_registration_reuse):
+    // the walk also depends on the parents' spelling on disk, which a
+    // rename can change without a graph update until the language
+    // server's watcher reports it.
+    private auto_registration_keys?: Map<string, string>;
     private content_provider: ContentProvider;
     private workspace_roots: string[] = [];
     private dependency_graph?: import('../dependency-graph').DependencyGraph;
@@ -346,18 +350,27 @@ export class ScopeResolver {
         // matching how DependencyGraph and ForwardScopeResolver store them.
         this.workspace_roots = workspace_roots.map(r => path.resolve(r));
         // Parent paths resolve against the roots.
-        this.auto_registration_keys.clear();
+        this.auto_registration_keys?.clear();
     }
 
     /**
      * Inject a filesystem implementation for `resolve_path_rich`.
-     * Tests inject fakes; `sight check` injects a snapshot cache. The
+     * Tests inject fakes; `sight check` injects a listing cache. The
      * language server leaves it undefined so the real Node `fs` is used.
      */
     set_resolve_fs(injected_fs: RichResolveFs): void {
         this.resolve_fs = injected_fs;
         // Parent paths resolve through it.
-        this.auto_registration_keys.clear();
+        this.auto_registration_keys?.clear();
+    }
+
+    /**
+     * Skip re-registering a file whose parents all come from the
+     * dependency graph while the graph's version is unchanged. For
+     * `sight check`, which has no file watcher and reads each file once.
+     */
+    enable_auto_registration_reuse(): void {
+        this.auto_registration_keys ??= new Map();
     }
 
     /**
@@ -374,7 +387,7 @@ export class ScopeResolver {
     set_dependency_graph(graph: import('../dependency-graph').DependencyGraph): void {
         this.dependency_graph = graph;
         // Versions are per graph; keys from another graph mean nothing.
-        this.auto_registration_keys.clear();
+        this.auto_registration_keys?.clear();
     }
 
     /**
@@ -1242,6 +1255,26 @@ export class ScopeResolver {
         let forward_call_symbols: import('../types').ForwardCallSite[] | undefined;
         const effective_working_directory = own_working_directory ?? inherited_working_directory;
 
+        // Forward directives (`sight: do`) resolve against the file's own
+        // directory, or one it inherits through `sight: done-by` /
+        // `included-by`, never one inherited from a caller the dependency
+        // graph found (docs/cross-file.md, Working Directory), as in
+        // `sight graph`. A directive call with no directory falls back to
+        // the frame's, so stamp the file's own directory on it.
+        let the_forward_calls = my_parse_result.forward_calls;
+        if (
+            has_auto_parents &&
+            own_working_directory === undefined &&
+            inherited_working_directory !== undefined
+        ) {
+            const my_own_dir = path.dirname(URI.parse(file_uri).fsPath);
+            the_forward_calls = the_forward_calls.map(my_call =>
+                my_call.source === 'directive' &&
+                my_call.working_directory === undefined
+                    ? { ...my_call, working_directory: my_own_dir }
+                    : my_call);
+        }
+
         // Enter forward resolution when there are forward calls OR in-script
         // `cd` commands: the latter must run even with no do/run/include so a
         // lone `cd` with a casing/missing issue is still diagnosed (issue #252).
@@ -1250,7 +1283,7 @@ export class ScopeResolver {
              my_parse_result.cd_commands.length > 0)) {
             const forward_result = await this.forward_scope_resolver.resolve(
                 file_uri,
-                my_parse_result.forward_calls,
+                the_forward_calls,
                 'include', // Current file has full access to forward call symbols
                 {
                     visited: new Map(),
@@ -3638,7 +3671,7 @@ export class ScopeResolver {
         this.reverse_deps.interface_hashes.clear();
         this.reverse_deps.last_forward_calls.clear();
         this.backward_directive_children.clear();
-        this.auto_registration_keys.clear();
+        this.auto_registration_keys?.clear();
     }
 
     /**
@@ -3839,6 +3872,7 @@ export class ScopeResolver {
         // 'auto' mode from the dependency graph alone, so while the
         // graph's version is unchanged so is the registration.
         const registration_key =
+            this.auto_registration_keys !== undefined &&
             !is_standalone &&
             raw_directives.length === 0 &&
             (my_config.backward_dependencies ?? 'auto') === 'auto' &&
@@ -3847,7 +3881,7 @@ export class ScopeResolver {
                 : undefined;
         if (
             registration_key !== undefined &&
-            this.auto_registration_keys.get(child_uri) === registration_key
+            this.auto_registration_keys?.get(child_uri) === registration_key
         ) {
             return;
         }
@@ -3858,7 +3892,7 @@ export class ScopeResolver {
         const normalized = this.normalize_directives(effective_directives, []);
         this.apply_normalized_backward_directives(child_uri, normalized);
         if (registration_key !== undefined) {
-            this.auto_registration_keys.set(child_uri, registration_key);
+            this.auto_registration_keys?.set(child_uri, registration_key);
         }
     }
 
@@ -4037,7 +4071,7 @@ export class ScopeResolver {
      * @param child_uri - The URI of the child file
      */
     clear_backward_directive_dependencies(child_uri: string): void {
-        this.auto_registration_keys.delete(child_uri);
+        this.auto_registration_keys?.delete(child_uri);
         // Remove this child from all parent entries
         for (const [parent_uri, children] of this.backward_directive_children) {
             if (children.has(child_uri)) {

@@ -28,6 +28,7 @@ import {
 } from '../utils/file-path-utils';
 import { resolve_working_directory_directive } from '../utils/workspace-roots';
 import {
+    merge_forward_calls,
     settle_inherited_working_directories,
     type WorkingDirectoryFacts,
 } from '../indexer/settle-working-directories';
@@ -490,6 +491,24 @@ export async function build_graph_document(options: {
         }),
     ];
 
+    // Register a file's calls, recording each callee's edge call.
+    const register = (facts: FileFacts): void => {
+        const the_calls = forward_calls_for(facts);
+        const the_command_calls = the_calls.filter(
+            my_call => my_call.source === 'command');
+        const the_directive_calls = the_calls.filter(
+            my_call => my_call.source !== 'command');
+        facts.first_calls = new Map();
+        dependency_graph.update_caller(
+            facts.uri,
+            merge_forward_calls(the_command_calls, the_directive_calls),
+            facts.first_calls,
+        );
+    };
+    // Parents come from the graph only in 'auto' mode, the default.
+    const auto_parents =
+        (scope_resolver_config.backward_dependencies ?? 'auto') === 'auto';
+
     for (const my_path of the_paths) {
         const caller = display_path(my_path);
         const read = read_source_file(my_path);
@@ -526,39 +545,55 @@ export async function build_graph_document(options: {
             my_path,
             caller,
             uri,
-            header: directives,
             command_calls: source.analysis.forward_calls,
             cd_commands: source.analysis.cd_commands,
             directives,
             arguments_by_range,
             own_working_directory,
             directive_working_directory,
+            has_backward_directives:
+                !is_standalone && directives.directives.length > 0,
+            inherits_from_callers: auto_parents &&
+                own_working_directory === undefined &&
+                !is_standalone && directives.directives.length === 0,
             working_directory: directive_working_directory,
+            first_calls: new Map(),
         };
-        dependency_graph.update_caller(uri, forward_calls_for(facts));
+        register(facts);
         the_facts.push(facts);
     }
 
     // The calls above used each file's own or explicitly inherited
     // working directory. Settle the directories files inherit from the
     // callers that reach them, by the same rule as the workspace index
-    // that `sight check` and the editor use.
-    await settle_inherited_working_directories({
-        the_facts,
-        scope_resolver,
-        config: scope_resolver_config,
-        register: (my_facts) => {
-            dependency_graph.update_caller(
-                my_facts.uri, forward_calls_for(my_facts));
-        },
-    });
+    // that `sight check` uses.
+    let the_blocked = new Map<string, string | undefined>();
+    if (auto_parents) {
+        the_blocked = settle_inherited_working_directories({
+            the_facts,
+            get_parents: (uri) => dependency_graph.get_parents(uri),
+            register,
+            max_backward_depth: scope_resolver_config.max_backward_depth,
+        });
+    }
 
     for (const my_facts of the_facts) {
         const { my_path, caller, directives } = my_facts;
         const caller_dir = path.dirname(my_path);
         const the_file_edges: GraphEdge[] = [];
 
-        for (const my_call of forward_calls_for(my_facts)) {
+        // A file whose walk passes through a call made after a literal
+        // `cd` passes no directory on, but is itself shown with the one
+        // `sight check` and the editor give it, the walk's.
+        let shown_facts = my_facts;
+        if (the_blocked.has(my_facts.uri)) {
+            const working_directory = the_blocked.get(my_facts.uri) ??
+                await scope_resolver.resolve_document_working_directory(
+                    my_facts.uri, directives, scope_resolver_config);
+            shown_facts = { ...my_facts, working_directory };
+        }
+
+        for (const my_call of forward_calls_for(shown_facts)) {
             let target: string | null = null;
             let resolution: Resolution = 'dynamic';
             if (is_resolvable_static_call(my_call)) {

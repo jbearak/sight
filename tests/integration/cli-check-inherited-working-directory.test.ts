@@ -215,4 +215,129 @@ describe('sight check — working directory inherited through do-chains', () => 
         });
         expect(result).toEqual({ check: [], graph: [], nested: [] });
     });
+
+    // After the review of the first version of this change: a literal
+    // `cd` moves the caller, and the backward walk an open file uses
+    // reads only the caller's `sight: cd`. A call made after the `cd`
+    // passes no directory on, so `check` keeps what it reported before.
+    it('gives an unreachable file no directory through a literal cd', async () => {
+        const result = await missing_calls({
+            'main.do': '// sight: cd "bad"\ncd "../good"\ndo sub/a.do\n',
+            'good/sub/a.do': 'do branch/b.do\n',
+            'good/branch/b.do': 'display 1\n',
+            'bad/branch/b.do': 'do lost.do\n',
+            'bad/lost.do': 'display 1\n',
+        });
+        expect(result).toEqual({
+            check: ['bad/branch/b.do:1'],
+            graph: ['bad/branch/b.do:1'],
+            nested: [],
+        });
+    });
+
+    it('does not resolve an unreachable file against a shadowing caller', async () => {
+        const result = await missing_calls({
+            'main.do': '// sight: cd bad\ncd "../good"\ndo sub/a.do\n',
+            'good/sub/a.do': 'do branch/b.do\n',
+            'good/branch/b.do': 'display 1\n',
+            'bad/branch/b.do': 'do lib.do\n',
+            'bad/branch/lib.do': 'display 1\n',
+            'bad/lib.do': 'do nowhere.do\n',
+        });
+        expect(result).toEqual({
+            check: ['bad/lib.do:1'],
+            graph: ['bad/lib.do:1'],
+            nested: ['good/sub/a.do:1'],
+        });
+    });
+
+    it('keeps a reachable file\'s missing call below a literal cd', async () => {
+        const result = await missing_calls({
+            'main.do': '// sight: cd "bad"\ncd "../good"\ndo sub/a.do\n',
+            'good/sub/a.do': 'do branch/b.do\n',
+            'good/branch/b.do': 'do lost.do\n',
+            'bad/lost.do': 'display 1\n',
+        });
+        expect(result.check).toContain('good/branch/b.do:1');
+        expect(result.graph).toContain('good/branch/b.do:1');
+    });
+
+    it('keeps the chain below a mid-chain literal cd as it was', async () => {
+        // a.do moves into work/sub before running b.do, so b.do runs
+        // there and work/lost.do is not its lost.do.
+        const result = await missing_calls({
+            'main.do': '// sight: cd work\ndo jobs/a.do\n',
+            'work/jobs/a.do': 'cd "../sub"\ndo b.do\n',
+            'work/sub/b.do': 'do lost.do\n',
+            'work/lost.do': 'display 1\n',
+        });
+        expect(result.check).toContain('work/sub/b.do:1');
+        expect(result.graph).toContain('work/sub/b.do:1');
+    });
+
+    it('resolves a forward directive from the file\'s own directory', async () => {
+        // b.do inherits `work` through do-calls, but `sight: do` resolves
+        // from b.do's own directory (docs/cross-file.md).
+        const result = await missing_calls({
+            'main.do': '// sight: cd work\ndo jobs/a.do\n',
+            'work/jobs/a.do': 'do jobs/b.do\n',
+            'work/jobs/b.do': '// sight: do missing.do\ndisplay 1\n',
+            'work/missing.do': 'display 1\n',
+        });
+        expect(result).toEqual({
+            check: ['work/jobs/b.do:1'],
+            graph: ['work/jobs/b.do:1'],
+            nested: [],
+        });
+    });
+
+    it('resolves a direct child\'s forward directive the same way', async () => {
+        const result = await missing_calls({
+            'main.do': '// sight: cd work\ndo jobs/a.do\n',
+            'work/jobs/a.do': '// sight: do lib.do\ndisplay 1\n',
+            'work/lib.do': 'display 1\n',
+        });
+        expect(result).toEqual({
+            check: ['work/jobs/a.do:1'],
+            graph: ['work/jobs/a.do:1'],
+            nested: [],
+        });
+    });
+
+    it('still finds a forward directive beside a direct child', async () => {
+        const result = await missing_calls({
+            'main.do': '// sight: cd work\ndo jobs/a.do\n',
+            'work/jobs/a.do': '// sight: do lib.do\ndisplay 1\n',
+            'work/jobs/lib.do': 'display 1\n',
+        });
+        expect(result).toEqual({ check: [], graph: [], nested: [] });
+    });
+});
+
+describe('sight check — cost of settling inherited directories', () => {
+    it('checks one file beside a dense cycle quickly', async () => {
+        // Each of twelve files calls all twelve; one unrelated file has
+        // a directory. The settle looks at each file's parents once per
+        // round instead of every path through the cycle.
+        const the_files: Record<string, string> = {
+            'unrelated.do': '// sight: cd "."\ndisplay 1\n',
+        };
+        for (let i = 0; i < 12; i++) {
+            the_files[`f${i}.do`] = Array.from(
+                { length: 12 }, (_, j) => `do f${j}.do`).join('\n') + '\n';
+        }
+        const root = write_workspace(the_files);
+        try {
+            const start_ms = performance.now();
+            const code = await run_check_with_cwd(
+                ['--no-config', '--format', 'json', 'unrelated.do'], root, {
+                    stdout: () => undefined,
+                    stderr: () => undefined,
+                });
+            expect(code).toBe(0);
+            expect(performance.now() - start_ms).toBeLessThan(5000);
+        } finally {
+            fs.rmSync(root, { recursive: true, force: true });
+        }
+    }, 30000);
 });

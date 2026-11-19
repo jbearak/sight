@@ -499,8 +499,8 @@ export class ForwardScopeResolver {
 
     /**
      * Inject a filesystem implementation for `resolve_path_rich`.
-     * Tests inject fakes; `sight check` injects a snapshot cache. The
-     * language server leaves it undefined so the real Node `fs` is used.
+     * For testing only — production code leaves this undefined so
+     * `resolve_path_rich` uses the real Node `fs`.
      * Clears the forward-closure memo for the same reason as
      * `set_workspace_roots` (the fs steers path resolution, unkeyed).
      */

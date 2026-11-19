@@ -27,6 +27,7 @@ import {
 } from '../types';
 import { DependencyGraph, type GraphUpdateResult } from '../dependency-graph';
 import {
+    merge_forward_calls,
     settle_inherited_working_directories,
     type WorkingDirectoryFacts,
 } from './settle-working-directories';
@@ -69,18 +70,16 @@ interface IndexedWorkingDirectoryFacts extends WorkingDirectoryFacts {
 }
 
 /**
- * A file's calls as the index registers them. Command calls resolve
- * against the directory the file runs in; forward directives against
- * its own or explicitly inherited one (docs/cross-file.md). Mixed
- * command and directive calls are sorted by line; command-only files
- * keep the analyzer's order.
+ * A settled file's calls: command calls start in the directory it
+ * inherits, forward directives keep its own or explicitly inherited one
+ * (docs/cross-file.md, Working Directory).
  */
 function indexed_forward_calls(
     facts: IndexedWorkingDirectoryFacts,
     workspace_roots: string[],
 ): ForwardCall[] {
-    const the_calls = [
-        ...prepare_forward_calls({
+    return merge_forward_calls(
+        prepare_forward_calls({
             uri: facts.uri,
             command_calls: facts.command_calls,
             directive_calls: [],
@@ -88,7 +87,7 @@ function indexed_forward_calls(
             working_directory: facts.working_directory,
             workspace_roots,
         }),
-        ...prepare_forward_calls({
+        prepare_forward_calls({
             uri: facts.uri,
             command_calls: [],
             directive_calls: facts.directive_calls,
@@ -96,11 +95,7 @@ function indexed_forward_calls(
             working_directory: facts.directive_working_directory,
             workspace_roots,
         }),
-    ];
-    if (facts.directive_calls.length > 0) {
-        the_calls.sort((a, b) => a.call_site_line - b.call_site_line);
-    }
-    return the_calls;
+    );
 }
 const YIELD_INTERVAL_MS = 100;
 const INDEX_DEBOUNCE_MS = 200;
@@ -182,26 +177,23 @@ export class WorkspaceIndexer {
     // same limits as open-document resolution (#218).
     private scope_resolver_config: Partial<ScopeResolverConfig> = {};
     // Per-file facts for settling the working directory a file inherits
-    // from the callers that reach it (see settle-working-directories).
-    private working_directory_facts: Map<string, IndexedWorkingDirectoryFacts> =
-        new Map();
-    // Set once the scan's directories are settled. Until then each file
-    // registers its calls with its own or explicitly inherited directory,
-    // which does not depend on scan order; after it, a re-indexed file
-    // resolves against the complete graph like an open document does.
-    private working_directories_settled = false;
-    // Settles run one at a time, so two never register edges for the
-    // same file from different snapshots.
-    private settle_chain: Promise<void> = Promise.resolve();
-    private queued_settle?: {
-        open_buffer_directory: boolean;
-        done: Promise<void>;
-    };
-    // True while the scan's own settle runs; a file re-indexed then
-    // needs another settle once it finishes.
-    private scan_settle_in_progress = false;
-    // Open documents own their own graph edges; settling skips them.
-    private is_open_document: (uri: string) => boolean = () => false;
+    // from the callers that reach it (settle-working-directories), kept
+    // only when `enable_working_directory_settle` was called. Only
+    // `sight check` does: it reads a fixed disk once. The language
+    // server registers each closed file with its own or explicitly
+    // inherited directory, as before.
+    private working_directory_facts?: Map<string, IndexedWorkingDirectoryFacts>;
+
+    /**
+     * Settle inherited working directories once the scan finishes, so a
+     * closed file's calls resolve against the directory it inherits from
+     * the callers that reach it, through any number of levels within
+     * the backward depth limit. For `sight check`, which indexes once:
+     * nothing settles again after a later re-index or removal.
+     */
+    enable_working_directory_settle(): void {
+        this.working_directory_facts = new Map();
+    }
 
     /**
      * Set the dependency graph for auto backward dependency discovery.
@@ -349,101 +341,6 @@ export class WorkspaceIndexer {
         this.on_graph_change_callback = callback;
     }
 
-    /**
-     * Tell the indexer which files are open. Their dependency-graph edges
-     * come from the open buffer, so settling never registers them from
-     * disk; it reports them as changed so their owner revalidates them.
-     */
-    set_open_document_predicate(predicate: (uri: string) => boolean): void {
-        this.is_open_document = predicate;
-    }
-
-    /**
-     * Re-resolve the working directory every indexed file inherits from
-     * the callers that reach it, and register again the calls of each
-     * file whose directory changed, until none changes. Runs after the
-     * workspace scan and after a later re-index or removal that changes
-     * a file's calls or directory, and the language server calls it when
-     * an open document's calls or directory change.
-     *
-     * Settles run one at a time, and requests made while one waits to
-     * start share it, so a burst of changes costs one more settle.
-     * `open_buffer_directory` says an open buffer may hold a directory
-     * the files on disk lack (an unsaved `sight: cd`), so the settle must
-     * not skip itself because no indexed file has one.
-     */
-    settle_working_directories(
-        options: { open_buffer_directory?: boolean } = {},
-    ): Promise<void> {
-        if (this.queued_settle) {
-            this.queued_settle.open_buffer_directory ||=
-                options.open_buffer_directory === true;
-            return this.queued_settle.done;
-        }
-        const generation = this.scan_generation;
-        const queued = {
-            open_buffer_directory: options.open_buffer_directory === true,
-            done: Promise.resolve(),
-        };
-        queued.done = this.settle_chain.then(() => {
-            if (this.queued_settle === queued) {
-                this.queued_settle = undefined;
-            }
-            return this.run_settle(generation, queued.open_buffer_directory);
-        }).catch((error) => {
-            logger.error(`Failed to settle working directories: ${error}`);
-        });
-        this.queued_settle = queued;
-        this.settle_chain = queued.done;
-        return queued.done;
-    }
-
-    private async run_settle(
-        generation: number,
-        open_buffer_directory: boolean,
-    ): Promise<void> {
-        if (
-            !this.is_active_generation(generation) ||
-            !this.scope_resolver ||
-            !this.dependency_graph
-        ) {
-            return;
-        }
-        const dependency_graph = this.dependency_graph;
-        const the_facts = [...this.working_directory_facts.values()]
-            .sort((a, b) => a.uri < b.uri ? -1 : a.uri > b.uri ? 1 : 0);
-        const the_changed_uris = new Set<string>();
-        await settle_inherited_working_directories({
-            the_facts,
-            scope_resolver: this.scope_resolver,
-            config: this.scope_resolver_config,
-            always_walk: open_buffer_directory,
-            is_current: () => this.is_active_generation(generation),
-            register: (my_facts) => {
-                // A re-index or removal during the settle replaced this
-                // file's facts; its newer registration stands.
-                if (this.working_directory_facts.get(my_facts.uri) !== my_facts) {
-                    return;
-                }
-                the_changed_uris.add(my_facts.uri);
-                if (this.is_open_document(my_facts.uri)) {
-                    return;
-                }
-                const graph_result = dependency_graph.update_caller(
-                    my_facts.uri, indexed_forward_calls(
-                        my_facts, this.workspace_roots));
-                for (const my_callee of graph_result.changed_callees) {
-                    the_changed_uris.add(my_callee);
-                }
-            },
-        });
-        // Announce edges even from a settle cut short: they are in the
-        // graph either way.
-        if (the_changed_uris.size > 0 && this.on_graph_change_callback) {
-            this.on_graph_change_callback(the_changed_uris);
-        }
-    }
-
     private is_active_generation(generation: number): boolean {
         return generation === this.scan_generation && !this.cancelled;
     }
@@ -457,7 +354,6 @@ export class WorkspaceIndexer {
     ): Promise<void> {
         const generation = ++this.scan_generation;
         this.cancelled = false;
-        this.working_directories_settled = false;
 
         this.ado_paths = ado_paths;
         this.workspace_roots = workspace_folders.map(f => path.resolve(f));
@@ -489,16 +385,7 @@ export class WorkspaceIndexer {
             return;
         }
 
-        this.scan_settle_in_progress = true;
-        try {
-            await this.settle_working_directories();
-        } finally {
-            this.scan_settle_in_progress = false;
-        }
-        if (!this.is_active_generation(generation)) {
-            return;
-        }
-        this.working_directories_settled = true;
+        this.settle_working_directories();
 
         const elapsed_ms = Date.now() - start_time;
         this.metrics.total_index_time_ms = elapsed_ms;
@@ -513,6 +400,44 @@ export class WorkspaceIndexer {
 
         // Log summary of skipped files
         this.log_skipped_files_summary();
+    }
+
+    /**
+     * Give each indexed file the working directory it inherits from the
+     * callers that reach it, and register again the calls of each file
+     * whose directory changed.
+     */
+    private settle_working_directories(): void {
+        const dependency_graph = this.dependency_graph;
+        if (!this.working_directory_facts || !dependency_graph) {
+            return;
+        }
+        if ((this.scope_resolver_config.backward_dependencies ?? 'auto')
+            !== 'auto') {
+            return;
+        }
+        const the_facts = [...this.working_directory_facts.values()]
+            .sort((a, b) => a.uri < b.uri ? -1 : a.uri > b.uri ? 1 : 0);
+        const the_changed_uris = new Set<string>();
+        settle_inherited_working_directories({
+            the_facts,
+            get_parents: (uri) => dependency_graph.get_parents(uri),
+            max_backward_depth: this.scope_resolver_config.max_backward_depth,
+            register: (my_facts) => {
+                my_facts.first_calls = new Map();
+                const graph_result = dependency_graph.update_caller(
+                    my_facts.uri,
+                    indexed_forward_calls(my_facts, this.workspace_roots),
+                    my_facts.first_calls,
+                );
+                for (const my_callee of graph_result.changed_callees) {
+                    the_changed_uris.add(my_callee);
+                }
+            },
+        });
+        if (the_changed_uris.size > 0 && this.on_graph_change_callback) {
+            this.on_graph_change_callback(the_changed_uris);
+        }
     }
 
     /**
@@ -641,8 +566,8 @@ export class WorkspaceIndexer {
             graph_result = this.dependency_graph.remove_caller(file_uri);
         }
         const was_indexed = this.symbol_index.has(file_uri);
-        const had_facts = this.working_directory_facts.delete(file_uri);
         this.symbol_index.delete(file_uri);
+        this.working_directory_facts?.delete(file_uri);
         this.token_index.delete(file_uri);
         this.context_ranges_index.delete(file_uri);
         if (was_indexed) {
@@ -659,10 +584,6 @@ export class WorkspaceIndexer {
         }
         if (graph_result && graph_result.changed_callees.size > 0 && this.on_graph_change_callback) {
             this.on_graph_change_callback(graph_result.changed_callees);
-        }
-        // Files this one called may have inherited its directory.
-        if (had_facts && this.working_directories_settled) {
-            void this.settle_working_directories();
         }
     }
 
@@ -788,13 +709,13 @@ export class WorkspaceIndexer {
                       )
                     : undefined;
 
-            let directive_working_directory = own_working_directory;
+            let effective_working_directory = own_working_directory;
             if (own_working_directory === undefined && this.scope_resolver) {
                 // Pass the active cross-file resolver config (depth
                 // limits) so the inherited WD matches what DocumentStore
                 // computes under non-default settings. The helper filters
                 // to backward directives itself.
-                directive_working_directory =
+                effective_working_directory =
                     await this.scope_resolver
                         .resolve_inherited_working_directory(
                             directive_result.directives,
@@ -803,41 +724,15 @@ export class WorkspaceIndexer {
                             this.scope_resolver_config,
                         );
             }
-            // Once the scan is settled the graph is complete, so a file
-            // re-indexed later also inherits from the callers found by
-            // their `do` commands, as an open document does. During the
-            // scan that waits for the settle after it.
-            const settled = this.working_directories_settled;
-            let working_directory = directive_working_directory;
-            if (
-                settled &&
-                own_working_directory === undefined &&
-                this.scope_resolver
-            ) {
-                working_directory = await this.scope_resolver
-                    .resolve_document_working_directory(
-                        file_uri,
-                        directive_result,
-                        this.scope_resolver_config,
-                    );
-            }
 
-            const facts: IndexedWorkingDirectoryFacts = {
+            const all_forward_calls = prepare_forward_calls({
                 uri: file_uri,
-                header: {
-                    directives: directive_result.directives,
-                    standalone: directive_result.standalone,
-                    working_directory: directive_result.working_directory,
-                },
-                own_working_directory,
-                directive_working_directory,
-                working_directory,
                 command_calls: analyzeResult.forward_calls,
                 directive_calls: directive_result.forward_calls ?? [],
                 cd_commands: analyzeResult.cd_commands,
-            };
-            const all_forward_calls = indexed_forward_calls(
-                facts, this.workspace_roots);
+                working_directory: effective_working_directory,
+                workspace_roots: this.workspace_roots,
+            });
 
             // Compute context ranges for embedded language support
             const context_tracker = new ContextTracker();
@@ -851,13 +746,40 @@ export class WorkspaceIndexer {
             if (!already_indexed
                 && this.should_skip_for_max_indexed_files(file_uri)) return;
 
+            // The index has always sorted mixed command/directive calls.
+            // Command-only files retain the analyzer's ordering.
+            if ((directive_result.forward_calls?.length ?? 0) > 0) {
+                all_forward_calls.sort(
+                    (a, b) => a.call_site_line - b.call_site_line,
+                );
+            }
+
+            // Keep what settling the inherited directory needs.
+            let first_calls: Map<string, ForwardCall> | undefined;
+            if (this.working_directory_facts) {
+                first_calls = new Map();
+                const is_standalone = directive_result.standalone !== undefined;
+                const has_backward_directives = !is_standalone &&
+                    directive_result.directives.length > 0;
+                this.working_directory_facts.set(file_uri, {
+                    uri: file_uri,
+                    own_working_directory,
+                    directive_working_directory: effective_working_directory,
+                    has_backward_directives,
+                    inherits_from_callers: own_working_directory === undefined &&
+                        !is_standalone && !has_backward_directives,
+                    working_directory: effective_working_directory,
+                    first_calls,
+                    command_calls: analyzeResult.forward_calls,
+                    directive_calls: directive_result.forward_calls ?? [],
+                    cd_commands: analyzeResult.cd_commands,
+                });
+            }
+
             // Update dependency graph with forward calls
-            const previous_facts = this.working_directory_facts.get(file_uri);
-            this.working_directory_facts.set(file_uri, facts);
-            let calls_changed = false;
             if (this.dependency_graph) {
-                const graph_result = this.dependency_graph.update_caller(file_uri, all_forward_calls);
-                calls_changed = graph_result.changed_callees.size > 0;
+                const graph_result = this.dependency_graph.update_caller(
+                    file_uri, all_forward_calls, first_calls);
                 if (graph_result.changed_callees.size > 0 && this.on_graph_change_callback) {
                     this.on_graph_change_callback(graph_result.changed_callees);
                 }
@@ -876,22 +798,6 @@ export class WorkspaceIndexer {
             });
             this.version++;
             if (is_new_entry) this.metrics.files_indexed++;
-            // This file's calls, or its own `sight: cd`, may change what
-            // the files below it inherit. A file re-indexed while the
-            // scan's settle runs was registered without the files above
-            // it, so it needs the next settle too.
-            const directory_changed = previous_facts === undefined ||
-                previous_facts.own_working_directory !==
-                    facts.own_working_directory ||
-                previous_facts.directive_working_directory !==
-                    facts.directive_working_directory ||
-                previous_facts.working_directory !== facts.working_directory;
-            if (
-                (settled && (calls_changed || directory_changed)) ||
-                (!settled && this.scan_settle_in_progress)
-            ) {
-                void this.settle_working_directories();
-            }
         } catch (error) {
             if (!this.is_active_generation(generation)) return;
             this.clear_stale_entry(file_uri);
@@ -1063,9 +969,7 @@ export class WorkspaceIndexer {
     reset(): void {
         this.cancel();
         this.symbol_index.clear();
-        this.working_directory_facts.clear();
-        this.working_directories_settled = false;
-        this.scan_settle_in_progress = false;
+        this.working_directory_facts?.clear();
         this.token_index.clear();
         this.context_ranges_index.clear();
         this.skipped_files.clear();
