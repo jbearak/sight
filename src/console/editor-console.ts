@@ -69,8 +69,9 @@ export interface EditorConsole {
      * never taken as a `--more--` answer. Resolves true once it is
      * given to Stata, false if it never will be (dropped, or the
      * console ended). On Windows, true comes once Stata's Automation
-     * accepts it, or when the outcome is unknown (the helper ended
-     * after taking it); false means Stata surely never got it.
+     * answers for it (even with a failure, as the call may have run),
+     * or when the outcome is unknown (the helper ended after taking
+     * it); false means Stata surely never got it.
      */
     send_line(line: string): Promise<boolean>;
     handle_resize(): void;

@@ -147,12 +147,22 @@ export class BridgeClient implements Bridge {
         }
         const id = this.next_id++;
         return new Promise<BridgeReply>((resolve) => {
-            let settle_write: (written: boolean) => void = () => undefined;
+            let resolve_written: (written: boolean) => void = () => undefined;
             const entry: Pending = {
                 resolve, options, timer: null, slow_timer: null,
-                written: new Promise<boolean>((resolve_written) => {
-                    settle_write = resolve_written;
+                written: new Promise<boolean>((resolve_promise) => {
+                    resolve_written = resolve_promise;
                 }),
+            };
+            const settle_write = (written: boolean): void => {
+                resolve_written(written);
+                // A failed write never reached the helper: say so now,
+                // not when the helper ends (it may live on).
+                if (!written && this.pending.get(id) === entry) {
+                    this.pending.delete(id);
+                    this.clear(entry);
+                    resolve({ ok: false, bridge_gone: true });
+                }
             };
             if (options.timeout_ms !== undefined) {
                 entry.timer = setTimeout(() => {

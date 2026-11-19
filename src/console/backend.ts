@@ -21,9 +21,10 @@ export interface StataBackend {
      * when it left the line for Stata's echo (typeahead).
      * `on_sent`, if given, is called once: true when the line is given
      * to Stata, false if it is dropped first (Ctrl+C, the end). On
-     * Automation, a line whose outcome is unknown (the helper ended
-     * after taking it) also reports true, so its do-file is kept for
-     * the usual delay; false means Stata surely never got it.
+     * Automation, a line Stata may have acted on (the helper answered,
+     * even with a failure, or ended after taking it) also reports
+     * true, so its do-file is kept for the usual delay; false means
+     * Stata surely never got it.
      */
     submit_line(line: string, drawn: boolean, on_sent?: LineSentCallback): void;
     /** Answer `--more--` with one key ('' for Enter). */

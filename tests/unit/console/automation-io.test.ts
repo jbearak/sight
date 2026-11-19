@@ -173,6 +173,23 @@ describe('BridgeClient', () => {
         expect(await pending).toEqual({ ok: false, bridge_gone: true });
     });
 
+    it('answers a failed write as never written at once, with the helper alive', async () => {
+        const transport = new FakeTransport();
+        const client = new BridgeClient(transport);
+        transport.write_result = null;
+        let reply: unknown = 'pending';
+        void client.request('do_async', { cmd: 'x' }).then((value) => {
+            reply = value;
+        });
+        transport.settle_writes(false);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        expect(reply).toEqual({ ok: false, bridge_gone: true });
+        // A late reply to it finds nothing.
+        transport.reply({ id: 1, ok: true });
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        expect(reply).toEqual({ ok: false, bridge_gone: true });
+    });
+
     it('counts a write that never settles as written at the helper\'s end', async () => {
         const transport = new FakeTransport();
         const client = new BridgeClient(transport);
