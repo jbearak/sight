@@ -1738,6 +1738,9 @@ export class StataParser {
   ): CommandNode {
     const command_name = command_token.value;
     const is_display = DISPLAY_COMMANDS.has(command_name);
+    // `assert` takes an expression, not a varlist, so a `[` touching
+    // the name before it is a subscript: `` assert x[`weight'] == 1 ``.
+    const takes_expression = command_name === 'assert';
     const args_start = this.current;
     const text_kind = this.free_text_kind(command_name);
 
@@ -1780,7 +1783,7 @@ export class StataParser {
         break;
       }
       if (extra_depth === 0 && !is_display && text_kind === undefined &&
-          this.at_argument_boundary()) {
+          this.at_argument_boundary(takes_expression)) {
         break;
       }
       if (text_kind === 'labels' && this.check('COMMA')) {
@@ -1889,7 +1892,8 @@ export class StataParser {
         }
         continue;
       }
-      if (weight === undefined && this.is_weight_start(this.current)) {
+      if (weight === undefined &&
+          this.is_weight_start(this.current, takes_expression)) {
         weight = this.parse_weight_clause();
         continue;
       }
@@ -2162,9 +2166,11 @@ export class StataParser {
 
   /**
    * True at a token that ends a command's argument list: a comma, a
-   * qualifier keyword, `using`, a weight, or `=`.
+   * qualifier keyword, `using`, a weight, or `=`. In an expression
+   * (`in_expression`), a `[` touching the operand before it is a
+   * subscript (see is_weight_start).
    */
-  private at_argument_boundary(): boolean {
+  private at_argument_boundary(in_expression = false): boolean {
     if (this.check('COMMA')) {
       return true;
     }
@@ -2175,7 +2181,7 @@ export class StataParser {
     if (this.check('OPERATOR') && this.peek().value === '=') {
       return true;
     }
-    return this.is_weight_start(this.current);
+    return this.is_weight_start(this.current, in_expression);
   }
 
   /**

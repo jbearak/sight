@@ -404,23 +404,42 @@ unquoted paths all give the same object.
 An `input` statement outside a program reads the lines after it as data,
 up to a line whose first word is `end` (under `#delimit ;`, the
 `;`-ended records up to one whose first word is `end`; a `;` inside a
-quoted value doesn't end a record). Its `range` and `text` run through
-that `end`, and the data lines are not statements.
+quoted value doesn't end a record, and a quoted value may span lines).
+Its `range` and `text` run through that `end`, and the data lines are
+not statements.
 
 Stata also stops reading data once it has filled the observations of a
 dataset that already has some (`set obs 1` then `input x`), which Sight
 cannot know. So Sight reads what the `input` statement declares: a row
-fits when each numeric variable among its first fields has a field
-Stata reads as a number (extra fields are ignored, a missing string
-field is blank, and a blank row is skipped). The data ends before the
-first row that doesn't fit, with no `end` (the `range` and `text` run
-through the last row), and that row and the lines after it are
-statements: under `input score`, the row `local label
-score` starts with text where `score` needs a number, so it is code.
-A row of text under string variables is data (`program demo` under
-`input str12 a str12 b`), as it is in Stata. When the declaration can't
-be read (no variable list, or a macro in it), every line up to `end` is
-data.
+fits when it has no more fields than there are variables, and each
+numeric variable has a field Stata reads as a number (a missing string
+field is blank, and a blank row is skipped). Fields are counted as
+Stata's `input` reads them: a run of non-blanks, a quoted value, or a
+`,` or `/` on its own. A row of text under string variables fits
+(`program demo` under `input str12 a str12 b`), and is data, as it is
+in Stata.
+
+Stata reads a row that doesn't fit too: it ignores extra fields and
+drops a row with text where a number belongs. Code after an `input`
+without `end` usually doesn't fit, though, so at such a row Sight looks
+ahead to the next line whose first word is `end`. If a line before it
+(the row itself included) opens a block that needs its own `end` (a
+program definition, a `mata` or `python` block, another `input`), or
+no `end` follows, the data ends before the row, with no `end` (the
+`range` and `text` run through the last row), and that row and the
+lines after it are statements: under `input score`, the row
+`local label score` is code when a `program define` follows before the
+next `end`, and under `input str5 city`, `local n = _N` is code there
+too. Otherwise that `end` closes the data and the row is data, as
+Stata reads it: `1 2` under `input x`, or `Mary-Ann Smith` under
+`input str20 name`, before `end`.
+
+Still ambiguous: a row that fits is data whatever it looks like, so a
+short command under an `input` without `end` that declares enough
+string variables is read as data; and a row that doesn't fit, before an
+`end` that nothing Sight counts as a block claims, is data. When the
+declaration can't be read (no variable list, or a macro in it), every
+line up to `end` is data.
 
 - `name` is the command as written. `canonical_name` is the full name of a
   built-in command that `name` abbreviates (`reg` is `regress`), or null for

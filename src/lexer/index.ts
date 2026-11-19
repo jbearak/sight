@@ -17,9 +17,15 @@ import {
 import { SemicolonStatementTracker } from '../utils/semicolon-statement';
 import { delimit_keyword_length } from '../utils/delimit-directive';
 import {
+  is_name_letter,
+  is_name_letter_or_digit,
+} from '../utils/stata-name';
+import {
+  create_input_quote_scan,
   input_declaration_fields,
   input_row_end,
-  is_consistent_input_row,
+  InputQuoteScan,
+  is_input_data_row,
   is_input_end_row,
 } from '../utils/input-data';
 import {
@@ -37,6 +43,33 @@ const INPUT_END_LINE = /\n[ \t]*end(?![A-Za-z0-9_.])/g;
 // Under `#delimit ;`, the `;` before a record whose first word is
 // `end`, which ends `input` data (StataMP 18).
 const INPUT_END_RECORD = /;\s*end(?![A-Za-z0-9_.])/g;
+const CHAR_SPACE = 32;
+const CHAR_TAB = 9;
+const CHAR_LF = 10;
+const CHAR_CR = 13;
+const CHAR_VT = 11;
+const CHAR_FF = 12;
+const CHAR_COLON = 58;
+const CHAR_SLASH = 47;
+const CHAR_UNDERSCORE = 95;
+
+function is_ascii_letter_or_underscore(code: number): boolean {
+  return (code >= 65 && code <= 90) || (code >= 97 && code <= 122) ||
+    code === CHAR_UNDERSCORE;
+}
+
+function is_ascii_word_char(code: number): boolean {
+  return is_ascii_letter_or_underscore(code) || (code >= 48 && code <= 57);
+}
+
+/** A blank on a line; with `across_lines`, a line break as well. */
+function is_row_blank(code: number, across_lines: boolean): boolean {
+  if (code === CHAR_SPACE || code === CHAR_TAB || code === CHAR_CR) {
+    return true;
+  }
+  return across_lines &&
+    (code === CHAR_LF || code === CHAR_VT || code === CHAR_FF);
+}
 const COMMENT_CONTEXT_KEYWORDS = new Set(['program', 'capture', 'quietly', 'noisily', 'by', 'bysort']);
 // A `*` after one of these is multiplication. A string never ends a
 // statement on its own line, so `"ab" * 3` is string repetition, not a
@@ -185,6 +218,16 @@ export class StataLexer {
   // next_input_end_candidate).
   private input_end_candidate:
     { searched_from: number; index: number; is_semicolon: boolean } | null = null;
+  // The last yes of input_end_follows_unclaimed: rows from `from` up
+  // to `until` (the row of the `end` that closes the data) are data.
+  private input_end_lookahead: {
+    from: number; until: number; is_semicolon: boolean;
+  } | null = null;
+  // Where `input` data quotes have no closing quote (see input_row_end).
+  private input_quote_scan: InputQuoteScan = create_input_quote_scan();
+  // The offset of the source's last `"`, once looked up (see
+  // unclosed_string_stop), or -1 if it has none.
+  private last_double_quote_offset: number | null = null;
 
   tokenize(source: string, initialState?: LexerState): LexerResult {
     this.source = source;
@@ -214,6 +257,9 @@ export class StataLexer {
     this.input_data_pending = false;
     this.input_declaration_start = 0;
     this.input_end_candidate = null;
+    this.input_quote_scan = create_input_quote_scan();
+    this.input_end_lookahead = null;
+    this.last_double_quote_offset = null;
     this.state = initialState || {
       delimiterMode: 'cr',
       line: 0,
@@ -366,9 +412,10 @@ export class StataLexer {
    * as lines (or `;`-ended records) up to one whose first word is
    * `end`, unless it stops sooner because it has filled the dataset's
    * observations. Sight can't know those, so the data also ends before
-   * the first row that is not consistent with the variables `input`
-   * declares (see src/utils/input-data.ts): `input score` then `10`
-   * then `local label score` is one row of data.
+   * the first row that does not fit the variables `input` declares
+   * (see src/utils/input-data.ts): `input score` then `10` then
+   * `local label score` is one row of data, as is `input str5 city`
+   * then `Paris` then `local n = _N`.
    *
    * The data is one INPUT_DATA token holding the rows as written; it
    * stops before the terminator that ends the last row, and is empty
@@ -385,9 +432,9 @@ export class StataLexer {
     const is_semicolon = this.state.delimiterMode === 'semicolon';
     const the_fields = input_declaration_fields(this.source.substring(
       this.input_declaration_start, this.position - 1));
-    // Only a numeric variable can make a row inconsistent.
-    const can_stop_early = the_fields !== null &&
-      the_fields.includes('numeric');
+    // Any declaration Sight can read can end the data at a row that
+    // does not fit it.
+    const can_stop_early = the_fields !== null;
     let my_row_start = this.position;
     let my_data_end = -1;
     let my_has_rows = false;
@@ -395,7 +442,8 @@ export class StataLexer {
     for (;;) {
       // No row can start with `end` past the last candidate, so data
       // that can't stop early has no end (this keeps a file of many
-      // string `input` blocks without `end` linear).
+      // `input` blocks with unreadable declarations and no `end`
+      // linear).
       if (!can_stop_early &&
           this.next_input_end_candidate(my_row_start - 1, is_semicolon) === -1) {
         return null;
@@ -407,9 +455,11 @@ export class StataLexer {
       if (my_row_start >= this.source.length) {
         return null;
       }
-      const my_row_end = input_row_end(this.source, my_row_start, is_semicolon);
+      const my_row_end = input_row_end(
+        this.source, my_row_start, is_semicolon, this.input_quote_scan);
       const my_row = this.source.substring(my_row_start, my_row_end);
-      if (the_fields !== null && !is_consistent_input_row(my_row, the_fields)) {
+      if (the_fields !== null && !is_input_data_row(my_row, the_fields) &&
+          !this.input_end_follows_unclaimed(my_row_start, is_semicolon)) {
         break;
       }
       my_has_rows = my_has_rows || my_row.trim() !== '';
@@ -452,6 +502,110 @@ export class StataLexer {
     the_tokens.push(this.scan_raw_token('WORD', this.position + 'end'.length));
     the_tokens.push(...this.scan_end_tail_tokens(is_semicolon));
     return the_tokens;
+  }
+
+  /**
+   * Whether the `input` data row starting at `row_start`, which does
+   * not fit the declared variables, is data all the same: the next row
+   * whose first word is `end` closes the data, and no row from this
+   * one up to it opens a block that needs an `end` of its own (a
+   * program definition, a `mata` or `python` block, another `input`).
+   * StataMP 18 reads such a row as data (it ignores extra fields, and
+   * drops a row with text for a number after "cannot be read as a
+   * number"), so `1 2` then `end` under `input x` is data. When such a
+   * block opens first, that `end` is its own, and when no `end`
+   * follows, nothing closes the data: either way the data ended before
+   * this row, which is code.
+   *
+   * One scan per data block: a later row of the same block up to the
+   * same `end` reuses the answer (see input_end_lookahead).
+   */
+  private input_end_follows_unclaimed(row_start: number, is_semicolon: boolean): boolean {
+    const my_cache = this.input_end_lookahead;
+    if (my_cache !== null && my_cache.is_semicolon === is_semicolon &&
+        my_cache.from <= row_start && row_start < my_cache.until) {
+      return true;
+    }
+    if (this.next_input_end_candidate(row_start - 1, is_semicolon) === -1) {
+      return false;
+    }
+    let my_row_start = row_start;
+    let my_is_data = false;
+    while (my_row_start < this.source.length) {
+      if (is_input_end_row(this.source, my_row_start, is_semicolon)) {
+        my_is_data = true;
+        break;
+      }
+      const my_row_end = input_row_end(
+        this.source, my_row_start, is_semicolon, this.input_quote_scan);
+      if (this.input_row_opens_block(my_row_start, my_row_end, is_semicolon)) {
+        break;
+      }
+      my_row_start = my_row_end + 1;
+    }
+    // Only a yes is kept: after a no the data ends, and a later block
+    // must not reuse it.
+    if (my_is_data) {
+      this.input_end_lookahead = { from: row_start, until: my_row_start, is_semicolon };
+    }
+    return my_is_data;
+  }
+
+  /**
+   * Whether the row from `start` to `end` (a line, or a `;` record)
+   * opens a block that needs its own `end`: a program definition (by
+   * is_program_definition_header, as for any `program` statement), a
+   * `mata` or `python` block (the word, an optional `:`, and nothing
+   * else but blanks and a comment), or another `input`.
+   */
+  private input_row_opens_block(start: number, end: number, is_semicolon: boolean): boolean {
+    // Scanned by hand, one pass from `start` to `end`: the first word
+    // of a data line after blanks, or of a `;` record after blanks and
+    // line breaks.
+    const my_source = this.source;
+    let my_word_start = start;
+    while (my_word_start < end &&
+        is_row_blank(my_source.charCodeAt(my_word_start), is_semicolon)) {
+      my_word_start++;
+    }
+    if (my_word_start >= end ||
+        !is_ascii_letter_or_underscore(my_source.charCodeAt(my_word_start))) {
+      return false;
+    }
+    let my_word_end = my_word_start + 1;
+    while (my_word_end < end &&
+        is_ascii_word_char(my_source.charCodeAt(my_word_end))) {
+      my_word_end++;
+    }
+    const my_word = my_source.substring(my_word_start, my_word_end);
+    if (PROGRAM_COMMAND_NAMES.has(my_word)) {
+      return is_program_definition_header(
+        program_header_text(my_source, my_word_end, is_semicolon));
+    }
+    if (my_word === 'mata' || my_word === 'python') {
+      // What may follow on a line that opens a block: an optional `:`,
+      // then blanks and perhaps a `//` comment.
+      let my_tail = my_word_end;
+      if (my_tail < end && my_source.charCodeAt(my_tail) === CHAR_COLON) {
+        my_tail++;
+      }
+      while (my_tail < end &&
+          is_row_blank(my_source.charCodeAt(my_tail), false)) {
+        my_tail++;
+      }
+      if (my_tail + 1 < end &&
+          my_source.charCodeAt(my_tail) === CHAR_SLASH &&
+          my_source.charCodeAt(my_tail + 1) === CHAR_SLASH) {
+        const my_line_end = my_source.indexOf('\n', my_tail);
+        my_tail = my_line_end === -1 || my_line_end > end ? end : my_line_end;
+      }
+      while (my_tail < end &&
+          is_row_blank(my_source.charCodeAt(my_tail), true)) {
+        my_tail++;
+      }
+      return my_tail >= end;
+    }
+    return INPUT_COMMAND_NAMES.has(my_word);
   }
 
   /**
@@ -641,13 +795,18 @@ export class StataLexer {
    * a block comment that opened after code on the line above, a `{`,
    * a prefix (`quietly #d ;`), or mid-statement at the start of a line
    * under `#delimit ;` (`di 1` then `#d cr` is `di 1 #d cr`).
+   * The `end` of a Mata block also ends a statement under
+   * `#delimit ;` without a `;` (StataMP 18 reads `#d cr` on the next
+   * line); the `end` of a Python block, a program or `input` data
+   * there, and a `}`, need their `;`.
    */
   private at_statement_start(): boolean {
     const my_prev_code = this.previous_code_token;
     if (my_prev_code === null || my_prev_code.type === 'DELIMIT_DIRECTIVE') {
       return true;
     }
-    return my_prev_code.type === 'STATEMENT_TERMINATOR' &&
+    return (my_prev_code.type === 'STATEMENT_TERMINATOR' ||
+        my_prev_code.type === 'END_MATA') &&
       !this.joined_to_previous_line;
   }
 
@@ -1783,14 +1942,17 @@ export class StataLexer {
     let segment_start_line = startLine;
     let segment_start_column = startColumn;
     let properly_closed = false;
+    const my_stop = this.unclosed_string_stop();
 
     while (!this.isAtEnd()) {
       const char = this.peek();
 
       // Under `#delimit ;` a line break inside a string is part of it:
       // Stata's ml_searc.ado sets `local options "... LOg` then
-      // `MAXFEAS(integer 1000) ... TRace" ;`.
-      if (char === '\n' && this.state.delimiterMode !== 'semicolon') {
+      // `MAXFEAS(integer 1000) ... TRace" ;`. A string that no `"`
+      // closes stops where unclosed_string_stop says.
+      if ((char === '\n' && this.state.delimiterMode !== 'semicolon') ||
+          (my_stop !== -1 && this.position >= my_stop)) {
         const error: LexerError = {
           message: 'Unclosed string literal',
           range: this.makeRange(startLine, startColumn, this.line, this.column + 1),
@@ -1922,7 +2084,8 @@ export class StataLexer {
           }
         } else {
           // $name form - consume word characters
-          while (/[a-zA-Z0-9_]/.test(this.peek()) && !this.isAtEnd()) {
+          while ((this.isAlphaNumeric(this.peek()) || this.peek() === '_') &&
+              !this.isAtEnd()) {
             this.advance();
           }
         }
@@ -1976,16 +2139,67 @@ export class StataLexer {
     return the_tokens;
   }
 
+  /**
+   * Under `#delimit ;`, where a simple string that opened just before
+   * the current position stops when no `"` follows to close it: StataMP
+   * 18 would read the rest of the file into it, so Sight ends it at the
+   * end of its line, or at a `;` that is the last code on that line
+   * (which then ends the statement): `display "oops;` then
+   * `local one 1;` leaves the `local` a statement of its own, with the
+   * open quote still reported. -1 when the string has a `"` after it,
+   * under `#delimit cr` (where every string ends at its line), or in a
+   * Mata or Python block (see reads_semicolon_statements).
+   */
+  private unclosed_string_stop(): number {
+    if (!this.reads_semicolon_statements()) {
+      return -1;
+    }
+    if (this.last_double_quote_offset === null) {
+      this.last_double_quote_offset = this.source.lastIndexOf('"');
+    }
+    if (this.position <= this.last_double_quote_offset) {
+      return -1;
+    }
+    let my_line_end = this.source.indexOf('\n', this.position);
+    if (my_line_end === -1) {
+      my_line_end = this.source.length;
+    }
+    let my_last = my_line_end - 1;
+    while (my_last >= this.position && /\s/.test(this.source[my_last])) {
+      my_last--;
+    }
+    return my_last >= this.position && this.source[my_last] === ';'
+      ? my_last
+      : my_line_end;
+  }
+
+  /**
+   * Whether Stata code is read as `;`-ended statements here: under
+   * `#delimit ;`, outside a Mata or Python block. (StataMP 18 reads a
+   * Mata block under `#delimit ;` by physical lines, where a string
+   * ends at its line and a `;` in it is text; such strings keep the
+   * reading they had.)
+   */
+  private reads_semicolon_statements(): boolean {
+    return this.state.delimiterMode === 'semicolon' &&
+      this.get_current_context() === LanguageContext.STATA;
+  }
+
   private scanCompoundString(startLine: number, startColumn: number): Token | Token[] {
     const the_tokens: Token[] = [];
     let depth = 1;
     let segment_start_line = startLine;
     let segment_start_column = startColumn;
+    const is_semicolon_statement = this.reads_semicolon_statements();
 
     while (!this.isAtEnd() && depth > 0) {
       const char = this.peek();
 
-      if (char === '\n') {
+      // Under `#delimit ;` a compound string runs on across lines, but
+      // a `;` in it ends the statement (StataMP 18 reads
+      // `` local d `"x;y"'; `` as `` local d `"x `` and `` y"' ``).
+      if ((char === '\n' && !is_semicolon_statement) ||
+          (char === ';' && is_semicolon_statement)) {
         const error: LexerError = {
           message: 'Unclosed string literal',
           range: this.makeRange(startLine, startColumn, this.line, this.column + 1),
@@ -2121,7 +2335,8 @@ export class StataLexer {
           }
         } else {
           // $name form - consume word characters
-          while (/[a-zA-Z0-9_]/.test(this.peek()) && !this.isAtEnd()) {
+          while ((this.isAlphaNumeric(this.peek()) || this.peek() === '_') &&
+              !this.isAtEnd()) {
             this.advance();
           }
         }
@@ -2695,13 +2910,14 @@ export class StataLexer {
     return char >= '0' && char <= '9';
   }
 
+  // A letter, as in a Stata name: ASCII or Unicode (see stata-name.ts).
   private isAlpha(char: string): boolean {
-    return (char >= 'a' && char <= 'z') ||
-      (char >= 'A' && char <= 'Z');
+    return is_name_letter(char);
   }
 
+  // What a name goes on with, other than `_` (see stata-name.ts).
   private isAlphaNumeric(char: string): boolean {
-    return this.isAlpha(char) || this.isDigit(char);
+    return is_name_letter_or_digit(char);
   }
 
   private makeToken(type: TokenType, value: string, startLine: number, startColumn: number): Token {

@@ -10,28 +10,44 @@
  * number of observations, so it reads what the `input` statement
  * declares instead:
  *
- * - A row is consistent with the declaration when each numeric
- *   variable among the first n fields (n declared variables) has a
- *   field that Stata reads as a number. Extra fields are ignored
- *   (`1 2` under `input x` gives x = 1), a missing string field is
- *   blank, and a blank row is skipped, as in Stata.
- * - A row that is not consistent makes Stata print "cannot be read as
- *   a number" and drop it, which no working do-file relies on, so
- *   Sight reads the data as having ended before it: `input score`,
- *   `10`, `local label score` is one row of data and then a `local`.
- * - A string variable takes any field, so `program demo` under
- *   `input str12 a str12 b` is data, as it is in Stata.
+ * - A row fits the declaration when it has no more fields than there
+ *   are declared variables, and each numeric variable has a field
+ *   that Stata reads as a number (`is_input_data_row`). A missing
+ *   string field is blank, and a blank row is skipped, as in Stata. A
+ *   string variable takes any field, so `program demo` under
+ *   `input str12 a str12 b` fits, and is data, as it is in Stata.
+ * - Stata reads a row that does not fit as well: it ignores extra
+ *   fields (`1 2` under `input x` gives x = 1), and drops a row with
+ *   text for a number after printing "cannot be read as a number".
+ *   Rows of real data rarely do either, while the code after an
+ *   `input` without `end` usually does. So at such a row the lexer
+ *   looks ahead to the next row whose first word is `end`: if a row
+ *   before it (this one included) opens a block that needs its own
+ *   `end` (a program definition, a `mata` or `python` block, another
+ *   `input`), or no `end` follows at all, the data ended before the
+ *   row, which is code (`input score`, `10`, `local label score`,
+ *   `program define helper`, ..., `end`: one row of data). Otherwise
+ *   the `end` closes this data, and the row is data, as Stata reads
+ *   it (`input str20 name`, `Mary-Ann Smith`, `end`).
+ * - Still ambiguous: a row that fits is data whatever it looks like,
+ *   so a short command under an `input` without `end` that declares
+ *   enough string variables is read as data; and a row that does not
+ *   fit, before an `end` that nothing else claims, is data even when
+ *   the `input` has no `end` and that `end` closes something Sight
+ *   does not count as a block (one opened behind a prefix, say).
  * - When the declaration can't be read (no varlist, a macro, a
  *   range), every row is data up to `end`.
  *
  * Settled in StataMP 18: a field is a run of non-blanks; `,` and `/`
- * end a field and `,` is a field of its own (`3,4` under `input x y`
- * gives "',' cannot be read as a number"); a double-quoted or
+ * end a field and are each a field of their own (`3,4` under
+ * `input x y` gives "',' cannot be read as a number", and `x/y z`
+ * under three string variables gives `x`, `/`, `y`); a double-quoted or
  * compound-quoted field is one field and never a number (`"5"` is
  * rejected for a numeric variable); `//` and block comments are
- * blanks, and `///` joins the next line to the row; a numeric
- * variable with a value label (`x:yn` with option `label`) takes any
- * text.
+ * blanks, and `///` joins the next line to the row; under
+ * `#delimit ;` a quoted field may span lines (the record ends at the
+ * `;` after its closing quote); a numeric variable with a value label
+ * (`x:yn` with option `label`) takes any text.
  */
 
 /** How a declared variable reads a field: as a number, or any text. */
@@ -110,14 +126,38 @@ function declared_kind(name: string, type: string | null): InputFieldKind | null
 }
 
 /**
+ * Whether Sight reads the data row `row` (as for
+ * `is_consistent_input_row`) as data under the declared `fields`: it
+ * is consistent with them, and has no more fields than they do.
+ */
+export function is_input_data_row(
+    row: string, fields: readonly InputFieldKind[]
+): boolean {
+    const the_values = row_fields(strip_comments(row), fields.length + 1);
+    return the_values.length <= fields.length &&
+        values_fit_fields(the_values, fields);
+}
+
+/**
  * Whether the data row `row` (one line, with its `///` joins, or one
  * `;`-ended record, without the terminator) is consistent with the
- * declared `fields` (see the module comment).
+ * declared `fields` (see the module comment): Stata reads it without
+ * complaint, ignoring any extra fields.
  */
 export function is_consistent_input_row(
     row: string, fields: readonly InputFieldKind[]
 ): boolean {
-    const the_values = row_fields(strip_comments(row), fields.length);
+    return values_fit_fields(
+        row_fields(strip_comments(row), fields.length), fields);
+}
+
+/**
+ * Whether the first fields of a row, `the_values`, give each numeric
+ * variable of `fields` a number (or are none: a blank row).
+ */
+function values_fit_fields(
+    the_values: readonly RowField[], fields: readonly InputFieldKind[]
+): boolean {
     if (the_values.length === 0) {
         return true;
     }
@@ -146,12 +186,12 @@ function row_fields(row: string, count: number): RowField[] {
     while (i < row.length && the_fields.length < count) {
         const my_char = row[i];
         if (my_char === ' ' || my_char === '\t' || my_char === '\r' ||
-                my_char === '\n' || my_char === '/') {
+                my_char === '\n') {
             i++;
             continue;
         }
-        if (my_char === ',') {
-            the_fields.push({ text: ',', quoted: false });
+        if (my_char === ',' || my_char === '/') {
+            the_fields.push({ text: my_char, quoted: false });
             i++;
             continue;
         }
@@ -236,15 +276,39 @@ function block_comment_end(text: string, start: number): number {
 }
 
 /**
+ * Where the quotes in one source have been found to have no closing
+ * quote: for a `"` and for a compound `"'`, the least offset from
+ * which a search found none, so no later search from there or beyond
+ * scans the rest of the source again. Share one per source.
+ */
+export interface InputQuoteScan {
+    no_close_from: { simple: number; compound: number };
+}
+
+/** A fresh `InputQuoteScan` for one source. */
+export function create_input_quote_scan(): InputQuoteScan {
+    return { no_close_from: { simple: Infinity, compound: Infinity } };
+}
+
+/**
  * The offset of the terminator that ends the data row starting at
  * `start` in `source` (a newline, or under `#delimit ;` a `;`), or the
  * source's length if none does. A `///` comment joins the next line to
  * the row, as does a block comment open at a newline; a `;` or `///`
  * inside a double-quoted or compound-quoted field is text (StataMP 18
- * reads the record `"a;end";` as the value `a;end`). One linear scan.
+ * reads the record `"a;end";` as the value `a;end`), except that under
+ * `#delimit ;` a `;` ends the record even inside a compound quote
+ * (StataMP 18 reads `` `"a;b"'; `` as two records). Under
+ * `#delimit ;` a quoted field runs on across lines to its closing
+ * quote, as in Stata (`"Long` then `label" 42;` is one record); under
+ * `#delimit cr` it ends at the end of its line. A quote that no
+ * closing quote follows ends at the end of its line (Stata would read
+ * to the end of the file). Linear in the source over all the rows of
+ * one source when they share `quote_scan`.
  */
 export function input_row_end(
-    source: string, start: number, is_semicolon: boolean
+    source: string, start: number, is_semicolon: boolean,
+    quote_scan: InputQuoteScan = create_input_quote_scan()
 ): number {
     let i = start;
     while (i < source.length) {
@@ -256,15 +320,7 @@ export function input_row_end(
             return i;
         }
         if (my_char === '"' || (my_char === '`' && source[i + 1] === '"')) {
-            const my_close = my_char === '"' ? '"' : '"\'';
-            const my_end = source.indexOf(my_close, i + (my_char === '"' ? 1 : 2));
-            const my_newline = source.indexOf('\n', i);
-            // An unclosed quote ends at the end of its line.
-            if (my_end === -1 || (my_newline !== -1 && my_newline < my_end)) {
-                i = my_newline === -1 ? source.length : my_newline;
-            } else {
-                i = my_end + my_close.length;
-            }
+            i = quoted_field_end(source, i, is_semicolon, quote_scan);
             continue;
         }
         if (my_char === '/' && source[i + 1] === '*') {
@@ -287,6 +343,50 @@ export function input_row_end(
         i++;
     }
     return source.length;
+}
+
+/**
+ * The offset just past the quoted field that opens at `start` (a `"`,
+ * or the `` `" `` of a compound quote) in `source`: past its closing
+ * quote; at the `;` that ends the record inside a compound quote under
+ * `#delimit ;`; or, when it has none (under `#delimit cr`, none on its
+ * line), at the end of its line. Reads each character at most once,
+ * apart from one scan to the end of the source per kind of quote,
+ * which `quote_scan` remembers.
+ */
+function quoted_field_end(
+    source: string, start: number, is_semicolon: boolean,
+    quote_scan: InputQuoteScan
+): number {
+    const is_compound = source[start] === '`';
+    const my_kind = is_compound ? 'compound' : 'simple';
+    let i = start + (is_compound ? 2 : 1);
+    let my_newline = -1;
+    while (i < source.length && i < quote_scan.no_close_from[my_kind]) {
+        const my_char = source[i];
+        if (my_char === '"' && (!is_compound || source[i + 1] === '\'')) {
+            return i + (is_compound ? 2 : 1);
+        }
+        if (my_char === ';' && is_compound && is_semicolon) {
+            return i;
+        }
+        if (my_char === '\n') {
+            if (!is_semicolon) {
+                return i;
+            }
+            if (my_newline === -1) {
+                my_newline = i;
+            }
+        }
+        i++;
+    }
+    // No closing quote: from here on, none will be found.
+    quote_scan.no_close_from[my_kind] = Math.min(
+        quote_scan.no_close_from[my_kind], start);
+    if (my_newline === -1) {
+        my_newline = source.indexOf('\n', start);
+    }
+    return my_newline === -1 ? source.length : my_newline;
 }
 
 /**

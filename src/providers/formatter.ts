@@ -20,6 +20,7 @@ import { get_line_text, get_line_count, DocumentLike, compute_line_offsets } fro
 import { PrettyPrinter } from '../pretty-printer';
 import { StataLexer } from '../lexer';
 import { StataParser } from '../parser';
+import { delimit_text_mode } from '../utils/delimit-directive';
 
 const LEADING_BLANKS_RE = /^[ \t]*/;
 
@@ -290,9 +291,18 @@ export class CodeFormatter {
         // terminator, or (in `#delimit cr`) a `;` right before the `///`
         // that continues the statement. Never one inside a string.
         const the_semicolon_columns = new Map<number, Set<number>>();
+        // The lines of the `#delimit` directives, in order, and the
+        // mode each sets.
+        const the_directive_lines: number[] = [];
+        const the_directive_modes: Array<'cr' | 'semicolon'> = [];
         const the_tokens = document.tokens ?? [];
         for (let i = 0; i < the_tokens.length; i++) {
             const my_token = the_tokens[i];
+            if (my_token.type === 'DELIMIT_DIRECTIVE') {
+                the_directive_lines.push(my_token.range.start.line);
+                the_directive_modes.push(delimit_text_mode(my_token.value));
+                continue;
+            }
             if (my_token.value !== ';') {
                 continue;
             }
@@ -351,7 +361,17 @@ export class CodeFormatter {
                 range: my_unit.range,
                 first_indent: my_first_line.slice(
                     0, my_first_line.length - my_first_line.trimStart().length),
-                moves_later_lines: my_unit.moves_later_lines,
+                // Under `#delimit ;`, Stata 18 reads a `//` line in
+                // the middle of a statement as a comment when it is
+                // indented and as code at column 0, after a `///`
+                // join too; under `#delimit cr`, after a `///` join,
+                // as a comment either way. So only there may the
+                // later lines move.
+                moves_later_lines: my_unit.moves_later_lines &&
+                    delimiter_mode_at(
+                        the_directive_lines,
+                        the_directive_modes,
+                        my_unit.actual_range.start.line) === 'cr',
             });
 
             // Replace the unit with the placeholder using its actual range
@@ -441,7 +461,7 @@ export class CodeFormatter {
                                 return leading_indent + line;
                             } else if (my_block_info.moves_later_lines) {
                                 // A one-line `mata:` statement's later lines
-                                // (`///` joins, or `#delimit ;` lines) move
+                                // (`///` joins under `#delimit cr`) move
                                 // with its first line. A Python statement's
                                 // stay as written: Stata joins at a `///`
                                 // inside a '...' string, whose text then
@@ -964,4 +984,27 @@ function shift_line_indent(line: string, delta_columns: number, tab_size: number
         return line;
     }
     return ' '.repeat(my_width + delta_columns) + my_text;
+}
+
+/**
+ * The delimiter mode in effect on `line`: the one the last `#delimit`
+ * before it set (`directive_lines` ascending, `directive_modes` the
+ * modes they set), or `cr` before any.
+ */
+function delimiter_mode_at(
+    directive_lines: readonly number[],
+    directive_modes: ReadonlyArray<'cr' | 'semicolon'>,
+    line: number
+): 'cr' | 'semicolon' {
+    let my_low = 0;
+    let my_high = directive_lines.length;
+    while (my_low < my_high) {
+        const my_middle = (my_low + my_high) >> 1;
+        if (directive_lines[my_middle] < line) {
+            my_low = my_middle + 1;
+        } else {
+            my_high = my_middle;
+        }
+    }
+    return my_low === 0 ? 'cr' : directive_modes[my_low - 1] ?? 'cr';
 }
