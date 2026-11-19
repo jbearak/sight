@@ -19,7 +19,9 @@ export type PromptKind =
 
 const PROMPT_PATTERNS: ReadonlyArray<readonly [PromptKind, RegExp]> = [
     ['stata', /^\. $/],
-    ['block', /^ +\d+\. $/],
+    // Stata right-aligns the line number in three columns: `  1. `,
+    // ` 12. `, `103. `.
+    ['block', /^(?: +\d+|\d{3,})\. $/],
     ['mata', /^: $/],
     ['python', /^(?:>>>|\.\.\.) $/],
     ['continuation', /^> $/],
