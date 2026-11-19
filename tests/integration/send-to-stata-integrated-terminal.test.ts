@@ -557,8 +557,9 @@ function register_module_mocks(): void {
             current_vscode_state?.the_cleanups.push(file_path);
             // Delete like the real helper, since this mock outlives
             // the file (Bun keeps module mocks for later files).
+            const was_held = the_mock_held_files.has(file_path);
             const my_timeout = setTimeout(() => {
-                if (!the_mock_held_files.has(file_path)) {
+                if (!was_held && !the_mock_held_files.has(file_path)) {
                     fs.promises.unlink(file_path).catch(() => {});
                 }
             }, delay_ms);
