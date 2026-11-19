@@ -17,6 +17,10 @@ import {
 import { SemicolonStatementTracker } from '../utils/semicolon-statement';
 import { delimit_keyword_length } from '../utils/delimit-directive';
 import {
+  is_name_letter,
+  is_name_letter_or_digit,
+} from '../utils/stata-name';
+import {
   create_input_quote_scan,
   input_declaration_fields,
   input_row_end,
@@ -2708,13 +2712,14 @@ export class StataLexer {
     return char >= '0' && char <= '9';
   }
 
+  // A letter, as in a Stata name: ASCII or Unicode (see stata-name.ts).
   private isAlpha(char: string): boolean {
-    return (char >= 'a' && char <= 'z') ||
-      (char >= 'A' && char <= 'Z');
+    return is_name_letter(char);
   }
 
+  // What a name goes on with, other than `_` (see stata-name.ts).
   private isAlphaNumeric(char: string): boolean {
-    return this.isAlpha(char) || this.isDigit(char);
+    return is_name_letter_or_digit(char);
   }
 
   private makeToken(type: TokenType, value: string, startLine: number, startColumn: number): Token {

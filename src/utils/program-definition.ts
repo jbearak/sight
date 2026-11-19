@@ -6,6 +6,8 @@
  * two agree on where a program definition starts.
  */
 
+import { NAME_PART_SOURCE, NAME_START_SOURCE } from './stata-name';
+
 /**
  * `program` and the abbreviations Stata 18 accepts for it, down to `pr`
  * (`prog def roctab` in roctab.ado); `p` is unrecognized.
@@ -30,7 +32,10 @@ export const PROGRAM_SUBCOMMANDS: ReadonlySet<string> = new Set([
 // The first word after `program` (`.name` for a class member program,
 // as in Stata's gsem_depvar_header.ado), or the quote of a macro that
 // names the program (`` program `p' ``, `program $p`).
-const FIRST_WORD = /^[ \t]+(\.?[A-Za-z_][A-Za-z0-9_]*|[`$])/;
+// A name may start with any letter Stata allows (`program π`), as the
+// lexer reads it (see stata-name.ts).
+const FIRST_WORD = new RegExp(
+    `^[ \\t]+(\\.?${NAME_START_SOURCE}${NAME_PART_SOURCE}*|[\`$])`, 'u');
 const PLUGIN_WORD = /\bplugin\b/;
 // A `//` comment start: as in Stata 18, at the start of the text or
 // after a space or tab (`program p, rclass//x` has no comment).
@@ -207,5 +212,36 @@ export function is_program_definition_header(text_after_program: string): boolea
         : my_text.slice(0, my_comment.index);
     // A `plugin` option: the word after the comma that starts options
     const my_comma = my_code.indexOf(',');
-    return my_comma === -1 || !PLUGIN_WORD.test(my_code.slice(my_comma));
+    return my_comma === -1 || !has_plugin_option(my_code.slice(my_comma + 1));
+}
+
+/**
+ * Whether the options `text` hold `plugin` as an option of its own,
+ * outside any option's parentheses: `plugin using(x.dll)` does,
+ * `properties(plugin)` doesn't (StataMP 18 defines a program with a
+ * body there).
+ */
+function has_plugin_option(text: string): boolean {
+    let my_depth = 0;
+    let my_top_start = 0;
+    const the_parts: string[] = [];
+    for (let i = 0; i < text.length; i++) {
+        const my_char = text[i];
+        if (my_char === '(') {
+            if (my_depth === 0) {
+                the_parts.push(text.slice(my_top_start, i));
+            }
+            my_depth++;
+        } else if (my_char === ')' && my_depth > 0) {
+            my_depth--;
+            if (my_depth === 0) {
+                the_parts.push(' ');
+                my_top_start = i + 1;
+            }
+        }
+    }
+    if (my_depth === 0) {
+        the_parts.push(text.slice(my_top_start));
+    }
+    return PLUGIN_WORD.test(the_parts.join(''));
 }

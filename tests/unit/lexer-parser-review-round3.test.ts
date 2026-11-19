@@ -25,6 +25,7 @@ import {
     is_consistent_input_row,
     is_input_data_row,
 } from '../../src/utils/input-data';
+import { is_program_definition_header } from '../../src/utils/program-definition';
 import { CommandNode, StataNode, Token } from '../../src/types';
 import { create_document_state } from '../property/helpers/document-utils';
 import {
@@ -276,5 +277,60 @@ describe('a quoted input field under #delimit ;', () => {
         expect(growth('"a" 1\n', scan_rows(false))).toBeLessThan(5);
         expect(growth('`"a\n', scan_rows(true))).toBeLessThan(5);
         expect(growth('"a\n', scan_rows(false))).toBeLessThan(5);
+    });
+});
+
+describe('a program named with a Unicode letter', () => {
+    it('is a definition that its end closes', () => {
+        // StataMP 18 defines and runs `π`, `café2` and `_é`, and
+        // rejects `½x` ("invalid name").
+        for (const my_name of ['π', 'café2', '_é', 'x½']) {
+            const my_result = parse(`program ${my_name}\nargs x\nend\n`);
+            expect(my_result.errors).toEqual([]);
+            expect(shape(my_result.ast.nodes)).toEqual(['program']);
+        }
+        expect(is_program_definition_header(' ½x')).toBe(false);
+    });
+
+    it('is one word, as are other names with Unicode letters', () => {
+        const the_words = lex('local café 1\ngen x½ = 1\n')
+            .filter((my_token) => my_token.type === 'WORD')
+            .map((my_token) => my_token.value);
+        expect(the_words).toEqual(['local', 'café', 'gen', 'x½']);
+    });
+});
+
+describe('plugin in a program header', () => {
+    it('declares a plugin only as an option of its own', () => {
+        expect(is_program_definition_header(' p, plugin')).toBe(false);
+        expect(is_program_definition_header(' p, plugin using("p.dll")')).toBe(false);
+        expect(is_program_definition_header(' p, properties(a) plugin')).toBe(false);
+        // StataMP 18 runs the body of these programs.
+        expect(is_program_definition_header(' p, properties(plugin)')).toBe(true);
+        expect(is_program_definition_header(' p, rclass properties(svyb plugin)'))
+            .toBe(true);
+    });
+
+    it('in properties() leaves a definition that its end closes', () => {
+        const my_result = parse(
+            'program define p, properties(plugin)\n    display 1\nend\np\n');
+        expect(my_result.errors).toEqual([]);
+        expect(shape(my_result.ast.nodes)).toEqual(['program', 'p']);
+    });
+});
+
+describe('a bracket touching a name in assert', () => {
+    it('is a subscript, not a weight', () => {
+        const my_assert = command_at(
+            nodes_of('assert x[`weight\'] == 1\n', true), 0);
+        expect(my_assert.weight).toBeUndefined();
+        // In a varlist it is still the weight.
+        expect(command_at(nodes_of('summarize price[`weight\'`exp\']\n'), 0).weight)
+            .toBeDefined();
+    });
+
+    for_each_formatter_mode('stays attached to its name', (my_mode) => {
+        const my_source = 'local weight 1\nassert x[`weight\'] == 1\n';
+        expect_formats_to(my_source, my_mode, my_source);
     });
 });
