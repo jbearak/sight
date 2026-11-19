@@ -1255,26 +1255,6 @@ export class ScopeResolver {
         let forward_call_symbols: import('../types').ForwardCallSite[] | undefined;
         const effective_working_directory = own_working_directory ?? inherited_working_directory;
 
-        // Forward directives (`sight: do`) resolve against the file's own
-        // directory, or one it inherits through `sight: done-by` /
-        // `included-by`, never one inherited from a caller the dependency
-        // graph found (docs/cross-file.md, Working Directory), as in
-        // `sight graph`. A directive call with no directory falls back to
-        // the frame's, so stamp the file's own directory on it.
-        let the_forward_calls = my_parse_result.forward_calls;
-        if (
-            has_auto_parents &&
-            own_working_directory === undefined &&
-            inherited_working_directory !== undefined
-        ) {
-            const my_own_dir = path.dirname(URI.parse(file_uri).fsPath);
-            the_forward_calls = the_forward_calls.map(my_call =>
-                my_call.source === 'directive' &&
-                my_call.working_directory === undefined
-                    ? { ...my_call, working_directory: my_own_dir }
-                    : my_call);
-        }
-
         // Enter forward resolution when there are forward calls OR in-script
         // `cd` commands: the latter must run even with no do/run/include so a
         // lone `cd` with a casing/missing issue is still diagnosed (issue #252).
@@ -1283,7 +1263,7 @@ export class ScopeResolver {
              my_parse_result.cd_commands.length > 0)) {
             const forward_result = await this.forward_scope_resolver.resolve(
                 file_uri,
-                the_forward_calls,
+                my_parse_result.forward_calls,
                 'include', // Current file has full access to forward call symbols
                 {
                     visited: new Map(),
@@ -2577,12 +2557,35 @@ export class ScopeResolver {
         const all_forward_calls = prepare_forward_calls({
             uri,
             command_calls: my_analysis.forward_calls,
-            directive_calls: my_directive_result.forward_calls ?? [],
+            directive_calls: [],
             cd_commands: my_analysis.cd_commands,
             working_directory: effective_working_directory,
             workspace_roots: this.workspace_roots,
             fs: this.resolve_fs,
         });
+        // Forward directives (`sight: do`) resolve against the file's own
+        // directory, or one it inherits through `sight: done-by` /
+        // `included-by`, never one inherited from a caller that runs it
+        // (docs/cross-file.md, Working Directory), as in `sight graph`.
+        // A file without backward directives can only inherit from a
+        // caller, so its directive calls carry its own directory: a call
+        // with none would fall back to the directory of the frame that
+        // resolves it.
+        const has_backward_directives =
+            my_directive_result.standalone === undefined &&
+            my_directive_result.directives.length > 0;
+        const directive_working_directory = has_backward_directives
+            ? effective_working_directory
+            : own_working_directory ?? path.dirname(URI.parse(uri).fsPath);
+        all_forward_calls.push(...prepare_forward_calls({
+            uri,
+            command_calls: [],
+            directive_calls: my_directive_result.forward_calls ?? [],
+            cd_commands: [],
+            working_directory: directive_working_directory,
+            workspace_roots: this.workspace_roots,
+            fs: this.resolve_fs,
+        }));
 
         // Return effective working_directory (file's own or inherited)
         return {

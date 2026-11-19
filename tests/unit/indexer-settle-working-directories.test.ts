@@ -182,10 +182,12 @@ describe('WorkspaceIndexer working-directory settling', () => {
     });
 
     it('costs a bounded number of parent lookups on a dense cycle', async () => {
-        // Fourteen files that each call all fourteen, beside one file
-        // with a directory: each round looks up each file's parents once.
+        // Fourteen files that each call all fourteen, entered from a file
+        // with a directory: each round looks up each file's parents once,
+        // and the rounds are bounded by the depth limit.
         const size = 14;
         const the_files: Record<string, string> = {
+            'main.do': '// sight: cd "work"\ndo f0.do\n',
             'unrelated.do': '// sight: cd "."\ndisplay 1\n',
         };
         for (let i = 0; i < size; i++) {
@@ -196,15 +198,40 @@ describe('WorkspaceIndexer working-directory settling', () => {
         const start_ms = performance.now();
         const { graph, parent_lookups } = await index(root);
         const elapsed_ms = performance.now() - start_ms;
+        expect(parent_lookups()).toBeGreaterThan(size);
         expect(parent_lookups()).toBeLessThanOrEqual(size * (10 + 2));
         expect(elapsed_ms).toBeLessThan(5000);
-        expect(callers(graph, root, 'f0.do')).toHaveLength(size);
+        expect(callers(graph, root, 'f0.do')).toHaveLength(size + 1);
     });
 
-    it('settles a dense cycle reached from a directory, the same each run', async () => {
+    it('leaves a cycle the walk would leave by another caller as it was', async () => {
+        // f.do's callers are p.do (reached from q0.do's d1 through q.do)
+        // and r.do (d2), and p.do's are f.do and q.do. The walk gives
+        // f.do d1 by entering p.do and going on to q.do; one step can
+        // only see p.do's result, which came through f.do itself. Such a
+        // file keeps the registration it had without settling.
+        const root = make_workspace({
+            'q0.do': '// sight: cd "d1"\ndo q.do\n',
+            'q.do': 'do p.do\n',
+            'r.do': '// sight: cd "d2"\ndo f.do\n',
+            'p.do': 'do f.do\n',
+            'f.do': 'do p.do\ndo x.do\ndo z.do\n',
+            'd1/x.do': 'display 1\n',
+            'd2/z.do': 'display 1\n',
+        });
+        const settled = await index(root);
+        const unsettled = await index(root, { settle: false });
+        for (const my_file of ['f.do', 'p.do']) {
+            expect(callees(settled.graph, root, my_file))
+                .toEqual(callees(unsettled.graph, root, my_file));
+        }
+    });
+
+    it('settles the same way on every run', async () => {
         const size = 12;
         const the_files: Record<string, string> = {
             'main.do': '// sight: cd "work"\ndo f0.do\n',
+            'other.do': '// sight: cd "elsewhere"\ndo f5.do\n',
         };
         for (let i = 0; i < size; i++) {
             the_files[`f${i}.do`] = Array.from(
@@ -212,14 +239,13 @@ describe('WorkspaceIndexer working-directory settling', () => {
                 '\ndo lib.do\n';
         }
         the_files['work/lib.do'] = 'display 1\n';
+        the_files['elsewhere/lib.do'] = 'display 2\n';
         const root = make_workspace(the_files);
         const first = await index(root);
         const second = await index(root);
         for (let i = 0; i < size; i++) {
-            const my_callees = callees(first.graph, root, `f${i}.do`);
-            expect(my_callees).toContain('work/lib.do');
-            expect(callees(second.graph, root, `f${i}.do`)).toEqual(my_callees);
+            expect(callees(second.graph, root, `f${i}.do`))
+                .toEqual(callees(first.graph, root, `f${i}.do`));
         }
-        expect(first.parent_lookups()).toBeLessThanOrEqual(size * (10 + 2) + 1);
     });
 });

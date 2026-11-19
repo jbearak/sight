@@ -284,10 +284,11 @@ describe('sight check — working directory inherited through do-chains', () => 
             'work/jobs/b.do': '// sight: do missing.do\ndisplay 1\n',
             'work/missing.do': 'display 1\n',
         });
+        // The callers that run b.do report it too, at their calls.
         expect(result).toEqual({
             check: ['work/jobs/b.do:1'],
             graph: ['work/jobs/b.do:1'],
-            nested: [],
+            nested: ['main.do:1', 'work/jobs/a.do:1'],
         });
     });
 
@@ -300,7 +301,7 @@ describe('sight check — working directory inherited through do-chains', () => 
         expect(result).toEqual({
             check: ['work/jobs/a.do:1'],
             graph: ['work/jobs/a.do:1'],
-            nested: [],
+            nested: ['main.do:1'],
         });
     });
 

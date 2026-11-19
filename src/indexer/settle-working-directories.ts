@@ -191,13 +191,15 @@ export function settle_inherited_working_directories<
             if (my_caller === undefined || my_caller_result.directory === undefined) {
                 return UNKNOWN;
             }
-            // The walk from this file never revisits it, and gives up a
-            // path longer than the depth limit.
+            // The walk from this file never revisits it and gives up a
+            // path longer than the depth limit, so through this caller it
+            // would go on to the caller's other parents, which one step
+            // cannot see. Its answer is then unknown here.
             if (
                 my_caller_result.chain.includes(facts.uri) ||
                 my_caller_result.chain.length + 1 > max_depth
             ) {
-                continue;
+                return UNKNOWN;
             }
             const directory = my_caller_result.directory;
             const chain = [my_caller_uri, ...my_caller_result.chain];
