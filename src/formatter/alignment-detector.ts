@@ -1,4 +1,5 @@
 import { Token } from '../types';
+import { delimit_directive_mode } from '../utils/semicolon-statement';
 
 export interface ContinuationGroup {
   start_line: number;
@@ -25,8 +26,6 @@ const COMMENT_TOKEN_TYPES: ReadonlySet<string> = new Set([
   'COMMENT_LINE', 'COMMENT_BLOCK', 'CONTINUATION',
 ]);
 
-// `#delimit ;`, with the `;` as the first thing after the keyword.
-const DELIMIT_SEMICOLON_PATTERN = /^#delimit[ \t]*;/;
 
 /**
  * Statements under `#delimit ;` that span lines. A line break there is
@@ -58,7 +57,8 @@ export function find_delimit_continuation_runs(
       my_run.continuation_lines.push(my_line);
     }
     if (my_token.type === 'DELIMIT_DIRECTIVE') {
-      is_semicolon_mode = DELIMIT_SEMICOLON_PATTERN.test(my_token.value);
+      is_semicolon_mode =
+        delimit_directive_mode(my_token) === 'semicolon';
     }
     if (DELIMIT_STATEMENT_BOUNDARY_TYPES.has(my_token.type)) {
       statement_start_line = undefined;

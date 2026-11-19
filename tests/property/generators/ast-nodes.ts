@@ -218,6 +218,7 @@ export function arbitrary_directive_node(): fc.Arbitrary<DirectiveNode> {
     .map((my_mode) => ({
       type: 'directive',
       directive: 'delimit',
+      keyword: '#delimit',
       mode: my_mode as 'cr' | 'semicolon',
       range: make_range(0, 0, 0, 15),
     }));
