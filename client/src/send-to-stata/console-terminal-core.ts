@@ -475,6 +475,7 @@ export class ConsoleTerminalQueue<TTerminal> {
                 const the_rest = the_sends.slice(i);
                 this.dispatching_count -= the_rest.length;
                 this.drop(the_rest);
+                this.report_pending_count();
                 return;
             }
             this.dispatching_count -= 1;
