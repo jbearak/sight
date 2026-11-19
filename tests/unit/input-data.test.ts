@@ -80,7 +80,9 @@ describe('input data', () => {
     });
 
     it('reads data after a prefixed input', () => {
-        const { parse_result } = parse('quietly input x\n1 2\nend\ndi 1\n');
+        // (One field: a row with more fields than variables ends the
+        // data; see src/utils/input-data.ts.)
+        const { parse_result } = parse('quietly input x\n1\nend\ndi 1\n');
         expect(parse_result.ast.nodes.map((my_node) => my_node.type === 'command'
             ? my_node.name : my_node.type)).toEqual(['input', 'di']);
     });

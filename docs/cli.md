@@ -401,23 +401,30 @@ unquoted paths all give the same object.
 An `input` statement outside a program reads the lines after it as data,
 up to a line whose first word is `end` (under `#delimit ;`, the
 `;`-ended records up to one whose first word is `end`; a `;` inside a
-quoted value doesn't end a record). Its `range` and `text` run through
-that `end`, and the data lines are not statements.
+quoted value doesn't end a record, and a quoted value may span lines).
+Its `range` and `text` run through that `end`, and the data lines are
+not statements.
 
 Stata also stops reading data once it has filled the observations of a
 dataset that already has some (`set obs 1` then `input x`), which Sight
 cannot know. So Sight reads what the `input` statement declares: a row
-fits when each numeric variable among its first fields has a field
-Stata reads as a number (extra fields are ignored, a missing string
-field is blank, and a blank row is skipped). The data ends before the
-first row that doesn't fit, with no `end` (the `range` and `text` run
-through the last row), and that row and the lines after it are
-statements: under `input score`, the row `local label
-score` starts with text where `score` needs a number, so it is code.
-A row of text under string variables is data (`program demo` under
-`input str12 a str12 b`), as it is in Stata. When the declaration can't
-be read (no variable list, or a macro in it), every line up to `end` is
-data.
+fits when it has no more fields than there are variables, and each
+numeric variable has a field Stata reads as a number (a missing string
+field is blank, and a blank row is skipped). Fields are counted as
+Stata's `input` reads them: a run of non-blanks, a quoted value, or a
+`,` or `/` on its own. The data ends before the first row that doesn't
+fit, with no `end` (the `range` and `text` run through the last row),
+and that row and the lines after it are statements: under
+`input score`, the row `local label score` starts with text where
+`score` needs a number, and under `input str5 city`, the row
+`local n = _N` has four fields for one variable, so each is code. Stata
+would ignore the extra fields of such a row, but rows of real data
+don't have them. A row with at most as many fields as variables, and a
+number for each numeric one, is data whatever it looks like:
+`program demo` under `input str12 a str12 b` is data, as it is in
+Stata, and so is a short command under an `input` without `end` that
+declares enough string variables. When the declaration can't be read
+(no variable list, or a macro in it), every line up to `end` is data.
 
 - `name` is the command as written. `canonical_name` is the full name of a
   built-in command that `name` abbreviates (`reg` is `regress`), or null for

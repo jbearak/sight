@@ -17,9 +17,11 @@ import {
 import { SemicolonStatementTracker } from '../utils/semicolon-statement';
 import { delimit_keyword_length } from '../utils/delimit-directive';
 import {
+  create_input_quote_scan,
   input_declaration_fields,
   input_row_end,
-  is_consistent_input_row,
+  InputQuoteScan,
+  is_input_data_row,
   is_input_end_row,
 } from '../utils/input-data';
 import {
@@ -185,6 +187,8 @@ export class StataLexer {
   // next_input_end_candidate).
   private input_end_candidate:
     { searched_from: number; index: number; is_semicolon: boolean } | null = null;
+  // Where `input` data quotes have no closing quote (see input_row_end).
+  private input_quote_scan: InputQuoteScan = create_input_quote_scan();
 
   tokenize(source: string, initialState?: LexerState): LexerResult {
     this.source = source;
@@ -214,6 +218,7 @@ export class StataLexer {
     this.input_data_pending = false;
     this.input_declaration_start = 0;
     this.input_end_candidate = null;
+    this.input_quote_scan = create_input_quote_scan();
     this.state = initialState || {
       delimiterMode: 'cr',
       line: 0,
@@ -366,9 +371,10 @@ export class StataLexer {
    * as lines (or `;`-ended records) up to one whose first word is
    * `end`, unless it stops sooner because it has filled the dataset's
    * observations. Sight can't know those, so the data also ends before
-   * the first row that is not consistent with the variables `input`
-   * declares (see src/utils/input-data.ts): `input score` then `10`
-   * then `local label score` is one row of data.
+   * the first row that does not fit the variables `input` declares
+   * (see src/utils/input-data.ts): `input score` then `10` then
+   * `local label score` is one row of data, as is `input str5 city`
+   * then `Paris` then `local n = _N`.
    *
    * The data is one INPUT_DATA token holding the rows as written; it
    * stops before the terminator that ends the last row, and is empty
@@ -385,9 +391,9 @@ export class StataLexer {
     const is_semicolon = this.state.delimiterMode === 'semicolon';
     const the_fields = input_declaration_fields(this.source.substring(
       this.input_declaration_start, this.position - 1));
-    // Only a numeric variable can make a row inconsistent.
-    const can_stop_early = the_fields !== null &&
-      the_fields.includes('numeric');
+    // Any declaration Sight can read can end the data at a row that
+    // does not fit it.
+    const can_stop_early = the_fields !== null;
     let my_row_start = this.position;
     let my_data_end = -1;
     let my_has_rows = false;
@@ -395,7 +401,8 @@ export class StataLexer {
     for (;;) {
       // No row can start with `end` past the last candidate, so data
       // that can't stop early has no end (this keeps a file of many
-      // string `input` blocks without `end` linear).
+      // `input` blocks with unreadable declarations and no `end`
+      // linear).
       if (!can_stop_early &&
           this.next_input_end_candidate(my_row_start - 1, is_semicolon) === -1) {
         return null;
@@ -407,9 +414,10 @@ export class StataLexer {
       if (my_row_start >= this.source.length) {
         return null;
       }
-      const my_row_end = input_row_end(this.source, my_row_start, is_semicolon);
+      const my_row_end = input_row_end(
+        this.source, my_row_start, is_semicolon, this.input_quote_scan);
       const my_row = this.source.substring(my_row_start, my_row_end);
-      if (the_fields !== null && !is_consistent_input_row(my_row, the_fields)) {
+      if (the_fields !== null && !is_input_data_row(my_row, the_fields)) {
         break;
       }
       my_has_rows = my_has_rows || my_row.trim() !== '';
@@ -641,13 +649,18 @@ export class StataLexer {
    * a block comment that opened after code on the line above, a `{`,
    * a prefix (`quietly #d ;`), or mid-statement at the start of a line
    * under `#delimit ;` (`di 1` then `#d cr` is `di 1 #d cr`).
+   * The `end` of a Mata block also ends a statement under
+   * `#delimit ;` without a `;` (StataMP 18 reads `#d cr` on the next
+   * line); the `end` of a Python block, a program or `input` data
+   * there, and a `}`, need their `;`.
    */
   private at_statement_start(): boolean {
     const my_prev_code = this.previous_code_token;
     if (my_prev_code === null || my_prev_code.type === 'DELIMIT_DIRECTIVE') {
       return true;
     }
-    return my_prev_code.type === 'STATEMENT_TERMINATOR' &&
+    return (my_prev_code.type === 'STATEMENT_TERMINATOR' ||
+        my_prev_code.type === 'END_MATA') &&
       !this.joined_to_previous_line;
   }
 
