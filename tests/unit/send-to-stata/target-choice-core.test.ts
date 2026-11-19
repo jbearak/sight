@@ -1,4 +1,6 @@
 import { describe, expect, it } from 'bun:test';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import {
     PANE_ONLY_NOTE,
     TargetChooser,
@@ -188,5 +190,27 @@ describe('is_ask_setting', () => {
         expect(is_ask_setting(undefined)).toBe(true);
         expect(is_ask_setting('integrated')).toBe(false);
         expect(is_ask_setting('external')).toBe(false);
+    });
+});
+
+describe('sight.sendToStata.target in the manifest', () => {
+    const MANIFEST = JSON.parse(readFileSync(
+        join(import.meta.dir, '../../../client/package.json'), 'utf8'));
+    const SETTING = MANIFEST.contributes.configuration.properties[
+        'sight.sendToStata.target'];
+
+    it('accepts every value the extension reads, auto included', () => {
+        // `auto` is the older name for `ask`: settings that still hold
+        // it must not get an invalid-value warning.
+        for (const my_value of ['ask', 'auto', 'integrated', 'external']) {
+            expect(SETTING.enum).toContain(my_value);
+        }
+        expect(SETTING.enum.filter(
+            (my_value: string) => is_ask_setting(my_value)))
+            .toEqual(['ask', 'auto']);
+    });
+
+    it('describes each value', () => {
+        expect(SETTING.enumDescriptions.length).toBe(SETTING.enum.length);
     });
 });
