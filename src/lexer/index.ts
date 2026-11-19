@@ -28,6 +28,11 @@ const INPUT_COMMAND_NAMES: ReadonlySet<string> = new Set(['inp', 'inpu', 'input'
 // `input` data: blanks, then `end` not followed by a word character
 // or `.`.
 const INPUT_END_LINE = /\n[ \t]*end(?![A-Za-z0-9_.])/g;
+// Under `#delimit ;`, the `;` before a record whose first word is
+// `end`, which ends `input` data (StataMP 18).
+const INPUT_END_RECORD = /;\s*end(?![A-Za-z0-9_.])/g;
+// A line whose first word may be `program` or an abbreviation of it.
+const PROGRAM_HEADER_LINE = /^[ \t]*(pr[a-z]*)(?![A-Za-z0-9_])/gm;
 const COMMENT_CONTEXT_KEYWORDS = new Set(['program', 'capture', 'quietly', 'noisily', 'by', 'bysort']);
 // A `*` after one of these is multiplication. A string never ends a
 // statement on its own line, so `"ab" * 3` is string repetition, not a
@@ -51,6 +56,15 @@ const STAR_COMMENT_COLON_PREFIXES: ReadonlySet<string> = new Set([
     my_name === 'version' || my_name === 'xi').map(([my_word]) => my_word),
   'frame',
 ]);
+// Prefixes whose colon starts a command that may be `mata:` or
+// `python:` (`mi xeq: mata: x`, `by g: mata: x`): every colon prefix.
+// Stata 18 reads the word after any of them as the command.
+const EMBEDDED_OPENER_COLON_PREFIXES: ReadonlySet<string> = new Set([
+  ...COLON_PREFIX_COMMANDS.keys(),
+  ...[...PREFIX_COMMANDS].filter(([, my_name]) =>
+    my_name === 'by' || my_name === 'bysort').map(([my_word]) => my_word),
+  'frame',
+]);
 // Tokens an `if` condition's operand can end with, and those that
 // can follow an operator or `(` inside one.
 const CONDITION_OPERAND_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
@@ -64,6 +78,31 @@ const STATEMENT_START_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
   'STATEMENT_TERMINATOR', 'DELIMIT_DIRECTIVE', 'LBRACE', 'RBRACE',
   'END_MATA', 'END_PYTHON',
 ]);
+
+/**
+ * The offset just past the `*\/` that closes the block comment opening
+ * at `start` in `source`, or the source's length if none does. Block
+ * comments nest, as in Stata.
+ */
+function block_comment_end(source: string, start: number): number {
+  let my_depth = 0;
+  let i = start;
+  while (i < source.length) {
+    if (source[i] === '/' && source[i + 1] === '*') {
+      my_depth++;
+      i += 2;
+    } else if (source[i] === '*' && source[i + 1] === '/') {
+      my_depth--;
+      i += 2;
+      if (my_depth === 0) {
+        return i;
+      }
+    } else {
+      i++;
+    }
+  }
+  return source.length;
+}
 
 export class StataLexer {
   private source: string = '';
@@ -107,6 +146,12 @@ export class StataLexer {
   // The word naming the current command, once past any argument-free
   // prefixes; it tells `version 18:` from `unab x :`.
   private command_word: string | null = null;
+  // Whether a command starts at the next code token for opening
+  // embedded code, though not for reading a `*` as a comment: after
+  // the colon of `mi xeq:`, `by g:` and the like (see
+  // EMBEDDED_OPENER_COLON_PREFIXES), or of a macro that starts the
+  // command (`` `run': python:``, the macro holding a prefix).
+  private at_prefixed_command_start = false;
   // Inside a `mata:` one-liner, where `:*` multiplies.
   private in_mata_inline_statement = false;
   // Inside a `python:` one-liner, where `*` is Python code.
@@ -144,6 +189,7 @@ export class StataLexer {
     this.joined_to_previous_line = false;
     this.at_command_start = true;
     this.command_word = null;
+    this.at_prefixed_command_start = false;
     this.in_mata_inline_statement = false;
     this.in_python_inline_statement = false;
     this.program_definition_open = false;
@@ -271,59 +317,132 @@ export class StataLexer {
 
   /**
    * Note an `input` command (`inp` … `input`) where a command starts,
-   * after any prefixes (`quietly input x`), whose data starts on the
-   * next line. Inside a program definition there is
-   * no data: Stata ends the definition at the data's `end` (StataMP
-   * 18). Under `#delimit ;` the lines are left as statements.
+   * after any prefixes (`quietly input x`) or a one-line `if`'s
+   * condition (`if 1 input x`), whose data starts after the statement.
+   * Inside a program definition there is no data: Stata ends the
+   * definition at the data's `end` (StataMP 18).
    */
-  private note_input_command_word(value: string): void {
+  private note_input_command_word(
+    value: string, start_line: number, start_column: number,
+  ): void {
     if (INPUT_COMMAND_NAMES.has(value) && !this.program_definition_open &&
-        this.state.delimiterMode === 'cr' && this.at_command_start) {
+        (this.at_command_start ||
+          this.if_condition_ends_before(start_line, start_column))) {
       this.input_data_pending = true;
     }
   }
 
   /**
-   * The data lines from the current position, the start of the line
-   * after an `input` statement, up to the first line whose first word
-   * is `end`, and that `end` line. The data is one INPUT_DATA token
-   * holding the lines as written (StataMP 18 reads them literally,
-   * without expanding macros); it stops before the newline that ends
-   * the last data line, and is empty when `end` comes right after
-   * `input`. Then come that newline, the `end` word, and the rest of
-   * its line, which Stata discards, as a COMMENT_LINE token, so a `/*`
-   * or a quote there opens nothing. Null, consuming nothing, when no
-   * such `end` line follows: the lines are then read as statements.
+   * The data after an `input` statement, from the current position
+   * just past the newline (or, under `#delimit ;`, the `;`) that ends
+   * it, and the `end` that closes the data. StataMP 18 reads the data
+   * literally, without expanding macros, as lines (or `;`-ended
+   * records) up to one whose first word is `end`. The data is one
+   * INPUT_DATA token holding them as written; it stops before the
+   * terminator that ends the last record, and is empty when `end`
+   * comes right after `input`. Then come that terminator, the `end`
+   * word, and the rest of its line (or record), which Stata discards
+   * (see scan_end_tail_tokens).
+   *
+   * Null, consuming nothing, when no such `end` follows, or when a
+   * program definition header comes first: that `end` closes the
+   * program, so the data must have ended by itself (Stata stops
+   * reading data once it has filled the dataset's observations, which
+   * Sight cannot know), and the lines are read as statements.
    */
   private scan_input_data(): Token[] | null {
-    // From the newline just consumed, so `end` on the next line counts.
-    INPUT_END_LINE.lastIndex = this.position - 1;
-    const end_match = INPUT_END_LINE.exec(this.source);
-    if (end_match === null) {
+    const is_semicolon = this.state.delimiterMode === 'semicolon';
+    const end_pattern = is_semicolon ? INPUT_END_RECORD : INPUT_END_LINE;
+    // From the terminator just consumed, so an `end` right after it
+    // counts.
+    end_pattern.lastIndex = this.position - 1;
+    const end_match = end_pattern.exec(this.source);
+    if (end_match === null ||
+        this.has_program_header_line(this.position, end_match.index)) {
       return null;
+    }
+    if (is_semicolon) {
+      // Data on the lines after `input x;` starts on the next line.
+      let my_pos = this.position;
+      while (this.source[my_pos] === ' ' || this.source[my_pos] === '\t' ||
+          this.source[my_pos] === '\r') {
+        my_pos++;
+      }
+      if (this.source[my_pos] === '\n' && my_pos < end_match.index) {
+        while (this.position <= my_pos) {
+          this.advance();
+        }
+      }
     }
     const the_tokens: Token[] = [];
     const data_end = Math.max(this.position, end_match.index);
     the_tokens.push(this.scan_raw_token('INPUT_DATA', data_end));
-    if (this.source[this.position] === '\n') {
+    if (this.source[this.position] === (is_semicolon ? ';' : '\n')) {
       the_tokens.push(this.scan_raw_token('STATEMENT_TERMINATOR', this.position + 1));
     }
-    while (this.peek() === ' ' || this.peek() === '\t') {
+    while (/\s/.test(this.peek()) && this.position < this.source.length) {
       this.advance();
     }
     the_tokens.push(this.scan_raw_token('WORD', this.position + 'end'.length));
-    while (this.peek() === ' ' || this.peek() === '\t') {
-      this.advance();
-    }
-    let line_end = this.source.indexOf('\n', this.position);
-    if (line_end < 0) {
-      line_end = this.source.length;
-    }
-    const tail = this.source.substring(this.position, line_end).trimEnd();
-    if (tail !== '') {
-      the_tokens.push(this.scan_raw_token('COMMENT_LINE', this.position + tail.length));
-    }
+    the_tokens.push(...this.scan_end_tail_tokens(is_semicolon));
     return the_tokens;
+  }
+
+  /**
+   * Whether a line in `source` from offset `start` up to `end` begins
+   * with a program definition header (`program define helper`).
+   */
+  private has_program_header_line(start: number, end: number): boolean {
+    PROGRAM_HEADER_LINE.lastIndex = start;
+    for (;;) {
+      const my_match = PROGRAM_HEADER_LINE.exec(this.source);
+      if (my_match === null || my_match.index >= end) {
+        return false;
+      }
+      const my_word_end = my_match.index + my_match[0].length;
+      if (PROGRAM_COMMAND_NAMES.has(my_match[1]) &&
+          is_program_definition_header(
+            logical_line_text(this.source, my_word_end))) {
+        return true;
+      }
+    }
+  }
+
+  /**
+   * The rest of the line (or, under `#delimit ;`, of the record) after
+   * an input data's `end`, which Stata discards, so a `/*` or a quote
+   * there opens nothing. Each block comment there is a COMMENT_BLOCK
+   * token, as is an unclosed `/*` and what follows it; other text is
+   * a COMMENT_LINE token. So comment normalization reads a block
+   * comment as one, and rewrites the rest once into a comment that
+   * stays as written. Blanks between them are left out; the `;` that
+   * ends the record is left to be lexed.
+   */
+  private scan_end_tail_tokens(is_semicolon: boolean): Token[] {
+    const the_tokens: Token[] = [];
+    let tail_end = is_semicolon
+      ? this.source.indexOf(';', this.position)
+      : this.source.indexOf('\n', this.position);
+    if (tail_end < 0) {
+      tail_end = this.source.length;
+    }
+    tail_end = this.position +
+      this.source.substring(this.position, tail_end).trimEnd().length;
+    for (;;) {
+      while (this.peek() === ' ' || this.peek() === '\t') {
+        this.advance();
+      }
+      if (this.position >= tail_end) {
+        return the_tokens;
+      }
+      if (!this.source.startsWith('/*', this.position)) {
+        the_tokens.push(this.scan_raw_token('COMMENT_LINE', tail_end));
+        return the_tokens;
+      }
+      const my_comment_end = Math.min(
+        tail_end, block_comment_end(this.source, this.position));
+      the_tokens.push(this.scan_raw_token('COMMENT_BLOCK', my_comment_end));
+    }
   }
 
   /** A token of `type` for the source from here up to offset `end`. */
@@ -583,7 +702,7 @@ export class StataLexer {
    * an argument: `local x 1 mata: y`, `if flag local x 1 mata: y`.
    */
   private at_embedded_opener_position(start_line: number, start_column: number): boolean {
-    if (this.at_command_start) {
+    if (this.at_command_start || this.at_prefixed_command_start) {
       return true;
     }
     const my_previous = this.command_previous_token;
@@ -740,6 +859,7 @@ export class StataLexer {
 
   /** Track where commands start, for reading a `*` as a comment. */
   private update_command_position(token: Token): void {
+    this.update_prefixed_command_start(token);
     if (STATEMENT_START_TYPES.has(token.type)) {
       // The newline after `///` doesn't end the statement.
       if (is_swallowed_continuation_terminator(
@@ -782,6 +902,27 @@ export class StataLexer {
     this.at_command_start = false;
   }
 
+
+  /**
+   * Track at_prefixed_command_start from the code token just scanned:
+   * a colon after a colon prefix's word, or right after a macro that
+   * starts the command, sets it, and argument-free prefixes after it
+   * keep it (`mi xeq: quietly mata: x`).
+   */
+  private update_prefixed_command_start(token: Token): void {
+    if (token.type === 'COLON') {
+      const my_previous = this.command_previous_token;
+      const my_after_prefix_macro = this.previous_started_command &&
+        (my_previous?.type === 'MACRO_REF_LOCAL' ||
+          my_previous?.type === 'MACRO_REF_GLOBAL');
+      this.at_prefixed_command_start = my_after_prefix_macro ||
+        (this.command_word !== null &&
+          EMBEDDED_OPENER_COLON_PREFIXES.has(this.command_word));
+      return;
+    }
+    this.at_prefixed_command_start = this.at_prefixed_command_start &&
+      token.type === 'WORD' && ARGUMENT_FREE_PREFIXES.has(token.value);
+  }
 
   /**
    * Determines if a * character should be treated as a comment or multiplication.
@@ -948,11 +1089,19 @@ export class StataLexer {
     // Handle semicolons (significant in semicolon mode)
     if (char === ';') {
       if (this.state.delimiterMode === 'semicolon') {
-        return {
+        const terminator: Token = {
           type: 'STATEMENT_TERMINATOR',
           value: ';',
           range: this.makeRange(startLine, startColumn, this.line, this.column),
         };
+        if (this.input_data_pending) {
+          this.input_data_pending = false;
+          const the_data_tokens = this.scan_input_data();
+          if (the_data_tokens !== null) {
+            return [terminator, ...the_data_tokens];
+          }
+        }
+        return terminator;
       } else {
         // In cr mode, semicolons are just operators
         return {
@@ -1466,7 +1615,7 @@ export class StataLexer {
     }
   }
 
-  private scanDelimitDirective(startLine: number, startColumn: number): Token {
+  private scanDelimitDirective(startLine: number, startColumn: number): Token | Token[] {
     // Skip whitespace after the keyword
     while (this.peek() === ' ' || this.peek() === '\t') {
       this.advance();
@@ -1501,11 +1650,27 @@ export class StataLexer {
     }
 
     const value = this.source.substring(this.position_to_offset(startLine, startColumn), this.position);
-    return {
+    const directive: Token = {
       type: 'DELIMIT_DIRECTIVE',
       value,
       range: this.makeRange(startLine, startColumn, this.line, this.column),
     };
+    // A `*` comment on the directive line ends at the newline even
+    // after `#delimit ;` (Stata 18 runs the next line's command), so
+    // it is scanned here rather than as a `;`-ended star comment.
+    if (rest.startsWith('*')) {
+      while (this.peek() === ' ' || this.peek() === '\t') {
+        this.advance();
+      }
+      let line_end = this.source.indexOf('\n', comment_start);
+      if (line_end < 0) {
+        line_end = this.source.length;
+      }
+      const comment_end = comment_start +
+        this.source.substring(comment_start, line_end).trimEnd().length;
+      return [directive, this.scan_raw_token('COMMENT_LINE', comment_end)];
+    }
+    return directive;
   }
 
   private scanString(startLine: number, startColumn: number, quoteStyle: 'simple' | 'compound'): Token | Token[] {
@@ -2124,7 +2289,7 @@ export class StataLexer {
     
     if (my_current_context === LanguageContext.STATA) {
       this.note_program_definition_word(value, startLine);
-      this.note_input_command_word(value);
+      this.note_input_command_word(value, startLine, startColumn);
       // Check for embedded language block starts (case-sensitive: Stata requires lowercase)
       if (this.is_mata_start_delimiter(value)) {
         // Check if previous token is MATA_INLINE - if so, we're inside an inline mata expression
