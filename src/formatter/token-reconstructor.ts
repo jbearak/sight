@@ -72,7 +72,7 @@ export class TokenReconstructor {
             // whatever else starts on its last line (`Paris; display
             // city;` under `#delimit ;`, or a row with no `end` after).
             if (state.at_line_start && my_token.type === 'INPUT_DATA' &&
-                    token_col === 0) {
+                    token_col === 0 && my_token.value !== '') {
                 state.at_line_start = false;
             } else if (state.at_line_start && my_token.value.trim()) {
                 if (should_preserve_whitespace) {

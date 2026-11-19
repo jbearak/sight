@@ -226,6 +226,12 @@ describe('the formatters leave input data rows as written', () => {
             `if 1 {\n    input str8 city\n${ROWS}\n    display city\n}\n`);
     });
 
+    for_each_formatter_mode('indent the end of an input with no rows', (my_mode) => {
+        expect_formats_to(
+            'if 1 {\n    input x\nend\n}\n', my_mode,
+            'if 1 {\n    input x\n    end\n}\n');
+    });
+
     const SEMICOLON = [
         '#delimit ;\nif 1 {;\n    input str8 city;\n    Paris;\n    display city;\n};\n',
         '#delimit ;\nif 1 {;\n    input str8 city;\n    Paris; display city;\n};\n',
@@ -240,5 +246,13 @@ describe('the formatters leave input data rows as written', () => {
                 expect(my_once).toBe(my_source);
             }
         }
+    });
+});
+
+describe('a mata opener with blanks before its colon', () => {
+    it('claims the end, so the data before it stops at the row that does not fit', () => {
+        expect(input_data_of(
+            'clear\nset obs 1\ninput x\n1\nsummarize x\nquietly mata :\nx = 1\nend\ndisplay 2\n'
+        )).toEqual([['1', false]]);
     });
 });

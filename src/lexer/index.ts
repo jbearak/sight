@@ -642,9 +642,16 @@ export class StataLexer {
     if (my_word === 'mata' || my_word === 'python') {
       // What may follow on a line that opens a block: an optional `:`,
       // then blanks and perhaps a `//` comment.
+      // Blanks may come before the colon (`mata :`), as where the
+      // lexer opens the block.
       let my_tail = my_word_end;
-      if (my_tail < end && my_source.charCodeAt(my_tail) === CHAR_COLON) {
-        my_tail++;
+      let my_colon = my_tail;
+      while (my_colon < end &&
+          is_row_blank(my_source.charCodeAt(my_colon), false)) {
+        my_colon++;
+      }
+      if (my_colon < end && my_source.charCodeAt(my_colon) === CHAR_COLON) {
+        my_tail = my_colon + 1;
       }
       while (my_tail < end &&
           is_row_blank(my_source.charCodeAt(my_tail), false)) {
