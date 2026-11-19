@@ -743,3 +743,54 @@ describe('ConsoleSession with editor sends in its input', () => {
         expect(the_payloads).toHaveLength(1);
     });
 });
+
+describe('ConsoleSession: every editor send is answered once', () => {
+    type Step = 'prompt' | 'pager' | 'ctrl_c' | 'close' | 'exit' | 'send' | 'long';
+    const THE_STEPS: Step[] = ['prompt', 'pager', 'ctrl_c', 'close', 'exit', 'send', 'long'];
+
+    /** Every sequence of `length` steps. */
+    function* sequences(length: number): Generator<Step[]> {
+        if (length === 0) {
+            yield [];
+            return;
+        }
+        for (const my_rest of sequences(length - 1)) {
+            for (const my_step of THE_STEPS) {
+                yield [...my_rest, my_step];
+            }
+        }
+    }
+
+    it('answers each send exactly once, whatever happens, in any order', () => {
+        for (const the_steps of sequences(4)) {
+            const { session, at_prompt } = setup();
+            const the_answers = new Map<number, boolean[]>();
+            let next_id = 0;
+            const send = (line: string): void => {
+                const id = next_id++;
+                the_answers.set(id, []);
+                session.send_line(line, (sent) => the_answers.get(id)?.push(sent));
+            };
+            at_prompt();
+            session.handle_input('busy\r');
+            send('do "first.do"');
+            send('do "second.do"');
+            for (const my_step of the_steps) {
+                switch (my_step) {
+                    case 'prompt': at_prompt('\n. '); break;
+                    case 'pager': at_prompt('\n--more--'); break;
+                    case 'ctrl_c': session.handle_input('\x03'); break;
+                    case 'close': session.close_sends(); break;
+                    case 'exit': session.handle_exit(); break;
+                    case 'send': send('do "more.do"'); break;
+                    case 'long': send('x'.repeat(MAX_CANONICAL_LINE_BYTES + 1)); break;
+                }
+            }
+            session.handle_exit();
+            for (const [my_id, my_answers] of the_answers) {
+                expect({ steps: the_steps, id: my_id, count: my_answers.length })
+                    .toEqual({ steps: the_steps, id: my_id, count: 1 });
+            }
+        }
+    });
+});
