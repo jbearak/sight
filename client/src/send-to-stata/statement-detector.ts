@@ -39,6 +39,8 @@ export interface BlockBounds extends StatementBounds {
 export interface SemicolonStatement {
     start: Position;
     end: Position;
+    /** Its first token that isn't a comment (a `*` comment's start). */
+    code_start: Position;
 }
 
 /** A `#delimit` directive: where it ends and the mode it sets. */
@@ -194,6 +196,7 @@ function find_semicolon_statements(the_tokens: Token[]): {
     const tracker = new SemicolonStatementTracker();
     let delimiter_mode: DelimiterMode = 'cr';
     let statement_start: Position | null = null;
+    let code_start: Position | null = null;
     let previous_end: Position | null = null;
     let closed_line = -1;
     const add_statement = (my_statement: SemicolonStatement): void => {
@@ -226,6 +229,7 @@ function find_semicolon_statements(the_tokens: Token[]): {
                     end: is_directive && previous_end !== null
                         ? previous_end
                         : my_token.range.end,
+                    code_start: code_start ?? my_token.range.start,
                 });
             } else if (delimiter_mode === 'semicolon' &&
                 my_token.type === 'COMMENT_LINE' &&
@@ -234,19 +238,29 @@ function find_semicolon_statements(the_tokens: Token[]): {
                 add_statement({
                     start: my_token.range.start,
                     end: my_token.range.end,
+                    code_start: my_token.range.start,
                 });
             }
             statement_start = null;
+            code_start = null;
             closed_line = my_end.line;
         } else if (statement_start === null &&
             delimiter_mode === 'semicolon' &&
             !is_trailing_comment(my_token, closed_line)) {
             statement_start = my_token.range.start;
         }
+        if (statement_start !== null && code_start === null &&
+            !COMMENT_TOKEN_TYPES.has(my_token.type)) {
+            code_start = my_token.range.start;
+        }
         previous_end = my_end;
     }
     if (statement_start !== null && previous_end !== null) {
-        add_statement({ start: statement_start, end: previous_end });
+        add_statement({
+            start: statement_start,
+            end: previous_end,
+            code_start: code_start ?? statement_start,
+        });
     }
     return { semicolon_statements: the_statements, first_statement_by_line };
 }
@@ -610,11 +624,11 @@ function compare_positions(a: Position, b: Position): number {
 
 /**
  * Where to cut `line`, if it holds the end of a `#delimit ;` statement
- * begun on an earlier line and then whole statements of its own, as
- * `1; clear;` does in `display` / `1; clear;`: the end of that first
- * statement. A send from the lines above ends at the cut, and Send
- * statement on the line sends what follows it, so a press on each runs
- * each statement once.
+ * whose code began on an earlier line and then whole statements of its
+ * own, as `1; clear;` does in `display` / `1; clear;`: the end of that
+ * first statement. A send from the lines above ends at the cut, and
+ * Send statement on the line sends what follows it, so a press on each
+ * runs each statement once.
  *
  * Anything else, such as a line Stata joins to the next one, a block's
  * header or closer after the cut, or a comment closing on the line,
@@ -636,7 +650,9 @@ function find_line_cut(
     const the_statements = reading.semicolon_statements;
     const my_first = the_statements[my_index];
     const my_next = the_statements[my_index + 1];
-    if (my_first.start.line >= line || my_first.end.line !== line ||
+    // A comment line before the statement doesn't count: on
+    // `// note` / `di 1; di 2;`, the second line runs both.
+    if (my_first.code_start.line >= line || my_first.end.line !== line ||
         my_next?.start.line !== line) {
         return null;
     }

@@ -30,10 +30,11 @@ type Item =
     | { kind: 'star_comment'; is_split: boolean }
     | { kind: 'input' };
 
-type StatementForm = 'plain' | 'split' | 'note' | 'string' | 'trailing';
+type StatementForm =
+    'plain' | 'split' | 'note' | 'string' | 'trailing' | 'lead';
 
 const STATEMENT_FORMS: StatementForm[] =
-    ['plain', 'split', 'note', 'string', 'trailing'];
+    ['plain', 'split', 'note', 'string', 'trailing', 'lead'];
 
 const { item: ITEM } = fc.letrec<{ item: Item }>(tie => ({
     item: fc.oneof(
@@ -116,7 +117,12 @@ class Writer {
                     note: `di /// a;b\n${my_marker}${my_end}`,
                     string: `di "a;b" ${my_marker}${my_end}`,
                     trailing: `di ${my_marker}${my_end} // c;d`,
+                    lead: `  // e;f\ndi ${my_marker}${my_end}`,
                 };
+                // A `//` comment before a statement starts a line,
+                // indented: after a comment, Stata reads `//` at
+                // column 0 as code.
+                this.is_line_needed ||= item.form === 'lead';
                 this.put(the_forms[item.form], separator);
                 this.is_line_needed = item.form === 'trailing';
                 return;
@@ -288,6 +294,10 @@ describe('documents the property found', () => {
         ['closer and if header on one line',
             '#delimit ;\nforeach v in m0 {;\ndi m1; }; if 1 di m2;\n' +
                 'else di m3;', 4],
+        // A cr program whose body switches to `#delimit ;`
+        ['program with a #delimit ; body',
+            'program define p\n#delimit ;\ndi m0; di\nm1; di m2;\n' +
+                'end;\ndi m3;', 4],
     ];
     for (const [my_name, my_text, my_count] of THE_CASES) {
         test(my_name, () => {

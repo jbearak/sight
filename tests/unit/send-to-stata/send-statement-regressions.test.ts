@@ -119,6 +119,48 @@ describe('a data row of input', () => {
     }
 });
 
+describe('a comment line before statements on the next line', () => {
+    for (const my_comment of ['// note', '/* a\nb */']) {
+        const the_lines = ['#delimit ;', ...my_comment.split('\n')];
+        the_lines[the_lines.length - 1] += ' ';
+        the_lines[the_lines.length - 1] =
+            (the_lines[the_lines.length - 1] + 'di 1; di 2;').trimStart();
+        const my_last = the_lines.length - 1;
+
+        test(`the statements' line sends both (${my_comment})`, () => {
+            expect(send(the_lines, my_last)).toEqual({
+                code: PREFIX + the_lines.slice(1).join('\n'),
+                statement_end_line: my_last,
+            });
+        });
+    }
+});
+
+describe('a cr program whose body switches to #delimit ;', () => {
+    const LINES = [
+        'program define p',     // 0
+        '#delimit ;',           // 1
+        'di 0; di',             // 2
+        '1; di 2;',             // 3
+        'end;',                 // 4
+    ];
+
+    test('the header sends the program', () => {
+        expect(send(LINES, 0).code).toBe(LINES.join('\n'));
+    });
+
+    test('a body line with a cut sends what follows the cut', () => {
+        expect(send(LINES, 2)).toEqual({
+            code: PREFIX + 'di 0; di\n1;',
+            statement_end_line: 2,
+        });
+        expect(send(LINES, 3)).toEqual({
+            code: PREFIX + 'di 2;',
+            statement_end_line: 3,
+        });
+    });
+});
+
 describe('lines that are not input data', () => {
     test('input with no end is not widened', () => {
         const the_lines = ['input x', '1', '2'];

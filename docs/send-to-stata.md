@@ -199,7 +199,7 @@ Stata runs the code it's sent under `#delimit cr`. So when the code starts in a 
 
 Blocks work as above: on `foreach v in a b {;` or its `};`, Send statement sends the whole block.
 
-Sends take whole lines, as under `#delimit cr`, with one exception: a line that ends a statement begun on an earlier line and then holds whole statements of its own, as `1; clear;` does in `display` / `1; clear;`. A `*` comment counts as a statement, since it runs to its `;`.
+Sends take whole lines, as under `#delimit cr`, with one exception: a line that ends a statement begun on an earlier line and then holds whole statements of its own, as `1; clear;` does in `display` / `1; clear;`. A `*` comment counts as a statement, since it runs to its `;`, but a comment line before a statement doesn't count as its start: on `// note` / `di 1; di 2;`, the second line sends both statements.
 
 - Send statement on `display` sends `display` / `1;`, and the cursor stays on `1; clear;` (when it advances). Send statement there sends `clear;`. Pressing it twice runs each statement once.
 - Send Upward Lines from a line above ends after `1;`. Send Downward Lines from `1; clear;` starts at `clear;`, or at the header of the block whose body `clear;` is in.
