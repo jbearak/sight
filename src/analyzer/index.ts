@@ -47,6 +47,7 @@ import {
 import { is_valid_identifier } from './option-argument-parser';
 import { whole_word_item } from '../utils/name-words';
 import { extract_c_local_arg_positions } from './c-local-arg-positions';
+import { has_name_with_prefix, index_name_prefixes } from './name-prefix-index';
 import {
     type MacroWrite,
     type MacroWriteContext,
@@ -224,6 +225,28 @@ function command_abbreviations(name: string, min_length: number): string[] {
     }
     return the_names;
 }
+
+/**
+ * Shortest spelling Stata accepts for each command that creates or
+ * confirms variables, as in the command database's
+ * `min_abbreviation`: `g`, `egen`, `inp`, `ren`, `conf`.
+ */
+export const VARIABLE_COMMAND_MIN_ABBREVIATIONS = {
+    generate: 1,
+    egen: 4,
+    input: 3,
+    rename: 3,
+    confirm: 4,
+} as const;
+
+const GENERATE_NAMES: ReadonlySet<string> = new Set(command_abbreviations(
+    'generate', VARIABLE_COMMAND_MIN_ABBREVIATIONS.generate));
+const INPUT_NAMES: ReadonlySet<string> = new Set(command_abbreviations(
+    'input', VARIABLE_COMMAND_MIN_ABBREVIATIONS.input));
+const RENAME_NAMES: ReadonlySet<string> = new Set(command_abbreviations(
+    'rename', VARIABLE_COMMAND_MIN_ABBREVIATIONS.rename));
+const CONFIRM_NAMES: ReadonlySet<string> = new Set(command_abbreviations(
+    'confirm', VARIABLE_COMMAND_MIN_ABBREVIATIONS.confirm));
 
 /**
  * Commands whose arguments (before `if`, `in`, weights, `using` and
@@ -609,7 +632,21 @@ export class SemanticAnalyzer {
         const existing = this.config.declared_variables.get(name);
         if (existing === undefined || line < existing.line) {
             this.config.declared_variables.set(name, { line });
+            index_name_prefixes(this.config.declared_variables, name, line);
         }
+    }
+
+    /**
+     * Record a variable the file creates, and keep the abbreviation
+     * index of `symbols.variables` in step (see `is_variable_defined`).
+     */
+    private set_variable(
+        symbols: SymbolTable,
+        name: string,
+        symbol: VariableSymbol
+    ): void {
+        symbols.variables.set(name, symbol);
+        index_name_prefixes(symbols.variables, name);
     }
 
     /**
@@ -1731,15 +1768,16 @@ export class SemanticAnalyzer {
         const cmd_name = node.fullName;
 
         // Check for variable-creating commands
-        if (cmd_name === 'generate' || cmd_name === 'gen') {
+        // (every spelling Stata accepts; `egen` has no shorter one)
+        if (GENERATE_NAMES.has(cmd_name)) {
             this.extract_gen_variable(node, symbols);
         } else if (cmd_name === 'egen') {
             this.extract_egen_variable(node, symbols);
-        } else if (cmd_name === 'input') {
+        } else if (INPUT_NAMES.has(cmd_name)) {
             this.extract_input_variables(node, symbols);
-        } else if (cmd_name === 'rename' || cmd_name === 'ren') {
+        } else if (RENAME_NAMES.has(cmd_name)) {
             this.extract_rename_variables(node, symbols);
-        } else if (cmd_name === 'confirm') {
+        } else if (CONFIRM_NAMES.has(cmd_name)) {
             this.extract_confirm_variable(node, symbols);
         } else if (cmd_name === 'scalar') {
             this.extract_scalar_symbol(node, symbols, node_index);
@@ -1748,7 +1786,7 @@ export class SemanticAnalyzer {
         }
 
         const the_macro_writes = command_macro_writes(
-            node, this.macro_write_context(symbols)
+            node, this.macro_write_context(symbols, current_scope)
         );
         for (const my_write of the_macro_writes.writes) {
             this.register_macro_write(
@@ -1758,11 +1796,17 @@ export class SemanticAnalyzer {
     }
 
     /** What `command_macro_writes` needs from this analysis. */
-    private macro_write_context(symbols: SymbolTable): MacroWriteContext {
+    private macro_write_context(
+        symbols: SymbolTable,
+        current_scope: ScopeInfo
+    ): MacroWriteContext {
         return {
             file_programs: symbols.programs,
             workspace_programs: this.workspace_symbols?.programs,
             tokens: this.tokens,
+            uri: this.uri,
+            in_program_body: current_scope.type === 'program',
+            forward_calls: this.forward_calls,
         };
     }
 
@@ -1941,7 +1985,7 @@ export class SemanticAnalyzer {
             source: 'gen',
         };
 
-        symbols.variables.set(new_var.name, var_symbol);
+        this.set_variable(symbols, new_var.name, var_symbol);
     }
 
     /**
@@ -1964,7 +2008,7 @@ export class SemanticAnalyzer {
             source: 'egen',
         };
 
-        symbols.variables.set(new_var.name, var_symbol);
+        this.set_variable(symbols, new_var.name, var_symbol);
     }
 
     /**
@@ -1988,7 +2032,7 @@ export class SemanticAnalyzer {
                 source: 'input',
             };
 
-            symbols.variables.set(var_node.name, var_symbol);
+            this.set_variable(symbols, var_node.name, var_symbol);
         }
     }
 
@@ -2116,7 +2160,7 @@ export class SemanticAnalyzer {
             source: 'rename',
         };
 
-        symbols.variables.set(new_var.name, var_symbol);
+        this.set_variable(symbols, new_var.name, var_symbol);
     }
 
     /**
@@ -2156,7 +2200,7 @@ export class SemanticAnalyzer {
                 source: 'rename',
             };
 
-            symbols.variables.set(my_name, var_symbol);
+            this.set_variable(symbols, my_name, var_symbol);
         }
     }
 
@@ -2210,7 +2254,7 @@ export class SemanticAnalyzer {
             source: 'confirm',
         };
 
-        symbols.variables.set(var_node.name, var_symbol);
+        this.set_variable(symbols, var_node.name, var_symbol);
     }
 
     /**
@@ -2360,7 +2404,8 @@ export class SemanticAnalyzer {
                             return mata_redefs;
                         }
                         const the_writes = command_macro_writes(
-                            statement, this.macro_write_context(symbols)
+                            statement,
+                            this.macro_write_context(symbols, current_scope)
                         );
                         for (const my_write of the_writes.writes) {
                             names.push({ scope: my_write.scope, name: my_write.name });
@@ -3233,16 +3278,19 @@ export class SemanticAnalyzer {
         }
 
         // Stata accepts an abbreviation of a variable name (`su pri`
-        // for `price`), so a name that starts a known one counts
-        for (const my_name of symbols.variables.keys()) {
-            if (my_name.startsWith(name)) {
-                return true;
-            }
+        // for `price`), so a name that starts a known one counts.
+        // Indexed by prefix: a scan per reference is quadratic in a
+        // file that creates and then reads many variables.
+        if (has_name_with_prefix(symbols.variables, name)) {
+            return true;
         }
-        for (const [my_name, my_declared] of this.config.declared_variables) {
-            if (my_name.startsWith(name) && reference_line >= my_declared.line) {
-                return true;
-            }
+        if (has_name_with_prefix(
+            this.config.declared_variables,
+            name,
+            reference_line,
+            (my_declared) => my_declared.line
+        )) {
+            return true;
         }
 
         // NOTE: Workspace symbols do NOT suppress undefined variable warnings.

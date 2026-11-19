@@ -36,6 +36,19 @@ const MACRO_SHIFT_RE = /^sh(i(f(t)?)?)?$/;
 const NAME_CHAR_RE = /[A-Za-z0-9_`$]/;
 
 /**
+ * Shortest spelling of `tokenize` that Stata accepts (`token`), as in
+ * the command database's `min_abbreviation`. Exact case.
+ */
+export const TOKENIZE_MIN_ABBREVIATION = 5;
+
+/** True for `tokenize` or an abbreviation of it down to `token`. */
+function is_tokenize(node: CommandNode): boolean {
+    const name = node.fullName;
+    return name.length >= TOKENIZE_MIN_ABBREVIATION
+        && 'tokenize'.startsWith(name);
+}
+
+/**
  * True for `gettoken`'s source part `: 0`, which the parser keeps as
  * `[":", "0"]` or `[":0"]` in `extra_args`.
  */
@@ -104,7 +117,7 @@ function changes_numbered_local(node: StataNode): boolean {
             && (DIGITS_RE.test(head) || head.includes('`'));
     }
     if (node.type !== 'command') return false;
-    if (node.fullName === 'tokenize') return true;
+    if (is_tokenize(node)) return true;
     if (is_gettoken(node)) {
         return (node.varlist ?? []).some(
             (my_item) => DIGITS_RE.test(my_item.name) || my_item.name.includes('`')
@@ -349,6 +362,10 @@ function compare_positions(a: Position, b: Position): number {
     return a.line !== b.line ? a.line - b.line : a.character - b.character;
 }
 
+function position_text(position: Position): string {
+    return `${position.line}:${position.character}`;
+}
+
 /** Index of the first token starting at or after `position`. */
 function first_token_at_or_after(tokens: readonly Token[], position: Position): number {
     let low = 0;
@@ -485,17 +502,42 @@ export interface CLocalArgCall {
  * `c_local` names of `programs`, grouped by local name. Also returns
  * the line spans of the program definitions in `nodes`, so a caller
  * can tell which program frame a reference sits in.
+ *
+ * A call outside any program body does not reach a program that
+ * `nodes` itself defines only after the call: Stata has not defined
+ * it yet when the call runs.
  */
 export function collect_c_local_arg_calls(
     nodes: readonly StataNode[],
     tokens: readonly Token[],
-    programs: ReadonlyMap<string, { c_local_arg_positions?: number[] }>
+    programs: ReadonlyMap<string, {
+        c_local_arg_positions?: number[];
+        location?: { range: Range };
+    }>
 ): {
     calls: Map<string, CLocalArgCall[]>;
     program_lines: Array<{ start: number; end: number }>;
 } {
     const calls = new Map<string, CLocalArgCall[]>();
     const program_lines: Array<{ start: number; end: number }> = [];
+    // Start positions of this file's program definitions, by name.
+    const the_definitions = new Map<string, Set<string>>();
+    for (const my_node of nodes) {
+        if (my_node.type !== 'program') continue;
+        const the_starts = the_definitions.get(my_node.name) ?? new Set();
+        the_starts.add(position_text(my_node.range.start));
+        the_definitions.set(my_node.name, the_starts);
+    }
+    /** True if `program` is this file's definition after `call`. */
+    const is_later_own_definition = (
+        name: string,
+        call: CommandNode
+    ): boolean => {
+        const start = programs.get(name)?.location?.range.start;
+        return start !== undefined
+            && compare_positions(start, call.range.start) > 0
+            && (the_definitions.get(name)?.has(position_text(start)) ?? false);
+    };
     const visit = (the_nodes: readonly StataNode[], program_start_line?: number): void => {
         for (const my_node of the_nodes) {
             if (my_node.type === 'program') {
@@ -508,7 +550,8 @@ export function collect_c_local_arg_calls(
             }
             if (my_node.type === 'command') {
                 const the_positions = programs.get(my_node.fullName)?.c_local_arg_positions;
-                if (the_positions) {
+                if (the_positions && (program_start_line !== undefined
+                    || !is_later_own_definition(my_node.fullName, my_node))) {
                     for (const my_created of resolve_c_local_arg_names(my_node, tokens, the_positions)) {
                         const the_list = calls.get(my_created.name) ?? [];
                         the_list.push({

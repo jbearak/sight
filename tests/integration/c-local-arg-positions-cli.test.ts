@@ -121,4 +121,63 @@ describe('sight check: c_local names from positional arguments', () => {
             fs.rmSync(root, { recursive: true, force: true });
         }
     });
+
+    describe('a setter in a workspace .do file', () => {
+        const LIBRARY_DO = [
+            'program define review_setter',
+            '    args name',
+            '    c_local `name\' 1',
+            'end',
+            '',
+        ].join('\n');
+
+        async function check_main(main: string, library?: string) {
+            const root = temp_dir();
+            try {
+                if (library !== undefined) {
+                    fs.writeFileSync(path.join(root, 'library.do'), library);
+                }
+                fs.writeFileSync(path.join(root, 'main.do'), main);
+                return await run_capture(
+                    ['--workspace', root, '--no-config', '--quiet', 'main.do'],
+                    root
+                );
+            } finally {
+                fs.rmSync(root, { recursive: true, force: true });
+            }
+        }
+
+        it('warns when main.do never runs the file', async () => {
+            const result = await check_main([
+                'capture review_setter result',
+                'display "`result\'"',
+                '',
+            ].join('\n'), LIBRARY_DO);
+            expect(result.code).toBe(EXIT_CHECK_FAILED);
+            expect(result.stdout).toContain('main.do:2:');
+            expect(result.stdout).toContain('`result\' is not defined');
+        });
+
+        it('does not warn after main.do runs the file', async () => {
+            const result = await check_main([
+                'run library.do',
+                'capture review_setter result',
+                'display "`result\'"',
+                '',
+            ].join('\n'), LIBRARY_DO);
+            expect(result.stdout).toBe('');
+            expect(result.code).toBe(EXIT_OK);
+        });
+
+        it('warns when main.do defines the program after the call', async () => {
+            const result = await check_main([
+                'review_setter result',
+                'display "`result\'"',
+                LIBRARY_DO,
+            ].join('\n'));
+            expect(result.code).toBe(EXIT_CHECK_FAILED);
+            expect(result.stdout).toContain('main.do:2:');
+            expect(result.stdout).toContain('`result\' is not defined');
+        });
+    });
 });
