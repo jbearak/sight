@@ -312,10 +312,14 @@ export class AutomationBackend implements StataBackend {
             in_flight.echo_seen = true;
             this.mark_echoed(this.records.length - 1);
         }
-        // Stata has the line once DoCommandAsync returns; a failed or
-        // lost request means it never got it (its do-file can go).
+        // Stata has the line once DoCommandAsync returns. The helper
+        // calls it before replying, so a reply lost with the helper is
+        // an unknown outcome, reported sent (its do-file stays for the
+        // usual delay); a request the helper never got, or refused, is
+        // reported dropped (its do-file can go now).
         void this.bridge.request('do_async', { cmd: sent }).then((reply) => {
-            queued.on_sent?.(reply.ok);
+            queued.on_sent?.(reply.ok
+                || ('bridge_gone' in reply && reply.request_written === true));
             this.handle_failure(reply);
         });
         this.schedule(BUSY_POLL_MS);

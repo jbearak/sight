@@ -117,7 +117,20 @@ describe('BridgeClient', () => {
         const client = new BridgeClient(transport);
         const pending = client.request('connect');
         transport.kill();
-        expect(await pending).toEqual({ ok: false, bridge_gone: true });
+        // It was written: the helper may have acted on it.
+        expect(await pending).toEqual({
+            ok: false, bridge_gone: true, request_written: true,
+        });
+    });
+
+    it('says a request made after the helper ended was never written', async () => {
+        const transport = new FakeTransport();
+        const client = new BridgeClient(transport);
+        transport.kill();
+        await client.ended;
+        expect(await client.request('do_async', { cmd: 'x' }))
+            .toEqual({ ok: false, bridge_gone: true });
+        expect(transport.sent).toEqual([]);
     });
 
     it('carries an error reply\'s other fields in detail', async () => {
