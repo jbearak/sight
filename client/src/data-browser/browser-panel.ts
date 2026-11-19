@@ -719,6 +719,7 @@ export class DataBrowserPanel implements vscode.Disposable {
         try {
             const my_signal = my_abort?.signal;
             let my_restore_order: OrderResult | undefined;
+            let is_past_deadline = false;
             try {
                 my_restore_order =
                     await this.compute_restore_order(
@@ -729,9 +730,12 @@ export class DataBrowserPanel implements vscode.Disposable {
                 // If the unified compute is aborted, the existing
                 // maybe_restore_* paths observe the aborted signal and
                 // settle/forget just as they did when their own reads were
-                // interrupted. For a non-abort failure, fall back to
-                // separate sort and filter computes so warning behavior
-                // stays local to the phase that actually fails.
+                // interrupted. A deadline settles the restore unapplied:
+                // computing the sort and filter again would run as long.
+                // For another failure, fall back to separate sort and
+                // filter computes so warning behavior stays local to the
+                // phase that actually fails.
+                is_past_deadline = my_err instanceof ComputeDeadlineError;
                 if (!is_abort_error(my_err)) {
                     my_restore_order = undefined;
                 }
@@ -740,24 +744,34 @@ export class DataBrowserPanel implements vscode.Disposable {
             if (my_generation !== this.generation) return;
             // Track sort/filter failure separately so the warning names
             // only what actually failed (the other may have applied).
-            const my_sort_failed = await this.maybe_restore_sort(
-                my_schema_hash, my_signal, my_restore_order
-            );
-            if (!this.dta_file || this.disposed) return;
-            // A refresh/reload/user-sort during the sort read bumps
-            // generation and supersedes this attempt; bail before
-            // maybe_restore_filter consumes its one-shot flag, so the
-            // queued send (or the user action) takes over. (A Skip does
-            // not bump generation and falls through to settle.)
-            if (my_generation !== this.generation) return;
-            // A cancel during the sort read must not kick off a long
-            // filter read; skip it and fall through to settle.
+            let my_sort_failed = false;
             let my_filter_failed = false;
-            if (!is_cancelled()) {
-                my_filter_failed = await this.maybe_restore_filter(
+            if (is_past_deadline) {
+                // Consume the one-shot restores; the saved prefs stay.
+                my_sort_failed = my_applies.sort && !this.sort_restored;
+                my_filter_failed = my_applies.filter
+                    && !this.filter_restored;
+                this.sort_restored = true;
+                this.filter_restored = true;
+            } else {
+                my_sort_failed = await this.maybe_restore_sort(
                     my_schema_hash, my_signal, my_restore_order
                 );
                 if (!this.dta_file || this.disposed) return;
+                // A refresh/reload/user-sort during the sort read bumps
+                // generation and supersedes this attempt; bail before
+                // maybe_restore_filter consumes its one-shot flag, so the
+                // queued send (or the user action) takes over. (A Skip
+                // does not bump generation and falls through to settle.)
+                if (my_generation !== this.generation) return;
+                // A cancel during the sort read must not kick off a long
+                // filter read; skip it and fall through to settle.
+                if (!is_cancelled()) {
+                    my_filter_failed = await this.maybe_restore_filter(
+                        my_schema_hash, my_signal, my_restore_order
+                    );
+                    if (!this.dta_file || this.disposed) return;
+                }
             }
             // A refresh / reload / user action during the reads supersedes
             // this attempt. Bail before settling, leaving prefs intact for
@@ -798,9 +812,11 @@ export class DataBrowserPanel implements vscode.Disposable {
                 const what = my_sort_failed && my_filter_failed
                     ? 'sort and filter'
                     : my_sort_failed ? 'sort' : 'filter';
-                vscode.window.showWarningMessage(
-                    `Could not reapply the saved ${what} for this `
-                    + 'dataset; it was not applied.'
+                vscode.window.showWarningMessage(is_past_deadline
+                    ? `Reapplying the saved ${what} for this dataset was `
+                        + 'stopped after 10 minutes; it was not applied.'
+                    : `Could not reapply the saved ${what} for this `
+                        + 'dataset; it was not applied.'
                 );
             }
             // Persist the "forget" only after the settle is posted, so a

@@ -508,6 +508,35 @@ describe('send_metadata restore', () => {
         expect(my_meta.stored_sort).toBeUndefined();
     });
 
+    it('a restore past its deadline settles once and warns', async () => {
+        const { ComputeDeadlineError } = await import(
+            '../../../client/src/data-browser/compute-runner'
+        );
+        const { panel_like, posted, sort_set, filter_set } =
+            await make_restore_panel({ stored_filter: STORED_FILTER });
+        // Every order job runs out its deadline.
+        let my_job_count = 0;
+        panel_like.run_order_job = async () => {
+            my_job_count++;
+            throw new ComputeDeadlineError();
+        };
+
+        await panel_like.send_metadata();
+
+        // One attempt, not the combined job and then the filter's own.
+        expect(my_job_count).toBe(1);
+        expect(warnings.length).toBe(1);
+        expect(warnings[0]).toContain('filter');
+        expect(warnings[0]).toContain('10 minutes');
+        const my_settled = posted.find(m => m.type === 'restoreSettled');
+        expect(my_settled).toBeDefined();
+        expect(my_settled.filter.entries.length).toBe(0);
+        expect(panel_like.restoring).toBe(false);
+        // The saved filter is kept for next time.
+        expect(sort_set).toEqual([]);
+        expect(filter_set).toEqual([]);
+    });
+
     it('a settle to natural order does not bump generation (Codex round 4)', async () => {
         const { panel_like, posted } = await make_restore_panel({
             stored_sort: STORED_SORT,
