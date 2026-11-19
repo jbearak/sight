@@ -411,6 +411,15 @@ holds:
      macros.
 3. **Declared by directive** (`sight: local`, `sight: global`, … ) on or
    before the reference line.
+4. **Set in the caller by a program call** before the reference: a
+   `c_local` with a fixed name, a `local()`-style option, or a
+   `c_local` of a plain-name argument. The definition the call uses is
+   the one Stata has in memory at the call, as the resolved scope shows
+   it (defined earlier in the file, by a parent, or by a file loaded
+   before the call); the ado named after the program counts only when
+   none is. Go-to-definition, hover, completion and Find References use
+   the same call as the local's definition. See
+   [Configuration](configuration.md#locals-named-by-program-arguments).
 
 Workspace indexing alone does **not** suppress diagnostics. A global
 defined in an unrelated file is still offered in completion (marked

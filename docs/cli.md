@@ -209,7 +209,10 @@ also exit 2.
 success and 2 for bad arguments, a ROOT that isn't a directory, or a config
 error.
 
-Both outputs are compact JSON followed by a newline.
+Both outputs are compact JSON followed by a newline. When the reader stops
+early (`sight parse --json *.do | head -1`), `check`, `parse` and `graph`
+stop writing without an error message and exit with the code their result
+gives.
 
 ### Schema versioning
 
@@ -641,8 +644,9 @@ a plain name. An `args` entry that is just a macro (`` `x' ``) has
       order. Words such as `if`, `in`, `using` and a weight are
       ordinary words: `do clean.do 2019 if x > 1` gives
       `["2019", "if", "x", ">", "1"]`.
-    - The first comma ends them, even inside quotes or parentheses.
-      What follows is `do`'s own option `nostop`, so
+    - The first comma after the path ends them, even inside quotes or
+      parentheses; a comma inside a quoted path is part of the path
+      (`do "survey, wave 1.do" 2019` gives `["2019"]`). What follows is `do`'s own option `nostop`, so
       `do clean.do x, nostop` gives `["x"]`; Stata rejects any other
       option and does not run the file.
     - Words are separated by spaces, a line comment, or a `///` line

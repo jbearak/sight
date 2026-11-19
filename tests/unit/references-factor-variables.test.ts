@@ -238,3 +238,51 @@ describe('References Provider - long operator lists', () => {
         expect(reads_1600).toBeLessThan(1600 * 20);
     });
 });
+
+describe('References Provider - file commands only in command position', () => {
+    // A file-name command counts only as the statement's command: after
+    // a one-line `if exp`, that is the word after the expression, the
+    // first operand that does not join the one before it, as the
+    // parser splits `if exp command`.
+    const provider = new ReferencesProvider();
+
+    it('reads a variable named type after if exp as a variable', async () => {
+        const document = create_document([
+            'gen x = 1',                                 // 0
+            'gen type = 0',                              // 1
+            'if _N > 0 regress type i.x',                // 2
+        ].join('\n'));
+        const results = await provider.get_references(
+            document, { line: 0, character: 4 }, { includeDeclaration: true }
+        );
+        expect(format_locations(results)).toEqual(['0:4-0:5', '2:25-2:26']);
+    });
+
+    it('reads save in the if expression as a variable', async () => {
+        const document = create_document([
+            'gen dta = 1',                               // 0
+            'gen save = 1',                              // 1
+            'if save == 1 regress y L.dta',              // 2
+            'if 1 save l.dta',                           // 3
+            'if (save) quietly save l.dta',              // 4
+            'if 1 if 2 save l.dta',                      // 5
+            'if f(save) save l.dta',                     // 6
+        ].join('\n'));
+        const results = await provider.get_references(
+            document, { line: 0, character: 4 }, { includeDeclaration: true }
+        );
+        expect(format_locations(results)).toEqual(['0:4-0:7', '2:25-2:28']);
+    });
+
+    it('keeps a file name after using past an if inside a name', async () => {
+        const document = create_document([
+            'gen dta = 1',                               // 0
+            'append using if.dta l.dta',                 // 1
+            'append using a.dta if L.dta',               // 2
+        ].join('\n'));
+        const results = await provider.get_references(
+            document, { line: 0, character: 4 }, { includeDeclaration: true }
+        );
+        expect(format_locations(results)).toEqual(['0:4-0:7', '2:24-2:27']);
+    });
+});

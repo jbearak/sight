@@ -13,8 +13,15 @@ import {
     CancellationToken,
 } from 'vscode-languageserver';
 import { DocumentState } from '../document-store';
-import { is_command_position_by } from './command-position';
+import {
+    is_command_position_by,
+    is_single_line_prefix,
+} from './command-position';
 import { LanguageContext, MacroSymbol, Token, ContextRange } from '../types';
+import {
+    all_credited_local_definitions,
+    credited_local_at,
+} from './program-macro-credit';
 import { get_line_text } from '../utils/line-utils';
 import {
     classify_effective_local,
@@ -108,6 +115,30 @@ const STATEMENT_START_TYPES: ReadonlySet<string> = new Set([
 /** Qualifiers that end the file names after `using`. */
 const QUALIFIER_WORDS: ReadonlySet<string> = new Set(['if', 'in']);
 
+/** Macro reference token types, which can be an operand or a command. */
+const MACRO_REF_TYPES: ReadonlySet<string> = new Set([
+    'MACRO_REF_LOCAL', 'MACRO_REF_GLOBAL',
+]);
+
+/** Tokens the parser keeps as the last operand of an `if` condition. */
+const OPERAND_TYPES: ReadonlySet<string> = new Set([
+    'WORD', 'NUMBER', 'STRING', 'MACRO_REF_LOCAL', 'MACRO_REF_GLOBAL',
+    'RPAREN', 'RBRACKET',
+]);
+
+/**
+ * Where a one-line `if exp command` is in its condition, read as the
+ * parser reads it (`parseIfStatement`): the condition ends at the
+ * first word or macro that follows an operand at depth zero without
+ * touching it (two separate operands cannot be one expression).
+ */
+interface IfCondition {
+    /** Index of the last operand token, or -1 after an operator. */
+    previous_operand: number;
+    paren_depth: number;
+    bracket_depth: number;
+}
+
 /**
  * Which words of a token stream are file names, worked out in one
  * forward pass so a statement with many operands costs no more than
@@ -127,6 +158,16 @@ interface FileNameContext {
     names_follow: Uint8Array;
 }
 
+/**
+ * The file-name context of `tokens`. A FILE_ARGUMENT_COMMANDS word
+ * counts only as a statement's command: the first word of a
+ * statement after any prefixes (`capture`, `quietly:`), or the first
+ * word after the condition of a one-line `if` (`if 1 save l.dta`).
+ * Elsewhere it is an ordinary word, such as a variable named `type`
+ * in `if _N > 0 regress type i.x` or `save` in `if save == 1 ...`.
+ * The reference scan has tokens only (workspace files are indexed
+ * without an AST), so the `if` split follows the parser's rule here.
+ */
 function build_file_name_context(tokens: Token[]): FileNameContext {
     const run_start = new Int32Array(tokens.length);
     const previous_significant = new Int32Array(tokens.length);
@@ -135,9 +176,11 @@ function build_file_name_context(tokens: Token[]): FileNameContext {
     // Within the current stretch of FILE_NAME_REGION_TYPES tokens.
     let is_after_file_command = false;
     let is_after_using = false;
-    // The statement began with a one-line `if exp`, so a file command
-    // later in it is the command (`if 1 save l.dta`).
-    let is_if_statement = false;
+    // Inside the condition of a one-line `if`.
+    let condition: IfCondition | undefined;
+    // The next word is a command: it follows the condition of a
+    // one-line `if`, or a prefix in that position.
+    let is_command_pending = false;
     for (let i = 0; i < tokens.length; i++) {
         const my_token = tokens[i];
         run_start[i] = i > 0 && touches(tokens[i - 1], my_token)
@@ -152,7 +195,30 @@ function build_file_name_context(tokens: Token[]): FileNameContext {
         }
         my_previous = i;
         if (STATEMENT_START_TYPES.has(my_token.type)) {
-            is_if_statement = false;
+            condition = undefined;
+            is_command_pending = false;
+        }
+        const is_word_or_macro = my_token.type === 'WORD'
+            || MACRO_REF_TYPES.has(my_token.type);
+        let starts_command = false;
+        if (condition) {
+            const previous = condition.previous_operand;
+            const joins_operand = previous >= 0
+                && tokens[previous].type !== 'RPAREN'
+                && tokens[previous].type !== 'RBRACKET'
+                && touches(tokens[previous], my_token);
+            if (
+                condition.paren_depth === 0 && condition.bracket_depth === 0
+                && previous >= 0 && !joins_operand && is_word_or_macro
+            ) {
+                condition = undefined;
+                starts_command = true;
+            } else {
+                track_condition(condition, my_token, i);
+            }
+        } else if (is_command_pending) {
+            is_command_pending = my_token.type === 'COLON';
+            starts_command = !is_command_pending;
         }
         if (!FILE_NAME_REGION_TYPES.has(my_token.type)) {
             is_after_file_command = false;
@@ -160,19 +226,29 @@ function build_file_name_context(tokens: Token[]): FileNameContext {
             continue;
         }
         if (my_token.type === 'WORD') {
-            if (my_token.value === 'using') {
+            const value = my_token.value;
+            if (value === 'using') {
                 is_after_using = true;
-            } else if (QUALIFIER_WORDS.has(my_token.value)) {
+            } else if (
+                QUALIFIER_WORDS.has(value)
+                && run_start[i] === i
+                && !(i + 1 < tokens.length && touches(my_token, tokens[i + 1]))
+            ) {
+                // A separate `if`/`in`; in `if.dta` it is a file name.
                 is_after_using = false;
             }
-            const is_command = (): boolean => is_command_position_by(
-                tokens, i, (j) => previous_significant[j]);
-            if (my_token.value === 'if' && is_command()) {
-                is_if_statement = true;
-            } else if (
-                FILE_ARGUMENT_COMMANDS.has(my_token.value) &&
-                (is_if_statement || is_command())
-            ) {
+            const is_command = (): boolean => starts_command
+                || (!condition && is_command_position_by(
+                    tokens, i, (j) => previous_significant[j]));
+            if (value === 'if' && is_command()) {
+                condition = {
+                    previous_operand: -1,
+                    paren_depth: 0,
+                    bracket_depth: 0,
+                };
+            } else if (starts_command && is_single_line_prefix(value)) {
+                is_command_pending = true;
+            } else if (FILE_ARGUMENT_COMMANDS.has(value) && is_command()) {
                 is_after_file_command = true;
             }
         }
@@ -181,6 +257,29 @@ function build_file_name_context(tokens: Token[]): FileNameContext {
         }
     }
     return { run_start, previous_significant, names_follow };
+}
+
+/** Steps an `if` condition over one significant token. */
+function track_condition(
+    condition: IfCondition,
+    token: Token,
+    index: number
+): void {
+    switch (token.type) {
+        case 'LPAREN':
+            condition.paren_depth++;
+            break;
+        case 'RPAREN':
+            condition.paren_depth = Math.max(0, condition.paren_depth - 1);
+            break;
+        case 'LBRACKET':
+            condition.bracket_depth++;
+            break;
+        case 'RBRACKET':
+            condition.bracket_depth = Math.max(0, condition.bracket_depth - 1);
+            break;
+    }
+    condition.previous_operand = OPERAND_TYPES.has(token.type) ? index : -1;
 }
 
 /**
@@ -476,6 +575,16 @@ export class ReferencesProvider {
                     ?? (exclude_same_file_local
                         ? inherited_target
                         : symbols.localMacros.get(symbol_name));
+                // Calls that set the local through a program the
+                // scope reaches at the call.
+                for (const my_symbol of all_credited_local_definitions(
+                    document, resolved_scope, symbol_name
+                )) {
+                    push({
+                        uri: my_symbol.location.uri,
+                        range: my_symbol.location.range,
+                    });
+                }
                 if (local_macro) {
                     // Loop-expanded definitions anchor at the template statement
                     // (`local x_`i'`), whose text does not contain the concrete
@@ -703,16 +812,13 @@ export class ReferencesProvider {
         }
 
         // Identify the symbol at cursor position
-        const identified_symbol = await this.identify_symbol_at_position(
+        const found_symbol = await this.identify_symbol_at_position(
             document,
             position,
             workspace_indexer,
             cancellation_token,
             cross_file_config
         );
-        if (!identified_symbol) {
-            return [];
-        }
 
         // Resolve the scope once here (cached by ScopeResolver) so
         // find_definitions can apply the call-site filter to declarations
@@ -726,6 +832,24 @@ export class ReferencesProvider {
                 cancellation_token
             )
             : undefined;
+
+        // The argument word or option argument at a call that sets a
+        // caller local through a program the scope reaches is that
+        // local's definition (`setter result`).
+        const credited = found_symbol?.type === 'local_macro'
+            || found_symbol?.type === 'global_macro'
+            ? undefined
+            : credited_local_at(document, resolved_scope, position);
+        const identified_symbol: IdentifiedSymbol | null = credited
+            ? {
+                name: credited.name,
+                type: 'local_macro',
+                range: credited.location.range,
+            }
+            : found_symbol;
+        if (!identified_symbol) {
+            return [];
+        }
 
         // Scope-aware local-macro target resolution (#270).
         const target = this.resolve_local_reference_target(
