@@ -21,6 +21,7 @@ import {
 import { get_line_text, get_line_count } from '../utils/line-utils';
 import { nested_statements } from '../utils/node-body';
 import { PROGRAM_HEADER_SOURCE } from '../utils/program-definition';
+import { NAME_PART_SOURCE } from '../utils/stata-name';
 import { enumerate_scoped_local_macros } from '../utils/scoped-locals';
 import { extract_sections, RawSection } from './section-detector';
 import * as path from 'path';
@@ -673,9 +674,12 @@ export class SymbolProvider {
 
         // `program <name>` or `program define <name>`, each word
         // abbreviated as far as Stata allows (`prog def <name>`), exact
-        // case
+        // case; the name ends where a name ends (`\b` would not
+        // see the end of `café`)
         const name_regex = new RegExp(
-            `\\b${PROGRAM_HEADER_SOURCE}\\s+(${escaped_name})\\b`
+            `\\b${PROGRAM_HEADER_SOURCE}\\s+(${escaped_name})`
+                + `(?!${NAME_PART_SOURCE})`,
+            'u'
         );
 
         const match = header_line.match(name_regex);

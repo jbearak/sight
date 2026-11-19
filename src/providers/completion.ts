@@ -69,6 +69,7 @@ import {
     MacroCompletionContext
 } from './completion/macro-completion';
 import { get_line_text, get_line_count } from '../utils/line-utils';
+import { is_name_char } from './cursor-word';
 import { nested_statements } from '../utils/node-body';
 import { format_help_link } from '../utils/help-link';
 import {
@@ -2392,7 +2393,7 @@ export class CompletionProvider {
             let word_start = text_before_cursor.length;
             while (word_start > 0) {
                 const char = text_before_cursor[word_start - 1];
-                if (!/[a-zA-Z0-9_]/.test(char)) {
+                if (!is_name_char(char)) {
                     break;
                 }
                 word_start--;
@@ -2884,7 +2885,7 @@ export class CompletionProvider {
         let word_start = text_before_cursor.length;
         while (word_start > 0) {
             const char = text_before_cursor[word_start - 1];
-            if (!/[a-zA-Z0-9_]/.test(char)) {
+            if (!is_name_char(char)) {
                 break;
             }
             word_start--;
@@ -3168,7 +3169,7 @@ export class CompletionProvider {
         let word_start = partial_text.length;
         while (word_start > 0) {
             const char = partial_text[word_start - 1];
-            if (!/[a-zA-Z0-9_]/.test(char)) {
+            if (!is_name_char(char)) {
                 break;
             }
             word_start--;

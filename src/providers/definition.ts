@@ -43,6 +43,7 @@ import * as path from 'path';
 import { URI } from 'vscode-uri';
 import { resolve_path_rich, resolve_forward_call_rich } from '../utils/file-path-utils';
 import { get_line_text } from '../utils/line-utils';
+import { is_name_char, is_name_char_or_past_end } from './cursor-word';
 import { nested_statements } from '../utils/node-body';
 import {
     classify_effective_local,
@@ -1660,13 +1661,13 @@ export class DefinitionProvider {
 
         // Find the start of the word
         let start = character;
-        while (start > 0 && /[a-zA-Z0-9_]/.test(line[start - 1])) {
+        while (start > 0 && is_name_char_or_past_end(line, start - 1)) {
             start--;
         }
 
         // Find the end of the word
         let end = character;
-        while (end < line.length && /[a-zA-Z0-9_]/.test(line[end])) {
+        while (end < line.length && is_name_char(line[end])) {
             end++;
         }
 
