@@ -172,6 +172,15 @@ function is_statement_ending_comment(token: Token): boolean {
     token.value.startsWith('*') && token.value.endsWith(';');
 }
 
+/**
+ * Tokens that start a Mata or Python statement or block. After an
+ * `if` condition one is the command: `if 1 mata` opens a Mata block
+ * that runs to its `end` (StataMP 18).
+ */
+const EMBEDDED_START_TOKEN_TYPES: ReadonlySet<TokenType> = new Set([
+  'MATA_INLINE', 'PYTHON_INLINE', 'MATA_START', 'PYTHON_START',
+]);
+
 /** Tokens a touching `[` subscripts: `x[1]`, `` `v'[1] ``, `f(x)[1]`. */
 const SUBSCRIPTED_TOKEN_TYPES: ReadonlySet<TokenType> = new Set([
   'WORD', 'MACRO_REF_LOCAL', 'MACRO_REF_GLOBAL', 'RPAREN', 'RBRACKET',
@@ -653,12 +662,16 @@ export class StataParser {
     let end_command: string | undefined;
     let end_token_index: number | undefined;
 
-    // For single-line contexts, collect until statement terminator
+    // For single-line contexts, collect until statement terminator.
+    // A `///` joins the next line to the statement: `mata: ///` then
+    // `x = 2` runs `x = 2` in Mata (StataMP 18).
     if (is_single_line) {
-      while (
-        !this.check('STATEMENT_TERMINATOR') &&
-        !this.isAtEnd()
-      ) {
+      while (!this.isAtEnd()) {
+        if (this.check('STATEMENT_TERMINATOR') &&
+            !is_swallowed_continuation_terminator(
+              this.peek(), this.previous().type === 'CONTINUATION')) {
+          break;
+        }
         this.advance();
       }
       end_command = start_command; // Single-line contexts don't have explicit end
@@ -704,11 +717,33 @@ export class StataParser {
       }
     }
 
-    // Extract content between delimiters
-    const content_tokens = this.tokens.slice(
+    // Extract content between delimiters. Stata joins a `///` line to
+    // the next before Mata sees it, so the `///` (and its note) and the
+    // line break it swallows are not content.
+    let content_tokens = this.tokens.slice(
       content_start_pos,
       end_token_index !== undefined ? end_token_index : this.current
     );
+    const joined_lines: Set<Token> = new Set();
+    if (is_single_line && content_tokens.some((my_token) => my_token.type === 'CONTINUATION')) {
+      const the_kept: Token[] = [];
+      let joins_next = false;
+      for (const my_token of content_tokens) {
+        if (my_token.type === 'CONTINUATION') {
+          joins_next = true;
+          continue;
+        }
+        if (my_token.type === 'STATEMENT_TERMINATOR') {
+          continue;
+        }
+        if (joins_next && the_kept.length > 0) {
+          joined_lines.add(my_token);
+        }
+        joins_next = false;
+        the_kept.push(my_token);
+      }
+      content_tokens = the_kept;
+    }
 
     // Reconstruct content preserving whitespace between tokens
     let content = '';
@@ -725,7 +760,9 @@ export class StataParser {
         // comments do not swallow the next physical line.
         if (i < content_tokens.length - 1) {
           const next_token = content_tokens[i + 1];
-          if (next_token.range.start.line === my_token.range.end.line) {
+          if (joined_lines.has(next_token)) {
+            content += ' ';
+          } else if (next_token.range.start.line === my_token.range.end.line) {
             const gap =
               next_token.range.start.character -
               my_token.range.end.character;
@@ -3320,7 +3357,7 @@ export class StataParser {
           paren_depth === 0 && bracket_depth === 0 &&
           previous_operand && !joins_operand &&
           (token.type === 'WORD' || this.isMacroRefToken(token) ||
-           token.type === 'MATA_INLINE' || token.type === 'PYTHON_INLINE')) {
+           EMBEDDED_START_TOKEN_TYPES.has(token.type))) {
         is_single_statement = true;
         break;
       }
@@ -4248,7 +4285,9 @@ export class StataParser {
 
   /**
    * Options `name[(argument)] ...` from the current token up to, not
-   * including, token index `stop`.
+   * including, token index `stop`. A macro may supply options (`` svy,
+   * `opts': mean x ``) or a name; its text is the option's name. Any
+   * other token is an option of its own, so none is dropped.
    */
   private parse_options_until(stop: number): OptionNode[] {
     const options: OptionNode[] = [];
@@ -4256,16 +4295,15 @@ export class StataParser {
       if (this.skip_statement_trivia()) {
         continue;
       }
-      if (!this.check('WORD')) {
-        this.advance();
-        continue;
-      }
-      const option_token = this.advance();
+      // A name stops at the `:` (token `stop`), which is no name piece
+      const the_name_tokens = this.read_joined_name(this.advance());
+      const my_last = the_name_tokens[the_name_tokens.length - 1];
+      const my_name = the_name_tokens.map((my_token) => my_token.value).join('');
       const option: OptionNode = {
         type: 'option',
-        name: option_token.value,
-        fullName: option_token.value,
-        range: option_token.range,
+        name: my_name,
+        fullName: my_name,
+        range: this.makeRange(the_name_tokens[0].range.start, my_last.range.end),
       };
       if (this.current < stop && this.check('LPAREN')) {
         const parsed = this.parse_option_argument_inside_parens();
