@@ -384,6 +384,39 @@ describe('ConsoleSession', () => {
         expect(pty.written).toEqual(['q\r', 'Ann\r', 'do "held.do"\r']);
     });
 
+    it('holds an editor send until a prompt is recognized', () => {
+        const { pty, session, clock } = setup();
+        const the_reports: boolean[] = [];
+        // `--more--` has arrived but the quiet window hasn't passed.
+        session.handle_output('line\n--more--');
+        session.send_line('do "a.do"', (sent) => the_reports.push(sent));
+        expect(pty.written).toEqual([]);
+        clock.advance(PROMPT_QUIET_MS + 1);
+        expect(session.current_prompt).toBe('more');
+        expect(pty.written).toEqual([]);
+        session.handle_input('q');
+        expect(pty.written).toEqual(['q\r']);
+        session.handle_output('\n. ');
+        clock.advance(PROMPT_QUIET_MS + 1);
+        expect(pty.written).toEqual(['q\r', 'do "a.do"\r']);
+        expect(the_reports).toEqual([true]);
+    });
+
+    it('reports a send made while Stata runs only when Stata can read it', () => {
+        const { pty, session, at_prompt } = setup();
+        const the_reports: boolean[] = [];
+        at_prompt();
+        session.handle_input('sleep 60000\r');
+        session.send_line('do "a.do"', (sent) => the_reports.push(sent));
+        // The pseudo-terminal would take the line now, but Stata is
+        // asleep: the do-file must outlive the sleep.
+        expect(pty.written).toEqual(['sleep 60000\r']);
+        expect(the_reports).toEqual([]);
+        at_prompt('\n. ');
+        expect(pty.written).toEqual(['sleep 60000\r', 'do "a.do"\r']);
+        expect(the_reports).toEqual([true]);
+    });
+
     it('sends exit on Ctrl+D only at the top-level prompt', () => {
         const { pty, session, at_prompt } = setup();
         at_prompt('  1. ');
