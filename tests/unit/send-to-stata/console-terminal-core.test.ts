@@ -750,4 +750,36 @@ describe('console terminal queue: dispose', () => {
             .toEqual([]);
         expect(host.resolutions_of('/a.do')).toBe(1);
     });
+
+    test('reports the true count when it stops a dispatch', async () => {
+        const host = new FakeHost();
+        host.fallback_in_effect = true;
+        let open_gate: () => void = () => {};
+        host.the_dispatch_gates.set('/one.do', new Promise<void>(resolve => {
+            open_gate = resolve;
+        }));
+        const queue = create_queue(host);
+        const terminal = { id: 't1' };
+        queue.track(terminal);
+        for (const my_file of ['/one.do', '/two.do', '/three.do']) {
+            queue.send(terminal, send(my_file));
+        }
+        const running = queue.handle_closed(
+            terminal, process_exit(CONSOLE_EXIT_AUTOMATION_NOT_REGISTERED)
+        );
+        await wait_until(
+            () => host.the_events.includes('dispatch /one.do'),
+            'the first dispatch'
+        );
+
+        queue.dispose();
+        open_gate();
+        await running;
+
+        expect(host.the_dispatched).toEqual(['/one.do']);
+        expect(host.the_deleted).toEqual(['/two.do', '/three.do']);
+        expect(queue.pending_count()).toBe(0);
+        // The status bar shows the last count reported.
+        expect(host.the_counts.at(-1)).toBe(0);
+    });
 });
