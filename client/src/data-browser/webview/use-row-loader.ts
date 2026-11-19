@@ -8,6 +8,7 @@ import {
 import type {
     CellValue,
     ComputeCancelledMessage,
+    CopyRowsMessage,
     FilterAppliedMessage,
     FilterEntry,
     FilterState,
@@ -99,6 +100,22 @@ export interface UseRowLoaderResult {
     request_full_text: (
         cells: { row: number; col: number }[]
     ) => Promise<string[] | null>;
+    /**
+     * Rows `[start, start + count)` in the order shown, columns
+     * `[col_start, col_end)`, with every strL read, for a copy.
+     * Rejects with why if they can't be read or the order changes.
+     */
+    request_copy_rows: (
+        start: number,
+        count: number,
+        col_start: number,
+        col_end: number
+    ) => Promise<CellValue[][]>;
+    /**
+     * Bumped whenever the rows shown change order or dataset, so a copy
+     * that read some rows before can tell.
+     */
+    order_version: () => number;
     /** The file was rewritten in place; nothing more will load. */
     file_changed: boolean;
 }
@@ -117,6 +134,7 @@ type IncomingMessage =
     | RowsStaleMessage
     | RowCellsMessage
     | FullTextMessage
+    | CopyRowsMessage
     | FileChangedMessage;
 
 export function use_row_loader(): UseRowLoaderResult {
@@ -154,6 +172,12 @@ export function use_row_loader(): UseRowLoaderResult {
         new Map<string, (texts: string[] | null) => void>()
     );
     const next_full_text_id = useRef(0);
+    // Waiting requestCopyRows calls, by request id.
+    const copy_rows_waiters = useRef(
+        new Map<string, (msg: CopyRowsMessage) => void>()
+    );
+    const next_copy_rows_id = useRef(0);
+    const order_version_ref = useRef(0);
     // Saved-preference restore UI: `restore_pending` is set only after
     // the debounce timer fires, so a fast restore never flashes it.
     const [restore_pending, set_restore_pending] =
@@ -261,6 +285,7 @@ export function use_row_loader(): UseRowLoaderResult {
         });
 
         pages_ref.current = my_pages;
+        order_version_ref.current += 1;
         set_pages(my_pages);
         pending_pages.current.clear();
         for (const my_start of the_page_starts) {
@@ -310,6 +335,7 @@ export function use_row_loader(): UseRowLoaderResult {
 
                 const my_pages = new Map<number, CellValue[][]>();
                 pages_ref.current = my_pages;
+                order_version_ref.current += 1;
                 page_size_ref.current = my_msg.page_size ?? PAGE_SIZE;
                 set_metadata(my_msg);
                 set_pages(my_pages);
@@ -494,6 +520,16 @@ export function use_row_loader(): UseRowLoaderResult {
                 return;
             }
 
+            if (my_msg.type === 'copyRows') {
+                const my_waiter = copy_rows_waiters.current.get(
+                    my_msg.request_id
+                );
+                if (typeof my_waiter !== 'function') return;
+                copy_rows_waiters.current.delete(my_msg.request_id);
+                my_waiter(my_msg);
+                return;
+            }
+
             if (my_msg.type === 'fullText') {
                 const my_waiter = full_text_waiters.current.get(
                     my_msg.request_id
@@ -649,6 +685,37 @@ export function use_row_loader(): UseRowLoaderResult {
         [vscode_api]
     );
 
+    const request_copy_rows = useCallback(
+        (
+            start: number,
+            count: number,
+            col_start: number,
+            col_end: number
+        ) => new Promise<CellValue[][]>((resolve, reject) => {
+            const my_id = `copy-${next_copy_rows_id.current++}`;
+            copy_rows_waiters.current.set(my_id, my_msg => {
+                if (my_msg.rows) {
+                    resolve(my_msg.rows);
+                } else {
+                    reject(new Error(
+                        my_msg.message ?? 'the rows could not be read'
+                    ));
+                }
+            });
+            vscode_api.postMessage({
+                type: 'requestCopyRows',
+                request_id: my_id,
+                start,
+                count,
+                col_start,
+                col_end,
+            });
+        }),
+        [vscode_api]
+    );
+
+    const order_version = useCallback(() => order_version_ref.current, []);
+
     return {
         metadata,
         ensure_rows,
@@ -670,6 +737,8 @@ export function use_row_loader(): UseRowLoaderResult {
         cancel_restore,
         cancel_compute,
         request_full_text,
+        request_copy_rows,
+        order_version,
         file_changed,
     };
 }

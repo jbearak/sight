@@ -101,6 +101,7 @@ async function make_restore_panel(opts: {
         value_label_tables: new Map(),
     };
     panel_like.sidecar = { name: 'ds', subsetted: false };
+    panel_like.copy_generation = 0;
     panel_like.dataset_key = 'k';
     panel_like.dataset_key_aliases = [];
     panel_like.generation = 0;

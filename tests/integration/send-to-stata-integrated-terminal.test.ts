@@ -1682,6 +1682,8 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
         const file_path = typed.slice('do `"'.length, -`"'\r`.length);
         the_created_files.push(file_path);
         expect(fs.readFileSync(file_path, 'utf8')).toBe('display "early"');
+        // The pane is revealed, as for any terminal, keeping focus.
+        expect(vscode_state.the_show_calls).toEqual([true]);
     });
 });
 

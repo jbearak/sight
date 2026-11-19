@@ -177,6 +177,11 @@ export class ConsoleSession {
      * shows (and behind earlier held sends) it waits, and each held
      * line goes at the next command prompt. `on_sent` reports whether
      * it reached Stata (see StataBackend.submit_line).
+     *
+     * The line is entered on its own: what the user has typed but not
+     * entered is set aside and put back after it. A line the user
+     * enters while sends wait goes to Stata at once (typing ahead),
+     * so it runs before them.
      */
     send_line(line: string, on_sent?: LineSentCallback): void {
         if (this.exited) {
@@ -344,12 +349,21 @@ export class ConsoleSession {
         }
     }
 
-    /** Type a sent line into the editor and press Enter. */
+    /**
+     * Enter a sent line as its own line, then put back what the user
+     * was typing (never joined to the sent line).
+     */
     private enter_sent_line(line: string, on_sent?: LineSentCallback): void {
+        const typed = this.editor.buffer;
+        const typed_cursor = this.editor.cursor;
         this.message = null;
-        this.editor.menu = null;
-        this.editor.insert(line);
-        this.submit(this.editor.buffer, on_sent);
+        this.editor.set_buffer(line);
+        this.submit(line, on_sent);
+        if (typed.length > 0) {
+            this.editor.set_buffer(typed);
+            this.editor.cursor = typed_cursor;
+            this.show_editor();
+        }
     }
 
     private submit(line: string, on_sent?: LineSentCallback): void {

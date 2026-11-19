@@ -47,7 +47,7 @@ import {
 } from './selection-model.js';
 import { use_row_loader } from './use-row-loader.js';
 import {
-    take_over_copy,
+    create_copy_handler,
     type CopyGrid,
     type CopySelection,
     type GetCopyCells,
@@ -65,11 +65,16 @@ import {
     sort_priority_map,
 } from './sort-actions.js';
 import { visible_cell_damage } from './visible-cell-damage.js';
-import type { FilterEntry, SortKey } from '../types.js';
+import type { CellValue, FilterEntry, SortKey } from '../types.js';
 
 const HEADER_HEIGHT_PX = 40;
 // How long a sort/filter runs before its progress line offers Cancel.
 const COMPUTE_CANCEL_DELAY_MS = 500;
+/** Most cells one request for a copy's unloaded rows asks for. */
+const COPY_FETCH_CELLS = 50_000;
+
+/** Rows read for a copy, by row shown; cells indexed by variable. */
+type CopyRows = ReadonlyMap<number, CellValue[]>;
 
 function is_editable_target(el: EventTarget | null): boolean {
     const my_el = el as HTMLElement | null;
@@ -295,6 +300,8 @@ export function App(): ReactElement {
         cancel_restore,
         cancel_compute,
         request_full_text,
+        request_copy_rows,
+        order_version,
         file_changed,
     } = use_row_loader();
     const [show_labels, set_show_labels] = useState(true);
@@ -325,7 +332,7 @@ export function App(): ReactElement {
     const grid_shell_ref = useRef<HTMLDivElement>(null);
     const copy_state_ref = useRef<{
         selection: CopySelection;
-        grid: CopyGrid;
+        grid: CopyGrid<CopyRows>;
     } | null>(null);
     const toolbar_ref = useRef<HTMLDivElement>(null);
     const row_count_ref = useRef<HTMLSpanElement>(null);
@@ -343,34 +350,23 @@ export function App(): ReactElement {
         y: 0,
     });
 
-    // A copy of a long strL: Glide's handler would write it after the
-    // copy event ends, when the write does nothing (see
-    // copy-selection.ts). This listener runs first, in the capture
-    // phase, and has the host put the text on the clipboard.
+    // A copy Glide can't make at once (a long strL, rows not loaded,
+    // too many cells; see copy-selection.ts). This listener runs
+    // first, in the capture phase, and has the host put the text on
+    // the clipboard; the most recent copy wins.
     useEffect(() => {
-        const on_copy = (e: ClipboardEvent) => {
-            const my_state = copy_state_ref.current;
-            const my_active = document.activeElement;
-            const is_grid_focused = my_active instanceof Element
-                && grid_shell_ref.current?.contains(my_active) === true
-                && my_active.closest(
-                    '.dvn-scroller, [data-testid="data-grid-canvas"]'
-                ) !== null;
-            if (!my_state || !is_grid_focused) return;
-            const my_copy = take_over_copy(
-                e, my_state.selection, my_state.grid
-            );
-            if (!my_copy) return;
-            void my_copy.then(my_result => {
-                vscode_api.postMessage(my_result.kind === 'copied'
-                    ? {
-                        type: 'copyText',
-                        text: my_result.text,
-                        is_whole: my_result.is_whole,
-                    }
-                    : { type: 'copyFailed', message: my_result.message });
-            });
-        };
+        const on_copy = create_copy_handler<CopyRows>({
+            get_state: () => copy_state_ref.current,
+            is_grid_focused: () => {
+                const my_active = document.activeElement;
+                return my_active instanceof Element
+                    && grid_shell_ref.current?.contains(my_active) === true
+                    && my_active.closest(
+                        '.dvn-scroller, [data-testid="data-grid-canvas"]'
+                    ) !== null;
+            },
+            post: my_message => vscode_api.postMessage(my_message),
+        });
         window.addEventListener('copy', on_copy, true);
         return () => window.removeEventListener('copy', on_copy, true);
     }, [vscode_api]);
@@ -1141,8 +1137,14 @@ export function App(): ReactElement {
         persist_hidden_columns(next_hidden);
     };
 
-    const get_cell_content = ([col, row]: Item): GridCell => {
-        const my_row = get_row(row);
+    const get_cell_content = ([col, row]: Item): GridCell =>
+        cell_for(get_row(row), col);
+
+    /** The cell shown in column `col` of a row with these values. */
+    const cell_for = (
+        my_row: CellValue[] | undefined,
+        col: number
+    ): GridCell => {
         const my_var_index =
             visible_col_map[col];
         const my_cell =
@@ -1179,11 +1181,18 @@ export function App(): ReactElement {
         };
     };
 
+    /** The row a copy reads: from the grid, or as fetched for it. */
+    const copy_row = (
+        row: number,
+        loaded: CopyRows | undefined
+    ): CellValue[] | undefined => loaded?.get(row) ?? get_row(row);
+
     /**
      * The cells a copy takes: what the grid shows, except that a long
      * strL shown as a preview is copied whole, fetched from the host.
+     * `loaded` holds rows the grid hadn't loaded, read for the copy.
      */
-    const get_copy_cells: GetCopyCells = rect => {
+    const get_copy_cells: GetCopyCells<CopyRows> = (rect, loaded) => {
         const my_rows = nobs_effective ?? metadata?.nobs ?? 0;
         const the_cells: GridCell[][] = [];
         const the_full: {
@@ -1194,6 +1203,9 @@ export function App(): ReactElement {
         for (let y = 0; y < rect.height; y++) {
             const my_row_cells: GridCell[] = [];
             const my_row = rect.y + y;
+            const my_values = my_row < my_rows
+                ? copy_row(my_row, loaded)
+                : undefined;
             for (let x = 0; x < rect.width; x++) {
                 const my_col = rect.x + x;
                 if (my_col < 0 || my_row >= my_rows) {
@@ -1203,9 +1215,9 @@ export function App(): ReactElement {
                     });
                     continue;
                 }
-                my_row_cells.push(get_cell_content([my_col, my_row]));
+                my_row_cells.push(cell_for(my_values, my_col));
                 const my_var_index = visible_col_map[my_col];
-                const my_value = get_row(my_row)?.[my_var_index];
+                const my_value = my_values?.[my_var_index];
                 if (my_value?.truncated && my_value.file_row !== undefined) {
                     the_full.push({
                         y,
@@ -1244,12 +1256,79 @@ export function App(): ReactElement {
         return async () => (await my_cells()).cells;
     };
 
-    // What the copy listener, registered once, reads at copy time.
+    /** Whether the grid has a row's cells in `columns`, all read. */
+    const has_copy_row = (
+        row: number,
+        columns: readonly number[]
+    ): boolean => {
+        const my_values = get_row(row);
+        if (!my_values) return false;
+        for (const my_col of columns) {
+            if (my_values[visible_col_map[my_col]]?.pending) return false;
+        }
+        return true;
+    };
+
+    /**
+     * Read rows the grid hasn't loaded, for a copy: runs of rows, a
+     * bounded number of cells per request, one request at a time.
+     */
+    const load_copy_rows = async (
+        rows: readonly number[],
+        columns: readonly number[]
+    ): Promise<CopyRows> => {
+        let my_col_start = Number.MAX_SAFE_INTEGER;
+        let my_col_end = 0;
+        for (const my_col of columns) {
+            const my_var_index = visible_col_map[my_col];
+            if (my_var_index === undefined) continue;
+            my_col_start = Math.min(my_col_start, my_var_index);
+            my_col_end = Math.max(my_col_end, my_var_index + 1);
+        }
+        const the_loaded = new Map<number, CellValue[]>();
+        if (my_col_end <= my_col_start) return the_loaded;
+        const my_width = my_col_end - my_col_start;
+        const my_chunk_rows = Math.max(
+            1, Math.floor(COPY_FETCH_CELLS / my_width)
+        );
+        let i = 0;
+        while (i < rows.length) {
+            // A run of consecutive rows, at most one chunk long.
+            const my_start = rows[i];
+            let my_count = 1;
+            while (
+                i + my_count < rows.length
+                && rows[i + my_count] === my_start + my_count
+                && my_count < my_chunk_rows
+            ) {
+                my_count++;
+            }
+            const the_rows = await request_copy_rows(
+                my_start, my_count, my_col_start, my_col_end
+            );
+            if (the_rows.length < my_count) {
+                throw new Error('some rows could not be read');
+            }
+            the_rows.forEach((my_cells, j) => {
+                // Index by variable, as the grid's rows are.
+                // (Not push(...): a wide row would overflow the stack.)
+                const my_full: CellValue[] = new Array(my_col_start);
+                for (const my_cell of my_cells) my_full.push(my_cell);
+                the_loaded.set(my_start + j, my_full);
+            });
+            i += my_count;
+        }
+        return the_loaded;
+    };
+
+    // What the copy listener, registered once, reads at copy time. The
+    // selection stays as Glide holds it, a few ranges: it is listed
+    // only when copied.
     copy_state_ref.current = {
         selection: {
             range: grid_selection.current?.range,
-            rows: grid_selection.rows.toArray(),
-            columns: grid_selection.columns.toArray(),
+            rows: grid_selection.rows,
+            columns: grid_selection.columns,
         },
         grid: {
             get_cells: get_copy_cells,
@@ -1257,6 +1336,9 @@ export function App(): ReactElement {
             row_count: nobs_effective ?? metadata?.nobs ?? 0,
             to_text: (cells, columns) =>
                 getCopyBufferContents(cells, columns).textPlain,
+            has_row: has_copy_row,
+            load_rows: load_copy_rows,
+            order_version,
         },
     };
 
