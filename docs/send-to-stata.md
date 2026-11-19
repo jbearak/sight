@@ -195,6 +195,15 @@ Stata runs the code it's sent under `#delimit cr`. So when the code starts in a 
 
 Blocks work as above: on `foreach v in a b {;` or its `};`, Send statement sends the whole block.
 
+A line can hold the end of one statement and the start of another, as in `display` / `1; clear;`. Send statement sends the statements that start on the cursor's line, and leaves out the rest of the lines it shares:
+
+- On `display`, it sends `display` / `1;`, not `clear;`. The cursor then stays on `1; clear;` (when it advances), and Send statement there sends `clear;`.
+- On a line that starts no statement, such as `1;` in `clear; display` / `1;`, it sends the statement through that line (`display` / `1;`), not `clear;`.
+- A block's closer starts no statement: on `}; clear;`, Send statement sends `clear;`. On a `};` with nothing after it, it sends the block, as above.
+- Several whole statements on the cursor's line (`di 1; di 2;`) go together, as before, and so does a comment after the last `;`.
+
+Send Upward Lines ends where the cursor's statement ends, and Send Downward Lines starts where it starts, so neither runs code it shares a line with. Neither cuts a statement or a block in half: each cut falls between two `;` statements.
+
 ## Editor Toolbar
 
 A toolbar button (▶) appears in the editor title bar for Stata files, providing quick access to all send commands organized by category (Do, Include, Terminal, CD).
