@@ -240,6 +240,12 @@ export class AutomationBackend implements StataBackend {
         return AUTOMATION_MAX_LINE_BYTES;
     }
 
+    waits_for_stata(): boolean {
+        // Lines wait in `fifo` until Stata is free, and on_sent waits
+        // for DoCommandAsync.
+        return true;
+    }
+
     // ---- Lifecycle ----
 
     handle(): BackendHandle {

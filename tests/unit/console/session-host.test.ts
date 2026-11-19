@@ -36,6 +36,7 @@ function create_host() {
                     resize: () => undefined,
                     echoes_input: () => false,
                     max_line_bytes: () => null,
+                    waits_for_stata: () => false,
                 },
                 lifecycle: {
                     exit_status: new Promise<number>(() => undefined),

@@ -174,13 +174,17 @@ export class ConsoleSession {
 
     /**
      * A line sent from the editor, entered as if typed at the prompt
-     * and then Enter. It goes only at a recognized command prompt,
-     * when Stata is waiting to read it: while Stata runs a command or
-     * shows `--more--` (which it must never answer), or before a
-     * prompt is recognized, it waits, and each held line goes at the
-     * next command prompt, in order. So `on_sent(true)` (see
-     * StataBackend.submit_line) means Stata is reading the line now,
+     * and then Enter. It never answers `--more--`, and `on_sent(true)`
+     * (see StataBackend.submit_line) means Stata is reading the line,
      * not that a terminal buffered it.
+     *
+     * A backend that waits for Stata itself (waits_for_stata) gets it
+     * at once. Otherwise it goes only at a recognized command prompt
+     * (`. `, or a block, Mata, Python, continuation or `pause` prompt),
+     * when Stata is waiting to read it: while Stata runs a command,
+     * shows `--more--`, or shows text that isn't a known prompt, it
+     * waits, with a note under the input, and each held line goes at
+     * the next command prompt, in order.
      *
      * The line is entered on its own: what the user has typed but not
      * entered is set aside and put back after it. A line the user
@@ -192,7 +196,8 @@ export class ConsoleSession {
             on_sent?.(false);
             return;
         }
-        if (this.held_sends.length > 0 || !this.at_command_prompt()) {
+        if (!this.options.backend.waits_for_stata()
+            && (this.held_sends.length > 0 || !this.at_command_prompt())) {
             this.held_sends.push({ line, on_sent });
             this.show_editor(true);
             return;

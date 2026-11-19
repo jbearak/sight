@@ -20,6 +20,7 @@ import { BROWSE_IN_STATA_NOTE, browse_to_vview, is_browse_command } from '../../
 import type { Bridge, BridgeReply, RequestOptions } from '../../../src/console/automation/bridge';
 import type { LogPoll, LogSource } from '../../../src/console/automation/log-tail';
 import { ModeTracker, brace_balance } from '../../../src/console/automation/mode-tracker';
+import { ConsoleSession } from '../../../src/console/session';
 
 class ManualClock implements AutomationClock {
     now_ms = 0;
@@ -266,6 +267,46 @@ describe('AutomationBackend', () => {
             expect(the_reports).toEqual([expected]);
         });
     }
+
+    // The backend gives Stata a line only when Stata is free, so an
+    // editor send must not also wait for prompt text on the screen,
+    // which a partial line Stata writes later can overwrite.
+    it('gives an editor send to Stata when it is free, whatever the screen shows', async () => {
+        const { backend, bridge, log, clock, advance, output } = setup();
+        const session = new ConsoleSession({
+            backend,
+            write: () => undefined,
+            columns: () => 80,
+            clock: {
+                set_timeout: (callback, delay_ms) => clock.set_timeout(callback, delay_ms),
+                clear_timeout: (handle) => clock.clear_timeout(handle),
+            },
+            history: { all: () => [], add: () => undefined },
+            completer: null,
+            color_mode: 'off',
+        });
+        // The backend's output goes to the session, as in the console.
+        const record = output.push.bind(output);
+        output.push = (...the_texts: string[]): number => {
+            for (const my_text of the_texts) {
+                session.handle_output(my_text);
+            }
+            return record(...the_texts);
+        };
+        session.handle_output('. ');
+        await advance(55);
+        session.handle_input('display 1\r');
+        bridge.free = false;
+        log.append('. display 1\nA');
+        await advance(100);
+        bridge.free = true;
+        await advance(1200);
+        const the_reports: boolean[] = [];
+        session.send_line('do "f.do"', (sent) => the_reports.push(sent));
+        await advance(60000);
+        expect(bridge.commands).toEqual(['display 1', 'do "f.do"']);
+        expect(the_reports).toEqual([true]);
+    });
 
     it('shows a partial line that grows across polls whole', async () => {
         const { backend, bridge, log, advance, screen } = setup();

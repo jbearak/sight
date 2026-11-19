@@ -403,7 +403,7 @@ describe('ConsoleSession', () => {
     });
 
     it('reports a send made while Stata runs only when Stata can read it', () => {
-        const { pty, session, at_prompt } = setup();
+        const { pty, session, clock, at_prompt, screen } = setup();
         const the_reports: boolean[] = [];
         at_prompt();
         session.handle_input('sleep 60000\r');
@@ -411,10 +411,48 @@ describe('ConsoleSession', () => {
         // The pseudo-terminal would take the line now, but Stata is
         // asleep: the do-file must outlive the sleep.
         expect(pty.written).toEqual(['sleep 60000\r']);
+        expect(strip_ansi(screen.join(''))).toContain('1 send from the editor waits');
+        // Output, quiet spells and a minute pass without a prompt.
+        session.handle_output('running');
+        clock.advance(30000);
+        session.handle_output('\nstill running\n');
+        clock.advance(30000);
+        expect(pty.written).toEqual(['sleep 60000\r']);
         expect(the_reports).toEqual([]);
-        at_prompt('\n. ');
+        // Stata's prompt, in the output of the command that ends.
+        session.handle_output('done\n\n. ');
+        expect(pty.written).toEqual(['sleep 60000\r']);
+        clock.advance(PROMPT_QUIET_MS + 1);
         expect(pty.written).toEqual(['sleep 60000\r', 'do "a.do"\r']);
         expect(the_reports).toEqual([true]);
+        // The line was entered after the prompt, on its own line.
+        expect(strip_ansi(screen.join(''))).toMatch(/\. do "a\.do"\r*\n$/);
+    });
+
+    it('holds a send after text that is not a known prompt, and says so', () => {
+        const { pty, session, clock, at_prompt, screen } = setup();
+        const the_reports: string[] = [];
+        at_prompt();
+        session.handle_input('cmd\r');
+        at_prompt('\nabc. ');
+        session.send_line('do "a.do"', (sent) => the_reports.push(`a ${sent}`));
+        clock.advance(60000);
+        expect(pty.written).toEqual(['cmd\r']);
+        expect(the_reports).toEqual([]);
+        expect(strip_ansi(screen.join('')))
+            .toMatch(/abc\. \r?\n?.*1 send from the editor waits/s);
+        // Enter gets a fresh prompt from Stata, and the send goes.
+        session.handle_input('\r');
+        at_prompt('\n. ');
+        expect(pty.written).toEqual(['cmd\r', '\r', 'do "a.do"\r']);
+        expect(the_reports).toEqual(['a true']);
+
+        // Or Ctrl+C drops the sends that wait.
+        session.handle_input('cmd\r');
+        at_prompt('\nabc. ');
+        session.send_line('do "b.do"', (sent) => the_reports.push(`b ${sent}`));
+        session.handle_input('\x03');
+        expect(the_reports).toEqual(['a true', 'b false']);
     });
 
     it('tries the next held send when one is too long to enter', () => {

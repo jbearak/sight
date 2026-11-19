@@ -63,6 +63,10 @@ export class PtyBackend implements StataBackend {
     max_line_bytes(): number | null {
         return this.pty.canonical_mode() ? MAX_CANONICAL_LINE_BYTES : null;
     }
+
+    waits_for_stata(): boolean {
+        return false;
+    }
 }
 
 export interface PtyHandleOptions {
