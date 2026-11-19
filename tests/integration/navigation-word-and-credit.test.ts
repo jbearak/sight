@@ -18,6 +18,8 @@ import { DefinitionProvider } from '../../src/providers/definition';
 import { HoverProvider } from '../../src/providers/hover';
 import { ReferencesProvider } from '../../src/providers/references';
 import { SymbolProvider } from '../../src/providers/symbols';
+import { CompletionProvider } from '../../src/providers/completion';
+import { DocumentStore } from '../../src/document-store';
 import { CommandDatabase } from '../../src/command-database';
 
 interface Navigation {
@@ -142,6 +144,30 @@ describe('navigation: a name with Unicode letters is one word', () => {
             fs.rmSync(root, { recursive: true, force: true });
         }
     });
+});
+
+describe('completion: a macro name with Unicode letters', () => {
+    for (const [my_name, my_source, my_label] of [
+        ['a local', 'local année 5\ndisplay "`anné', 'année'],
+        ['a global', 'global café 5\ndisplay $café', 'café'],
+    ]) {
+        it(`offers ${my_name} for its typed prefix`, async () => {
+            const store = new DocumentStore();
+            const uri = 'file:///workspace/main.do';
+            await store.open(uri, my_source, 1);
+            const the_lines = my_source.split('\n');
+            const items = await new CompletionProvider().get_completions(
+                store.get(uri)!,
+                { line: 1, character: the_lines[1].length }
+            );
+            store.dispose();
+            const item = items.find((my_item) => my_item.label === my_label);
+            const edit = item?.textEdit;
+            // The edit replaces the whole typed prefix.
+            expect(edit && 'range' in edit ? edit.range.start.character
+                : undefined).toBe(the_lines[1].length - 4);
+        });
+    }
 });
 
 describe('navigation: a local a program sets in its caller', () => {

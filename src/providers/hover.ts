@@ -53,7 +53,7 @@ import type { WorkspaceIndexer } from '../indexer';
 import { build_scope_resolver_config } from '../scope-resolver';
 import { get_visible_symbols_at } from '../scope-resolver';
 import { get_line_text } from '../utils/line-utils';
-import { is_name_char, is_name_char_or_past_end } from '../utils/stata-name';
+import { is_name_char, is_name_char_or_past_end } from './cursor-word';
 import {
     find_last_token_starting_before,
     find_token_index_at_position,

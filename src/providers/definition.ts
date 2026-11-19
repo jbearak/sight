@@ -43,7 +43,7 @@ import * as path from 'path';
 import { URI } from 'vscode-uri';
 import { resolve_path_rich, resolve_forward_call_rich } from '../utils/file-path-utils';
 import { get_line_text } from '../utils/line-utils';
-import { is_name_char, is_name_char_or_past_end } from '../utils/stata-name';
+import { is_name_char, is_name_char_or_past_end } from './cursor-word';
 import { nested_statements } from '../utils/node-body';
 import {
     classify_effective_local,

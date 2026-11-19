@@ -69,7 +69,7 @@ import {
     MacroCompletionContext
 } from './completion/macro-completion';
 import { get_line_text, get_line_count } from '../utils/line-utils';
-import { is_name_char } from '../utils/stata-name';
+import { is_name_char } from './cursor-word';
 import { nested_statements } from '../utils/node-body';
 import { format_help_link } from '../utils/help-link';
 import {
