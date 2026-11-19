@@ -33,9 +33,9 @@ export type BridgeReply =
     | { ok: false; failure: BridgeFailure }
     | { ok: false; timed_out: true }
     /**
-     * The helper ended. `request_written` means the request reached
-     * its input first, so it may have acted on it (only the reply is
-     * lost).
+     * The helper ended, or the request's write to its input failed.
+     * `request_written` means the request reached its input first, so
+     * it may have acted on it (only the reply is lost).
      */
     | { ok: false; bridge_gone: true; request_written?: true };
 

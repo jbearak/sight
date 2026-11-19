@@ -551,6 +551,27 @@ describe('AutomationBackend', () => {
         expect(await backend.exit_status).toBe(1);
     });
 
+    // A send made once the console knows Stata or the helper is gone
+    // never reaches Stata: its do-file can go at once.
+    it('reports a line dropped once COM has reported Stata gone', async () => {
+        const { backend, bridge, advance } = setup();
+        bridge.gone_hresult = '0x800706BA';
+        await advance(1000);
+        const the_reports: boolean[] = [];
+        backend.submit_line('do "a.do"', true, (sent) => the_reports.push(sent));
+        expect(the_reports).toEqual([false]);
+    });
+
+    it('reports a line dropped once the bridge has died', async () => {
+        const { backend, bridge, advance } = setup();
+        bridge.die();
+        await advance(10);
+        const the_reports: boolean[] = [];
+        backend.submit_line('do "a.do"', true, (sent) => the_reports.push(sent));
+        expect(the_reports).toEqual([false]);
+        expect(bridge.commands).toEqual([]);
+    });
+
     it('keeps waiting when Stata stops responding, until Ctrl+C twice', async () => {
         const { backend, bridge, advance, notices } = setup();
         bridge.timeouts = true;
