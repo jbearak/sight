@@ -150,3 +150,40 @@ describe('References Provider - single-letter factor operands', () => {
         expect(format_locations(results)).toEqual(expected);
     });
 });
+
+describe('References Provider - file names are not operator terms', () => {
+    // `old` in `old.dta` reads as the operators `o`, `l`, `d`; `d` and
+    // `2019` read as `D` and a level number. In a file name the `.dta`
+    // is an extension, not a variable.
+    const provider = new ReferencesProvider();
+    const document = create_document([
+        'set obs 1',                                     // 0
+        'generate dta = 1',                              // 1
+        'save old.dta',                                  // 2
+        'save d.dta, replace',                           // 3
+        'use 2019.dta, clear',                           // 4
+        'merge 1:1 id using old.dta',                    // 5
+        'append using dir/old.dta',                      // 6
+        'save ../x/old.dta',                             // 7
+        'cap noi save ///',                              // 8
+        '    old.dta',                                   // 9
+        'copy a.dta old.dta',                            // 10
+        'display r(N).dta',                              // 11
+        'regress y L.dta i.dta ib(first).dta',           // 12
+        'gen r = y/L.dta',                               // 13
+        'version 16: save old.dta',                      // 14
+        'regress y L(1/3).dta',                          // 15
+    ].join('\n'));
+
+    it('finds operator terms but not extensions', async () => {
+        const results = await provider.get_references(
+            document, { line: 1, character: 10 }, { includeDeclaration: true }
+        );
+        expect(format_locations(results)).toEqual([
+            '1:9-1:12',
+            '12:12-12:15', '12:18-12:21', '12:32-12:35',
+            '13:12-13:15',
+            '15:17-15:20',
+        ].sort());
+    });
+});
