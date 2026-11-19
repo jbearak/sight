@@ -189,10 +189,14 @@ export class AutomationBackend implements StataBackend {
             if (!this.in_flight && this.fifo.length === 0) {
                 // The session gave up its prompt with the line: draw a
                 // fresh one, or a held send would wait for it forever.
+                // Not drawn: the session still has the prompt it was
+                // given, and a second one beside it would not be known.
                 if (drawn) {
                     this.line_open = false;
+                    this.emit_prompt();
+                } else if (!this.prompt_on_screen) {
+                    this.emit_prompt();
                 }
-                this.emit_prompt();
             }
             this.events.on_notice('Line contains a NUL character and was not sent.');
             on_sent?.(false);

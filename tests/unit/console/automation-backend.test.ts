@@ -633,6 +633,15 @@ describe('AutomationBackend', () => {
         expect(output).toEqual(['. ', '. ']);
     });
 
+    it('draws no second prompt for a refused line that was not drawn', () => {
+        const { backend, notices, output } = setup();
+        expect(output).toEqual(['. ']);
+        // The prompt already given is still on screen.
+        backend.submit_line('display "a\0b"', false);
+        expect(notices.length).toBe(1);
+        expect(output).toEqual(['. ']);
+    });
+
     it('draws no prompt for a NUL line typed ahead while Stata runs', async () => {
         const { backend, bridge, notices, output, advance } = setup();
         bridge.free = false;

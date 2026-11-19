@@ -410,6 +410,26 @@ describe('ConsoleSession', () => {
         expect(pty.written).toEqual(['q\r', 'Ann\r', 'do "held.do"\r']);
     });
 
+    it('does not release a held send on a prompt a typed line already answered', () => {
+        // Real Stata echoes input itself (raw mode).
+        const { pty, session, clock } = setup();
+        pty.canonical = false;
+        const the_reports: boolean[] = [];
+        session.handle_output('working\n');
+        session.send_line('do "a.do"', (sent) => the_reports.push(sent));
+        // The prompt arrives, and the user enters a line before the
+        // quiet window passes: that line takes the prompt.
+        session.handle_output('. ');
+        session.handle_input('sleep 60000\r');
+        clock.advance(PROMPT_QUIET_MS + 1);
+        expect(pty.written).toEqual(['sleep 60000\r']);
+        expect(the_reports).toEqual([]);
+        session.handle_output('sleep 60000\r\n\r\n. ');
+        clock.advance(PROMPT_QUIET_MS + 1);
+        expect(pty.written).toEqual(['sleep 60000\r', 'do "a.do"\r']);
+        expect(the_reports).toEqual([true]);
+    });
+
     it('holds an editor send until a prompt is recognized', () => {
         const { pty, session, clock } = setup();
         const the_reports: boolean[] = [];

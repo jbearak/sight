@@ -430,6 +430,9 @@ export class ConsoleSession {
             // Typed ahead while Stata runs: Stata echoes the line when it
             // reads it, after the running command's output.
             this.render_input('', 0, false);
+            // A prompt that arrived but wasn't yet recognized is this
+            // line's now: it must not release a held send.
+            this.clear_timer('prompt');
         } else {
             this.render_input(this.editor.buffer, this.editor.buffer.length, false);
             this.options.write('\r\n');
