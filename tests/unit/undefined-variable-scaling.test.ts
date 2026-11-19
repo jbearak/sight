@@ -62,3 +62,50 @@ describe('undefined-variable check scaling', () => {
         }, 60_000);
     }
 });
+
+/**
+ * Each recognized `rename` checked the whole token stream, twice, for
+ * a wildcard beside its names: 1,288,012 token visits for 400
+ * successive renames. Counted, not timed: every element read and
+ * every full iteration of the token array is a visit.
+ */
+describe('rename wildcard check scaling', () => {
+    function token_visits(command: string, count: number): number {
+        const the_lines = ['gen x0 = 1'];
+        for (let i = 0; i < count; i++) {
+            the_lines.push(`${command} x${i} x${i + 1}`);
+        }
+        const tokens = new StataLexer().tokenize(the_lines.join('\n') + '\n').tokens;
+        const ast = new StataParser().parse(tokens).ast;
+        let visits = 0;
+        const counted = new Proxy(tokens, {
+            get(target, key, receiver) {
+                if (key === Symbol.iterator) {
+                    return function* () {
+                        for (const my_token of target) {
+                            visits++;
+                            yield my_token;
+                        }
+                    };
+                }
+                if (typeof key === 'string' && /^\d+$/.test(key)) visits++;
+                return Reflect.get(target, key, receiver);
+            },
+        });
+        new SemanticAnalyzer().analyze(
+            ast, 'file:///rename.do', undefined,
+            { undefined_variable_enabled: true }, counted
+        );
+        return visits / tokens.length;
+    }
+
+    for (const my_command of ['rena', 'rename']) {
+        it(`visits each token a bounded number of times (${my_command})`, () => {
+            const small = token_visits(my_command, 200);
+            const large = token_visits(my_command, 400);
+            // Per-token visits stay flat; a scan per rename doubles them.
+            expect(large).toBeLessThan(small * 1.25);
+            expect(large).toBeLessThan(30);
+        });
+    }
+});

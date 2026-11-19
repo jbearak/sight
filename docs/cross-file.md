@@ -186,11 +186,15 @@ defines those locals at the call when the name is fixed, comes from a
 `local()`-style option (in full, or abbreviated as far as the
 program's `syntax` allows), or is a plain-name argument (see
 [Configuration](configuration.md#locals-named-by-program-arguments)).
-For a plain-name argument the program must be reachable at the call:
-defined earlier in the file, in an ado named after it, in a file the
-caller itself ran or included earlier, or in the caller's parent
-scope. A program found only in the workspace index does not count,
-nor does one that a file run by the caller runs in turn.
+For a plain-name argument the program must be defined at the call in
+execution order: earlier in the file, in an ado named after it, in the
+caller's parent scope, or in a file that a statement before the call
+loads, at any depth and by path (`run setup.do`, where `setup.do`
+runs `library.do`; a `sight: do`/`run`/`include` directive counts
+too). A call inside a program body reaches a program loaded anywhere
+in the file, since the body runs when the program is called. A
+program found only in the workspace index does not count, nor does
+one a top-level `program drop` removed before the call.
 
 ## Forward Scope Resolution
 

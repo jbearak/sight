@@ -46,8 +46,12 @@ import {
 } from './loop-expander';
 import { is_valid_identifier } from './option-argument-parser';
 import { whole_word_item } from '../utils/name-words';
-import { extract_c_local_arg_positions } from './c-local-arg-positions';
-import { has_name_with_prefix, index_name_prefixes } from './name-prefix-index';
+import {
+    extract_c_local_arg_positions,
+    first_token_at_or_after,
+    program_drop_targets,
+} from './c-local-arg-positions';
+import { NamePrefixIndex } from './name-prefix-index';
 import {
     type MacroWrite,
     type MacroWriteContext,
@@ -413,6 +417,16 @@ export class SemanticAnalyzer {
     private preorder_index: number = 0;
     private directive_parser = new DirectiveParser();
     private forward_calls: ForwardCall[] = [];
+    // Programs a top-level `program drop` removed since this file last
+    // defined them (see `find_c_local_arg_program`).
+    private dropped_programs = new Set<string>();
+    // Abbreviation lookups over this analysis's variables and declared
+    // variables (see `is_variable_defined`), kept in step by
+    // `set_variable` and `register_declared_variable`.
+    private variable_prefixes =
+        new NamePrefixIndex<VariableSymbol>(new Map());
+    private declared_variable_prefixes =
+        new NamePrefixIndex<{ line: number }>(new Map());
     // Top-level literal `cd` commands recorded in source order (issue #252).
     private cd_commands: CdCommand[] = [];
     // Nesting depth for the symbol-building walk. Incremented around recursion
@@ -484,6 +498,7 @@ export class SemanticAnalyzer {
         this.uri = uri;
         this.config = { ...create_default_config(), ...config };
         this.forward_calls = []; // Reset forward calls
+        this.dropped_programs = new Set();
         this.cd_commands = []; // Reset cd commands (issue #252)
         this.cd_nesting_depth = 0;
         this.loop_frames = []; // Reset loop iterator frames
@@ -503,6 +518,13 @@ export class SemanticAnalyzer {
 
         // Initialize symbol table
         const symbols: SymbolTable = create_empty_symbol_table();
+        // Abbreviation indexes for this analysis only: the caller may
+        // change `declared_variables` between analyses.
+        this.variable_prefixes = new NamePrefixIndex(symbols.variables);
+        this.declared_variable_prefixes = new NamePrefixIndex(
+            this.config.declared_variables,
+            (my_declared) => my_declared.line
+        );
 
         const diagnostics: SemanticDiagnostic[] = [];
         this.current_diagnostics = diagnostics;
@@ -632,7 +654,7 @@ export class SemanticAnalyzer {
         const existing = this.config.declared_variables.get(name);
         if (existing === undefined || line < existing.line) {
             this.config.declared_variables.set(name, { line });
-            index_name_prefixes(this.config.declared_variables, name, line);
+            this.declared_variable_prefixes.add(name, line);
         }
     }
 
@@ -646,7 +668,7 @@ export class SemanticAnalyzer {
         symbol: VariableSymbol
     ): void {
         symbols.variables.set(name, symbol);
-        index_name_prefixes(symbols.variables, name);
+        this.variable_prefixes.add(name);
     }
 
     /**
@@ -1044,6 +1066,7 @@ export class SemanticAnalyzer {
     ): void {
         // Detect whether this is the first definition before registering
         const is_first_definition = !symbols.programs.has(node.name);
+        this.dropped_programs.delete(node.name);
 
         const program_symbol: ProgramSymbol = this.add_or_append_definition(
             symbols.programs,
@@ -1741,6 +1764,32 @@ export class SemanticAnalyzer {
     }
 
     /**
+     * Record a literal `program drop` at the top level of the file, so
+     * later top-level calls do not reach the dropped program's
+     * positional `c_local` names. A drop inside a block or program
+     * body may not run, so it is not recorded.
+     */
+    private detect_program_drop(
+        node: CommandNode,
+        symbols: SymbolTable,
+        current_scope: ScopeInfo
+    ): void {
+        if (this.cd_nesting_depth !== 0 || current_scope.type !== 'dofile') {
+            return;
+        }
+        const the_drop = program_drop_targets(node);
+        if (!the_drop) return;
+        if (the_drop.all) {
+            for (const my_name of symbols.programs.keys()) {
+                this.dropped_programs.add(my_name);
+            }
+        }
+        for (const my_name of the_drop.names) {
+            this.dropped_programs.add(my_name);
+        }
+    }
+
+    /**
      * Process a command node.
      *
      * Symbol extraction handled here:
@@ -1764,6 +1813,7 @@ export class SemanticAnalyzer {
         // Detect top-level `cd` commands for the working-directory timeline
         // (issue #252). Gated to depth 0 inside detect_cd_command.
         this.detect_cd_command(node);
+        this.detect_program_drop(node, symbols, current_scope);
 
         const cmd_name = node.fullName;
 
@@ -1806,7 +1856,7 @@ export class SemanticAnalyzer {
             tokens: this.tokens,
             uri: this.uri,
             in_program_body: current_scope.type === 'program',
-            forward_calls: this.forward_calls,
+            dropped_programs: this.dropped_programs,
         };
     }
 
@@ -2013,7 +2063,8 @@ export class SemanticAnalyzer {
 
     /**
      * Extract variables from input command.
-     * Syntax: input varlist
+     * Syntax: input [type] varname [[type] varname ...]
+     * A storage type (`double`, `str20`, `strL`, …) names no variable.
      */
     private extract_input_variables(node: CommandNode, symbols: SymbolTable): void {
         for (const my_word of semantic_words(node)) {
@@ -2021,7 +2072,8 @@ export class SemanticAnalyzer {
             // run time
             const var_node = whole_word_item(my_word);
             // Skip macro references - they are not actual variable definitions
-            if (!var_node || this.is_macro_reference(var_node.name)) {
+            if (!var_node || this.is_macro_reference(var_node.name)
+                || is_stata_storage_type(var_node.name)) {
                 continue;
             }
 
@@ -2050,11 +2102,16 @@ export class SemanticAnalyzer {
         }
 
         // We only care about wildcard tokens that are immediately adjacent to the
-        // identifier token (stub patterns like new* or *new).
-        for (const token of this.tokens) {
-            if (token.range.start.line !== name_range.start.line) {
-                continue;
-            }
+        // identifier token (stub patterns like new* or *new). Only the
+        // tokens on the name's line are visited, found by binary
+        // search, so a file of n renames costs O(n log n), not O(n^2).
+        const line = name_range.start.line;
+        for (
+            let i = first_token_at_or_after(this.tokens, { line, character: 0 });
+            i < this.tokens.length && this.tokens[i].range.start.line === line;
+            i++
+        ) {
+            const token = this.tokens[i];
 
             const is_wildcard_token =
                 (token.type === 'OPERATOR' && token.value === '*') ||
@@ -3281,15 +3338,10 @@ export class SemanticAnalyzer {
         // for `price`), so a name that starts a known one counts.
         // Indexed by prefix: a scan per reference is quadratic in a
         // file that creates and then reads many variables.
-        if (has_name_with_prefix(symbols.variables, name)) {
+        if (this.variable_prefixes.has(name)) {
             return true;
         }
-        if (has_name_with_prefix(
-            this.config.declared_variables,
-            name,
-            reference_line,
-            (my_declared) => my_declared.line
-        )) {
+        if (this.declared_variable_prefixes.has(name, reference_line)) {
             return true;
         }
 
