@@ -139,3 +139,44 @@ describe('Send upward and downward lines', () => {
         ).code).toBe('di "cr"');
     });
 });
+
+describe('reading the document', () => {
+    /** A document whose text and version can change, counting reads. */
+    function versioned_document(text: string) {
+        const my_document = {
+            text,
+            version: 1,
+            read_count: 0,
+            get lineCount() { return this.text.split('\n').length; },
+            lineAt(line: number) {
+                return { text: this.text.split('\n')[line] ?? '' };
+            },
+            getText() {
+                this.read_count++;
+                return this.text;
+            },
+        };
+        return my_document;
+    }
+
+    test('is reused until the document changes', () => {
+        const my_document = versioned_document(PROGRAM.join('\n'));
+        const as_text_document =
+            my_document as unknown as vscode.TextDocument;
+        const my_selection = { text: 'di 1', line: 5, character: 0 };
+        for (let i = 0; i < 3; i++) {
+            expect(find_code_to_send(
+                as_text_document, 'statement', 5, my_selection
+            ).code).toBe('#delimit ;\ndi 1');
+        }
+        expect(my_document.read_count).toBe(1);
+
+        // An edit (a new version) is read again.
+        my_document.text = ['di 0', ...PROGRAM.slice(2)].join('\n');
+        my_document.version = 2;
+        expect(find_code_to_send(
+            as_text_document, 'statement', 5, my_selection
+        ).code).toBe('di 1');
+        expect(my_document.read_count).toBe(2);
+    });
+});

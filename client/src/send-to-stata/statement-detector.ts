@@ -364,6 +364,30 @@ function is_trailing_comment(token: Token, closed_line: number): boolean {
         token.range.start.line === closed_line;
 }
 
+// The last reading of each open document and the version it read, so
+// repeated sends from an unchanged document (a selection on a long
+// file) don't lex it again. VS Code keeps one TextDocument object per
+// open document, and its version goes up with every edit.
+const THE_READINGS = new WeakMap<
+    vscode.TextDocument,
+    { version: number; reading: DocumentReading }
+>();
+
+/** read_document for `document`, reused while its version holds. */
+function read_text_document(document: vscode.TextDocument): DocumentReading {
+    const my_version: unknown = document.version;
+    if (typeof my_version !== 'number') {
+        return read_document(document.getText());
+    }
+    const my_cached = THE_READINGS.get(document);
+    if (my_cached !== undefined && my_cached.version === my_version) {
+        return my_cached.reading;
+    }
+    const my_reading = read_document(document.getText());
+    THE_READINGS.set(document, { version: my_version, reading: my_reading });
+    return my_reading;
+}
+
 /** The lines Stata reads together with the line after them. */
 export function find_joined_lines(text: string): Set<number> {
     return read_document(text).joined_lines;
@@ -720,7 +744,7 @@ export function find_code_to_send(
     cursor_line: number,
     selection: SelectedText | null
 ): CodeToSend {
-    const reading = read_document(document.getText());
+    const reading = read_text_document(document);
     if (mode === 'statement' && selection !== null) {
         return {
             code: code_for_delimiter(selection.text, delimiter_mode_at(
@@ -770,7 +794,7 @@ export function detect_statement(
     line: number
 ): StatementBounds {
     return statement_bounds(
-        read_document(document.getText()), line, document.lineCount);
+        read_text_document(document), line, document.lineCount);
 }
 
 export function get_upward_bounds(
@@ -778,7 +802,7 @@ export function get_upward_bounds(
     line: number
 ): StatementBounds {
     return upward_bounds(
-        read_document(document.getText()), line, document.lineCount);
+        read_text_document(document), line, document.lineCount);
 }
 
 export function get_downward_bounds(
@@ -786,7 +810,7 @@ export function get_downward_bounds(
     line: number
 ): StatementBounds {
     return downward_bounds(
-        read_document(document.getText()), line, document.lineCount);
+        read_text_document(document), line, document.lineCount);
 }
 
 export function get_statement_text(
