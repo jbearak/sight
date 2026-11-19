@@ -74,8 +74,8 @@ export class DependencyGraph {
 
     /**
      * Inject a filesystem implementation for `resolve_path_rich`.
-     * For testing only — production code leaves this undefined so
-     * `resolve_path_rich` uses the real Node `fs`.
+     * Tests inject fakes; `sight check` injects a snapshot cache. The
+     * language server leaves it undefined so the real Node `fs` is used.
      */
     set_resolve_fs(fs: RichResolveFs): void {
         this.resolve_fs = fs;

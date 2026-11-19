@@ -1353,7 +1353,13 @@ export async function create_server(options: ServerOptions): Promise<void> {
                                 (graph_result.changed_callees.size > 0 ||
                                     working_directory_changed)
                             ) {
-                                void workspace_indexer.settle_working_directories();
+                                // An unsaved `sight: cd` exists only in
+                                // this buffer, not in the index.
+                                void workspace_indexer.settle_working_directories({
+                                    open_buffer_directory:
+                                        document_state.working_directory !== undefined ||
+                                        previous_working_directory !== undefined,
+                                });
                             }
                             // Invalidate scope caches for callees whose parent sets changed
                             if (graph_result.changed_callees.size > 0) {

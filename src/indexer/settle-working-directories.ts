@@ -62,8 +62,11 @@ const DEFAULT_MAX_BACKWARD_DEPTH = 10;
  * callers sort by URI) so results do not depend on scan order.
  *
  * Returns the files whose directory changed, or undefined when
- * `is_current` reported the work stale part way through. Files with
- * their own `sight: cd` are never re-resolved.
+ * `is_current` reported the work stale part way through (files already
+ * registered stay registered). Files with their own `sight: cd` are
+ * never re-resolved. `always_walk` turns off the shortcut for when no
+ * file has a directory, for a caller that knows of one these facts do
+ * not show, such as an unsaved `sight: cd` in an open buffer.
  */
 export async function settle_inherited_working_directories<
     T extends WorkingDirectoryFacts,
@@ -73,6 +76,7 @@ export async function settle_inherited_working_directories<
     config: Partial<ScopeResolverConfig>;
     register: (facts: T) => void;
     is_current?: () => boolean;
+    always_walk?: boolean;
 }): Promise<Set<T> | undefined> {
     const { the_facts, scope_resolver, config, register } = options;
     const is_current = options.is_current ?? (() => true);
@@ -85,7 +89,7 @@ export async function settle_inherited_working_directories<
     const has_any_directory = the_facts.some(my_facts =>
         my_facts.working_directory !== undefined ||
         my_facts.directive_working_directory !== undefined);
-    if (!has_any_directory) {
+    if (!has_any_directory && options.always_walk !== true) {
         return the_changed_files;
     }
 

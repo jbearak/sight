@@ -241,6 +241,21 @@ describe('server — working directory inherited through do-chains', () => {
         await wait_for_missing_c(false);
     }, TEST_TIMEOUT_MS);
 
+    it('settles closed files for an unsaved cd in an open buffer', async () => {
+        // On disk no file has a directory, so nothing inherits one.
+        write_file('main.do', 'do jobs/a.do\n');
+        await start_server();
+        open_document('main.do');
+        open_document('work/jobs/b.do');
+        await wait_for_missing_c(true);
+
+        handlers.did_change!({
+            textDocument: { uri: file_uri('main.do'), version: 2 },
+            contentChanges: [{ text: MAIN_IN_WORK }],
+        });
+        await wait_for_missing_c(false);
+    }, TEST_TIMEOUT_MS);
+
     it('refreshes the grandchild when a closed top file changes on disk', async () => {
         await start_server();
         open_document('work/jobs/b.do');
