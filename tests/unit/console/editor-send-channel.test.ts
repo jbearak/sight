@@ -82,10 +82,36 @@ describe('KeyDecoder with editor sends', () => {
         expect(the_decoder.push('q\x03')).toEqual([
             { type: 'ctrl', letter: 'c' },
         ]);
-        expect(the_decoder.has_pending_frame()).toBe(false);
-        expect(the_decoder.push('x\r')).toEqual([
-            { type: 'text', text: 'x' }, { type: 'key', name: 'enter' },
+        // The rest of the broken send is dropped, up to an Enter.
+        expect(the_decoder.push('x"}')).toEqual([]);
+        expect(the_decoder.push('\r')).toEqual([{ type: 'key', name: 'enter' }]);
+        expect(the_decoder.push('di')).toEqual([{ type: 'text', text: 'di' }]);
+    });
+
+    it('never types the rest of a send broken by a key', () => {
+        // An arrow key lands inside a send: the key is read, and the
+        // rest of the send is dropped up to its end.
+        const cut = 20;
+        const the_events = push_all([
+            SEND.slice(0, cut), '\x1b[A', SEND.slice(cut), 'z',
         ]);
+        expect(the_events).toEqual([
+            { type: 'key', name: 'up' }, { type: 'text', text: 'z' },
+        ]);
+        // Its end may come split from the rest.
+        expect(push_all([
+            SEND.slice(0, cut), '\x03', SEND.slice(cut, -1), SEND.slice(-1), 'z',
+        ])).toEqual([
+            { type: 'ctrl', letter: 'c' }, { type: 'text', text: 'z' },
+        ]);
+    });
+
+    it('stops dropping a broken send\'s rest after the wait', () => {
+        const the_decoder = decoder();
+        the_decoder.push(`${SEND.slice(0, 20)}\x03`);
+        expect(the_decoder.has_pending_frame()).toBe(true);
+        expect(the_decoder.flush_frame()).toEqual([]);
+        expect(the_decoder.push('di')).toEqual([{ type: 'text', text: 'di' }]);
     });
 
     it('reads a send that follows a broken one', () => {

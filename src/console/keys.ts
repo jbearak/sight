@@ -11,7 +11,9 @@
  * editor-send-channel.ts) outside a bracketed paste, so text the user
  * pastes is never taken for one. A send's payload is JSON, which has no
  * control characters: one (Ctrl+C, Enter) or an ESC that doesn't end
- * the sequence abandons it and is then read as usual. A payload over
+ * the sequence abandons it and is then read as usual, and the rest of
+ * the broken send is dropped too, up to its end (`ESC \`), the next
+ * Enter, or `flush_frame()`, so it is never typed. A payload over
  * MAX_EDITOR_SEND_LENGTH is dropped whole, and `flush_frame()` drops
  * one that stops arriving.
  */
@@ -79,6 +81,8 @@ export class KeyDecoder {
     private buffer = '';
     private paste: string[] | null = null;
     private frame: Frame | null = null;
+    /** The rest of an abandoned send is being dropped. */
+    private discarding = false;
     private readonly editor_sends: boolean;
     /**
      * A lone ESC was just reported as Esc: a send split right after
@@ -115,6 +119,27 @@ export class KeyDecoder {
                     break;
                 }
                 continue;
+            }
+            if (this.discarding && this.paste === null) {
+                const first = this.buffer[0] ?? '';
+                if (first === '\x1b') {
+                    if (this.buffer.length === 1) {
+                        break; // Wait: it may end the broken send.
+                    }
+                    if (this.buffer[1] === EDITOR_SEND_END_CHAR) {
+                        this.buffer = this.buffer.slice(2);
+                        this.discarding = false;
+                        continue;
+                    }
+                    // Another sequence (an arrow key): read it.
+                } else if (first === '\r' || first === '\n') {
+                    // A payload has no line ends: this is a key.
+                    this.discarding = false;
+                } else if (first.charCodeAt(0) >= 0x20) {
+                    const stop = this.buffer.search(CONTROL_CHAR);
+                    this.buffer = stop === -1 ? '' : this.buffer.slice(stop);
+                    continue;
+                }
             }
             if (this.paste !== null) {
                 const end = this.buffer.indexOf(PASTE_END);
@@ -228,7 +253,7 @@ export class KeyDecoder {
     /** True when a lone ESC is waiting for `flush_escape()`. */
     has_pending_escape(): boolean {
         return this.paste === null && this.frame === null
-            && this.buffer === '\x1b';
+            && !this.discarding && this.buffer === '\x1b';
     }
 
     /** Report a pending lone ESC as the Esc key. */
@@ -246,7 +271,7 @@ export class KeyDecoder {
      * bytes came) and waits for the rest, for `flush_frame()`.
      */
     has_pending_frame(): boolean {
-        if (this.frame !== null) {
+        if (this.frame !== null || this.discarding) {
             return true;
         }
         return this.editor_sends && this.paste === null
@@ -259,10 +284,13 @@ export class KeyDecoder {
      * first bytes of one that never started as keys (Alt+_, ...).
      */
     flush_frame(): KeyEvent[] {
-        if (this.frame !== null) {
+        if (this.frame !== null || this.discarding) {
             this.frame = null;
+            this.discarding = false;
             // An ESC kept to see if it ends the send goes with it.
-            this.buffer = '';
+            if (this.buffer === '\x1b') {
+                this.buffer = '';
+            }
             return [];
         }
         if (!this.has_pending_frame()) {
@@ -319,8 +347,9 @@ export class KeyDecoder {
             }
         }
         // A control char or another sequence: not a send after all.
-        // Drop what was read and read this as usual.
+        // Drop what was read, read this as usual, and drop the rest.
         this.frame = null;
+        this.discarding = true;
         return true;
     }
 }
