@@ -9,14 +9,20 @@ import * as path from 'path';
 import { Range } from 'vscode-languageserver-textdocument';
 import { URI } from 'vscode-uri';
 import package_json from '../../package.json' with { type: 'json' };
+import { DependencyGraph } from '../dependency-graph';
 import { ScopeResolver, scope_resolver_config_for } from '../scope-resolver';
-import { analyze_source, prepare_forward_calls } from '../source-analysis';
+import {
+    analyze_source,
+    prepare_forward_calls,
+    SourceAnalysis,
+} from '../source-analysis';
 import {
     CommandNode,
     ForwardCall,
     ForwardCallType,
     StataLSPConfig,
     StataNode,
+    Token,
 } from '../types';
 import {
     is_resolvable_static_call,
@@ -169,29 +175,91 @@ function index_commands(nodes: StataNode[], into: Map<string, CommandNode>): voi
     }
 }
 
+/** Tokens that separate words but are never part of one. */
+const TRIVIA_TYPES: ReadonlySet<string> = new Set([
+    'WHITESPACE', 'COMMENT_LINE', 'COMMENT_BLOCK', 'CONTINUATION',
+    'STATEMENT_TERMINATOR', 'EOF',
+]);
+
+function compare_positions(a: Range['start'], b: Range['start']): number {
+    return a.line - b.line || a.character - b.character;
+}
+
+function touches(left: Token, right: Token): boolean {
+    return compare_positions(left.range.end, right.range.start) === 0;
+}
+
+/** Index of the first token that starts at or after `position`. */
+function first_token_at(tokens: Token[], position: Range['start']): number {
+    let low = 0;
+    let high = tokens.length;
+    while (low < high) {
+        const middle = (low + high) >> 1;
+        if (compare_positions(tokens[middle].range.start, position) < 0) {
+            low = middle + 1;
+        } else {
+            high = middle;
+        }
+    }
+    return low;
+}
+
 /**
- * Raw argument items after the path of a `do`/`run`/`include` command.
- * A quoted path with a macro inside is several adjacent varlist items
- * (`"step` `` `wave' `` `.do"`), so the path runs until the first gap.
+ * The words after the path of a `do`/`run`/`include` command, in
+ * source order: everything to the end of the statement, qualifiers,
+ * weights and a `, options` tail included, since Stata passes every
+ * word after the file name to the do-file. Touching tokens form one
+ * word (`a>b`, `` "x`y'z" ``, `[aw=x]`), as Stata splits them for
+ * `args`. The path is the first word, so a quoted path with a macro
+ * inside (`` "step`wave'.do" ``) stays out of the arguments.
  */
-function call_arguments(node: CommandNode | undefined): string[] {
+function call_arguments(
+    node: CommandNode | undefined,
+    tokens: Token[],
+): string[] {
     if (node === undefined) {
         return [];
     }
     const the_items = [...(node.varlist ?? []), ...(node.extra_args ?? [])];
-    the_items.sort((a, b) =>
-        a.range.start.line - b.range.start.line ||
-        a.range.start.character - b.range.start.character);
-    let path_end = 1;
-    while (path_end < the_items.length) {
-        const previous = the_items[path_end - 1].range.end;
-        const next = the_items[path_end].range.start;
-        if (previous.line !== next.line || previous.character !== next.character) {
+    let path_start: Range['start'] | undefined;
+    for (const my_item of the_items) {
+        if (path_start === undefined ||
+            compare_positions(my_item.range.start, path_start) < 0) {
+            path_start = my_item.range.start;
+        }
+    }
+    if (path_start === undefined) {
+        return [];
+    }
+    let i = first_token_at(tokens, path_start);
+    // Skip the path: the run of tokens touching its first one.
+    while (i + 1 < tokens.length && touches(tokens[i], tokens[i + 1])) {
+        i++;
+    }
+    i++;
+    const the_words: string[] = [];
+    let my_word = '';
+    for (; i < tokens.length; i++) {
+        const my_token = tokens[i];
+        if (compare_positions(my_token.range.start, node.range.end) >= 0) {
             break;
         }
-        path_end++;
+        if (TRIVIA_TYPES.has(my_token.type)) {
+            continue;
+        }
+        if (my_word !== '' && touches(tokens[i - 1], my_token)) {
+            my_word += my_token.value;
+        } else {
+            if (my_word !== '') {
+                the_words.push(my_word);
+            }
+            my_word = my_token.value;
+        }
     }
-    return the_items.slice(path_end).map((my_item) => my_item.name);
+    if (my_word !== '') {
+        the_words.push(my_word);
+    }
+    return the_words;
 }
 
 /**
@@ -291,12 +359,42 @@ export async function build_graph_document(options: {
     });
     scope_resolver.set_workspace_roots([root]);
     const scope_resolver_config = scope_resolver_config_for(config);
+    // Auto-discovered parents, so a file inherits the working directory
+    // of a parent that calls it without directives, as in `sight check`.
+    const dependency_graph = new DependencyGraph();
+    dependency_graph.set_workspace_roots([root]);
+    scope_resolver.set_dependency_graph(dependency_graph);
 
     const the_files: GraphDocument['files'] = [];
     const the_edges: GraphEdge[] = [];
     const the_paths = [...options.file_paths].sort((a, b) =>
         display_path(a) < display_path(b) ? -1 : display_path(a) > display_path(b) ? 1 : 0);
 
+    const forward_calls_for = (
+        uri: string,
+        source: SourceAnalysis,
+        working_directory: string | undefined,
+    ): ForwardCall[] => prepare_forward_calls({
+        uri,
+        command_calls: source.analysis.forward_calls,
+        directive_calls: source.directives.forward_calls ?? [],
+        cd_commands: source.analysis.cd_commands,
+        working_directory,
+        workspace_roots: [root],
+    });
+
+    // First, as the workspace indexer does for `sight check`, register
+    // every file's calls with its own or explicitly inherited working
+    // directory. Then resolve each file's working directory as `check`
+    // does for each file it reports on, with auto-discovered parents
+    // from that graph (docs/cross-file.md, Working Directory).
+    const the_sources: Array<{
+        my_path: string;
+        caller: string;
+        uri: string;
+        source: SourceAnalysis;
+        own_working_directory: string | undefined;
+    }> = [];
     for (const my_path of the_paths) {
         const caller = display_path(my_path);
         const read = read_source_file(my_path);
@@ -320,15 +418,17 @@ export async function build_graph_document(options: {
         const working_directory = own_working_directory ??
             await scope_resolver.resolve_inherited_working_directory(
                 directives.directives, uri, is_standalone, scope_resolver_config);
+        dependency_graph.update_caller(
+            uri, forward_calls_for(uri, source, working_directory));
+        the_sources.push({ my_path, caller, uri, source, own_working_directory });
+    }
 
-        const the_calls: ForwardCall[] = prepare_forward_calls({
-            uri,
-            command_calls: source.analysis.forward_calls,
-            directive_calls: directives.forward_calls ?? [],
-            cd_commands: source.analysis.cd_commands,
-            working_directory,
-            workspace_roots: [root],
-        });
+    for (const { my_path, caller, uri, source, own_working_directory } of the_sources) {
+        const directives = source.directives;
+        const working_directory = own_working_directory ??
+            await scope_resolver.resolve_document_working_directory(
+                uri, directives, scope_resolver_config);
+        const the_calls = forward_calls_for(uri, source, working_directory);
 
         const the_commands = new Map<string, CommandNode>();
         index_commands(source.ast.nodes, the_commands);
@@ -356,7 +456,8 @@ export async function build_graph_document(options: {
                 range: my_call.range,
                 raw_path: my_call.raw_path,
                 arguments: my_call.source === 'command'
-                    ? call_arguments(the_commands.get(range_key(my_call.range)))
+                    ? call_arguments(
+                        the_commands.get(range_key(my_call.range)), source.tokens)
                     : [],
                 static: my_call.is_static,
                 source: my_call.source,
