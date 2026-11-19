@@ -173,10 +173,13 @@ export class ConsoleSession {
 
     /**
      * A line sent from the editor, entered as if typed at the prompt
-     * and then Enter. It never answers `--more--`: while the pager
-     * shows (and behind earlier held sends) it waits, and each held
-     * line goes at the next command prompt. `on_sent` reports whether
-     * it reached Stata (see StataBackend.submit_line).
+     * and then Enter. It goes only at a recognized command prompt,
+     * when Stata is waiting to read it: while Stata runs a command or
+     * shows `--more--` (which it must never answer), or before a
+     * prompt is recognized, it waits, and each held line goes at the
+     * next command prompt, in order. So `on_sent(true)` (see
+     * StataBackend.submit_line) means Stata is reading the line now,
+     * not that a terminal buffered it.
      *
      * The line is entered on its own: what the user has typed but not
      * entered is set aside and put back after it. A line the user
@@ -188,7 +191,7 @@ export class ConsoleSession {
             on_sent?.(false);
             return;
         }
-        if (this.prompt_kind === 'more' || this.held_sends.length > 0) {
+        if (this.held_sends.length > 0 || !this.at_command_prompt()) {
             this.held_sends.push({ line, on_sent });
             this.show_editor(true);
             return;
@@ -347,6 +350,11 @@ export class ConsoleSession {
         for (const my_send of this.held_sends.splice(0)) {
             my_send.on_sent?.(false);
         }
+    }
+
+    private at_command_prompt(): boolean {
+        return this.prompt_kind !== null
+            && COMMAND_PROMPT_KINDS.has(this.prompt_kind);
     }
 
     /**
