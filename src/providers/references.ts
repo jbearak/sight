@@ -56,14 +56,15 @@ export function line_within_scan_range(
 
 /**
  * Factor-variable and time-series operator words that the lexer emits
- * directly before a `.name` WORD: `i`, `c`, `o`, `ib3`, `ibn`, `io2`,
- * `bn` (after a level number such as `2bn.x`), `L2`, `LD`, `L2D`.
+ * directly before a `.name` WORD: `i`, `c`, `o`, `co`, `ib3`, `ibn`,
+ * `io2`, `bn` or `bo` (after a level number such as `2bn.x`), `L2`,
+ * `LD`, `L2D`.
  * One optional factor operator, then any time-series operators, each
  * with an optional number. Time-series operators may be typed in
  * either case in Stata; factor operators are lowercase only.
  */
 const FACTOR_OPERATOR_PATTERN =
-    /^(?:ib(?:n|\d+)?|io\d*|i\d*|c|o\d*|bn|b\d*)?(?:[LFDSlfds]\d*)*$/;
+    /^(?:ib(?:n|\d+)?|io\d*|i\d*|co?|o\d*|b[no]|b\d*)?(?:[LFDSlfds]\d*)*$/;
 
 /**
  * `.a` through `.z` lex as NUMBER (extended missing values), so the
