@@ -7,6 +7,7 @@
         { "include": "#macros" },
         { "include": "#mata-inline" },
         { "include": "#mata-block" },
+        { "include": "#delimit-directive" },
         { "include": "#path-after-io-command" },
         { "include": "#path-after-control-command" },
         { "include": "#path-after-data-command" },
@@ -16,6 +17,12 @@
         { "include": "#statement-content" }
     ],
     "repository": {
+        "delimit-directive": {
+            "match": "(?:^|;)\\s*(#d(?:e(?:l(?:i(?:m(?:i(?:t)?)?)?)?)?)?)(?![A-Za-z0-9_])",
+            "captures": {
+                "1": { "name": "keyword.control.directive.delimit.stata" }
+            }
+        },
         "statement-content": {
             "patterns": [
                 { "include": "#program-definition" },

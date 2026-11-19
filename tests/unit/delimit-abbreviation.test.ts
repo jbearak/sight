@@ -4,7 +4,8 @@
  * ;", `#d cr`, `#del cr`, `#delim cr` and `#delimi cr` print "delimiter
  * now cr", and multi-line statements between them run. Base ado files
  * use `#del ;` widely. Sight knew only the full word, so after `#d ;` it
- * kept ending statements at line breaks and reported false errors.
+ * kept ending statements at line breaks and reported false errors. The
+ * grammar colored the `d` of `#d` as `describe`, and hover showed it.
  *
  * Matching is exact-case, like the rest of Stata: `#D ;` and `#define ;`
  * are not directives, and neither is a `#d` inside a statement, where
@@ -14,12 +15,16 @@
 import { beforeAll, describe, expect, it } from 'bun:test';
 import type * as vscode from 'vscode';
 import { detect_statement } from '../../client/src/send-to-stata/statement-detector';
+import { CommandDatabase } from '../../src/command-database';
+import embedded_cache from '../../src/command-database/caches/v18.json' with { type: 'json' };
+import type { CommandCache } from '../../src/command-database/types';
 import { initialize_builtin_commands } from '../../src/commands/builtin-commands';
 import { DocumentStore } from '../../src/document-store';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
 import { DiagnosticsProvider } from '../../src/providers/diagnostics';
 import { CodeFormatter } from '../../src/providers/formatter';
+import { HoverProvider } from '../../src/providers/hover';
 import { DEFAULT_SETTINGS } from '../../src/server-handlers';
 import { Token } from '../../src/types';
 import { create_mock_document } from '../property/helpers';
@@ -30,6 +35,7 @@ import {
     for_each_formatter_mode,
     FormatterMode,
 } from '../property/helpers/formatter-test-utils';
+import { tokenize_stata } from './helpers/textmate-tokenizer';
 
 const ABBREVIATIONS = ['#d', '#de', '#del', '#deli', '#delim', '#delimi'];
 
@@ -230,5 +236,59 @@ describe('Send to Stata under #d ;', () => {
             .toEqual({ start_line: 1, end_line: 2 });
         expect(detect_statement(document, 4))
             .toEqual({ start_line: 4, end_line: 4 });
+    });
+});
+
+describe('TextMate grammar: #delimit abbreviations', () => {
+    const DIRECTIVE = 'keyword.control.directive.delimit.stata';
+
+    /** Each token's text and scopes, past the root scope. */
+    async function scopes(source: string): Promise<string[][]> {
+        const the_tokens = await tokenize_stata(source);
+        return the_tokens.map((my_token) => [my_token.text,
+            ...my_token.scopes.filter((my_scope) => my_scope !== 'source.stata')]);
+    }
+
+    for (const my_keyword of ABBREVIATIONS) {
+        it(`colors ${my_keyword} like #delimit`, async () => {
+            for (const my_mode of [';', 'cr']) {
+                expect(await scopes(`${my_keyword} ${my_mode}`))
+                    .toEqual([[my_keyword, DIRECTIVE], [` ${my_mode}`]]);
+            }
+        });
+    }
+
+    it('colors #delimit as a directive', async () => {
+        expect(await scopes('#delimit ;'))
+            .toEqual([['#delimit', DIRECTIVE], [' ;']]);
+        expect(await scopes('  #delimit cr'))
+            .toEqual([['  '], ['#delimit', DIRECTIVE], [' cr']]);
+    });
+
+    it('leaves #D, #define, and an interaction alone', async () => {
+        for (const my_source of ['#D ;', '#define ;', 'regress y i.a#d']) {
+            const the_tokens = await tokenize_stata(my_source);
+            expect(the_tokens.some((my_token) =>
+                my_token.scopes.includes(DIRECTIVE))).toBe(false);
+        }
+    });
+});
+
+describe('hover on #delimit abbreviations', () => {
+    it('does not show describe for the d of #d or #de', async () => {
+        const database = new CommandDatabase();
+        database.load_cache(embedded_cache as CommandCache);
+        const hover_provider = new HoverProvider(database);
+        for (const my_source of ['#d ;\n', '#de cr\n', '#delimit ;\n']) {
+            for (const my_character of [0, 1, 2]) {
+                expect(await hover_provider.get_hover(
+                    create_document_state(my_source),
+                    { line: 0, character: my_character })).toBeNull();
+            }
+        }
+        // `d` elsewhere is still `describe`.
+        expect(await hover_provider.get_hover(
+            create_document_state('d price\n'),
+            { line: 0, character: 0 })).not.toBeNull();
     });
 });
