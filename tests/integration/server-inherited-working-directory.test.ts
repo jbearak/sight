@@ -211,4 +211,23 @@ describe('server — working directory inherited through do-chains', () => {
         expect(published.length).toBe(count);
         expect(count).toBeLessThanOrEqual(2);
     }, TEST_TIMEOUT_MS);
+
+    it('resolves an open file\'s forward directive from its own directory', async () => {
+        // a.do inherits `work` from main.do, but `sight: do` resolves
+        // from a.do's own directory, as in `sight check` and `graph`.
+        write_file('main.do', '// sight: cd work\ndo jobs/a.do\n');
+        write_file('work/jobs/a.do', '// sight: do lib.do\ndisplay 1\n');
+        write_file('work/lib.do', 'display 1\n');
+        await start_server();
+        open_document('work/jobs/a.do');
+        await wait_until(
+            () => published.some(my_params =>
+                my_params.uri === file_uri('work/jobs/a.do') &&
+                my_params.diagnostics.some(my_diagnostic =>
+                    my_diagnostic.code === 'CROSS_FILE_MISSING_FILE' &&
+                    my_diagnostic.message.includes('lib.do'))),
+            'a.do to report lib.do missing',
+            WAIT_TIMEOUT_MS,
+        );
+    }, TEST_TIMEOUT_MS);
 });

@@ -222,6 +222,7 @@ export function settle_inherited_working_directories<
     // Each round settles at least one more level of callers; the bound
     // ends a cycle whose results keep changing.
     const max_rounds = max_depth + 2;
+    let converged = false;
     for (let round = 0; round < max_rounds; round++) {
         const the_next = new Map(the_results);
         let changed = false;
@@ -234,6 +235,7 @@ export function settle_inherited_working_directories<
         }
         the_results = the_next;
         if (!changed) {
+            converged = true;
             break;
         }
         for (const my_facts of the_inheriting) {
@@ -243,6 +245,20 @@ export function settle_inherited_working_directories<
                 : my_facts.directive_working_directory;
             if (working_directory !== my_facts.working_directory) {
                 my_facts.working_directory = working_directory;
+                register(my_facts);
+            }
+        }
+    }
+    // Results still changing at the bound depend on where the rounds
+    // stopped, so give every such file the registration it had without
+    // settling, and leave its directory to the walk.
+    if (!converged) {
+        for (const my_facts of the_inheriting) {
+            the_results.set(my_facts.uri, UNKNOWN);
+            if (my_facts.working_directory !==
+                my_facts.directive_working_directory) {
+                my_facts.working_directory =
+                    my_facts.directive_working_directory;
                 register(my_facts);
             }
         }
