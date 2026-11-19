@@ -34,6 +34,8 @@ import { unwrap_macval } from '../utils/local-macro';
 import { isFileCommand } from '../utils/file-path-utils';
 import { is_swallowed_continuation_terminator } from '../utils/continuation';
 import { compare_positions } from '../utils/scope-position';
+import { delimit_keyword } from '../utils/delimit-directive';
+import { delimit_directive_mode } from '../utils/semicolon-statement';
 import { program_signature_syntax_nodes } from '../utils/node-body';
 import { PROGRAM_COMMAND_NAMES, PROGRAM_SUBCOMMANDS } from '../utils/program-definition';
 import {
@@ -159,8 +161,6 @@ const NEXT_STATEMENT_SKIP_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
   'STATEMENT_TERMINATOR', 'COMMENT_LINE', 'COMMENT_BLOCK', 'CONTINUATION',
   'WHITESPACE',
 ]);
-// `#delimit ;`, with the `;` as the first thing after the keyword.
-const DELIMIT_SEMICOLON_PATTERN = /^#delimit[ \t]*;/;
 
 /**
  * Does `token` end its statement? Under `#delimit ;` a `*` comment runs
@@ -565,12 +565,13 @@ export class StataParser {
 
     // The mode is the first thing after `#delimit`, as in the lexer:
     // `#delimit cr // c;` is cr.
-    const mode = DELIMIT_SEMICOLON_PATTERN.test(token.value) ? 'semicolon' : 'cr';
+    const mode = delimit_directive_mode(token);
     this.delimit_mode = mode;
 
     return {
       type: 'directive',
       directive: 'delimit',
+      keyword: delimit_keyword(token.value),
       mode,
       range: token.range,
     };

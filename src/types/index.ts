@@ -234,6 +234,8 @@ export type StataNode =
 export interface DirectiveNode {
   type: 'directive';
   directive: 'delimit';
+  // As written: `#delimit` or an abbreviation down to `#d`.
+  keyword: string;
   mode: 'cr' | 'semicolon';
   range: Range;
   leadingTrivia?: TriviaNode[];

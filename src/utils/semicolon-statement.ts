@@ -1,11 +1,9 @@
 import { Token, TokenType } from '../types';
+import { delimit_text_mode } from './delimit-directive';
 
 const COMMENT_TOKEN_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
     'COMMENT_LINE', 'COMMENT_BLOCK', 'CONTINUATION',
 ]);
-
-// `#delimit ;`, with the `;` as the first thing after the keyword.
-const DELIMIT_SEMICOLON_PATTERN = /^#delimit[ \t]*;/;
 
 /**
  * Tracks whether the current `#delimit ;` statement has begun, comments
@@ -57,7 +55,7 @@ export class SemicolonStatementTracker {
 
 /** The delimiter mode a `#delimit` token sets. */
 export function delimit_directive_mode(token: Token): 'cr' | 'semicolon' {
-    return DELIMIT_SEMICOLON_PATTERN.test(token.value) ? 'semicolon' : 'cr';
+    return delimit_text_mode(token.value);
 }
 
 /**
