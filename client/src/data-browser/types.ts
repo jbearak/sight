@@ -104,8 +104,27 @@ export interface TimingMessage {
     epoch_ms: number;
 }
 
+/**
+ * Text the webview copied, for the host to put on the clipboard: a
+ * selection holding a long strL, whose whole value it fetched first.
+ */
+export interface CopyTextMessage {
+    type: 'copyText';
+    text: string;
+    /** False if a long strL couldn't be read and its preview was copied. */
+    is_whole: boolean;
+}
+
+/** A copy the webview couldn't make. */
+export interface CopyFailedMessage {
+    type: 'copyFailed';
+    message: string;
+}
+
 export type WebviewMessage =
     | RowRequest
+    | CopyTextMessage
+    | CopyFailedMessage
     | ReadyMessage
     | ColumnWidthsChangedMessage
     | ColumnVisibilityChangedMessage

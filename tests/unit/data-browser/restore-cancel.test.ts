@@ -1801,3 +1801,23 @@ describe('closing during a refresh (Phase 1a)', () => {
         expect(the_unlinked).toEqual(['/data/new.dta']);
     });
 });
+
+describe('copied text from the webview', () => {
+    it('goes on the clipboard, with a warning if it is a preview', async () => {
+        const { panel_like } = await make_restore_panel();
+        clipboard_writes = [];
+
+        await panel_like.handle_message({
+            type: 'copyText', text: 'whole', is_whole: true,
+        });
+        expect(clipboard_writes).toEqual(['whole']);
+        expect(warnings).toEqual([]);
+
+        await panel_like.handle_message({
+            type: 'copyText', text: 'preview', is_whole: false,
+        });
+        expect(clipboard_writes).toEqual(['whole', 'preview']);
+        expect(warnings.length).toBe(1);
+        expect(warnings[0]).toContain('could not be read');
+    });
+});

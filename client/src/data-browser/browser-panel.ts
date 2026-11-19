@@ -1236,6 +1236,12 @@ export class DataBrowserPanel implements vscode.Disposable {
             case 'requestFullText':
                 await this.handle_request_full_text(msg);
                 break;
+            case 'copyText':
+                await this.handle_copy_text(msg.text, msg.is_whole);
+                break;
+            case 'copyFailed':
+                vscode.window.showErrorMessage(`Copy failed: ${msg.message}`);
+                break;
             case 'copyColumn':
                 await this.handle_copy_column(
                     msg.col_index,
@@ -2073,6 +2079,33 @@ export class DataBrowserPanel implements vscode.Disposable {
             && this.debug_timing.first_rows_posted_epoch_ms === undefined
         ) {
             this.debug_timing.first_rows_posted_epoch_ms = Date.now();
+        }
+    }
+
+    /**
+     * Put text the webview copied on the clipboard. A webview can't
+     * write it there itself once the copy event is over, and the full
+     * value of a long strL comes too late for the event.
+     */
+    private async handle_copy_text(
+        text: string,
+        is_whole: boolean
+    ): Promise<void> {
+        try {
+            await vscode.env.clipboard.writeText(text);
+        } catch (my_err) {
+            vscode.window.showErrorMessage(
+                `Copy failed: ${my_err instanceof Error
+                    ? my_err.message
+                    : String(my_err)}`
+            );
+            return;
+        }
+        if (!is_whole) {
+            vscode.window.showWarningMessage(
+                'Copied the first part of each long text value: the '
+                + 'whole values could not be read.'
+            );
         }
     }
 

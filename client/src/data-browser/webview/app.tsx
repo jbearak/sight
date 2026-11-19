@@ -12,6 +12,7 @@ import {
     type DrawHeaderCallback,
     type GetCellsThunk,
     GridCellKind,
+    getCopyBufferContents,
     type GridCell,
     type GridSelection,
     type GridMouseEventArgs,
@@ -45,6 +46,12 @@ import {
     create_single_column_selection,
 } from './selection-model.js';
 import { use_row_loader } from './use-row-loader.js';
+import {
+    take_over_copy,
+    type CopyGrid,
+    type CopySelection,
+    type GetCopyCells,
+} from './copy-selection.js';
 import { use_toolbar_wrap } from './use-toolbar-wrap.js';
 import { ColumnContextMenu } from './column-context-menu.js';
 import { ColumnVisibilityPopover } from './column-visibility-popover.js';
@@ -316,6 +323,10 @@ export function App(): ReactElement {
         useState<FilterEditorState | null>(null);
     const data_editor_ref = useRef<DataEditorRef>(null);
     const grid_shell_ref = useRef<HTMLDivElement>(null);
+    const copy_state_ref = useRef<{
+        selection: CopySelection;
+        grid: CopyGrid;
+    } | null>(null);
     const toolbar_ref = useRef<HTMLDivElement>(null);
     const row_count_ref = useRef<HTMLSpanElement>(null);
     const toolbar_chips_ref = useRef<HTMLDivElement>(null);
@@ -331,6 +342,38 @@ export function App(): ReactElement {
         x: 0,
         y: 0,
     });
+
+    // A copy of a long strL: Glide's handler would write it after the
+    // copy event ends, when the write does nothing (see
+    // copy-selection.ts). This listener runs first, in the capture
+    // phase, and has the host put the text on the clipboard.
+    useEffect(() => {
+        const on_copy = (e: ClipboardEvent) => {
+            const my_state = copy_state_ref.current;
+            const my_active = document.activeElement;
+            const is_grid_focused = my_active instanceof Element
+                && grid_shell_ref.current?.contains(my_active) === true
+                && my_active.closest(
+                    '.dvn-scroller, [data-testid="data-grid-canvas"]'
+                ) !== null;
+            if (!my_state || !is_grid_focused) return;
+            const my_copy = take_over_copy(
+                e, my_state.selection, my_state.grid
+            );
+            if (!my_copy) return;
+            void my_copy.then(my_result => {
+                vscode_api.postMessage(my_result.kind === 'copied'
+                    ? {
+                        type: 'copyText',
+                        text: my_result.text,
+                        is_whole: my_result.is_whole,
+                    }
+                    : { type: 'copyFailed', message: my_result.message });
+            });
+        };
+        window.addEventListener('copy', on_copy, true);
+        return () => window.removeEventListener('copy', on_copy, true);
+    }, [vscode_api]);
 
     useEffect(() => {
         const update_viewport_mouse = (e: MouseEvent) => {
@@ -1140,9 +1183,7 @@ export function App(): ReactElement {
      * The cells a copy takes: what the grid shows, except that a long
      * strL shown as a preview is copied whole, fetched from the host.
      */
-    const get_cells_for_selection = (
-        rect: Rectangle
-    ): GetCellsThunk | CellArray => {
+    const get_copy_cells: GetCopyCells = rect => {
         const my_rows = nobs_effective ?? metadata?.nobs ?? 0;
         const the_cells: GridCell[][] = [];
         const the_full: {
@@ -1181,7 +1222,7 @@ export function App(): ReactElement {
                 the_full.map(my_full => my_full.address)
             );
             // Unreadable: copy the previews rather than nothing.
-            if (!the_texts) return the_cells;
+            if (!the_texts) return { cells: the_cells, is_whole: false };
             the_full.forEach((my_full, i) => {
                 const my_cell = the_cells[my_full.y][my_full.x];
                 if (my_cell.kind === GridCellKind.Text) {
@@ -1191,8 +1232,32 @@ export function App(): ReactElement {
                     };
                 }
             });
-            return the_cells;
+            return { cells: the_cells, is_whole: true };
         };
+    };
+
+    const get_cells_for_selection = (
+        rect: Rectangle
+    ): GetCellsThunk | CellArray => {
+        const my_cells = get_copy_cells(rect);
+        if (typeof my_cells !== 'function') return my_cells;
+        return async () => (await my_cells()).cells;
+    };
+
+    // What the copy listener, registered once, reads at copy time.
+    copy_state_ref.current = {
+        selection: {
+            range: grid_selection.current?.range,
+            rows: grid_selection.rows.toArray(),
+            columns: grid_selection.columns.toArray(),
+        },
+        grid: {
+            get_cells: get_copy_cells,
+            column_count: the_columns.length,
+            row_count: nobs_effective ?? metadata?.nobs ?? 0,
+            to_text: (cells, columns) =>
+                getCopyBufferContents(cells, columns).textPlain,
+        },
     };
 
     return (
