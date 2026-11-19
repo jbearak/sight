@@ -16,6 +16,11 @@
  *   --end-file PATH    written when the console ends on its own
  *   --run LINE         typed at the first prompt (the first do/run)
  *
+ * Its input is keys, plus editor sends in an escape sequence
+ * (editor-send-channel.ts), which it enters at Stata's prompt as the
+ * pane's sends are, never as keys. It deletes each send's do-file
+ * once Stata has read the line, or at once if Stata never will.
+ *
  * It exits with the console's code. After a failure it leaves the
  * console's last words on screen until a key, as the pane does.
  */
@@ -27,12 +32,17 @@ import type {
     EditorConsoleEnd,
     EditorConsoleHost,
 } from './editor-console';
+import { EditorSendDecoder, type EditorSend } from './editor-send-channel';
 
 /** Mirrors editor-console.ts and the extension's console-pane.ts. */
 const EDITOR_CONSOLE_API_VERSION = 3;
 const DEFAULT_COLUMNS = 80;
 const DEFAULT_ROWS = 24;
 const PRESS_ANY_KEY = '\r\n[Press any key to close this pane.]';
+/** How long a lone ESC waits to be read as the start of a send. */
+const SEND_START_WAIT_MS = 25;
+/** As the extension's temp-file cleanup: Stata has read the line. */
+const SENT_FILE_CLEANUP_MS = 30000;
 
 interface EditorConsoleModule {
     EDITOR_CONSOLE_API_VERSION: number;
@@ -126,19 +136,44 @@ export function run_tty_console(args: TtyConsoleArgs): void {
     let key_reader: ((text: string) => void) | null = null;
     let the_console: EditorConsole | null = null;
     let closing = false;
+    let ended = false;
+    const decoder = new EditorSendDecoder();
+    let partial_timer: ReturnType<typeof setTimeout> | null = null;
+    /** Sent files waiting out their cleanup delay. */
+    const the_sent_files = new Map<string, ReturnType<typeof setTimeout>>();
+
+    const delete_file = (file_path: string): void => {
+        try {
+            fs.unlinkSync(file_path);
+        } catch {
+            // Gone already.
+        }
+    };
+    const settle_file = (file_path: string, sent: boolean): void => {
+        if (!sent) {
+            delete_file(file_path);
+            return;
+        }
+        const timer = setTimeout(() => {
+            the_sent_files.delete(file_path);
+            delete_file(file_path);
+        }, SENT_FILE_CLEANUP_MS);
+        the_sent_files.set(file_path, timer);
+    };
 
     const exit = (code: number): void => {
         if (stdin.isTTY) {
             stdin.setRawMode(false);
         }
+        // Stata has ended, so it reads none of these any more.
+        for (const [my_file, my_timer] of the_sent_files) {
+            clearTimeout(my_timer);
+            delete_file(my_file);
+        }
         process.exit(code);
     };
 
-    if (stdin.isTTY) {
-        stdin.setRawMode(true);
-    }
-    stdin.setEncoding('utf8');
-    stdin.on('data', (text: string) => {
+    const handle_keys = (text: string): void => {
         if (key_reader) {
             const reader = key_reader;
             key_reader = null;
@@ -146,6 +181,52 @@ export function run_tty_console(args: TtyConsoleArgs): void {
             return;
         }
         the_console?.handle_input(text);
+    };
+    // An editor send (editor-send-channel.ts): entered by the console
+    // at a prompt, never taken as keys. Its file goes once Stata has
+    // read the line, or at once if it never will.
+    const handle_send = (send: EditorSend): void => {
+        const file = send.file;
+        if (!the_console || closing || ended) {
+            if (file !== undefined) {
+                settle_file(file, false);
+            }
+            return;
+        }
+        void the_console.send_line(send.line).then((sent) => {
+            if (file !== undefined) {
+                settle_file(file, sent);
+            }
+        });
+    };
+    const handle_events = (
+        the_events: ReturnType<EditorSendDecoder['push']>
+    ): void => {
+        for (const my_event of the_events) {
+            if (my_event.type === 'keys') {
+                handle_keys(my_event.text);
+            } else {
+                handle_send(my_event.send);
+            }
+        }
+    };
+
+    if (stdin.isTTY) {
+        stdin.setRawMode(true);
+    }
+    stdin.setEncoding('utf8');
+    stdin.on('data', (text: string) => {
+        if (partial_timer !== null) {
+            clearTimeout(partial_timer);
+            partial_timer = null;
+        }
+        handle_events(decoder.push(text));
+        if (decoder.has_partial_start()) {
+            partial_timer = setTimeout(() => {
+                partial_timer = null;
+                handle_events(decoder.flush_partial());
+            }, SEND_START_WAIT_MS);
+        }
     });
     stdin.resume();
 
@@ -208,6 +289,7 @@ export function run_tty_console(args: TtyConsoleArgs): void {
     );
 
     function finish(end: EditorConsoleEnd): void {
+        ended = true;
         if (closing) {
             exit(end.code);
             return;

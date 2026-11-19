@@ -18,6 +18,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { spawn_helper_pty, type HelperPty } from '../../../src/console/helper-pty';
 import { parse_tty_console_args } from '../../../src/console/editor-console-tty';
+import { encode_editor_send } from '../../../src/console/editor-send-channel';
 
 const ROOT = path.resolve(import.meta.dir, '../../..');
 const CLIENT_DIR = path.join(ROOT, 'client');
@@ -158,6 +159,38 @@ describe_tty('editor console on a terminal (tty.js)', () => {
         expect(await run.terminal.exit_status).toBe(0);
         const end = JSON.parse(fs.readFileSync(run.end_file, 'utf8'));
         expect(end).toEqual({ code: 0, took_stata: true, helper_failed: false });
+    }, 30000);
+
+    it('enters an editor send at the next prompt, never at --more--, and deletes its file', async () => {
+        const run = start();
+        await wait_for(() => fs.existsSync(run.ready_file), 'the ready file');
+        const do_file = path.join(run.dir, 'send.do');
+        fs.writeFileSync(do_file, 'display 1\n');
+        run.terminal.write('more\r');
+        await wait_for(() => run.screen().includes('--more--'), 'the pager');
+        // Split mid-sequence, as a terminal read may split it.
+        const send = encode_editor_send({ line: `do "${do_file}"`, file: do_file });
+        run.terminal.write(send.slice(0, 7));
+        await sleep(5);
+        run.terminal.write(send.slice(7));
+        await sleep(300);
+        // The pager is still waiting: the send didn't answer it.
+        expect(run.screen()).not.toContain('line 3');
+        expect(run.screen()).not.toContain('ran ');
+        run.terminal.write('q');
+        await wait_for(() => run.screen().includes('line 3 ("q")'), 'the answer');
+        await wait_for(() => run.screen().includes(`ran ${do_file}`), 'the send');
+        // Stata read it, so the file stays for the cleanup delay.
+        expect(fs.existsSync(do_file)).toBe(true);
+
+        // A send the console can't enter (it is ending) is deleted.
+        const dropped = path.join(run.dir, 'dropped.do');
+        fs.writeFileSync(dropped, 'display 2\n');
+        run.terminal.write('exit\r');
+        run.terminal.write(encode_editor_send({ line: `do "${dropped}"`, file: dropped }));
+        expect(await run.terminal.exit_status).toBe(0);
+        // Exiting deletes the files Stata had read, too.
+        await wait_for(() => !fs.existsSync(dropped) && !fs.existsSync(do_file), 'the files to go');
     }, 30000);
 
     it('passes a resize through to Stata', async () => {

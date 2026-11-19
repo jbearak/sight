@@ -159,7 +159,9 @@ describe('build_perch_launch', () => {
             name: 'Stata',
             kind: 'stata',
             cwd: '/w{dir}',
-            annotations: { 'sight.console': 'editor' },
+            annotations: {
+                'sight.console': 'editor', 'sight.sendChannel': '1',
+            },
             env: { ELECTRON_RUN_AS_NODE: '1' },
             command: [
                 '/n{{o}}de', '/x/tty.js',

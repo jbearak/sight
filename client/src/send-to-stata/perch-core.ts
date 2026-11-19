@@ -34,6 +34,34 @@ export type PerchConsoleMode =
     | typeof PERCH_CONSOLE_EDITOR
     | typeof PERCH_CONSOLE_STATA;
 
+/**
+ * Set on sessions whose tty.js reads editor sends from its input in an
+ * escape sequence (src/console/editor-send-channel.ts) rather than as
+ * typed keys. A session outlives an extension update and keeps the
+ * tty.js it started with, so sends check this, not the version.
+ */
+export const PERCH_SEND_CHANNEL_ANNOTATION = 'sight.sendChannel';
+export const PERCH_SEND_CHANNEL_VERSION = '1';
+/** Mirrors src/console/editor-send-channel.ts. */
+const EDITOR_SEND_START = '\x1b_sight-send;';
+const EDITOR_SEND_END = '\x1b\\';
+
+/**
+ * A send as the channel carries it: entered at the console's prompt,
+ * never taken as a key; the console deletes `file` once Stata has read
+ * the line, or at once if it never will.
+ */
+export function encode_editor_send(line: string, file: string): string {
+    return EDITOR_SEND_START + JSON.stringify({ line, file })
+        + EDITOR_SEND_END;
+}
+
+export function has_send_channel(session: PerchSessionInfo): boolean {
+    return console_mode_of(session) === PERCH_CONSOLE_EDITOR
+        && session.annotations[PERCH_SEND_CHANNEL_ANNOTATION]
+            === PERCH_SEND_CHANNEL_VERSION;
+}
+
 /** Written by tty.js in the session directory at the first prompt. */
 export const PERCH_READY_FILE = 'sight-console-ready';
 /** Written by tty.js when the console ends on its own. */
@@ -141,6 +169,10 @@ export function build_perch_launch(
     // process.execPath is Electron in a local window; this makes it
     // Node (and is harmless for the VS Code server's node).
     options.env = { ELECTRON_RUN_AS_NODE: '1' };
+    options.annotations = {
+        [PERCH_CONSOLE_ANNOTATION]: PERCH_CONSOLE_EDITOR,
+        [PERCH_SEND_CHANNEL_ANNOTATION]: PERCH_SEND_CHANNEL_VERSION,
+    };
     return options;
 }
 

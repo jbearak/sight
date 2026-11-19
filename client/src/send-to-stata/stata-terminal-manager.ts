@@ -4,7 +4,11 @@ import * as path from 'path';
 import { StataCommand, VALID_COMMANDS } from './index.js';
 import { detect_stata_cli, clear_stata_cli_cache } from './stata-cli-detector.js';
 import { send_to_terminal, wrap_path_for_stata_terminal } from './terminal.js';
-import { schedule_temp_file_cleanup } from './temp-file.js';
+import {
+    hold_temp_file,
+    release_temp_file,
+    schedule_temp_file_cleanup,
+} from './temp-file.js';
 import { send_to_stata_windows } from './windows-sender.js';
 import {
     create_console_pane,
@@ -34,6 +38,8 @@ import {
     build_perch_launch,
     candidate_sessions,
     console_mode_of,
+    encode_editor_send,
+    has_send_channel,
     PERCH_CONSOLE_EDITOR,
     PERCH_CONSOLE_STATA,
     PERCH_END_FILE,
@@ -560,6 +566,11 @@ interface PerchConsole {
     id: string;
     api: PerchApiV1;
     mode: PerchConsoleMode;
+    /**
+     * Its console reads editor sends apart from keys (see
+     * has_send_channel); otherwise sends are typed, as by a keyboard.
+     */
+    has_send_channel: boolean;
     /** The session directory. */
     dir: string;
     /** Its Perch terminal in this window, if one is open. */
@@ -748,6 +759,7 @@ function track_perch_console(
         id: session.id,
         api,
         mode: console_mode_of(session),
+        has_send_channel: has_send_channel(session),
         dir: session.dir,
         terminal: null,
         chain: Promise.resolve(),
@@ -936,18 +948,45 @@ function type_perch_send(id: string, send: PendingSend): void {
     }
     const line = `${send.command} `
         + wrap_path_for_stata_terminal(send.temp_file_path);
-    record.chain = record.chain.then(() => deliver_perch_send(record, line));
+    if (!record.has_send_channel) {
+        record.chain = record.chain.then(() => deliver_perch_send(
+            record, line, { submit: true }
+        ));
+        return;
+    }
+    // The console enters the line at a prompt, never as an answer to
+    // `--more--`, and deletes the file once Stata has read it: a busy
+    // Stata may read it long after the usual cleanup delay, which
+    // skips a held file.
+    const file_path = send.temp_file_path;
+    hold_temp_file(file_path);
+    record.chain = record.chain.then(() => deliver_perch_send(
+        record, encode_editor_send(line, file_path), { submit: false },
+        file_path
+    ));
 }
 
-/** Hand one line to the session; report a failure (never resend). */
+/**
+ * Hand one send to the session; report a failure (never resend). With
+ * `held_file`, the console owns that file once it has the send; if it
+ * surely doesn't, the file goes now.
+ */
 async function deliver_perch_send(
     record: PerchConsole,
-    line: string
+    text: string,
+    options: { submit: boolean },
+    held_file?: string
 ): Promise<void> {
     try {
-        await record.api.send(record.id, line, { submit: true });
+        await record.api.send(record.id, text, options);
     } catch (my_error) {
         const code = perch_error_code(my_error);
+        if (held_file !== undefined) {
+            release_temp_file(held_file);
+            if (code !== 'outcome_unknown') {
+                fs.promises.unlink(held_file).catch(() => {});
+            }
+        }
         if (code === 'outcome_unknown') {
             vscode.window.showWarningMessage(
                 'Sight couldn\'t confirm that the Stata session received '
