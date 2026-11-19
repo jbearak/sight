@@ -204,6 +204,11 @@ describe('a * comment on the #delimit ; line', () => {
         expect(undefined_macros(SOURCE)).toEqual([]);
     });
 
+    it('ends at the newline after an abbreviated #d ;', () => {
+        expect(undefined_macros('#d ; * note\nlocal x 42;\ndisplay `x\';\n'))
+            .toEqual([]);
+    });
+
     for_each_formatter_mode('is kept on the directive line', (mode) => {
         expect(format_stable(SOURCE, mode)).toBe(SOURCE);
     });
