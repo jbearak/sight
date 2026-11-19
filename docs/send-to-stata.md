@@ -180,7 +180,7 @@ Send Upward Lines ends at the end of the cursor's statement, and Send Downward L
 
 ### Blocks
 
-A block's header can't run without its body and closer: Stata stops with "unexpected end of file" (r(612)). So with the cursor on the header or on the closer, Send statement sends the whole block, from the header through its `}` (or `};` under `#delimit ;`), or through `end` for `program define` and `mata` or `python` blocks. That covers `foreach`, `forvalues`, `while`, `if`, `else`, `frame`, a prefix's block (`capture {`, `quietly {`, `capture noisily {`, `nobreak {`), `program`, `mata`, and `python`, with blocks nested inside them, and `input` with its data lines through their `end`. With the cursor on a line inside the body, it sends just that statement, or a nested block if the line is its header or closer.
+A block's header can't run without its body and closer: Stata stops with "unexpected end of file" (r(612)). So with the cursor on the header or on the closer, Send statement sends the whole block, from the header through its `}` (or `};` under `#delimit ;`), or through `end` for `program define` and `mata` or `python` blocks. That covers `foreach`, `forvalues`, `while`, `if`, `else`, `frame`, a prefix's block (`capture {`, `quietly {`, `capture noisily {`, `nobreak {`), `program`, `mata`, and `python`, with blocks nested inside them, and `input` with its data lines through their `end` (from a data line too: a data line alone isn't a command). With the cursor on a line inside the body, it sends just that statement, or a nested block if the line is its header or closer.
 
 An `if` and the `else` and `else if` parts after it go together, from any of their headers or closers. Stata runs an `else` sent on its own even after a true `if`, so sending them apart would run both branches. That holds for one-line `if x di "a"` / `else di "b"` too.
 
@@ -201,14 +201,17 @@ Stata runs the code it's sent under `#delimit cr`. So when the code starts in a 
 
 Blocks work as above: on `foreach v in a b {;` or its `};`, Send statement sends the whole block.
 
-A line can hold the end of one statement and the start of another, as in `display` / `1; clear;`. Send statement sends the statements that start on the cursor's line, and leaves out the rest of the lines it shares:
+Sends take whole lines, as under `#delimit cr`, with one exception: a line that ends a statement begun on an earlier line and then holds whole statements of its own, as `1; clear;` does in `display` / `1; clear;`. A `*` comment counts as a statement, since it runs to its `;`, but a comment line before a statement doesn't count as its start: on `// note` / `di 1; di 2;`, the second line sends both statements.
 
-- On `display`, it sends `display` / `1;`, not `clear;`. The cursor then stays on `1; clear;` (when it advances), and Send statement there sends `clear;`.
-- On a line that starts no statement, such as `1;` in `clear; display` / `1;`, it sends the statement through that line (`display` / `1;`), not `clear;`.
-- A block's closer starts no statement: on `}; clear;`, Send statement sends `clear;`. On a `};` with nothing after it, it sends the block, as above.
-- Several whole statements on the cursor's line (`di 1; di 2;`) go together, as before, and so does a comment after the last `;`.
+- Send statement on `display` sends `display` / `1;`, and the cursor stays on `1; clear;` (when it advances). Send statement there sends `clear;`. Pressing it twice runs each statement once.
+- Send Upward Lines from a line above ends after `1;`. Send Downward Lines from `1; clear;` starts at `clear;`, or at the header of the block whose body `clear;` is in.
 
-Send Upward Lines ends where the cursor's statement ends, and Send Downward Lines starts where it starts, so neither runs code it shares a line with. Neither cuts a statement or a block in half: each cut falls between two `;` statements.
+Any other line is sent whole, with the statements that share it:
+
+- On `clear; display` / `1;`, either line sends both statements.
+- A block's closer followed by code (`}; clear;`) is sent with that code: from the header or from that line, Send statement sends the block and `clear;`.
+- A line where a block comment ends (`di 1; /* note` / `continued */`) is sent with the statement before the comment.
+- Several statements on one line (`di 1; di 2;`) go together, and so does a comment after the last `;`.
 
 ## Editor Toolbar
 

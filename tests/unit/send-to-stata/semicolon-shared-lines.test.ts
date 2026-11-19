@@ -8,9 +8,10 @@ import { create_mock_document } from '../../property/helpers';
 
 /**
  * Under `#delimit ;`, a line can hold the end of one statement and the
- * start of another. Send Statement sends only the statements the
- * cursor's line starts (or, if it starts none, the one passing through
- * it), never a neighbour that shares a line with them.
+ * start of another. Send Statement takes whole lines, except on a line
+ * that ends a statement begun above it and then holds whole statements
+ * of its own (`display` / `1; clear;`): a send from above ends at that
+ * statement's `;`, and a send from the line starts after it.
  */
 
 function as_document(the_lines: string[]): vscode.TextDocument {
@@ -85,9 +86,11 @@ describe('a statement that starts on a line after another', () => {
         'di 2;',            // 3
     ];
 
-    test('the cursor on its last line leaves the earlier one out', () => {
+    test('the cursor on its last line sends both lines', () => {
+        // `clear;` shares the first line: whole lines, as before
+        // character cutting.
         expect(send(LINES, 2)).toEqual({
-            code: PREFIX + 'display\n1;',
+            code: PREFIX + 'clear; display\n1;',
             statement_end_line: 2,
         });
     });
@@ -113,57 +116,78 @@ describe('a block whose closer shares a line', () => {
         'di 2;',                    // 4
     ];
 
-    test('the cursor on the header sends the block alone', () => {
+    test('the cursor on the header sends whole lines', () => {
+        // A closer is not cut from what follows it.
         expect(send(LINES, 1)).toEqual({
-            code: PREFIX + LINES.slice(1, 3).join('\n') + '\n};',
-            statement_end_line: 2,
+            code: PREFIX + LINES.slice(1, 4).join('\n'),
+            statement_end_line: 3,
         });
     });
 
-    test('the cursor on the closer line sends what starts after it', () => {
-        expect(send(LINES, 3).code).toBe(PREFIX + 'clear;');
-    });
-
-    test('a closer alone on its line still sends the block', () => {
-        const the_lines = [...LINES.slice(0, 3), '};', 'clear;'];
-        expect(send(the_lines, 3).code)
-            .toBe(PREFIX + the_lines.slice(1, 4).join('\n'));
+    test('the cursor on the closer line sends the block', () => {
+        expect(send(LINES, 3).code)
+            .toBe(PREFIX + LINES.slice(1, 4).join('\n'));
     });
 
     test('stepping runs each statement once', () => {
         expect(step_through(LINES, 1)).toEqual([
-            PREFIX + LINES.slice(1, 3).join('\n') + '\n};',
-            PREFIX + 'clear;',
+            PREFIX + LINES.slice(1, 4).join('\n'),
             PREFIX + 'di 2;',
         ]);
     });
 
-    test('a body statement before the closer moves the cursor past it',
-        () => {
-            const the_lines = [
-                '#delimit ;', 'foreach v in a b {;', '    di', '    1; };',
-                'di 2;',
-            ];
-            // Staying on line 3 would send the whole block again.
-            expect(send(the_lines, 2)).toEqual({
-                code: PREFIX + '    di\n    1;',
-                statement_end_line: 3,
-            });
+    test('a closer after the cut keeps the lines whole', () => {
+        const the_lines = [
+            '#delimit ;', 'foreach v in a b {;', '    di', '    1; };',
+            'di 2;',
+        ];
+        expect(send(the_lines, 2)).toEqual({
+            code: PREFIX + the_lines.slice(1, 4).join('\n'),
+            statement_end_line: 3,
         });
+    });
 
-    test('code before the header on its line is left out', () => {
+    test('a header after the cut keeps the lines whole', () => {
+        const the_lines = [
+            '#delimit ;', 'display', '1; foreach v in a {;', 'di 2;', '};',
+        ];
+        expect(send(the_lines, 1)).toEqual({
+            code: PREFIX + the_lines.slice(1).join('\n'),
+            statement_end_line: 4,
+        });
+        expect(send(the_lines, 2).code)
+            .toBe(PREFIX + the_lines.slice(1).join('\n'));
+    });
+
+    test('a statement in a body is cut from the one before it', () => {
+        const the_lines = [
+            '#delimit ;', 'quietly {;', 'di', '1; di 2;', '};',
+        ];
+        expect(send(the_lines, 2)).toEqual({
+            code: PREFIX + 'di\n1;',
+            statement_end_line: 2,
+        });
+        expect(send(the_lines, 3)).toEqual({
+            code: PREFIX + 'di 2;',
+            statement_end_line: 3,
+        });
+        // Downward from the body starts at the block's header.
+        expect(find_code_to_send(
+            as_document(the_lines), 'downward', 3, null
+        ).code).toBe(PREFIX + the_lines.slice(1).join('\n'));
+    });
+
+    test('code before the header on its line is sent with it', () => {
         const the_lines = [
             '#delimit ;',
             'clear; foreach v in a b {;',
             '    di "`v\'";',
             '};',
         ];
-        // From the closer, the block starts after `clear;`.
-        expect(send(the_lines, 3).code).toBe(
-            PREFIX + 'foreach v in a b {;\n' + the_lines.slice(2).join('\n'));
-        // From the header line, both statements start there.
-        expect(send(the_lines, 1).code)
-            .toBe(PREFIX + the_lines.slice(1).join('\n'));
+        for (const my_line of [1, 3]) {
+            expect(send(the_lines, my_line).code)
+                .toBe(PREFIX + the_lines.slice(1).join('\n'));
+        }
     });
 });
 
@@ -184,9 +208,20 @@ describe('what stays as it was', () => {
         });
     });
 
-    test('the cursor on a middle line sends the statement around it', () => {
+    test('the cursor on a middle line sends from its first line', () => {
         const the_lines = ['#delimit ;', 'clear; reg y', '  x', '  z; di 1;'];
-        expect(send(the_lines, 2).code).toBe(PREFIX + 'reg y\n  x\n  z;');
+        expect(send(the_lines, 2)).toEqual({
+            code: PREFIX + 'clear; reg y\n  x\n  z;',
+            statement_end_line: 2,
+        });
+    });
+
+    test('a line that ends a statement and then a comment is whole', () => {
+        const the_lines = ['#delimit ;', 'display', '1; // a; b', 'di 2;'];
+        expect(send(the_lines, 1)).toEqual({
+            code: PREFIX + 'display\n1; // a; b',
+            statement_end_line: 2,
+        });
     });
 
     test('indentation before the statement is kept', () => {
@@ -276,27 +311,33 @@ describe('any layout of di statements', () => {
             .map(my_code => my_code.replace(/\s+/, ' '));
     }
 
-    test('a line sends the statements it starts, else the one through it',
-        () => {
-            fc.assert(fc.property(LAYOUT, the_parts => {
-                const { the_lines, the_spans } = lay_out(the_parts);
-                for (let my_line = 1; my_line < the_lines.length;
-                    my_line++) {
-                    let the_expected = the_spans
-                        .map((my_span, i) => ({ ...my_span, i }))
-                        .filter(my_span => my_span.first === my_line);
-                    if (the_expected.length === 0) {
-                        the_expected = the_spans
-                            .map((my_span, i) => ({ ...my_span, i }))
-                            .filter(my_span => my_span.first < my_line &&
-                                my_line <= my_span.last);
-                    }
-                    expect(statements_in(send(the_lines, my_line).code))
-                        .toEqual(the_expected.map(my_span =>
-                            `di ${my_span.i};`));
+    test('a line sends what starts on it; after a cut, only that', () => {
+        fc.assert(fc.property(LAYOUT, the_parts => {
+            const { the_lines, the_spans } = lay_out(the_parts);
+            const the_indexed = the_spans
+                .map((my_span, i) => ({ ...my_span, i }));
+            for (let my_line = 1; my_line < the_lines.length; my_line++) {
+                const the_starting = the_indexed
+                    .filter(my_span => my_span.first === my_line);
+                const my_through = the_indexed.find(my_span =>
+                    my_span.first < my_line && my_line <= my_span.last);
+                // A statement ends here and others follow it: a cut.
+                const is_cut = my_through !== undefined &&
+                    my_through.last === my_line &&
+                    the_starting.length > 0 &&
+                    the_starting.every(my_span => my_span.last === my_line);
+                const the_sent = statements_in(send(the_lines, my_line).code);
+                const the_expected = the_starting.map(my_span =>
+                    `di ${my_span.i};`);
+                if (is_cut) {
+                    expect(the_sent).toEqual(the_expected);
+                } else {
+                    expect(the_sent).toEqual(
+                        expect.arrayContaining(the_expected));
                 }
-            }));
-        });
+            }
+        }));
+    });
 
     test('stepping runs each statement once, in order', () => {
         fc.assert(fc.property(LAYOUT, the_parts => {
