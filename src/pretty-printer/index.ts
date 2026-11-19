@@ -270,7 +270,7 @@ export class PrettyPrinter {
         this.delimiter_mode = node.mode;
 
         const mode_str = node.mode === 'semicolon' ? ';' : 'cr';
-        return `${this.getIndent()}#delimit ${mode_str}`;
+        return `${this.getIndent()}${node.keyword} ${mode_str}`;
     }
 
     /**

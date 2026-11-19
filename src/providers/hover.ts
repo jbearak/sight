@@ -57,6 +57,7 @@ import {
     find_token_index_at_position,
 } from '../utils/token-utils';
 import { is_cursor_in_comment } from '../utils/comment-utils';
+import { is_position_in_range } from './symbols';
 import { is_cursor_in_string_literal } from '../utils/string-literal-utils';
 import {
     find_inherited_dofile_local,
@@ -322,6 +323,14 @@ export class HoverProvider {
         // compound strings are separate tokens (MACRO_REF_LOCAL / MACRO_REF_GLOBAL),
         // so this only matches literal text.
         if (is_cursor_in_string_literal(document, position)) {
+            return null;
+        }
+
+        // Suppress hover on a `#delimit` directive: in `#d ;` the `d` is
+        // not `describe`.
+        if (document.tokens?.some((my_token) =>
+            my_token.type === 'DELIMIT_DIRECTIVE' &&
+            is_position_in_range(position, my_token.range))) {
             return null;
         }
 

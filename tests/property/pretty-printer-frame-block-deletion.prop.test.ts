@@ -706,6 +706,7 @@ describe('Pretty Printer Delimiter Mode and Consistency Property Tests', () => {
                         const directive_node: StataNode = {
                             type: 'directive',
                             directive: 'delimit',
+                            keyword: '#delimit',
                             mode: 'semicolon',
                             range: make_range(0, 0, 0, 12),
                         };
@@ -1292,6 +1293,7 @@ describe('Pretty Printer Delimiter Mode Unit Tests', () => {
             const directive_node: StataNode = {
                 type: 'directive',
                 directive: 'delimit',
+                keyword: '#delimit',
                 mode: 'semicolon',
                 range: make_range(0, 0, 0, 12),
             };
@@ -1340,6 +1342,7 @@ describe('Pretty Printer Delimiter Mode Unit Tests', () => {
             const directive_node: StataNode = {
                 type: 'directive',
                 directive: 'delimit',
+                keyword: '#delimit',
                 mode: 'semicolon',
                 range: make_range(0, 0, 0, 12),
             };

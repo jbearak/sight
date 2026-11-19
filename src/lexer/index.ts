@@ -15,6 +15,7 @@ import {
   logical_line_text,
 } from '../utils/program-definition';
 import { SemicolonStatementTracker } from '../utils/semicolon-statement';
+import { delimit_keyword_length } from '../utils/delimit-directive';
 import {
   COLON_PREFIX_COMMANDS,
   PREFIX_COMMANDS,
@@ -1020,13 +1021,16 @@ export class StataLexer {
       return this.scanBlockComment(startLine, startColumn);
     }
 
-    // Handle #delimit directive
+    // A `#delimit` directive, or an abbreviation down to `#d`, where a
+    // command can start or at the start of a line. After code on its
+    // line `#` is the factor-variable interaction operator: `i.a#d`.
     if (char === '#') {
-      // Check if this is followed by 'delimit'
-      const remaining = this.source.substring(this.position);
-      if (remaining.startsWith('delimit')) {
-        // Consume 'delimit'
-        for (let i = 0; i < 7; i++) {
+      const keyword_length =
+        delimit_keyword_length(this.source, this.position - 1);
+      if (keyword_length > 0 && (this.at_command_start ||
+          this.is_at_line_start(startLine, startColumn))) {
+        // Consume the rest of the keyword
+        for (let i = 1; i < keyword_length; i++) {
           this.advance();
         }
         return this.scanDelimitDirective(startLine, startColumn);
@@ -1463,7 +1467,7 @@ export class StataLexer {
   }
 
   private scanDelimitDirective(startLine: number, startColumn: number): Token {
-    // Skip whitespace after #delimit
+    // Skip whitespace after the keyword
     while (this.peek() === ' ' || this.peek() === '\t') {
       this.advance();
     }
