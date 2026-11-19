@@ -92,10 +92,17 @@ export function parser_error_entry(error: ParseError): ParseErrorEntry {
     };
 }
 
-/** `foreach ... of <type>` list types (exact case). */
-const FOREACH_LIST_TYPES: ReadonlySet<string> = new Set([
-    'varlist', 'newlist', 'numlist', 'local', 'global',
-]);
+/**
+ * `foreach ... of <type>` list types and every abbreviation Stata 18
+ * accepts, to the full name (exact case). Each needs three letters:
+ * `of var` and `of loc` work, `of va` and `of lo` are r(198).
+ */
+const FOREACH_LIST_TYPES: ReadonlyMap<string, string> = new Map(
+    ['varlist', 'newlist', 'numlist', 'local', 'global'].flatMap(
+        (my_type) => Array.from(
+            { length: my_type.length - 2 },
+            (_, i): [string, string] => [my_type.slice(0, 3 + i), my_type]))
+);
 
 function compare_positions(a: Position, b: Position): number {
     return a.line !== b.line ? a.line - b.line : a.character - b.character;
@@ -771,11 +778,10 @@ class ParseDocumentBuilder {
                     single_statement: node.is_single_statement === true,
                     body: body(),
                 };
-            case 'else': {
-                const the_tokens = this.tokens_in(node.range);
-                const is_else_if = the_tokens[1]?.type === 'WORD' && the_tokens[1].value === 'if';
-                return { ...common, else_if: is_else_if, body: body() };
-            }
+            case 'else':
+                // The parser's flag: the second token can be a comment
+                // (`else /* c */ if`).
+                return { ...common, else_if: node.is_else_if === true, body: body() };
             case 'while':
                 return {
                     ...common,
@@ -816,8 +822,11 @@ class ParseDocumentBuilder {
         const keyword = the_tokens[2]?.value ?? null;
         let items_start = 3;
         let list_type: string | null = null;
-        if (keyword === 'of' && the_tokens[3] && FOREACH_LIST_TYPES.has(the_tokens[3].value)) {
-            list_type = the_tokens[3].value;
+        const my_list_type = keyword === 'of' && the_tokens[3]
+            ? FOREACH_LIST_TYPES.get(the_tokens[3].value)
+            : undefined;
+        if (my_list_type !== undefined) {
+            list_type = my_list_type;
             items_start = 4;
         }
         return {

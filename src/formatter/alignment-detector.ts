@@ -27,6 +27,16 @@ const COMMENT_TOKEN_TYPES: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Whether a token switches to `#delimit ;` (true) or back to
+ * `#delimit cr` (false); undefined for any other token.
+ */
+export function delimit_mode_switch(my_token: Token): boolean | undefined {
+  return my_token.type === 'DELIMIT_DIRECTIVE'
+    ? delimit_directive_mode(my_token) === 'semicolon'
+    : undefined;
+}
+
+/**
  * Statements under `#delimit ;` that span lines. A line break there is
  * whitespace, so each later line of a statement continues it, as the
  * line after a `///` does in `#delimit cr`. Each run has the
@@ -55,10 +65,7 @@ export function find_delimit_continuation_runs(
       }
       my_run.continuation_lines.push(my_line);
     }
-    if (my_token.type === 'DELIMIT_DIRECTIVE') {
-      is_semicolon_mode =
-        delimit_directive_mode(my_token) === 'semicolon';
-    }
+    is_semicolon_mode = delimit_mode_switch(my_token) ?? is_semicolon_mode;
     if (DELIMIT_STATEMENT_BOUNDARY_TYPES.has(my_token.type)) {
       statement_start_line = undefined;
       my_run = undefined;
@@ -126,10 +133,16 @@ export class AlignmentDetector {
   private find_continuation_groups(tokens: Token[]): Map<number, ContinuationGroup> {
     const my_groups = new Map<number, ContinuationGroup>();
     let my_current_group: ContinuationGroup | null = null;
+    let is_semicolon_mode = false;
 
     for (const my_token of tokens) {
       const my_line = my_token.range.start.line;
-      if (my_token.type === 'CONTINUATION') {
+      is_semicolon_mode = delimit_mode_switch(my_token) ?? is_semicolon_mode;
+      // Under `#delimit ;` a line break is whitespace, so a `///` joins
+      // nothing: find_delimit_continuation_runs has the lines that
+      // continue a statement, and the line after `x; ///` starts the
+      // next one.
+      if (my_token.type === 'CONTINUATION' && !is_semicolon_mode) {
         if (!my_current_group) {
           my_current_group = {
             start_line: my_line,

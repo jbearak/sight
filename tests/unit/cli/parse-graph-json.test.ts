@@ -281,6 +281,63 @@ describe('sight parse --json', () => {
         ]);
     });
 
+    it('marks else if after a comment', () => {
+        const the_statements = statements('if 0 display 1\nelse /* note */ if 1 display 2\n');
+        expect(the_statements[1]).toMatchObject({ kind: 'else', else_if: true });
+    });
+
+    it('reads every weight word Stata accepts, and only those', () => {
+        // Stata 18 accepts these down to w, fw, freq, aw, cell, pw, iw.
+        const the_kinds: Record<string, string> = {
+            w: 'weight', weig: 'weight', weight: 'weight',
+            fw: 'fweight', fweight: 'fweight',
+            freq: 'fweight', frequency: 'fweight',
+            aw: 'aweight', aweig: 'aweight', aweight: 'aweight',
+            cell: 'aweight', cellsize: 'aweight',
+            pw: 'pweight', pweight: 'pweight',
+            iw: 'iweight', iweight: 'iweight',
+        };
+        for (const [my_word, my_kind] of Object.entries(the_kinds)) {
+            const [node] = statements(`summarize price [${my_word}=pop]\n`);
+            expect(node.weight).toMatchObject({ keyword: my_word, kind: my_kind, text: 'pop' });
+            expect(node.args.map((a: Json) => a.text)).toEqual(['price']);
+        }
+        // r(198) in Stata 18; uppercase is not a weight word either.
+        for (const my_word of ['f', 'fre', 'a', 'cel', 'p', 'i', 'W']) {
+            const [node] = statements(`summarize price [${my_word}=pop]\n`);
+            expect(node.weight).toBeNull();
+        }
+    });
+
+    it('reads abbreviated foreach list types', () => {
+        // Stata 18 accepts three letters or more of each.
+        const the_types: Record<string, string> = {
+            var: 'varlist', varl: 'varlist', varlist: 'varlist',
+            new: 'newlist', num: 'numlist', loc: 'local', glo: 'global',
+        };
+        for (const [my_word, my_type] of Object.entries(the_types)) {
+            const [loop] = statements(`foreach v of ${my_word} a b {\n}\n`);
+            expect(loop.spec).toMatchObject({ list_type: my_type });
+            expect(loop.spec.items.map((i: Json) => i.text)).toEqual(['a', 'b']);
+        }
+        for (const my_word of ['va', 'lo', 'gl', 'ne', 'nu', 'Var']) {
+            const [loop] = statements(`foreach v of ${my_word} a b {\n}\n`);
+            expect(loop.spec.list_type).toBeNull();
+        }
+    });
+
+    it('reports the default of an integer or real syntax option', () => {
+        const [program] = statements(
+            'program define p\n    syntax [, Level(integer 95) Tol(real -1e-6) Hi(real)]\nend\n');
+        const the_options = program.body[0].signature.options;
+        expect(the_options.map((o: Json) => o.default)).toEqual(['95', '-1e-6', null]);
+    });
+
+    it('keeps the () of a call with no arguments in its argument', () => {
+        const [node] = statements('display runiform()\n');
+        expect(node.args.map((a: Json) => a.text)).toEqual(['runiform()']);
+    });
+
     it('keeps Mata blocks opaque', () => {
         const [node] = statements('mata:\nx = 1\nend\n');
         expect(node).toMatchObject({ kind: 'embedded', language: 'mata' });

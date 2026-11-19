@@ -2511,7 +2511,12 @@ export class HoverProvider {
         if (opt.argumentType) {
             result += `(${opt.argumentType}`;
             if (opt.defaultValue) {
-                result += ` default(${opt.defaultValue})`;
+                // As written: `Level(integer 95)`.
+                const is_number_type = opt.argumentType === 'integer' ||
+                    opt.argumentType === 'real';
+                result += is_number_type
+                    ? ` ${opt.defaultValue}`
+                    : ` default(${opt.defaultValue})`;
             }
             result += ')';
         }

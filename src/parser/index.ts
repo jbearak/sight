@@ -2499,12 +2499,16 @@ export class StataParser {
       this.advance(); // consume closing paren
     }
 
-    // Empty balanced groups are not useful varlist items. Empty unclosed
-    // groups still contain authored source text: keep the opener so AST-mode
-    // formatting does not delete user input while they are mid-statement.
+    // An empty group is still source text: `()` is the argument list of
+    // `runiform()` in `display runiform()`. An unclosed one keeps the
+    // opener so AST-mode formatting does not delete user input while they
+    // are mid-statement.
     if (!paren_content.trim()) {
       if (closed_group) {
-        return null;
+        return {
+          name: '()',
+          range: this.makeRange(paren_start.range.start, paren_end_pos),
+        };
       }
       return {
         name: '(',
@@ -3091,6 +3095,13 @@ export class StataParser {
                 this.reconstruct_value_tokens(default_tokens).trim();
               break;
             }
+          }
+          // `Level(integer 95)`, `Tol(real -1e-6)`: the number after
+          // the type is the default.
+          if (default_value === undefined && type_tokens.length > 1 &&
+              (argument_type === 'integer' || argument_type === 'real')) {
+            default_value =
+              this.reconstruct_value_tokens(type_tokens.slice(1)).trim();
           }
         }
       }
