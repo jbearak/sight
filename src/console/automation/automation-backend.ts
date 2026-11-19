@@ -21,7 +21,9 @@
  * Stata).
  */
 
-import type { BackendEvents, BackendHandle, BackendLifecycle, ShutdownReason, StataBackend } from '../backend';
+import type {
+    BackendEvents, BackendHandle, BackendLifecycle, LineSentCallback, ShutdownReason, StataBackend,
+} from '../backend';
 import { is_server_gone, type Bridge, type BridgeReply } from './bridge';
 import type { LogSource } from './log-tail';
 import { BROWSE_IN_STATA_NOTE, browse_to_vview, is_browse_command } from './browse-alias';
@@ -75,6 +77,12 @@ interface InFlight {
     busy_noted: boolean;
 }
 
+interface QueuedLine {
+    line: string;
+    drawn: boolean;
+    on_sent?: LineSentCallback;
+}
+
 interface EchoRecord {
     trimmed: string;
     blank: boolean;
@@ -102,15 +110,20 @@ export class AutomationBackend implements StataBackend {
     private readonly events: BackendEvents;
 
     private readonly tracker = new ModeTracker();
-    private readonly fifo: Array<{ line: string; drawn: boolean }> = [];
+    private readonly fifo: QueuedLine[] = [];
     private in_flight: InFlight | null = null;
     private first_command = true;
     private readonly has_vview: boolean;
     private browse_noted = false;
     private readonly records: EchoRecord[] = [];
 
-    /** Complete lines read but not yet handled, and the trailing part. */
+    /**
+     * Complete lines read but not yet handled (from `held_start` on),
+     * and the trailing part. One poll can read a million lines, so
+     * lines are consumed by index rather than shifted off.
+     */
     private held_lines: string[] = [];
+    private held_start = 0;
     private partial = '';
     private partial_emitted = false;
     private last_growth_ms: number;
@@ -128,6 +141,7 @@ export class AutomationBackend implements StataBackend {
     private interrupts_while_stuck = 0;
 
     private polling = false;
+    private poll_error_reported = false;
     private timer: unknown = null;
     private ended = false;
     private end_message: string | null = null;
@@ -159,19 +173,21 @@ export class AutomationBackend implements StataBackend {
 
     // ---- StataBackend ----
 
-    submit_line(line: string, drawn: boolean): void {
+    submit_line(line: string, drawn: boolean, on_sent?: LineSentCallback): void {
         if (this.ended) {
+            on_sent?.(false);
             return;
         }
         if (line.includes('\0')) {
             this.events.on_notice('Line contains a NUL character and was not sent.');
+            on_sent?.(false);
             return;
         }
         if (this.in_flight || this.fifo.length > 0) {
-            this.fifo.push({ line, drawn });
+            this.fifo.push({ line, drawn, on_sent });
             return;
         }
-        this.dispatch(line, drawn);
+        this.dispatch({ line, drawn, on_sent });
     }
 
     answer_more(): void {
@@ -189,7 +205,7 @@ export class AutomationBackend implements StataBackend {
                 return;
             }
         }
-        this.fifo.length = 0;
+        this.drop_queued();
         const in_flight = this.in_flight;
         if (in_flight) {
             if (in_flight.breaking_until_ms === null) {
@@ -237,6 +253,7 @@ export class AutomationBackend implements StataBackend {
     private async shutdown(_reason: ShutdownReason): Promise<void> {
         this.stop_polling();
         this.ended = true;
+        this.drop_queued();
         // Closing stdin makes the bridge release its reference and exit;
         // Stata then quits, as the console's Stata does on any end.
         this.bridge.close();
@@ -256,6 +273,7 @@ export class AutomationBackend implements StataBackend {
         }
         this.ended = true;
         this.stop_polling();
+        this.drop_queued();
         this.drain_log();
         this.end_message = message;
         this.bridge.close();
@@ -264,7 +282,15 @@ export class AutomationBackend implements StataBackend {
 
     // ---- Sending ----
 
-    private dispatch(line: string, drawn: boolean): void {
+    /** Lines waiting for Stata never reach it. */
+    private drop_queued(): void {
+        for (const my_line of this.fifo.splice(0)) {
+            my_line.on_sent?.(false);
+        }
+    }
+
+    private dispatch(queued: QueuedLine): void {
+        const { line, drawn } = queued;
         const now = this.clock.now();
         const sent = this.browse_alias(line);
         const entering = this.tracker.advance(line);
@@ -288,6 +314,7 @@ export class AutomationBackend implements StataBackend {
         void this.bridge.request('do_async', { cmd: sent }).then((reply) => {
             this.handle_failure(reply);
         });
+        queued.on_sent?.(true);
         this.schedule(BUSY_POLL_MS);
     }
 
@@ -350,7 +377,7 @@ export class AutomationBackend implements StataBackend {
         this.emit_prompt();
         const next = this.fifo.shift();
         if (next) {
-            this.dispatch(next.line, next.drawn);
+            this.dispatch(next);
         }
     }
 
@@ -387,6 +414,16 @@ export class AutomationBackend implements StataBackend {
                 await this.poll_in_flight();
             } else {
                 await this.poll_idle();
+            }
+            this.poll_error_reported = false;
+        } catch (error) {
+            // One bad poll mustn't stop output and queued lines for
+            // good: say so (once until a poll succeeds) and go on.
+            if (!this.poll_error_reported && !this.ended) {
+                this.poll_error_reported = true;
+                this.events.on_sight_text(
+                    `sight console: reading Stata's output failed (${String(error)}); still trying.`,
+                );
             }
         } finally {
             this.polling = false;
@@ -569,7 +606,11 @@ export class AutomationBackend implements StataBackend {
             this.partial_emitted = false;
         }
         this.partial = tail;
-        this.held_lines.push(...lines);
+        // Not push(...lines): spreading a large poll overflows the stack.
+        this.held_lines = this.held_count() === 0
+            ? lines
+            : this.held_lines.slice(this.held_start).concat(lines);
+        this.held_start = 0;
         this.flush_held_lines(false);
     }
 
@@ -580,22 +621,15 @@ export class AutomationBackend implements StataBackend {
      * unless `force` (the line finished).
      */
     private flush_held_lines(force: boolean): void {
-        while (this.held_lines.length > 0) {
+        while (this.held_count() > 0) {
             const in_flight = this.in_flight;
             if (in_flight && !in_flight.echo_seen) {
-                // Immediately after opening a log, Stata 18 can echo
-                // the first command without a prompt prefix.
-                const first_line = this.held_lines[0];
-                const unprefixed = in_flight.first_command && first_line !== undefined
-                    && first_line.length > 0 && !in_flight.blank && !parse_echo(first_line);
-                const matched = unprefixed
-                    ? match_echo([`. ${first_line}`, ...this.held_lines.slice(1)], in_flight.trimmed)
-                    : match_echo(this.held_lines, in_flight.trimmed);
+                const matched = this.match_held_echo(in_flight);
                 if (matched === 'wait' && !force) {
                     return;
                 }
                 if (typeof matched === 'number') {
-                    this.held_lines.splice(0, matched);
+                    this.held_start += matched;
                     in_flight.echo_seen = true;
                     this.mark_echoed(this.records.length - 1);
                     this.emit(`${in_flight.line}\r\n`);
@@ -605,13 +639,38 @@ export class AutomationBackend implements StataBackend {
                 // echo; a later matching output line is not evidence.
                 in_flight.first_command = false;
             }
-            const line = this.held_lines.shift() ?? '';
+            const line = this.held_lines[this.held_start] ?? '';
+            this.held_start++;
             if (this.is_late_echo(line)) {
                 continue;
             }
             this.observe_line(line);
             this.emit(`${line}\r\n`);
         }
+        this.held_lines = [];
+        this.held_start = 0;
+    }
+
+    private held_count(): number {
+        return this.held_lines.length - this.held_start;
+    }
+
+    /** `match_echo` on the held lines, for the line in flight. */
+    private match_held_echo(in_flight: InFlight): number | 'wait' | null {
+        // Immediately after opening a log, Stata 18 can echo the first
+        // command without a prompt prefix.
+        const first_line = this.held_lines[this.held_start];
+        const unprefixed = in_flight.first_command && first_line !== undefined
+            && first_line.length > 0 && !in_flight.blank && !parse_echo(first_line);
+        if (!unprefixed) {
+            return match_echo(this.held_lines, in_flight.trimmed, this.held_start);
+        }
+        // An echo spans at most one line per character of the line.
+        const window = this.held_lines.slice(
+            this.held_start, this.held_start + in_flight.trimmed.length + 1,
+        );
+        window[0] = `. ${first_line}`;
+        return match_echo(window, in_flight.trimmed);
     }
 
     private observe_line(line: string): void {
@@ -710,12 +769,14 @@ export class AutomationBackend implements StataBackend {
 }
 
 /**
- * Does `lines` start with Stata's echo of `target` (trimmed)? Returns
- * the number of lines it spans, 'wait' when the lines so far could be
- * the start of it, or null.
+ * Do `lines`, from `start` on, begin with Stata's echo of `target`
+ * (trimmed)? Returns the number of lines it spans, 'wait' when the
+ * lines so far could be the start of it, or null.
  */
-export function match_echo(lines: readonly string[], target: string): number | 'wait' | null {
-    const first = lines[0];
+export function match_echo(
+    lines: readonly string[], target: string, start = 0,
+): number | 'wait' | null {
+    const first = lines[start];
     if (first === undefined) {
         return 'wait';
     }
@@ -733,7 +794,7 @@ export function match_echo(lines: readonly string[], target: string): number | '
         if (!target.startsWith(trimmed) || trimmed.length >= target.length) {
             return null;
         }
-        const next = lines[used];
+        const next = lines[start + used];
         if (next === undefined) {
             return 'wait';
         }

@@ -10,13 +10,19 @@
  * and loaded the first time a pane opens.
  */
 
+import * as fs from 'fs';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
 import * as vscode from 'vscode';
+import {
+    hold_temp_file,
+    release_temp_file,
+    schedule_temp_file_cleanup
+} from './temp-file.js';
 
 // ---- The console runtime's contract (src/console/editor-console.ts) ----
 
-export const EDITOR_CONSOLE_API_VERSION = 2;
+export const EDITOR_CONSOLE_API_VERSION = 3;
 
 export interface EditorConsolePty {
     helper_path: string;
@@ -40,6 +46,7 @@ export interface EditorConsoleEnd {
 
 export interface EditorConsole {
     handle_input(text: string): void;
+    send_line(line: string): Promise<boolean>;
     handle_resize(): void;
     close(): void;
     readonly ready: Promise<boolean>;
@@ -105,8 +112,15 @@ export interface ConsolePaneOptions {
 
 export interface ConsolePane {
     readonly pty: vscode.Pseudoterminal;
-    /** Type a line into the console, as if entered at its prompt. */
-    type_line(text: string): void;
+    /**
+     * Enter a line in the console, as if typed at its prompt (but
+     * never as an answer to `--more--`). With `temp_file_path`, the
+     * pane owns that file from now on: it is kept until the console
+     * gives the line to Stata (a long command may run first), then
+     * deleted after the usual delay; deleted at once if the line is
+     * dropped or the pane ends first.
+     */
+    type_line(text: string, temp_file_path?: string): void;
 }
 
 const PRESS_ANY_KEY = '\r\n[Press any key to close this pane.]';
@@ -124,6 +138,25 @@ export function create_console_pane(
     let ended = false;
     let waiting_for_key = false;
     let user_closed = false;
+    /** Temp files of typed lines not yet given to Stata. */
+    const the_held_files = new Set<string>();
+
+    const settle_file = (file_path: string, sent: boolean): void => {
+        if (!the_held_files.delete(file_path)) {
+            return;
+        }
+        release_temp_file(file_path);
+        if (sent) {
+            schedule_temp_file_cleanup(file_path);
+        } else {
+            fs.promises.unlink(file_path).catch(() => {});
+        }
+    };
+    const drop_held_files = (): void => {
+        for (const my_file of [...the_held_files]) {
+            settle_file(my_file, false);
+        }
+    };
 
     const write = (text: string): void => {
         write_emitter.fire(text);
@@ -133,6 +166,8 @@ export function create_console_pane(
             return;
         }
         ended = true;
+        // The console normally reported each of these already.
+        drop_held_files();
         options.on_end(end);
     };
     const finish = (end: EditorConsoleEnd): void => {
@@ -215,11 +250,20 @@ export function create_console_pane(
 
     return {
         pty,
-        type_line: (text) => {
+        type_line: (text, temp_file_path) => {
             if (!the_console) {
                 throw new Error('sight console is not running.');
             }
-            the_console.handle_input(`${text}\r`);
+            const sent = the_console.send_line(text);
+            if (temp_file_path === undefined) {
+                return;
+            }
+            hold_temp_file(temp_file_path);
+            the_held_files.add(temp_file_path);
+            sent.then(
+                is_sent => settle_file(temp_file_path, is_sent),
+                () => settle_file(temp_file_path, false)
+            );
         },
     };
 }

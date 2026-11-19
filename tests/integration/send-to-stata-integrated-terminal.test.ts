@@ -130,6 +130,11 @@ interface VscodeMockState {
     the_error_messages: string[];
     the_update_calls: Array<[string, unknown, number]>;
     the_cleanups: string[];
+    /** Temp files a pane holds until its console gives them to Stata. */
+    the_held_files: Set<string>;
+    /** Files the active-terminal path typed with sendText. */
+    the_terminal_sends: string[];
+    active_terminal?: MockTerminal;
     the_app_dispatches: string[];
     the_failing_app_paths: Set<string>;
     status_item: { text: string; is_shown: boolean } | null;
@@ -213,6 +218,8 @@ function create_vscode_mock_state(
         the_error_messages: [],
         the_update_calls: [],
         the_cleanups: [],
+        the_held_files: new Set(),
+        the_terminal_sends: [],
         the_app_dispatches: [],
         the_failing_app_paths: new Set(),
         status_item: null,
@@ -441,6 +448,9 @@ function register_module_mocks(): void {
                 }
                 return item;
             },
+            get activeTerminal() {
+                return current_vscode_state?.active_terminal;
+            },
             get activeTextEditor() {
                 return current_vscode_state?.active_text_editor
                     ?? get_shared_vscode_test_state()?.active_text_editor;
@@ -534,7 +544,9 @@ function register_module_mocks(): void {
     }));
 
     // Cleanups are recorded so a test can see when each temp file's
-    // deletion was scheduled.
+    // deletion was scheduled. Holds work as in the real module, which
+    // later files may get this mock in place of.
+    const the_mock_held_files = new Set<string>();
     mock.module(TEMP_FILE_MODULE_URL, () => ({
         DEFAULT_TEMP_FILE_CLEANUP_DELAY_MS: 30000,
         get_temp_dir: () => os.tmpdir(),
@@ -545,11 +557,22 @@ function register_module_mocks(): void {
             current_vscode_state?.the_cleanups.push(file_path);
             // Delete like the real helper, since this mock outlives
             // the file (Bun keeps module mocks for later files).
+            const was_held = the_mock_held_files.has(file_path);
             const my_timeout = setTimeout(() => {
-                fs.promises.unlink(file_path).catch(() => {});
+                if (!was_held && !the_mock_held_files.has(file_path)) {
+                    fs.promises.unlink(file_path).catch(() => {});
+                }
             }, delay_ms);
             my_timeout.unref?.();
             return my_timeout;
+        },
+        hold_temp_file: (file_path: string) => {
+            the_mock_held_files.add(file_path);
+            current_vscode_state?.the_held_files.add(file_path);
+        },
+        release_temp_file: (file_path: string) => {
+            the_mock_held_files.delete(file_path);
+            current_vscode_state?.the_held_files.delete(file_path);
         },
         create_temp_file: async (content: string) => {
             const file_path = path.join(
@@ -592,7 +615,12 @@ function register_module_mocks(): void {
         wrap_path_for_stata_terminal: (my_path: string) => {
             return '`"' + my_path + `"'`;
         },
-        send_to_terminal: async () => {},
+        send_to_terminal: async (
+            _command: string,
+            temp_file_path: string
+        ) => {
+            current_vscode_state?.the_terminal_sends.push(temp_file_path);
+        },
     }));
 }
 
@@ -829,6 +857,8 @@ interface ConsoleEndResult {
 /** A fake of the console runtime's per-pane console. */
 interface FakeConsole {
     the_inputs: string[];
+    /** One per send_line, in order: resolve with whether it was sent. */
+    the_line_reports: Array<Deferred<boolean>>;
     is_closed: boolean;
     ready: Deferred<boolean>;
     done: Deferred<ConsoleEndResult>;
@@ -870,10 +900,11 @@ function set_platform(platform: string): void {
 
 function create_fake_console_module(the_consoles: FakeConsole[]) {
     return {
-        EDITOR_CONSOLE_API_VERSION: 2,
+        EDITOR_CONSOLE_API_VERSION: 3,
         start_editor_console: (host: FakeConsole['host']) => {
             const fake: FakeConsole = {
                 the_inputs: [],
+                the_line_reports: [],
                 is_closed: false,
                 ready: create_deferred<boolean>(),
                 done: create_deferred<ConsoleEndResult>(),
@@ -883,6 +914,12 @@ function create_fake_console_module(the_consoles: FakeConsole[]) {
             return {
                 handle_input: (text: string) => {
                     fake.the_inputs.push(text);
+                },
+                send_line: (text: string) => {
+                    fake.the_inputs.push(`${text}\r`);
+                    const report = create_deferred<boolean>();
+                    fake.the_line_reports.push(report);
+                    return report.promise;
                 },
                 handle_resize: () => {},
                 close: () => {
@@ -1522,6 +1559,129 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
         the_created_files.push(dispatched);
         expect(fs.readFileSync(dispatched, 'utf8'))
             .toBe('display "queued"');
+    });
+
+    test('a ready pane keeps a send\'s temp file until its console gives it to Stata', async () => {
+        const harness = await create_console_harness();
+        const { vscode_state, terminal_manager } = harness;
+        const first = await create_tracked_send_file('first.do');
+        await terminal_manager.send_to_stata_terminal('do', first);
+        const fake = await console_started(harness);
+        fake.ready.resolve(true);
+        await wait_until(
+            () => fake.the_inputs.length === 1, 'the send to be typed', 2000
+        );
+        // Ready: typed now, but Stata may run something long first.
+        const second = await create_tracked_send_file('second.do');
+        expect(
+            await terminal_manager.send_to_stata_terminal('do', second)
+        ).toBe(false);
+        expect(fake.the_inputs.at(-1)).toBe(`do ${wrap(second)}\r`);
+        expect(vscode_state.the_held_files).toEqual(new Set([first, second]));
+
+        // The console gave the first to Stata: the usual delay starts.
+        const cleanups_before = vscode_state.the_cleanups.length;
+        fake.the_line_reports[0].resolve(true);
+        await wait_until(
+            () => !vscode_state.the_held_files.has(first),
+            'the first file to be released',
+            2000
+        );
+        expect(vscode_state.the_cleanups.slice(cleanups_before))
+            .toEqual([first]);
+        expect(fs.existsSync(first)).toBe(true);
+
+        // Closing the pane with the second still queued deletes it.
+        harness.the_terminals[0].creationOptions?.pty?.close();
+        await wait_until(
+            () => !fs.existsSync(second), 'the queued file to go', 2000
+        );
+        expect(vscode_state.the_held_files.size).toBe(0);
+    });
+
+    test('a send the console drops is deleted at once', async () => {
+        const harness = await create_console_harness();
+        const { vscode_state, terminal_manager } = harness;
+        const first = await create_tracked_send_file('first.do');
+        await terminal_manager.send_to_stata_terminal('do', first);
+        const fake = await console_started(harness);
+        fake.ready.resolve(true);
+        await wait_until(
+            () => fake.the_line_reports.length === 1, 'the send', 2000
+        );
+        fake.the_line_reports[0].resolve(false);
+        await wait_until(
+            () => !fs.existsSync(first), 'the dropped file to go', 2000
+        );
+        expect(vscode_state.the_held_files.size).toBe(0);
+    });
+
+    test('the active-terminal command queues for a pane that is still connecting', async () => {
+        const harness = await create_console_harness();
+        const { vscode_state, commands_module, context } = harness;
+        const provider = vscode_state.the_profile_providers.get(
+            'sight.stataTerminal'
+        );
+        const profile = await provider!.provideTerminalProfile(NO_CANCEL) as {
+            options: CreateTerminalOptions;
+        };
+        const terminal = create_pane_terminal(
+            harness, vscode_state, profile.options
+        );
+        harness.the_terminals.push(terminal);
+        for (const my_listener of vscode_state.the_open_listeners) {
+            my_listener(terminal);
+        }
+        vscode_state.active_terminal = terminal;
+
+        const the_registered = new Map<
+            string, (...args: unknown[]) => unknown
+        >();
+        (globalThis as Record<string, unknown>)[
+            SHARED_VSCODE_TEST_STATE_KEY
+        ] = { registered_commands: the_registered };
+        vscode_state.active_text_editor = {
+            document: {
+                uri: {
+                    fsPath: '/tmp/example.do',
+                    toString: () => 'file:///tmp/example.do',
+                },
+                lineCount: 1,
+                save: async () => true,
+                getText: () => 'display "early"',
+            },
+            selection: {
+                isEmpty: false,
+                active: { line: 0 },
+                start: { line: 0, character: 0 },
+            },
+            revealRange: () => {},
+        };
+        try {
+            commands_module.register_send_to_stata_commands(context);
+            await the_registered.get('sight.terminal.doLineOrSelection')?.();
+        } finally {
+            delete (globalThis as Record<string, unknown>)[
+                SHARED_VSCODE_TEST_STATE_KEY
+            ];
+        }
+
+        expect(vscode_state.the_error_messages).toEqual([]);
+        expect(vscode_state.the_terminal_sends).toEqual([]);
+        expect(vscode_state.the_send_calls).toEqual([]);
+        expect(vscode_state.the_cleanups).toEqual([]);
+        expect(vscode_state.status_item?.text).toContain('1 send');
+
+        const fake = await console_started(harness);
+        fake.ready.resolve(true);
+        await wait_until(
+            () => fake.the_inputs.length === 1, 'the queued send', 2000
+        );
+        const typed = fake.the_inputs[0];
+        expect(typed.startsWith('do `"')).toBe(true);
+        const file_path = typed.slice('do `"'.length, -`"'\r`.length);
+        the_created_files.push(file_path);
+        expect(fs.readFileSync(file_path, 'utf8')).toBe('display "early"');
     });
 });
 

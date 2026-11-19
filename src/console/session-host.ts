@@ -10,7 +10,7 @@ import type { ColorOutputMode } from './output-colorizer';
 import { ConsoleSession } from './session';
 import { History, default_history_path } from './history';
 import { SessionCompleter } from './completer';
-import type { BackendEvents, BackendHandle, ShutdownReason } from './backend';
+import type { BackendEvents, BackendHandle, LineSentCallback, ShutdownReason } from './backend';
 
 export interface SessionHostOptions {
     write: (text: string) => void;
@@ -33,6 +33,8 @@ export interface SessionHostOptions {
 
 export interface SessionHost {
     handle_input(text: string): void;
+    /** A line sent from the editor (ConsoleSession.send_line). */
+    send_line(line: string, on_sent?: LineSentCallback): void;
     handle_resize(): void;
     /** End the session (Stata too, as the backend's policy says). */
     shutdown(reason: ShutdownReason, status: number): Promise<void>;
@@ -127,6 +129,13 @@ export function start_session_host(options: SessionHostOptions): SessionHost {
             if (!ending) {
                 session?.handle_input(text);
             }
+        },
+        send_line: (line, on_sent) => {
+            if (ending || !session) {
+                on_sent?.(false);
+                return;
+            }
+            session.send_line(line, on_sent);
         },
         handle_resize: () => {
             if (ending) {

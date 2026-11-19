@@ -27,7 +27,7 @@ import { highlight_stata } from './highlighter';
 import { KeyDecoder, type KeyEvent } from './keys';
 import { LineEditor, type CompletionCandidate, type EditorAction } from './line-editor';
 import { display_width, erase, render, type RenderState } from './render';
-import type { StataBackend } from './backend';
+import type { LineSentCallback, StataBackend } from './backend';
 import { MAX_CANONICAL_LINE_BYTES } from './pty-backend';
 
 export { MAX_CANONICAL_LINE_BYTES };
@@ -77,6 +77,8 @@ export class ConsoleSession {
     private prompt_kind: PromptKind | null = null;
     private render_state: RenderState | null = null;
     private staged: string[] = [];
+    /** Lines sent from the editor while `--more--` showed. */
+    private held_sends: Array<{ line: string; on_sent?: LineSentCallback }> = [];
     /** One-off message shown under the input until the next keystroke. */
     private message: string | null = null;
     /**
@@ -142,6 +144,7 @@ export class ConsoleSession {
         this.hide_editor();
         this.emit(this.colorizer.flush());
         this.exited = true;
+        this.drop_held_sends();
         this.clear_timers();
         if (this.partial.length > 0) {
             this.options.write('\r\n');
@@ -166,6 +169,26 @@ export class ConsoleSession {
                 }
             }, ESCAPE_TIMEOUT_MS);
         }
+    }
+
+    /**
+     * A line sent from the editor, entered as if typed at the prompt
+     * and then Enter. It never answers `--more--`: while the pager
+     * shows (and behind earlier held sends) it waits, and each held
+     * line goes at the next command prompt. `on_sent` reports whether
+     * it reached Stata (see StataBackend.submit_line).
+     */
+    send_line(line: string, on_sent?: LineSentCallback): void {
+        if (this.exited) {
+            on_sent?.(false);
+            return;
+        }
+        if (this.prompt_kind === 'more' || this.held_sends.length > 0) {
+            this.held_sends.push({ line, on_sent });
+            this.show_editor(true);
+            return;
+        }
+        this.enter_sent_line(line, on_sent);
     }
 
     /** Show a short one-row note under the editor until the next key. */
@@ -282,6 +305,7 @@ export class ConsoleSession {
     private interrupt(): void {
         this.editor.reset();
         this.staged = [];
+        this.drop_held_sends();
         this.options.backend.interrupt();
         if (this.prompt_kind !== null && COMMAND_PROMPT_KINDS.has(this.prompt_kind)) {
             // Start a fresh prompt line so the screen never lacks one,
@@ -314,12 +338,27 @@ export class ConsoleSession {
         this.options.backend.answer_more(reply);
     }
 
-    private submit(line: string): void {
+    private drop_held_sends(): void {
+        for (const my_send of this.held_sends.splice(0)) {
+            my_send.on_sent?.(false);
+        }
+    }
+
+    /** Type a sent line into the editor and press Enter. */
+    private enter_sent_line(line: string, on_sent?: LineSentCallback): void {
+        this.message = null;
+        this.editor.menu = null;
+        this.editor.insert(line);
+        this.submit(this.editor.buffer, on_sent);
+    }
+
+    private submit(line: string, on_sent?: LineSentCallback): void {
         const max_bytes = this.options.backend.max_line_bytes();
         if (max_bytes !== null && Buffer.byteLength(line, 'utf8') > max_bytes) {
             this.message = `Line is longer than ${max_bytes} bytes and `
                 + 'was not sent; put it in a do-file.';
             this.show_editor();
+            on_sent?.(false);
             return;
         }
         const kind = this.prompt_kind;
@@ -363,7 +402,7 @@ export class ConsoleSession {
         }
         this.editor.reset();
         this.prompt_kind = null;
-        this.options.backend.submit_line(line, drawn);
+        this.options.backend.submit_line(line, drawn, on_sent);
     }
 
     private paste(text: string): void {
@@ -373,7 +412,8 @@ export class ConsoleSession {
         }
         this.editor.insert(lines[0] ?? '');
         if (lines.length > 1) {
-            this.staged.push(...lines.slice(1));
+            // Not push(...): a huge paste would overflow the stack.
+            this.staged = this.staged.concat(lines.slice(1));
         }
         this.show_editor();
     }
@@ -469,7 +509,9 @@ export class ConsoleSession {
             return;
         }
         this.prompt_kind = kind;
-        if (COMMAND_PROMPT_KINDS.has(kind) && this.editor.buffer.length === 0
+        // A send held at `--more--` goes before staged pasted lines.
+        const held = COMMAND_PROMPT_KINDS.has(kind) ? this.held_sends.shift() : undefined;
+        if (!held && COMMAND_PROMPT_KINDS.has(kind) && this.editor.buffer.length === 0
             && this.staged.length > 0) {
             this.editor.set_buffer(this.staged.shift() ?? '');
         }
@@ -478,13 +520,17 @@ export class ConsoleSession {
             this.reported_ready = true;
             this.options.on_ready?.();
         }
+        if (held) {
+            this.enter_sent_line(held.line, held.on_sent);
+        }
     }
 
     // ---- Drawing ----
 
     private has_editor_content(): boolean {
         return this.editor.buffer.length > 0 || this.editor.menu !== null
-            || this.staged.length > 0 || this.message !== null;
+            || this.staged.length > 0 || this.held_sends.length > 0
+            || this.message !== null;
     }
 
     /** Draw the editor after the current partial line. */
@@ -515,6 +561,12 @@ export class ConsoleSession {
     private note(): string | null {
         if (this.message) {
             return this.message;
+        }
+        if (this.held_sends.length > 0) {
+            const count = this.held_sends.length;
+            return count === 1
+                ? '1 send from the editor waits for Stata\'s prompt.'
+                : `${count} sends from the editor wait for Stata's prompt.`;
         }
         if (this.staged.length > 0) {
             const count = this.staged.length;

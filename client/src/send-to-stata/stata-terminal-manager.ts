@@ -461,7 +461,9 @@ function type_send(terminal: vscode.Terminal, send: PendingSend): void {
         throw new Error('The Stata pane has closed.');
     }
     const escaped_path = wrap_path_for_stata_terminal(send.temp_file_path);
-    pane.type_line(`${send.command} ${escaped_path}`);
+    // The pane keeps the file until its console gives the line to
+    // Stata, however late; cleanup scheduled meanwhile skips it.
+    pane.type_line(`${send.command} ${escaped_path}`, send.temp_file_path);
 }
 
 /** What both queues (panes, and Perch sessions) need from VS Code. */
@@ -1189,6 +1191,23 @@ export async function send_to_perch_terminal(
         return null;
     }
     return send_to_perch_console(record, { command, temp_file_path });
+}
+
+/**
+ * Send to `terminal` if it is a Stata pane (sight console): typed when
+ * it is ready, queued while it starts, never through sendText, which
+ * the pane would drop while connecting. Returns null if it isn't a
+ * pane; true if queued (the queue then owns `temp_file_path`).
+ */
+export function send_to_console_pane_terminal(
+    terminal: vscode.Terminal | undefined,
+    command: StataCommand,
+    temp_file_path: string
+): boolean | null {
+    if (!terminal || !console_queue?.is_tracked(terminal)) {
+        return null;
+    }
+    return console_queue.send(terminal, { command, temp_file_path });
 }
 
 /**

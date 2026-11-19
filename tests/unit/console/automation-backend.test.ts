@@ -54,10 +54,16 @@ class FakeLog implements LogSource {
     content = '';
     private read = 0;
     lost_next = false;
+    throw_next: Error | null = null;
     append(text: string): void {
         this.content += text;
     }
     poll(): LogPoll {
+        if (this.throw_next) {
+            const error = this.throw_next;
+            this.throw_next = null;
+            throw error;
+        }
         if (this.lost_next) {
             this.lost_next = false;
             return { text: '', size: this.read, lost: true };
@@ -165,6 +171,78 @@ function setup(extra: { has_vview?: boolean } = {}) {
 }
 
 describe('AutomationBackend', () => {
+    // Node (the extension) overflows a 200,000-argument spread; Bun only
+    // past about a million, so the test uses a million lines.
+    it('keeps polling after one poll reads a burst of a million lines', async () => {
+        const { backend, bridge, log, advance, screen } = setup();
+        bridge.free = false;
+        backend.submit_line('list', true);
+        log.append(`. list\n${'x\n'.repeat(1000000)}`);
+        await advance(100);
+        expect(screen()).toContain('x\r\nx\r\n');
+        log.append('\n');
+        bridge.free = true;
+        await advance(300);
+        expect(screen().endsWith('\r\n. ')).toBe(true);
+        backend.submit_line('display 2', true);
+        expect(bridge.commands).toEqual(['list', 'display 2']);
+    });
+
+    it('keeps polling after a poll throws, and says so once', async () => {
+        const { backend, bridge, log, advance, screen, sight } = setup();
+        bridge.free = false;
+        backend.submit_line('display 1', true);
+        log.throw_next = new Error('read failed');
+        await advance(100);
+        expect(sight).toHaveLength(1);
+        expect(sight[0]).toContain('read failed');
+        log.append('. display 1\n1\n\n');
+        bridge.free = true;
+        await advance(300);
+        expect(screen().endsWith('1\r\n\r\n. ')).toBe(true);
+        expect(sight).toHaveLength(1);
+    });
+
+    it('reports a queued line sent only when Stata is given it', async () => {
+        const { backend, bridge, log, advance } = setup();
+        const the_reports: string[] = [];
+        bridge.free = false;
+        backend.submit_line('sleep 60000', true);
+        backend.submit_line('do "second.do"', false, (sent) => {
+            the_reports.push(sent ? 'sent' : 'dropped');
+        });
+        await advance(59000);
+        expect(bridge.commands).toEqual(['sleep 60000']);
+        expect(the_reports).toEqual([]);
+        log.append('. sleep 60000\n\n');
+        bridge.free = true;
+        await advance(300);
+        expect(bridge.commands).toEqual(['sleep 60000', 'do "second.do"']);
+        expect(the_reports).toEqual(['sent']);
+    });
+
+    it('reports queued lines dropped by Ctrl+C or the end of the session', async () => {
+        const { backend, bridge, advance } = setup();
+        const the_reports: string[] = [];
+        const report = (name: string) => (sent: boolean): void => {
+            the_reports.push(`${name} ${sent ? 'sent' : 'dropped'}`);
+        };
+        bridge.free = false;
+        backend.submit_line('sleep 60000', true, report('first'));
+        backend.submit_line('display 2', false, report('second'));
+        backend.interrupt();
+        await advance(100);
+        expect(the_reports).toEqual(['first sent', 'second dropped']);
+        backend.submit_line('display 3', false, report('third'));
+        const shutdown = backend.handle().lifecycle.shutdown('user');
+        bridge.die();
+        await shutdown;
+        backend.submit_line('display 4', false, report('fourth'));
+        expect(the_reports).toEqual([
+            'first sent', 'second dropped', 'third dropped', 'fourth dropped',
+        ]);
+    });
+
     it('shows the first prompt at once', () => {
         const { screen } = setup();
         expect(screen()).toBe('. ');

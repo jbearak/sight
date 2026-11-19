@@ -2,6 +2,8 @@ import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs/promises';
 import {
     create_temp_file,
+    hold_temp_file,
+    release_temp_file,
     schedule_temp_file_cleanup
 } from '../../../client/src/send-to-stata/temp-file';
 
@@ -16,6 +18,27 @@ describe('Feature: send-to-stata temp file cleanup', () => {
 
         await new Promise(resolve => setTimeout(resolve, 60));
 
+        await expect(fs.readFile(my_file_path, 'utf8')).rejects.toMatchObject({
+            code: 'ENOENT'
+        });
+    });
+
+    test('a held file outlives cleanup scheduled before its release', async () => {
+        const my_file_path = await create_temp_file('display "held"');
+        hold_temp_file(my_file_path);
+        schedule_temp_file_cleanup(my_file_path, 10);
+        await new Promise(resolve => setTimeout(resolve, 40));
+        expect(await fs.readFile(my_file_path, 'utf8')).toBe('display "held"');
+
+        // Released before a hand-off's cleanup fires: that cleanup
+        // still leaves it, so the new delay counts from the release.
+        schedule_temp_file_cleanup(my_file_path, 30);
+        release_temp_file(my_file_path);
+        await new Promise(resolve => setTimeout(resolve, 50));
+        expect(await fs.readFile(my_file_path, 'utf8')).toBe('display "held"');
+
+        schedule_temp_file_cleanup(my_file_path, 10);
+        await new Promise(resolve => setTimeout(resolve, 40));
         await expect(fs.readFile(my_file_path, 'utf8')).rejects.toMatchObject({
             code: 'ENOENT'
         });
