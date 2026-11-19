@@ -1,5 +1,5 @@
 import { StataAST, StataNode, ControlFlowNode, ProgramNode, CommandNode, TriviaNode, Token } from '../types';
-import { ContinuationGroup, find_delimit_continuation_runs } from './alignment-detector';
+import { ContinuationGroup, delimit_mode_switch, find_delimit_continuation_runs } from './alignment-detector';
 import { find_mid_statement_slash_lines } from '../utils/semicolon-statement';
 
 export interface IndentationInfo {
@@ -294,9 +294,14 @@ export class IndentationAnalyzer {
         let base_delta = 0;
         // The line of the run's latest `///`.
         let last_continuation_line = -1;
+        let is_semicolon_mode = false;
 
         for (const my_token of tokens) {
-            if (my_token.type === 'CONTINUATION') {
+            is_semicolon_mode =
+                delimit_mode_switch(my_token) ?? is_semicolon_mode;
+            // Under `#delimit ;` a `///` joins nothing; see
+            // process_delimit_continuations.
+            if (my_token.type === 'CONTINUATION' && !is_semicolon_mode) {
                 last_continuation_line = my_token.range.start.line;
                 if (!in_continuation) {
                     const base_info = this.indentation_map.get(my_token.range.start.line);

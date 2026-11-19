@@ -433,8 +433,11 @@ through that `end`, and the data lines are not statements.
   `in 5`. A range that is not `#` or `#/#` (with `f`, `l`, negative
   counts, or macros) has an `unparsed` `first`.
 - `weight`: `{"keyword", "kind", "text", "expression", "range"}`, or null.
-  `kind` is `fweight`, `aweight`, `pweight`, `iweight`, or `weight`, or null
-  for the `` [`weight'`exp'] `` idiom of programs that use `syntax`.
+  `keyword` is as written, including abbreviations Stata accepts (`w`,
+  `fw`, `freq`, `aw`, `cell`, `pw`, `iw`, and longer prefixes of each
+  word). `kind` is `fweight` (also for `frequency`), `aweight` (also for
+  `cellsize`), `pweight`, `iweight`, or `weight`, or null for the
+  `` [`weight'`exp'] `` idiom of programs that use `syntax`.
 - `using`: `{"range", "paths": [{"text", "quote", "parts", "range"}]}`, or
   null. `quote` is `simple`, `compound`, or null for an unquoted name.
 - `options`: `[{"name", "canonical_name", "argument", "argument_range",
@@ -514,7 +517,8 @@ Items follow how Stata 18 reads `display`:
   as the next statement in the same list.
 - `foreach`: `variable`, `spec: {"keyword", "list_type", "text", "items"}`,
   `body`. `keyword` is `in` or `of`, `list_type` is `varlist`, `newlist`,
-  `numlist`, `local`, `global`, or null, and `items` are the list's
+  `numlist`, `local`, `global`, or null (the full name also for an
+  abbreviation such as `of var`), and `items` are the list's
   `{"text", "range"}` items as written.
 - `forvalues`: `variable`, `spec: {"text", "form", "first", "second",
   "step", "last"}`, `body`. `form` is `slash` (`1/10`), `paren` (`1(2)10`),
@@ -533,6 +537,8 @@ Items follow how Stata 18 reads `display`:
   `{"arguments": [{"type", "name", "optional", "range"}],
   "options": [{"name", "min_abbreviation", "required", "optional",
   "argument_type", "default", "range"}], "allows_arbitrary_options"}`.
+  An `integer` or `real` option's `default` is the number after its type
+  (`95` for `Level(integer 95)`), and null when there is none.
   An option's `min_abbreviation` is the shortest spelling Stata accepts:
   `d` for `Detail`, `nocons` for `noCONStant`, `cache` for `cache` or
   `CACHE`, and `myOption` for `myOption`.

@@ -1504,8 +1504,10 @@ end`;
       expect(varlist_names(source)).toEqual(['(']);
     });
 
-    test('balanced empty parenthesized group is omitted from varlist', () => {
-      expect(varlist_names('mycmd () after')).toEqual(['after']);
+    test('balanced empty parenthesized group is kept in varlist', () => {
+      // `display runiform()`: the empty group is the call's argument list.
+      expect(varlist_names('mycmd () after')).toEqual(['()', 'after']);
+      expect(varlist_names('display runiform()')).toEqual(['runiform', '()']);
     });
 
     test('unterminated assignment expression does not swallow following statements', () => {

@@ -250,7 +250,7 @@ describe('program signature from a syntax in a brace block', () => {
         expect(the_items.map((my_item) => my_item.label)).toEqual(['Level', 'DETail']);
         const hover = await new HoverProvider(new CommandDatabase())
             .get_hover(document, { line: 5, character: 2 });
-        expect(JSON.stringify(hover?.contents ?? '')).toContain('Level(integer) DETail');
+        expect(JSON.stringify(hover?.contents ?? '')).toContain('Level(integer 95) DETail');
     });
 
     it('keeps the top-level signature when several syntax statements are reachable', () => {

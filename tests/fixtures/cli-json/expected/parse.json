@@ -7717,7 +7717,7 @@
               "required": false,
               "optional": false,
               "argument_type": "integer",
-              "default": null,
+              "default": "95",
               "range": {
                 "start": {
                   "line": 12,
@@ -7821,7 +7821,7 @@
                       "required": false,
                       "optional": false,
                       "argument_type": "integer",
-                      "default": null,
+                      "default": "95",
                       "range": {
                         "start": {
                           "line": 12,
@@ -14055,5 +14055,766 @@
         }
       }
     ]
+  },
+  {
+    "schema_version": 1,
+    "sight_version": "<VERSION>",
+    "path": "<ROOT>/abbreviations.do",
+    "line_count": 11,
+    "statements": [
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 0,
+            "character": 0
+          },
+          "end": {
+            "line": 0,
+            "character": 30
+          }
+        },
+        "text": "summarize price [w=population]",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "summarize",
+        "canonical_name": "summarize",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "price",
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 10
+              },
+              "end": {
+                "line": 0,
+                "character": 15
+              }
+            }
+          }
+        ],
+        "varlist": {
+          "kind": "varlist",
+          "items": [
+            {
+              "kind": "variable",
+              "name": "price",
+              "range": {
+                "start": {
+                  "line": 0,
+                  "character": 10
+                },
+                "end": {
+                  "line": 0,
+                  "character": 15
+                }
+              }
+            }
+          ],
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 10
+            },
+            "end": {
+              "line": 0,
+              "character": 15
+            }
+          }
+        },
+        "assignment": null,
+        "if": null,
+        "assertion": null,
+        "display": null,
+        "in": null,
+        "weight": {
+          "keyword": "w",
+          "kind": "weight",
+          "text": "population",
+          "expression": {
+            "kind": "variable",
+            "name": "population",
+            "range": {
+              "start": {
+                "line": 0,
+                "character": 19
+              },
+              "end": {
+                "line": 0,
+                "character": 29
+              }
+            }
+          },
+          "range": {
+            "start": {
+              "line": 0,
+              "character": 16
+            },
+            "end": {
+              "line": 0,
+              "character": 30
+            }
+          }
+        },
+        "using": null,
+        "options": [],
+        "options_tail": []
+      },
+      {
+        "kind": "foreach",
+        "range": {
+          "start": {
+            "line": 1,
+            "character": 0
+          },
+          "end": {
+            "line": 3,
+            "character": 1
+          }
+        },
+        "text": "foreach v of var mpg price {\n    summarize `v'\n}",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [],
+        "variable": "v",
+        "spec": {
+          "keyword": "of",
+          "list_type": "varlist",
+          "text": "of var mpg price",
+          "items": [
+            {
+              "text": "mpg",
+              "range": {
+                "start": {
+                  "line": 1,
+                  "character": 17
+                },
+                "end": {
+                  "line": 1,
+                  "character": 20
+                }
+              }
+            },
+            {
+              "text": "price",
+              "range": {
+                "start": {
+                  "line": 1,
+                  "character": 21
+                },
+                "end": {
+                  "line": 1,
+                  "character": 26
+                }
+              }
+            }
+          ]
+        },
+        "body": [
+          {
+            "kind": "command",
+            "range": {
+              "start": {
+                "line": 2,
+                "character": 4
+              },
+              "end": {
+                "line": 2,
+                "character": 17
+              }
+            },
+            "text": "summarize `v'",
+            "delimit": "cr",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "name": "summarize",
+            "canonical_name": "summarize",
+            "prefixes": [],
+            "args": [
+              {
+                "text": "`v'",
+                "range": {
+                  "start": {
+                    "line": 2,
+                    "character": 14
+                  },
+                  "end": {
+                    "line": 2,
+                    "character": 17
+                  }
+                }
+              }
+            ],
+            "varlist": {
+              "kind": "varlist",
+              "items": [
+                {
+                  "kind": "macro_ref",
+                  "scope": "local",
+                  "form": "name",
+                  "text": "`v'",
+                  "range": {
+                    "start": {
+                      "line": 2,
+                      "character": 14
+                    },
+                    "end": {
+                      "line": 2,
+                      "character": 17
+                    }
+                  },
+                  "name": "v"
+                }
+              ],
+              "range": {
+                "start": {
+                  "line": 2,
+                  "character": 14
+                },
+                "end": {
+                  "line": 2,
+                  "character": 17
+                }
+              }
+            },
+            "assignment": null,
+            "if": null,
+            "assertion": null,
+            "display": null,
+            "in": null,
+            "weight": null,
+            "using": null,
+            "options": [],
+            "options_tail": []
+          }
+        ]
+      },
+      {
+        "kind": "if",
+        "range": {
+          "start": {
+            "line": 4,
+            "character": 0
+          },
+          "end": {
+            "line": 4,
+            "character": 14
+          }
+        },
+        "text": "if 0 display 1",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "prefixes": [],
+        "condition": {
+          "text": "0",
+          "expression": {
+            "kind": "number",
+            "text": "0",
+            "value": 0,
+            "range": {
+              "start": {
+                "line": 4,
+                "character": 3
+              },
+              "end": {
+                "line": 4,
+                "character": 4
+              }
+            }
+          }
+        },
+        "single_statement": true,
+        "body": [
+          {
+            "kind": "command",
+            "range": {
+              "start": {
+                "line": 4,
+                "character": 5
+              },
+              "end": {
+                "line": 4,
+                "character": 14
+              }
+            },
+            "text": "display 1",
+            "delimit": "cr",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "name": "display",
+            "canonical_name": "display",
+            "prefixes": [],
+            "args": [
+              {
+                "text": "1",
+                "range": {
+                  "start": {
+                    "line": 4,
+                    "character": 13
+                  },
+                  "end": {
+                    "line": 4,
+                    "character": 14
+                  }
+                }
+              }
+            ],
+            "varlist": null,
+            "assignment": null,
+            "if": null,
+            "assertion": null,
+            "display": {
+              "items": [
+                {
+                  "kind": "expression",
+                  "text": "1",
+                  "format": null,
+                  "expression": {
+                    "kind": "number",
+                    "text": "1",
+                    "value": 1,
+                    "range": {
+                      "start": {
+                        "line": 4,
+                        "character": 13
+                      },
+                      "end": {
+                        "line": 4,
+                        "character": 14
+                      }
+                    }
+                  },
+                  "range": {
+                    "start": {
+                      "line": 4,
+                      "character": 13
+                    },
+                    "end": {
+                      "line": 4,
+                      "character": 14
+                    }
+                  }
+                }
+              ]
+            },
+            "in": null,
+            "weight": null,
+            "using": null,
+            "options": [],
+            "options_tail": []
+          }
+        ]
+      },
+      {
+        "kind": "else",
+        "range": {
+          "start": {
+            "line": 5,
+            "character": 0
+          },
+          "end": {
+            "line": 5,
+            "character": 30
+          }
+        },
+        "text": "else /* note */ if 1 display 2",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [
+            {
+              "style": "block",
+              "text": "/* note */",
+              "range": {
+                "start": {
+                  "line": 5,
+                  "character": 5
+                },
+                "end": {
+                  "line": 5,
+                  "character": 15
+                }
+              },
+              "directive": null
+            }
+          ],
+          "block_end": []
+        },
+        "prefixes": [],
+        "else_if": true,
+        "body": [
+          {
+            "kind": "if",
+            "range": {
+              "start": {
+                "line": 5,
+                "character": 16
+              },
+              "end": {
+                "line": 5,
+                "character": 30
+              }
+            },
+            "text": "if 1 display 2",
+            "delimit": "cr",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "prefixes": [],
+            "condition": {
+              "text": "1",
+              "expression": {
+                "kind": "number",
+                "text": "1",
+                "value": 1,
+                "range": {
+                  "start": {
+                    "line": 5,
+                    "character": 19
+                  },
+                  "end": {
+                    "line": 5,
+                    "character": 20
+                  }
+                }
+              }
+            },
+            "single_statement": true,
+            "body": [
+              {
+                "kind": "command",
+                "range": {
+                  "start": {
+                    "line": 5,
+                    "character": 21
+                  },
+                  "end": {
+                    "line": 5,
+                    "character": 30
+                  }
+                },
+                "text": "display 2",
+                "delimit": "cr",
+                "comments": {
+                  "leading": [],
+                  "trailing": [],
+                  "interior": [],
+                  "block_end": []
+                },
+                "name": "display",
+                "canonical_name": "display",
+                "prefixes": [],
+                "args": [
+                  {
+                    "text": "2",
+                    "range": {
+                      "start": {
+                        "line": 5,
+                        "character": 29
+                      },
+                      "end": {
+                        "line": 5,
+                        "character": 30
+                      }
+                    }
+                  }
+                ],
+                "varlist": null,
+                "assignment": null,
+                "if": null,
+                "assertion": null,
+                "display": {
+                  "items": [
+                    {
+                      "kind": "expression",
+                      "text": "2",
+                      "format": null,
+                      "expression": {
+                        "kind": "number",
+                        "text": "2",
+                        "value": 2,
+                        "range": {
+                          "start": {
+                            "line": 5,
+                            "character": 29
+                          },
+                          "end": {
+                            "line": 5,
+                            "character": 30
+                          }
+                        }
+                      },
+                      "range": {
+                        "start": {
+                          "line": 5,
+                          "character": 29
+                        },
+                        "end": {
+                          "line": 5,
+                          "character": 30
+                        }
+                      }
+                    }
+                  ]
+                },
+                "in": null,
+                "weight": null,
+                "using": null,
+                "options": [],
+                "options_tail": []
+              }
+            ]
+          }
+        ]
+      },
+      {
+        "kind": "command",
+        "range": {
+          "start": {
+            "line": 6,
+            "character": 0
+          },
+          "end": {
+            "line": 6,
+            "character": 18
+          }
+        },
+        "text": "display runiform()",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "display",
+        "canonical_name": "display",
+        "prefixes": [],
+        "args": [
+          {
+            "text": "runiform()",
+            "range": {
+              "start": {
+                "line": 6,
+                "character": 8
+              },
+              "end": {
+                "line": 6,
+                "character": 18
+              }
+            }
+          }
+        ],
+        "varlist": {
+          "kind": "varlist",
+          "items": [
+            {
+              "kind": "unparsed",
+              "text": "runiform()",
+              "reason": "factor_or_time_series_operator",
+              "range": {
+                "start": {
+                  "line": 6,
+                  "character": 8
+                },
+                "end": {
+                  "line": 6,
+                  "character": 18
+                }
+              }
+            }
+          ],
+          "range": {
+            "start": {
+              "line": 6,
+              "character": 8
+            },
+            "end": {
+              "line": 6,
+              "character": 18
+            }
+          }
+        },
+        "assignment": null,
+        "if": null,
+        "assertion": null,
+        "display": {
+          "items": [
+            {
+              "kind": "expression",
+              "text": "runiform()",
+              "format": null,
+              "expression": {
+                "kind": "call",
+                "name": "runiform",
+                "name_range": {
+                  "start": {
+                    "line": 6,
+                    "character": 8
+                  },
+                  "end": {
+                    "line": 6,
+                    "character": 16
+                  }
+                },
+                "args": [],
+                "range": {
+                  "start": {
+                    "line": 6,
+                    "character": 8
+                  },
+                  "end": {
+                    "line": 6,
+                    "character": 18
+                  }
+                }
+              },
+              "range": {
+                "start": {
+                  "line": 6,
+                  "character": 8
+                },
+                "end": {
+                  "line": 6,
+                  "character": 18
+                }
+              }
+            }
+          ]
+        },
+        "in": null,
+        "weight": null,
+        "using": null,
+        "options": [],
+        "options_tail": []
+      },
+      {
+        "kind": "program",
+        "range": {
+          "start": {
+            "line": 7,
+            "character": 0
+          },
+          "end": {
+            "line": 9,
+            "character": 3
+          }
+        },
+        "text": "program define example\n    syntax [, Level(integer 95)]\nend",
+        "delimit": "cr",
+        "comments": {
+          "leading": [],
+          "trailing": [],
+          "interior": [],
+          "block_end": []
+        },
+        "name": "example",
+        "define_options": null,
+        "args": [],
+        "syntax": {
+          "arguments": [],
+          "options": [
+            {
+              "name": "Level",
+              "min_abbreviation": "l",
+              "required": false,
+              "optional": false,
+              "argument_type": "integer",
+              "default": "95",
+              "range": {
+                "start": {
+                  "line": 8,
+                  "character": 14
+                },
+                "end": {
+                  "line": 8,
+                  "character": 31
+                }
+              }
+            }
+          ],
+          "allows_arbitrary_options": false
+        },
+        "body": [
+          {
+            "kind": "syntax",
+            "range": {
+              "start": {
+                "line": 8,
+                "character": 4
+              },
+              "end": {
+                "line": 8,
+                "character": 32
+              }
+            },
+            "text": "syntax [, Level(integer 95)]",
+            "delimit": "cr",
+            "comments": {
+              "leading": [],
+              "trailing": [],
+              "interior": [],
+              "block_end": []
+            },
+            "prefixes": [],
+            "signature": {
+              "arguments": [],
+              "options": [
+                {
+                  "name": "Level",
+                  "min_abbreviation": "l",
+                  "required": false,
+                  "optional": false,
+                  "argument_type": "integer",
+                  "default": "95",
+                  "range": {
+                    "start": {
+                      "line": 8,
+                      "character": 14
+                    },
+                    "end": {
+                      "line": 8,
+                      "character": 31
+                    }
+                  }
+                }
+              ],
+              "allows_arbitrary_options": false
+            }
+          }
+        ]
+      }
+    ],
+    "comments": [],
+    "errors": []
   }
 ]

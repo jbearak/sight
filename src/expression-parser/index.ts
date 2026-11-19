@@ -97,20 +97,36 @@ function is_stored_result_class(value: string): value is StoredResultClass {
     return STORED_RESULT_CLASSES.has(value);
 }
 
-/** Weight keywords and their canonical kinds (exact case). */
-export const WEIGHT_KEYWORDS: ReadonlyMap<string, WeightKind> = new Map([
-    ['weight', 'weight'],
-    ['fweight', 'fweight'],
-    ['fw', 'fweight'],
-    ['frequency', 'fweight'],
-    ['aweight', 'aweight'],
-    ['aw', 'aweight'],
-    ['cellsize', 'aweight'],
-    ['pweight', 'pweight'],
-    ['pw', 'pweight'],
-    ['iweight', 'iweight'],
-    ['iw', 'iweight'],
-]);
+/**
+ * The weight words Stata 18 accepts, with the shortest abbreviation of
+ * each and its kind ([U] 11.1.6; checked in Stata 18: `[w=x]` and
+ * `[cell=x]` work, `[f=x]`, `[fre=x]` and `[cel=x]` are r(198)).
+ */
+const WEIGHT_WORDS: ReadonlyArray<{
+    word: string;
+    min_length: number;
+    kind: WeightKind;
+}> = [
+    { word: 'weight', min_length: 1, kind: 'weight' },
+    { word: 'fweight', min_length: 2, kind: 'fweight' },
+    { word: 'frequency', min_length: 4, kind: 'fweight' },
+    { word: 'aweight', min_length: 2, kind: 'aweight' },
+    { word: 'cellsize', min_length: 4, kind: 'aweight' },
+    { word: 'pweight', min_length: 2, kind: 'pweight' },
+    { word: 'iweight', min_length: 2, kind: 'iweight' },
+];
+
+/**
+ * Weight keywords, with every accepted abbreviation, and their
+ * canonical kinds (exact case).
+ */
+export const WEIGHT_KEYWORDS: ReadonlyMap<string, WeightKind> = new Map(
+    WEIGHT_WORDS.flatMap(({ word, min_length, kind }) =>
+        Array.from(
+            { length: word.length - min_length + 1 },
+            (_, i): [string, WeightKind] =>
+                [word.slice(0, min_length + i), kind]))
+);
 
 /**
  * egen functions whose arguments are varlists rather than expressions.

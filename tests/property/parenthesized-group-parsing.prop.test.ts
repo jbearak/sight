@@ -200,9 +200,8 @@ describe('parenthesized group parsing unit tests', () => {
     it('should handle empty parentheses gracefully', () => {
         const cmd = parse('cmd ()');
         expect(cmd).not.toBeNull();
-        // Empty parens should not be added to varlist
-        const content = get_parenthesized_content(cmd!);
-        expect(content).toBeNull();
+        // Kept as written, as in `display runiform()`
+        expect(get_parenthesized_content(cmd!)).toBe('()');
     });
 
     it('should handle unclosed parentheses gracefully', () => {
