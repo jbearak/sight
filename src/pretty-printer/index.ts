@@ -271,7 +271,9 @@ export class PrettyPrinter {
         this.delimiter_mode = node.mode;
 
         const mode_str = node.mode === 'semicolon' ? ';' : 'cr';
-        return `${this.getIndent()}${node.keyword} ${mode_str}`;
+        // An AST built before DirectiveNode had `keyword` lacks it.
+        const keyword: string | undefined = node.keyword;
+        return `${this.getIndent()}${keyword ?? '#delimit'} ${mode_str}`;
     }
 
     /**
@@ -289,10 +291,16 @@ export class PrettyPrinter {
         // A single blank data line has empty content too: there are data
         // lines when `end` comes after the line the data starts on. Under
         // `#delimit ;` the data starts right after the `;` on the `input`
-        // line, so only its content says whether there are records.
+        // line, or, when records follow on later lines, at the start of
+        // the next line (see StataLexer.scan_input_data), so empty content
+        // there is one empty record (`input x;` then `;` then `end;`).
         const has_data_lines = this.delimiter_mode === 'semicolon'
-            ? input_data.content !== ''
+            ? input_data.content !== '' ||
+                input_data.content_range.start.character === 0
             : end_line > input_data.content_range.start.line;
+        if (input_data.has_end === false) {
+            return `${terminator}${input_data.content}`;
+        }
         const data = has_data_lines ? input_data.content + terminator : '';
         return `${terminator}${data}${this.getIndent()}end`;
     }
@@ -754,18 +762,26 @@ export class PrettyPrinter {
             // after it, which belong to the innermost inline statement.
             let trailing = { same_line: '', own_line: '' };
             let body_node: StataNode | undefined = node.body[0];
+            // `input` data after the inline command (`if 1 input ///`
+            // then `str5 town`), which follows the comments.
+            let input_data = '';
             while (body_node !== undefined) {
                 const body_trailing = this.printTrailingTrivia(body_node);
                 trailing = {
                     same_line: body_trailing.same_line + trailing.same_line,
                     own_line: body_trailing.own_line + trailing.own_line,
                 };
+                if (body_node.type === 'command' && body_node.input_data !== undefined) {
+                    input_data = this.printInputData(
+                        body_node.input_data, body_node.range.end.line);
+                }
                 body_node = body_node.type === 'if' && body_node.is_single_statement
                     ? body_node.body[0]
                     : undefined;
             }
             return {
-                code: this.printNotedLines(node.noted_lines) + trailing.same_line,
+                code: this.printNotedLines(node.noted_lines) + trailing.same_line +
+                    input_data,
                 own_line: trailing.own_line,
             };
         }

@@ -12,10 +12,16 @@ import { is_swallowed_continuation_terminator } from '../utils/continuation';
 import {
   is_program_definition_header,
   PROGRAM_COMMAND_NAMES,
-  logical_line_text,
+  program_header_text,
 } from '../utils/program-definition';
 import { SemicolonStatementTracker } from '../utils/semicolon-statement';
 import { delimit_keyword_length } from '../utils/delimit-directive';
+import {
+  input_declaration_fields,
+  input_row_end,
+  is_consistent_input_row,
+  is_input_end_row,
+} from '../utils/input-data';
 import {
   COLON_PREFIX_COMMANDS,
   PREFIX_COMMANDS,
@@ -31,8 +37,6 @@ const INPUT_END_LINE = /\n[ \t]*end(?![A-Za-z0-9_.])/g;
 // Under `#delimit ;`, the `;` before a record whose first word is
 // `end`, which ends `input` data (StataMP 18).
 const INPUT_END_RECORD = /;\s*end(?![A-Za-z0-9_.])/g;
-// A line whose first word may be `program` or an abbreviation of it.
-const PROGRAM_HEADER_LINE = /^[ \t]*(pr[a-z]*)(?![A-Za-z0-9_])/gm;
 const COMMENT_CONTEXT_KEYWORDS = new Set(['program', 'capture', 'quietly', 'noisily', 'by', 'bysort']);
 // A `*` after one of these is multiplication. A string never ends a
 // statement on its own line, so `"ab" * 3` is string repetition, not a
@@ -81,13 +85,15 @@ const STATEMENT_START_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
 
 /**
  * The offset just past the `*\/` that closes the block comment opening
- * at `start` in `source`, or the source's length if none does. Block
- * comments nest, as in Stata.
+ * at `start` in `source`, or `limit` (by default the source's length)
+ * if none does before it. Block comments nest, as in Stata.
  */
-function block_comment_end(source: string, start: number): number {
+function block_comment_end(
+  source: string, start: number, limit = source.length
+): number {
   let my_depth = 0;
   let i = start;
-  while (i < source.length) {
+  while (i < limit) {
     if (source[i] === '/' && source[i + 1] === '*') {
       my_depth++;
       i += 2;
@@ -101,7 +107,7 @@ function block_comment_end(source: string, start: number): number {
       i++;
     }
   }
-  return source.length;
+  return limit;
 }
 
 export class StataLexer {
@@ -152,6 +158,9 @@ export class StataLexer {
   // EMBEDDED_OPENER_COLON_PREFIXES), or of a macro that starts the
   // command (`` `run': python:``, the macro holding a prefix).
   private at_prefixed_command_start = false;
+  // The word naming the command after a prefix's colon (`notes` in
+  // `mi xeq: notes:`), until the next colon or statement.
+  private prefixed_command_word: string | null = null;
   // Inside a `mata:` one-liner, where `:*` multiplies.
   private in_mata_inline_statement = false;
   // Inside a `python:` one-liner, where `*` is Python code.
@@ -170,6 +179,12 @@ export class StataLexer {
   private semicolon_statement = new SemicolonStatementTracker();
   // An `input` statement has begun, so the lines after it are data.
   private input_data_pending = false;
+  // Offset just past the `input` word, where its declaration starts.
+  private input_declaration_start = 0;
+  // The last search for an `end` after `input` data (see
+  // next_input_end_candidate).
+  private input_end_candidate:
+    { searched_from: number; index: number; is_semicolon: boolean } | null = null;
 
   tokenize(source: string, initialState?: LexerState): LexerResult {
     this.source = source;
@@ -190,12 +205,15 @@ export class StataLexer {
     this.at_command_start = true;
     this.command_word = null;
     this.at_prefixed_command_start = false;
+    this.prefixed_command_word = null;
     this.in_mata_inline_statement = false;
     this.in_python_inline_statement = false;
     this.program_definition_open = false;
     this.python_block_reads_statements = false;
     this.semicolon_statement = new SemicolonStatementTracker();
     this.input_data_pending = false;
+    this.input_declaration_start = 0;
+    this.input_end_candidate = null;
     this.state = initialState || {
       delimiterMode: 'cr',
       line: 0,
@@ -299,20 +317,28 @@ export class StataLexer {
 
   /**
    * Track whether a program definition is open, from a Stata-context
-   * word starting on `start_line`: `program` first on its line opens
-   * one (see is_program_definition_header, shared with the parser and
-   * the context tracker), and `end` first on its line closes it.
+   * word starting on `start_line`, and return whether the word opens
+   * one: `program` (or an abbreviation) as the first code of a
+   * statement (see at_statement_start) followed by a definition header
+   * (see is_program_definition_header). An `end` that begins its
+   * logical line closes the definition. Stata ends a definition at
+   * the first such `end`, so a `program define` inside one is body
+   * text; the parser still reads it as a nested definition, as it
+   * did before this flag, but it leaves the open definition open.
    */
-  private note_program_definition_word(value: string, start_line: number): void {
-    if (PROGRAM_COMMAND_NAMES.has(value) && !this.program_definition_open &&
-        this.is_first_code_on_line(start_line)) {
-      this.program_definition_open = is_program_definition_header(
-        logical_line_text(this.source, this.position)
-      );
-    } else if (value === 'end' && this.program_definition_open &&
+  private note_program_definition_word(value: string, start_line: number): boolean {
+    if (PROGRAM_COMMAND_NAMES.has(value) && this.at_statement_start()) {
+      const my_is_header = is_program_definition_header(
+        program_header_text(this.source, this.position,
+          this.state.delimiterMode === 'semicolon'));
+      this.program_definition_open ||= my_is_header;
+      return my_is_header;
+    }
+    if (value === 'end' && this.program_definition_open &&
         this.is_end_at_line_start(start_line)) {
       this.program_definition_open = false;
     }
+    return false;
   }
 
   /**
@@ -329,38 +355,76 @@ export class StataLexer {
         (this.at_command_start ||
           this.if_condition_ends_before(start_line, start_column))) {
       this.input_data_pending = true;
+      this.input_declaration_start = this.position;
     }
   }
 
   /**
    * The data after an `input` statement, from the current position
    * just past the newline (or, under `#delimit ;`, the `;`) that ends
-   * it, and the `end` that closes the data. StataMP 18 reads the data
-   * literally, without expanding macros, as lines (or `;`-ended
-   * records) up to one whose first word is `end`. The data is one
-   * INPUT_DATA token holding them as written; it stops before the
-   * terminator that ends the last record, and is empty when `end`
-   * comes right after `input`. Then come that terminator, the `end`
-   * word, and the rest of its line (or record), which Stata discards
-   * (see scan_end_tail_tokens).
+   * it. StataMP 18 reads the data literally, without expanding macros,
+   * as lines (or `;`-ended records) up to one whose first word is
+   * `end`, unless it stops sooner because it has filled the dataset's
+   * observations. Sight can't know those, so the data also ends before
+   * the first row that is not consistent with the variables `input`
+   * declares (see src/utils/input-data.ts): `input score` then `10`
+   * then `local label score` is one row of data.
    *
-   * Null, consuming nothing, when no such `end` follows, or when a
-   * program definition header comes first: that `end` closes the
-   * program, so the data must have ended by itself (Stata stops
-   * reading data once it has filled the dataset's observations, which
-   * Sight cannot know), and the lines are read as statements.
+   * The data is one INPUT_DATA token holding the rows as written; it
+   * stops before the terminator that ends the last row, and is empty
+   * when `end` comes right after `input`. When an `end` closes it,
+   * that terminator, the `end` word and the rest of its line (or
+   * record), which Stata discards (see scan_end_tail_tokens), follow;
+   * when the data stopped before an inconsistent row, only the
+   * terminator does, and that row is lexed as code.
+   *
+   * Null, consuming nothing, when no `end` follows, or when the data
+   * stops before any row with something in it.
    */
   private scan_input_data(): Token[] | null {
     const is_semicolon = this.state.delimiterMode === 'semicolon';
-    const end_pattern = is_semicolon ? INPUT_END_RECORD : INPUT_END_LINE;
-    // From the terminator just consumed, so an `end` right after it
-    // counts.
-    end_pattern.lastIndex = this.position - 1;
-    const end_match = end_pattern.exec(this.source);
-    if (end_match === null ||
-        this.has_program_header_line(this.position, end_match.index)) {
+    const the_fields = input_declaration_fields(this.source.substring(
+      this.input_declaration_start, this.position - 1));
+    // Only a numeric variable can make a row inconsistent.
+    const can_stop_early = the_fields !== null &&
+      the_fields.includes('numeric');
+    let my_row_start = this.position;
+    let my_data_end = -1;
+    let my_has_rows = false;
+    let my_ended_by_end = false;
+    for (;;) {
+      // No row can start with `end` past the last candidate, so data
+      // that can't stop early has no end (this keeps a file of many
+      // string `input` blocks without `end` linear).
+      if (!can_stop_early &&
+          this.next_input_end_candidate(my_row_start - 1, is_semicolon) === -1) {
+        return null;
+      }
+      if (is_input_end_row(this.source, my_row_start, is_semicolon)) {
+        my_ended_by_end = true;
+        break;
+      }
+      if (my_row_start >= this.source.length) {
+        return null;
+      }
+      const my_row_end = input_row_end(this.source, my_row_start, is_semicolon);
+      const my_row = this.source.substring(my_row_start, my_row_end);
+      if (the_fields !== null && !is_consistent_input_row(my_row, the_fields)) {
+        break;
+      }
+      my_has_rows = my_has_rows || my_row.trim() !== '';
+      my_data_end = my_row_end;
+      if (my_row_end >= this.source.length) {
+        return null;
+      }
+      my_row_start = my_row_end + 1;
+    }
+    if (!my_ended_by_end && !my_has_rows) {
       return null;
     }
+    const data_end = my_ended_by_end
+      ? Math.max(this.position, my_row_start - 1)
+      : my_data_end;
     if (is_semicolon) {
       // Data on the lines after `input x;` starts on the next line.
       let my_pos = this.position;
@@ -368,17 +432,19 @@ export class StataLexer {
           this.source[my_pos] === '\r') {
         my_pos++;
       }
-      if (this.source[my_pos] === '\n' && my_pos < end_match.index) {
+      if (this.source[my_pos] === '\n' && my_pos < data_end) {
         while (this.position <= my_pos) {
           this.advance();
         }
       }
     }
     const the_tokens: Token[] = [];
-    const data_end = Math.max(this.position, end_match.index);
     the_tokens.push(this.scan_raw_token('INPUT_DATA', data_end));
     if (this.source[this.position] === (is_semicolon ? ';' : '\n')) {
       the_tokens.push(this.scan_raw_token('STATEMENT_TERMINATOR', this.position + 1));
+    }
+    if (!my_ended_by_end) {
+      return the_tokens;
     }
     while (/\s/.test(this.peek()) && this.position < this.source.length) {
       this.advance();
@@ -389,26 +455,23 @@ export class StataLexer {
   }
 
   /**
-   * Whether a line (or record) in the source from offset `start`
-   * up to `end` begins with a program definition header (`program
-   * define helper`).
+   * The offset of the first newline (or, under `#delimit ;`, `;`)
+   * at or after `from` that blanks and then `end` follow, or -1 if
+   * none does. Searches resume where the last one left off, so lexing
+   * a file costs one pass over it.
    */
-  private has_program_header_line(start: number, end: number): boolean {
-    // Only the region, so a file of many `input` blocks stays linear.
-    const region = this.source.substring(start, end);
-    PROGRAM_HEADER_LINE.lastIndex = 0;
-    for (;;) {
-      const my_match = PROGRAM_HEADER_LINE.exec(region);
-      if (my_match === null) {
-        return false;
-      }
-      const my_word_end = start + my_match.index + my_match[0].length;
-      if (PROGRAM_COMMAND_NAMES.has(my_match[1]) &&
-          is_program_definition_header(
-            logical_line_text(this.source, my_word_end))) {
-        return true;
-      }
+  private next_input_end_candidate(from: number, is_semicolon: boolean): number {
+    const my_cache = this.input_end_candidate;
+    if (my_cache !== null && my_cache.is_semicolon === is_semicolon &&
+        my_cache.searched_from <= from &&
+        (my_cache.index === -1 || my_cache.index >= from)) {
+      return my_cache.index;
     }
+    const my_pattern = is_semicolon ? INPUT_END_RECORD : INPUT_END_LINE;
+    my_pattern.lastIndex = from;
+    const my_index = my_pattern.exec(this.source)?.index ?? -1;
+    this.input_end_candidate = { searched_from: from, index: my_index, is_semicolon };
+    return my_index;
   }
 
   /**
@@ -442,8 +505,11 @@ export class StataLexer {
         the_tokens.push(this.scan_raw_token('COMMENT_LINE', tail_end));
         return the_tokens;
       }
-      const my_comment_end = Math.min(
-        tail_end, block_comment_end(this.source, this.position));
+      // Only to the end of the tail, so a `/*` left open there costs
+      // no scan to the end of the file (a file of many `end /*` lines
+      // was quadratic).
+      const my_comment_end = block_comment_end(
+        this.source, this.position, tail_end);
       the_tokens.push(this.scan_raw_token('COMMENT_BLOCK', my_comment_end));
     }
   }
@@ -564,6 +630,26 @@ export class StataLexer {
     return this.source[my_after] === ';';
   }
 
+
+  /**
+   * Whether the next code token is the first code of a statement, which
+   * is the only place StataMP 18 reads `#delimit`: at the start of the
+   * file, after a `#delimit` directive, or after a statement terminator
+   * (a newline that no `///` joins, or a `;` under `#delimit ;`, also
+   * mid-line: `di 1; #d cr`), with only blanks and block comments
+   * between (a block comment, then `#d ;`). Not after a `///` join,
+   * a block comment that opened after code on the line above, a `{`,
+   * a prefix (`quietly #d ;`), or mid-statement at the start of a line
+   * under `#delimit ;` (`di 1` then `#d cr` is `di 1 #d cr`).
+   */
+  private at_statement_start(): boolean {
+    const my_prev_code = this.previous_code_token;
+    if (my_prev_code === null || my_prev_code.type === 'DELIMIT_DIRECTIVE') {
+      return true;
+    }
+    return my_prev_code.type === 'STATEMENT_TERMINATOR' &&
+      !this.joined_to_previous_line;
+  }
 
   /**
    * Whether no code token precedes the word starting on `start_line`
@@ -918,10 +1004,20 @@ export class StataLexer {
       const my_after_prefix_macro = this.previous_started_command &&
         (my_previous?.type === 'MACRO_REF_LOCAL' ||
           my_previous?.type === 'MACRO_REF_GLOBAL');
+      // The command this colon follows: the one after the last prefix
+      // colon if there was one (`mi xeq: notes: mata:` is the note
+      // "mata:" in StataMP 18, while `mi xeq: by g: mata:` opens Mata).
+      const my_word = this.prefixed_command_word ?? this.command_word;
       this.at_prefixed_command_start = my_after_prefix_macro ||
-        (this.command_word !== null &&
-          EMBEDDED_OPENER_COLON_PREFIXES.has(this.command_word));
+        (my_word !== null && EMBEDDED_OPENER_COLON_PREFIXES.has(my_word));
+      this.prefixed_command_word = null;
       return;
+    }
+    if (STATEMENT_START_TYPES.has(token.type)) {
+      this.prefixed_command_word = null;
+    } else if (this.at_prefixed_command_start && token.type === 'WORD' &&
+        !ARGUMENT_FREE_PREFIXES.has(token.value)) {
+      this.prefixed_command_word = token.value;
     }
     this.at_prefixed_command_start = this.at_prefixed_command_start &&
       token.type === 'WORD' && ARGUMENT_FREE_PREFIXES.has(token.value);
@@ -1173,14 +1269,13 @@ export class StataLexer {
       return this.scanBlockComment(startLine, startColumn);
     }
 
-    // A `#delimit` directive, or an abbreviation down to `#d`, where a
-    // command can start or at the start of a line. After code on its
-    // line `#` is the factor-variable interaction operator: `i.a#d`.
+    // A `#delimit` directive, or an abbreviation down to `#d`, as the
+    // first code of a statement. Elsewhere `#` is the factor-variable
+    // interaction operator (`i.a#d`) or text (`local tag {#d ;}`).
     if (char === '#') {
       const keyword_length =
         delimit_keyword_length(this.source, this.position - 1);
-      if (keyword_length > 0 && (this.at_command_start ||
-          this.is_at_line_start(startLine, startColumn))) {
+      if (keyword_length > 0 && this.at_statement_start()) {
         // Consume the rest of the keyword
         for (let i = 1; i < keyword_length; i++) {
           this.advance();
@@ -1692,7 +1787,10 @@ export class StataLexer {
     while (!this.isAtEnd()) {
       const char = this.peek();
 
-      if (char === '\n') {
+      // Under `#delimit ;` a line break inside a string is part of it:
+      // Stata's ml_searc.ado sets `local options "... LOg` then
+      // `MAXFEAS(integer 1000) ... TRace" ;`.
+      if (char === '\n' && this.state.delimiterMode !== 'semicolon') {
         const error: LexerError = {
           message: 'Unclosed string literal',
           range: this.makeRange(startLine, startColumn, this.line, this.column + 1),
@@ -2289,9 +2387,10 @@ export class StataLexer {
     
     // Check for embedded language delimiters
     const my_current_context = this.get_current_context();
-    
+    let my_starts_program = false;
+
     if (my_current_context === LanguageContext.STATA) {
-      this.note_program_definition_word(value, startLine);
+      my_starts_program = this.note_program_definition_word(value, startLine);
       this.note_input_command_word(value, startLine, startColumn);
       // Check for embedded language block starts (case-sensitive: Stata requires lowercase)
       if (this.is_mata_start_delimiter(value)) {
@@ -2462,11 +2561,12 @@ export class StataLexer {
         // 'end' followed by other code - treat as WORD, not block terminator
       }
     }
-    
+
     return {
       type: 'WORD',
       value,
       range: this.makeRange(startLine, startColumn, this.line, this.column),
+      ...(my_starts_program ? { starts_program_definition: true } : {}),
     };
   }
 

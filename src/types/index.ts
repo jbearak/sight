@@ -78,6 +78,9 @@ export interface Token {
   value: string;
   range: Range;
   quoteStyle?: 'simple' | 'compound';
+  // On a `program` WORD that starts a program definition, as the lexer
+  // decides (see src/utils/program-definition.ts); the parser reads it.
+  starts_program_definition?: true;
 }
 
 // Lexer State
@@ -338,8 +341,11 @@ export interface CommandNode {
   closed_by_program_end?: boolean;
   closed_by_brace?: boolean;
   // The data lines of an `input` statement, as written, which its `end`
-  // line closes; the node's range runs through that `end`.
-  input_data?: { content: string; content_range: Range };
+  // line closes; the node's range runs through that `end`. With
+  // `has_end` false the data stops before a row that does not fit the
+  // declared variables (see src/utils/input-data.ts), with no `end`,
+  // and the range runs through the last row.
+  input_data?: { content: string; content_range: Range; has_end?: false };
   range: Range;
   leadingTrivia?: TriviaNode[];
   // Comments between the statement's tokens, e.g. `/* c */` in

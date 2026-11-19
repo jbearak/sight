@@ -253,7 +253,15 @@ export class CodeFormatter {
         const MAX_EMBEDDED_BLOCKS = 1000;
         
         const the_doc: DocumentLike = { content: document.content, line_offsets: document.line_offsets };
-        const the_embedded_blocks: Map<string, { content: string; range: ContextRange }> = new Map();
+        // Each placeholder's unit, and the indentation its first line had.
+        const the_embedded_blocks: Map<
+            string, {
+                content: string;
+                range: ContextRange;
+                first_indent: string;
+                moves_later_lines: boolean;
+            }
+        > = new Map();
         let my_placeholder_counter = 0;
 
         // Extract embedded blocks and replace with placeholders. The
@@ -336,10 +344,14 @@ export class CodeFormatter {
                             index - my_last_line_start + my_last_line_shift
                         ) ?? false)
                     : '';
+            const my_first_line = get_line_text(the_doc, my_unit.actual_range.start.line);
             the_embedded_blocks.set(my_placeholder, {
                 content: my_unit.content.slice(
                     0, my_unit.content.length - my_terminator.length),
-                range: my_unit.range
+                range: my_unit.range,
+                first_indent: my_first_line.slice(
+                    0, my_first_line.length - my_first_line.trimStart().length),
+                moves_later_lines: my_unit.moves_later_lines,
             });
 
             // Replace the unit with the placeholder using its actual range
@@ -427,6 +439,18 @@ export class CodeFormatter {
                                     return line;
                                 }
                                 return leading_indent + line;
+                            } else if (my_block_info.moves_later_lines) {
+                                // A one-line `mata:` statement's later lines
+                                // (`///` joins, or `#delimit ;` lines) move
+                                // with its first line. A Python statement's
+                                // stay as written: Stata joins at a `///`
+                                // inside a '...' string, whose text then
+                                // runs on into the next line's blanks.
+                                return shift_line_indent(
+                                    line,
+                                    indent_width(leading_indent, indent_size) -
+                                        indent_width(my_block_info.first_indent, indent_size),
+                                    indent_size);
                             } else {
                                 // Middle lines (embedded content): preserve as-is
                                 return line;
@@ -505,7 +529,12 @@ export class CodeFormatter {
         doc: DocumentLike,
         context_ranges: ContextRange[],
         program_end_lines: ReadonlySet<number>
-    ): Array<{ content: string; range: ContextRange; actual_range: Range }> {
+    ): Array<{
+        content: string;
+        range: ContextRange;
+        actual_range: Range;
+        moves_later_lines: boolean;
+    }> {
         // Group ranges that overlap or touch on a shared physical line.
         const the_spans = context_ranges
             .map((my_range) => ({
@@ -551,6 +580,8 @@ export class CodeFormatter {
             content: string;
             range: ContextRange;
             actual_range: Range;
+            // Whether later lines move with the first (see restore)
+            moves_later_lines: boolean;
         }> = [];
         for (const my_group of the_groups) {
             const my_ends_program = my_group.members.some((my_range) =>
@@ -564,6 +595,8 @@ export class CodeFormatter {
                 the_units.push({
                     content: this.extract_block_content(doc, my_range),
                     range: my_range,
+                    moves_later_lines: my_range.is_single_line &&
+                        my_range.context === LanguageContext.MATA,
                     actual_range: {
                         start: {
                             line: my_group.start_line,
@@ -608,6 +641,7 @@ export class CodeFormatter {
             the_units.push({
                 content: my_lines.join('\n'),
                 range: my_synthetic_range,
+                moves_later_lines: false,
                 actual_range: {
                     start: {
                         line: my_group.start_line,
@@ -907,4 +941,27 @@ function program_ending_block_end_lines(nodes: StataNode[]): Set<number> {
     };
     visit(nodes);
     return the_lines;
+}
+
+/** The columns `indent` (blanks and tabs) spans, a tab as `tab_size`. */
+function indent_width(indent: string, tab_size: number): number {
+    let my_width = 0;
+    for (const my_char of indent) {
+        my_width += my_char === '\t' ? tab_size : 1;
+    }
+    return my_width;
+}
+
+/**
+ * `line` with its indentation moved by `delta_columns`, written as
+ * spaces; as written when the move is zero or would take it below the
+ * first column.
+ */
+function shift_line_indent(line: string, delta_columns: number, tab_size: number): string {
+    const my_text = line.trimStart();
+    const my_width = indent_width(line.slice(0, line.length - my_text.length), tab_size);
+    if (delta_columns === 0 || my_text === '' || my_width + delta_columns < 0) {
+        return line;
+    }
+    return ' '.repeat(my_width + delta_columns) + my_text;
 }

@@ -2,26 +2,57 @@
     "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
     "name": "Stata",
     "patterns": [
-        { "include": "#comments" },
-        { "include": "#strings" },
-        { "include": "#macros" },
-        { "include": "#mata-inline" },
-        { "include": "#mata-block" },
+        { "include": "#delimit-semicolon" },
         { "include": "#delimit-directive" },
-        { "include": "#path-after-io-command" },
-        { "include": "#path-after-control-command" },
-        { "include": "#path-after-data-command" },
-        { "include": "#path-after-using" },
-        { "include": "#path-after-fs-command" },
-        { "include": "#factor-variables" },
-        { "include": "#statement-content" }
+        { "include": "#cr-content" }
     ],
     "repository": {
+        "cr-content": {
+            "patterns": [
+                { "include": "#comments" },
+                { "include": "#strings" },
+                { "include": "#macros" },
+                { "include": "#mata-inline" },
+                { "include": "#mata-block" },
+                { "include": "#path-after-io-command" },
+                { "include": "#path-after-control-command" },
+                { "include": "#path-after-data-command" },
+                { "include": "#path-after-using" },
+                { "include": "#path-after-fs-command" },
+                { "include": "#factor-variables" },
+                { "include": "#statement-content" }
+            ]
+        },
         "delimit-directive": {
-            "match": "(?:^|;)\\s*(#d(?:e(?:l(?:i(?:m(?:i(?:t)?)?)?)?)?)?)(?![A-Za-z0-9_])",
+            "comment": "#delimit (or #d ...) as the first code of a statement, which is the only place Stata 18 reads it: at the start of a line, after blanks and block comments. Under #delimit ; (see delimit-semicolon) also after a ;.",
+            "match": "^\\s*((?:/\\*(?:(?!\\*/).)*\\*/\\s*)*)(#d(?:e(?:l(?:i(?:m(?:i(?:t)?)?)?)?)?)?(?![A-Za-z0-9_]))",
             "captures": {
-                "1": { "name": "keyword.control.directive.delimit.stata" }
+                "1": { "patterns": [{ "include": "#comments" }] },
+                "2": { "name": "keyword.control.directive.delimit.stata" }
             }
+        },
+        "delimit-semicolon": {
+            "comment": "From #delimit ; to the #delimit cr that ends it: statements end at ;, so a directive may also follow a ; on the same line (di 1; #d cr), though not a line break inside a statement, which a grammar cannot tell.",
+            "begin": "^\\s*((?:/\\*(?:(?!\\*/).)*\\*/\\s*)*)(#d(?:e(?:l(?:i(?:m(?:i(?:t)?)?)?)?)?)?(?![A-Za-z0-9_]))(?=\\s*;)",
+            "beginCaptures": {
+                "1": { "patterns": [{ "include": "#comments" }] },
+                "2": { "name": "keyword.control.directive.delimit.stata" }
+            },
+            "end": "(?:^|;)\\s*((?:/\\*(?:(?!\\*/).)*\\*/\\s*)*)(#d(?:e(?:l(?:i(?:m(?:i(?:t)?)?)?)?)?)?(?![A-Za-z0-9_]))(?!\\s*;)",
+            "endCaptures": {
+                "1": { "patterns": [{ "include": "#comments" }] },
+                "2": { "name": "keyword.control.directive.delimit.stata" }
+            },
+            "patterns": [
+                {
+                    "match": "(?:^|(?<=;))\\s*((?:/\\*(?:(?!\\*/).)*\\*/\\s*)*)(#d(?:e(?:l(?:i(?:m(?:i(?:t)?)?)?)?)?)?(?![A-Za-z0-9_]))",
+                    "captures": {
+                        "1": { "patterns": [{ "include": "#comments" }] },
+                        "2": { "name": "keyword.control.directive.delimit.stata" }
+                    }
+                },
+                { "include": "#cr-content" }
+            ]
         },
         "statement-content": {
             "patterns": [

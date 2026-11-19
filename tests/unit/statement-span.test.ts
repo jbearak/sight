@@ -255,28 +255,29 @@ describe('inline_embedded_statement_end', () => {
     });
 
     it('matches the parser when #delimit cr appears before the terminator', () => {
+        // Mid-statement, `#delimit cr` is text of the statement, not a
+        // directive (StataMP 18 reads `di 1` then `#d cr` under
+        // `#delimit ;` as one statement), so it runs to the end.
         const my_source = '#delimit ;\nmata: foo(\n#delimit cr\ndisplay 1\n';
         const { tokens } = lexer.tokenize(my_source);
         const my_end = inline_embedded_statement_end(
             tokens,
             opener_index(tokens)
         );
-        expect(my_end.end_line).toBe(2);
+        expect(my_end.end_line).toBe(3);
         expect(my_end.end_line).toBe(parser_inline_end_line(my_source));
     });
 
-    it('ends on the opener line for a cr /// continued inline', () => {
+    it('takes in the joined line of a cr /// continued inline', () => {
         const my_source = 'mata: st_local("b", ///\n"2")\ndisplay 1\n';
         const { tokens } = lexer.tokenize(my_source);
         const my_end = inline_embedded_statement_end(
             tokens,
             opener_index(tokens)
         );
-        expect(my_end.end_line).toBe(0);
-        // The parser's statement takes in the joined line, as StataMP 18
-        // does. The context range still stops at the opener line, so
-        // source-preserving formatting moves the joined line with its
-        // statement rather than leaving it as embedded code.
+        // As the parser's statement does, and StataMP 18: the joined
+        // line is Mata, so hover there offers no Stata command help.
+        expect(my_end.end_line).toBe(1);
         expect(parser_inline_end_line(my_source)).toBe(1);
     });
 

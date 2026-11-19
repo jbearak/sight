@@ -161,8 +161,9 @@ export interface InlineEmbeddedEnd {
  * the embedded language on those continuation lines. This mirrors the
  * parser's single-line `parseEmbeddedLanguageBlock` collection exactly (see
  * `src/parser/index.ts`): scan forward from the opener collecting tokens
- * until the first `STATEMENT_TERMINATOR` or `EOF`. It is deliberately NOT
- * continuation-aware and does not special-case `DELIMIT_DIRECTIVE`, so the
+ * until the first `STATEMENT_TERMINATOR` or `EOF`, past a newline that a
+ * `///` swallows (Stata joins `mata: ///` and the next line, as the
+ * parser does). It does not special-case `DELIMIT_DIRECTIVE`, so the
  * computed range agrees with the AST's `embedded_block` span in every mode.
  *
  * `end_line` is the last CONTENT token's `range.end.line` (the terminating
@@ -198,8 +199,10 @@ export function inline_embedded_statement_end(
     let my_i = opener_index + 1;
     while (
         my_i < tokens.length &&
-        tokens[my_i].type !== 'STATEMENT_TERMINATOR' &&
-        tokens[my_i].type !== 'EOF'
+        tokens[my_i].type !== 'EOF' &&
+        (tokens[my_i].type !== 'STATEMENT_TERMINATOR' ||
+            is_swallowed_continuation_terminator(
+                tokens[my_i], tokens[my_i - 1]?.type === 'CONTINUATION'))
     ) {
         my_last_content_index = my_i;
         my_i++;
