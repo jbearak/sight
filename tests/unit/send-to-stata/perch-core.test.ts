@@ -153,14 +153,17 @@ describe('build_perch_launch', () => {
             stata_path: '/st{a}ta',
             working_directory: '/w{dir}',
             first_send: { command: 'do', quoted_path: '`"/t/{id}.do"\'' },
-            editor: { node_path: '/n{o}de', tty_script: '/x/tty.js', helper_path: '/h}' },
+            editor: {
+                node_path: '/n{o}de', tty_script: '/x/tty.js', helper_path: '/h}',
+                send_dir: '/t{mp}',
+            },
         });
         expect(options).toEqual({
             name: 'Stata',
             kind: 'stata',
             cwd: '/w{dir}',
             annotations: {
-                'sight.console': 'editor', 'sight.sendChannel': '1',
+                'sight.console': 'editor', 'sight.sendChannel': '2',
             },
             env: { ELECTRON_RUN_AS_NODE: '1' },
             command: [
@@ -169,6 +172,7 @@ describe('build_perch_launch', () => {
                 '--stata', '/st{{a}}ta',
                 '--ready-file', '{dir}/sight-console-ready',
                 '--end-file', '{dir}/sight-console-end',
+                '--send-dir', '/t{{mp}}',
                 '--cwd', '/w{{dir}}',
                 '--run', 'do `"/t/{{id}}.do"\'',
             ],

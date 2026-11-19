@@ -83,7 +83,13 @@ export type OfferAnswer =
 
 /** What the queue needs from VS Code and the file system. */
 export interface ConsoleQueueHost<TTerminal> {
-    type_send(terminal: TTerminal, send: PendingSend): void;
+    /**
+     * Type `send` into a ready terminal; throws if it is gone. Returns
+     * true if the terminal took the temp file with the line (it deletes
+     * the file once its console has given the line to Stata, however
+     * late), false if the usual cleanup delay applies.
+     */
+    type_send(terminal: TTerminal, send: PendingSend): boolean;
     /** Send to the Stata app (send-to-stata); rejects on failure. */
     dispatch_to_app(send: PendingSend): Promise<void>;
     show_offer(message: string): Promise<OfferAnswer>;
@@ -237,8 +243,9 @@ export class ConsoleTerminalQueue<TTerminal> {
 
     /**
      * Type `send` into a ready terminal, or queue it with its temp file
-     * while the terminal starts. Returns true if it was queued: the
-     * queue then owns the temp file.
+     * while the terminal starts. Returns true if the queue or the
+     * terminal now owns the temp file (the caller must not clean it
+     * up), false if the caller should schedule its usual cleanup.
      */
     send(terminal: TTerminal, send: PendingSend): boolean {
         const entry = this.entries.get(terminal);
@@ -246,8 +253,7 @@ export class ConsoleTerminalQueue<TTerminal> {
             throw new Error('Not a sight console terminal.');
         }
         if (entry.state === 'ready') {
-            this.host.type_send(terminal, send);
-            return false;
+            return this.host.type_send(terminal, send);
         }
         entry.pending.push(send);
         this.report_pending_count();
@@ -529,8 +535,9 @@ export class ConsoleTerminalQueue<TTerminal> {
         entry.pending = [];
         for (let i = 0; i < the_sends.length; i++) {
             const my_send = the_sends[i];
+            let is_taken: boolean;
             try {
-                this.host.type_send(terminal, my_send);
+                is_taken = this.host.type_send(terminal, my_send);
             } catch (my_error) {
                 // The terminal went away before its close event.
                 const the_rest = the_sends.slice(i);
@@ -543,7 +550,9 @@ export class ConsoleTerminalQueue<TTerminal> {
             }
             // The cleanup delay counts from when Stata is handed the
             // file, not from when the send was made.
-            this.host.schedule_cleanup(my_send.temp_file_path);
+            if (!is_taken) {
+                this.host.schedule_cleanup(my_send.temp_file_path);
+            }
         }
         this.report_pending_count();
     }

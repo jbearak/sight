@@ -4,11 +4,7 @@ import * as path from 'path';
 import { StataCommand, VALID_COMMANDS } from './index.js';
 import { detect_stata_cli, clear_stata_cli_cache } from './stata-cli-detector.js';
 import { send_to_terminal, wrap_path_for_stata_terminal } from './terminal.js';
-import {
-    hold_temp_file,
-    release_temp_file,
-    schedule_temp_file_cleanup,
-} from './temp-file.js';
+import { get_temp_dir, schedule_temp_file_cleanup } from './temp-file.js';
 import { send_to_stata_windows } from './windows-sender.js';
 import {
     create_console_pane,
@@ -401,11 +397,11 @@ async function resend_without_console(
             continue;
         }
         try {
-            const is_queued = await send_to_stata_terminal(
+            const is_taken = await send_to_stata_terminal(
                 my_send.command, my_send.temp_file_path
             );
-            // A queued send's temp file belongs to its queue.
-            if (!is_queued) {
+            // A taken send's temp file belongs to its queue or console.
+            if (!is_taken) {
                 schedule_temp_file_cleanup(my_send.temp_file_path);
             }
         } catch (my_error) {
@@ -463,15 +459,16 @@ function to_offer_answer(choice: string | undefined): OfferAnswer {
     return undefined;
 }
 
-function type_send(terminal: vscode.Terminal, send: PendingSend): void {
+function type_send(terminal: vscode.Terminal, send: PendingSend): boolean {
     const pane = the_console_panes.get(terminal);
     if (!pane) {
         throw new Error('The Stata pane has closed.');
     }
     const escaped_path = wrap_path_for_stata_terminal(send.temp_file_path);
-    // The pane keeps the file until its console gives the line to
-    // Stata, however late; cleanup scheduled meanwhile skips it.
+    // The pane takes the file: it keeps it until its console gives the
+    // line to Stata, however late, and then deletes it.
     pane.type_line(`${send.command} ${escaped_path}`, send.temp_file_path);
+    return true;
 }
 
 /** What both queues (panes, and Perch sessions) need from VS Code. */
@@ -561,6 +558,14 @@ export const PERCH_LAUNCHER_COMMAND = 'sight.perch.newConsole';
 const PERCH_LOOKUP_TIMEOUT_MS = 5000;
 let perch_lookup_timeout_ms = PERCH_LOOKUP_TIMEOUT_MS;
 const PERCH_UNAVAILABLE_MESSAGE = 'Perch is not available here.';
+/**
+ * A send whose delivery Perch couldn't confirm may or may not be in
+ * the console, which deletes its file if it has it. Sight deletes it
+ * when the session ends, or after this long, so it is never left
+ * behind for good (a console still holding it then can't run it).
+ */
+const PERCH_UNKNOWN_SEND_CLEANUP_MS = 60 * 60 * 1000;
+let perch_unknown_send_cleanup_ms = PERCH_UNKNOWN_SEND_CLEANUP_MS;
 
 interface PerchConsole {
     id: string;
@@ -579,6 +584,14 @@ interface PerchConsole {
     chain: Promise<void>;
     is_ready: boolean;
     ended: boolean;
+    /**
+     * Temp files handed to its console with sends (the send channel),
+     * which the console deletes once Stata has read each. Sight deletes
+     * any left when the session ends (its console may have died before
+     * it could), and forgets those already gone as it polls. The value
+     * is the late cleanup of a send of unknown outcome.
+     */
+    the_handed_files: Map<string, ReturnType<typeof setTimeout> | null>;
 }
 
 /** Sessions this window sends to, by ID. */
@@ -715,11 +728,12 @@ function handle_perch_connected(
 ): void {
     if (api === undefined) {
         // Perch went away (or was never here): new consoles start as
-        // before, and its sessions are no longer sent to.
+        // before, and its sessions are no longer sent to. They may
+        // still run, so their consoles keep the files they have.
         for (const my_id of [...the_perch_consoles.keys()]) {
             end_perch_console(my_id, {
                 reason: 'process', code: undefined, backend: 'pty',
-            });
+            }, { is_session_gone: false });
         }
         return;
     }
@@ -765,6 +779,7 @@ function track_perch_console(
         chain: Promise.resolve(),
         is_ready: false,
         ended: false,
+        the_handed_files: new Map(),
     };
     the_perch_consoles.set(record.id, record);
     get_perch_queue().track(record.id, baked ? [baked] : []);
@@ -815,8 +830,35 @@ async function watch_perch_console(
         if (!record.is_ready && await file_exists(ready_path)) {
             mark_perch_ready(record);
         }
+        await forget_deleted_files(record);
         await delay(record.is_ready ? PERCH_END_POLL_MS : PERCH_READY_POLL_MS);
     }
+}
+
+/** Forget handed files the console has deleted (bounds the map). */
+async function forget_deleted_files(record: PerchConsole): Promise<void> {
+    for (const my_file of [...record.the_handed_files.keys()]) {
+        if (!await file_exists(my_file)) {
+            const timer = record.the_handed_files.get(my_file);
+            if (timer) {
+                clearTimeout(timer);
+            }
+            record.the_handed_files.delete(my_file);
+        }
+    }
+}
+
+/** Delete a handed file now, once: it leaves the map as it goes. */
+function delete_handed_file(record: PerchConsole, file_path: string): void {
+    if (!record.the_handed_files.has(file_path)) {
+        return;
+    }
+    const timer = record.the_handed_files.get(file_path);
+    if (timer) {
+        clearTimeout(timer);
+    }
+    record.the_handed_files.delete(file_path);
+    fs.promises.unlink(file_path).catch(() => {});
 }
 
 /** The editor console ended on its own (its terminal may still show why). */
@@ -902,14 +944,25 @@ function detach_perch_terminal(terminal: vscode.Terminal, id: string): void {
 
 /**
  * A session ended (or Sight stops using it). Sends still waiting for
- * it are dropped with a notice (`exit`), or were taken (null).
+ * it are dropped with a notice (`exit`), or were taken (null). If its
+ * console is gone, so is any temp file handed to it; otherwise the
+ * console keeps those (a send of unknown outcome still goes late).
  */
-function end_perch_console(id: string, exit: ConsoleExit | null): void {
+function end_perch_console(
+    id: string,
+    exit: ConsoleExit | null,
+    options: { is_session_gone: boolean } = { is_session_gone: true }
+): void {
     const record = the_perch_consoles.get(id);
     if (!record) {
         return;
     }
     record.ended = true;
+    if (options.is_session_gone) {
+        for (const my_file of [...record.the_handed_files.keys()]) {
+            delete_handed_file(record, my_file);
+        }
+    }
     the_perch_consoles.delete(id);
     remove_detached_perch_id(id);
     if (record.terminal) {
@@ -941,7 +994,11 @@ function current_perch_target(): PerchConsole | null {
     return id === undefined ? null : the_perch_consoles.get(id) ?? null;
 }
 
-function type_perch_send(id: string, send: PendingSend): void {
+/**
+ * Type a send into a ready session. Returns true if its console takes
+ * the temp file (the send channel), false if the usual cleanup applies.
+ */
+function type_perch_send(id: string, send: PendingSend): boolean {
     const record = the_perch_consoles.get(id);
     if (!record) {
         throw new Error('The Stata session has ended.');
@@ -952,39 +1009,47 @@ function type_perch_send(id: string, send: PendingSend): void {
         record.chain = record.chain.then(() => deliver_perch_send(
             record, line, { submit: true }
         ));
-        return;
+        return false;
     }
     // The console enters the line at a prompt, never as an answer to
-    // `--more--`, and deletes the file once Stata has read it: a busy
-    // Stata may read it long after the usual cleanup delay, which
-    // skips a held file.
+    // `--more--`, and deletes the file once Stata has read it, however
+    // late that is.
     const file_path = send.temp_file_path;
-    hold_temp_file(file_path);
+    record.the_handed_files.set(file_path, null);
     record.chain = record.chain.then(() => deliver_perch_send(
         record, encode_editor_send(line, file_path), { submit: false },
         file_path
     ));
+    return true;
 }
 
 /**
  * Hand one send to the session; report a failure (never resend). With
- * `held_file`, the console owns that file once it has the send; if it
- * surely doesn't, the file goes now.
+ * `handed_file`, the console owns that file once it has the send; if it
+ * surely doesn't, the file goes now; if that is unknown, the file goes
+ * when the session ends or after PERCH_UNKNOWN_SEND_CLEANUP_MS.
  */
 async function deliver_perch_send(
     record: PerchConsole,
     text: string,
     options: { submit: boolean },
-    held_file?: string
+    handed_file?: string
 ): Promise<void> {
     try {
         await record.api.send(record.id, text, options);
     } catch (my_error) {
         const code = perch_error_code(my_error);
-        if (held_file !== undefined) {
-            release_temp_file(held_file);
-            if (code !== 'outcome_unknown') {
-                fs.promises.unlink(held_file).catch(() => {});
+        if (handed_file !== undefined
+            && record.the_handed_files.has(handed_file)) {
+            if (code === 'outcome_unknown') {
+                const timer = setTimeout(
+                    () => delete_handed_file(record, handed_file),
+                    perch_unknown_send_cleanup_ms
+                );
+                timer.unref?.();
+                record.the_handed_files.set(handed_file, timer);
+            } else {
+                delete_handed_file(record, handed_file);
             }
         }
         if (code === 'outcome_unknown') {
@@ -1013,18 +1078,21 @@ async function deliver_perch_send(
 
 /**
  * Send to a Perch session: typed (through Perch) when it is ready,
- * else queued. Returns true if queued (the queue owns the temp file).
+ * else queued. Returns true if the queue or the console owns the temp
+ * file (see ConsoleTerminalQueue.send).
  */
 async function send_to_perch_console(
     record: PerchConsole,
     send: PendingSend
 ): Promise<boolean> {
     record.terminal?.show(true);
-    const queued = get_perch_queue().send(record.id, send);
-    if (!queued) {
+    const queue = get_perch_queue();
+    const is_typed_now = queue.get_state(record.id) === 'ready';
+    const is_taken = queue.send(record.id, send);
+    if (is_typed_now) {
         await record.chain;
     }
-    return queued;
+    return is_taken;
 }
 
 function format_session_detail(session: PerchSessionInfo): string {
@@ -1093,6 +1161,7 @@ async function perch_launch_options(
                     'tty.js'
                 ),
                 helper_path: new_pane.pty.helper_path,
+                send_dir: get_temp_dir(),
             },
         });
     }
@@ -1195,7 +1264,8 @@ async function send_to_new_perch_console(
 
 /**
  * Send through Perch if this window uses it for the send: returns
- * whether the send was queued, or null for the old path. A Perch
+ * whether the session's queue or console took the temp file, or null
+ * for the old path. A Perch
  * console of this window gets it in any window; only a remote window
  * starts one for it.
  */
@@ -1230,8 +1300,8 @@ async function send_with_perch(send: PendingSend): Promise<boolean | null> {
 
 /**
  * Send to `terminal`'s session if it is one of Sight's Perch terminals
- * (the "active terminal" commands): returns whether the send was
- * queued, or null if it isn't one.
+ * (the "active terminal" commands): returns whether the session's
+ * queue or console took the temp file, or null if it isn't one.
  */
 export async function send_to_perch_terminal(
     terminal: vscode.Terminal | undefined,
@@ -1250,7 +1320,7 @@ export async function send_to_perch_terminal(
  * Send to `terminal` if it is a Stata pane (sight console): typed when
  * it is ready, queued while it starts, never through sendText, which
  * the pane would drop while connecting. Returns null if it isn't a
- * pane; true if queued (the queue then owns `temp_file_path`).
+ * pane; true if the queue or the pane now owns `temp_file_path`.
  */
 export function send_to_console_pane_terminal(
     terminal: vscode.Terminal | undefined,
@@ -1270,8 +1340,8 @@ export function send_to_console_pane_terminal(
  * The "active terminal" commands: send to whatever terminal is active.
  * One of Sight's Perch sessions takes input only through Perch, and a
  * Stata pane through its queue; any other terminal gets sendText.
- * Returns true if the send was queued (the queue then owns
- * `temp_file_path`).
+ * Returns true if the terminal's queue or console now owns
+ * `temp_file_path` (the caller must not clean it up).
  */
 export async function send_to_active_terminal(
     command: StataCommand,
@@ -1799,9 +1869,9 @@ async function wait_for_terminal_ready(
  * Send a command to the Stata profile terminal.
  * Creates a new Stata terminal if none exists.
  *
- * Returns true if the send was queued for a sight console terminal
- * that isn't ready yet. The queue then owns `temp_file_path` and
- * schedules its deletion; the caller must not. Rejects with
+ * Returns true if a sight console terminal's queue (it isn't ready
+ * yet) or console (it takes the file with the line) now owns
+ * `temp_file_path` and deletes it; the caller must not. Rejects with
  * SendCancelledError if the user dismissed the choice of a session.
  */
 export async function send_to_stata_terminal(
@@ -1842,13 +1912,15 @@ export async function send_to_stata_terminal(
         // Readiness can take minutes (Windows' take-over question,
         // Stata's startup), so no timeout applies: the send waits in
         // the terminal's queue.
-        const queued = console_queue.send(
+        const is_starting =
+            console_queue.get_state(pane_terminal) === 'starting';
+        const is_taken = console_queue.send(
             pane_terminal,
             { command, temp_file_path }
         );
         // Focus a terminal still starting so its question is seen.
-        pane_terminal.show(!queued);
-        return queued;
+        pane_terminal.show(!is_starting);
+        return is_taken;
     }
 
     const { terminal, created_with_initial_command } =
@@ -1890,6 +1962,13 @@ export function perch_terminals_for_tests(): vscode.Terminal[] {
     return [...the_perch_terminals.keys()];
 }
 
+/** Test seam: the temp files handed to Perch consoles, all sessions. */
+export function perch_handed_files_for_tests(): string[] {
+    return [...the_perch_consoles.values()].flatMap(
+        my_record => [...my_record.the_handed_files.keys()]
+    );
+}
+
 export function reset_stata_terminal_manager_for_tests(
     options: {
         context?: vscode.ExtensionContext | null;
@@ -1902,6 +1981,8 @@ export function reset_stata_terminal_manager_for_tests(
         pty_helper_path?: string | null;
         /** How long the launcher command waits for the Perch lookup. */
         perch_lookup_timeout_ms?: number;
+        /** The late cleanup of a Perch send of unknown outcome. */
+        perch_unknown_send_cleanup_ms?: number;
     } = {}
 ): void {
     console_queue?.dispose();
@@ -1913,6 +1994,8 @@ export function reset_stata_terminal_manager_for_tests(
     perch_creation_in_flight = null;
     perch_lookup_timeout_ms =
         options.perch_lookup_timeout_ms ?? PERCH_LOOKUP_TIMEOUT_MS;
+    perch_unknown_send_cleanup_ms = options.perch_unknown_send_cleanup_ms
+        ?? PERCH_UNKNOWN_SEND_CLEANUP_MS;
     the_perch_consoles.clear();
     the_perch_terminals.clear();
     the_detached_perch_ids.length = 0;

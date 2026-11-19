@@ -2,10 +2,10 @@ import { describe, test, expect } from 'bun:test';
 import * as fs from 'fs/promises';
 import {
     create_temp_file,
-    hold_temp_file,
-    release_temp_file,
+    get_temp_dir,
     schedule_temp_file_cleanup
 } from '../../../client/src/send-to-stata/temp-file';
+import { is_editor_send_file } from '../../../src/console/editor-send-channel';
 
 describe('Feature: send-to-stata temp file cleanup', () => {
     test('scheduled cleanup preserves the file until the delay elapses', async () => {
@@ -23,24 +23,14 @@ describe('Feature: send-to-stata temp file cleanup', () => {
         });
     });
 
-    test('a held file outlives cleanup scheduled before its release', async () => {
-        const my_file_path = await create_temp_file('display "held"');
-        hold_temp_file(my_file_path);
-        schedule_temp_file_cleanup(my_file_path, 10);
-        await new Promise(resolve => setTimeout(resolve, 40));
-        expect(await fs.readFile(my_file_path, 'utf8')).toBe('display "held"');
-
-        // Released before a hand-off's cleanup fires: that cleanup
-        // still leaves it, so the new delay counts from the release.
-        schedule_temp_file_cleanup(my_file_path, 30);
-        release_temp_file(my_file_path);
-        await new Promise(resolve => setTimeout(resolve, 50));
-        expect(await fs.readFile(my_file_path, 'utf8')).toBe('display "held"');
-
-        schedule_temp_file_cleanup(my_file_path, 10);
-        await new Promise(resolve => setTimeout(resolve, 40));
-        await expect(fs.readFile(my_file_path, 'utf8')).rejects.toMatchObject({
-            code: 'ENOENT'
-        });
+    // A console on a terminal deletes only files it can tell are
+    // these (src/console/editor-send-channel.ts).
+    test('temp files are named as the console expects', async () => {
+        const my_file_path = await create_temp_file('display 1');
+        try {
+            expect(is_editor_send_file(my_file_path, get_temp_dir())).toBe(true);
+        } finally {
+            await fs.unlink(my_file_path);
+        }
     });
 });

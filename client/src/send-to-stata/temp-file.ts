@@ -42,30 +42,16 @@ export async function create_temp_file(content: string): Promise<string> {
 }
 
 /**
- * Files a Stata pane has typed but its console hasn't given to Stata
- * yet (it may be running something long). The pane deletes each one
- * itself; cleanup scheduled while a file is held (by whoever handed
- * it over) never deletes it, even if it fires after the release.
+ * Delete a temp file after the delay. Each file has one owner, which
+ * calls this (or deletes it) once: the send command, a console queue,
+ * or a console that took the file with its line (see
+ * ConsoleQueueHost.type_send).
  */
-const the_held_files = new Set<string>();
-
-export function hold_temp_file(file_path: string): void {
-    the_held_files.add(file_path);
-}
-
-export function release_temp_file(file_path: string): void {
-    the_held_files.delete(file_path);
-}
-
 export function schedule_temp_file_cleanup(
     file_path: string,
     delay_ms = DEFAULT_TEMP_FILE_CLEANUP_DELAY_MS
 ): NodeJS.Timeout {
-    const was_held = the_held_files.has(file_path);
     return setTimeout(() => {
-        if (was_held || the_held_files.has(file_path)) {
-            return;
-        }
         fs.unlink(file_path).catch(() => {});
     }, delay_ms);
 }

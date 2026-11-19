@@ -47,13 +47,16 @@ class FakeHost implements ConsoleQueueHost<FakeTerminal> {
     readonly the_failing_paths = new Set<string>();
     readonly the_dispatch_gates = new Map<string, Promise<void>>();
     fallback_in_effect = false;
+    /** The terminal takes typed sends' temp files (a pane does). */
+    terminal_takes_files = false;
     override_set_count = 0;
     always_is_effective = true;
     always_write_count = 0;
 
-    type_send(terminal: FakeTerminal, send: PendingSend): void {
+    type_send(terminal: FakeTerminal, send: PendingSend): boolean {
         this.the_typed.push(`${terminal.id}:${send.temp_file_path}`);
         this.the_events.push(`type ${send.temp_file_path}`);
+        return this.terminal_takes_files;
     }
 
     async dispatch_to_app(send: PendingSend): Promise<void> {
@@ -215,6 +218,7 @@ describe('console terminal queue: readiness', () => {
                 throw new Error('terminal has exited');
             }
             host.the_typed.push(`t1:${my_send.temp_file_path}`);
+            return false;
         };
         const queue = create_queue(host);
         const terminal = { id: 't1' };
@@ -251,6 +255,37 @@ describe('console terminal queue: readiness', () => {
         expect(host.the_typed).toEqual([]);
         expect(queue.is_tracked(terminal)).toBe(false);
         expect(() => queue.send(terminal, send('/b.do'))).toThrow();
+    });
+});
+
+describe('console terminal queue: who owns a typed send\'s file', () => {
+    test('a terminal that takes the file gets no cleanup from the queue', () => {
+        const host = new FakeHost();
+        host.terminal_takes_files = true;
+        const queue = create_queue(host);
+        const terminal = { id: 't1' };
+        queue.track(terminal);
+        expect(queue.send(terminal, send('/queued.do'))).toBe(true);
+        queue.mark_ready(terminal);
+        expect(host.the_typed).toEqual(['t1:/queued.do']);
+        // Once ready, the terminal owns the file: the caller must not
+        // clean it up either.
+        expect(queue.send(terminal, send('/ready.do'))).toBe(true);
+        expect(host.the_cleanups).toEqual([]);
+        expect(host.the_deleted).toEqual([]);
+    });
+
+    test('a terminal that types keys leaves the usual cleanup', () => {
+        const host = new FakeHost();
+        const queue = create_queue(host);
+        const terminal = { id: 't1' };
+        queue.track(terminal);
+        queue.send(terminal, send('/queued.do'));
+        queue.mark_ready(terminal);
+        expect(host.the_cleanups).toEqual(['/queued.do']);
+        // The caller schedules this one.
+        expect(queue.send(terminal, send('/ready.do'))).toBe(false);
+        expect(host.the_cleanups).toEqual(['/queued.do']);
     });
 });
 

@@ -41,7 +41,7 @@ export type PerchConsoleMode =
  * tty.js it started with, so sends check this, not the version.
  */
 export const PERCH_SEND_CHANNEL_ANNOTATION = 'sight.sendChannel';
-export const PERCH_SEND_CHANNEL_VERSION = '1';
+export const PERCH_SEND_CHANNEL_VERSION = '2';
 /** Mirrors src/console/editor-send-channel.ts. */
 const EDITOR_SEND_START = '\x1b_sight-send;';
 const EDITOR_SEND_END = '\x1b\\';
@@ -116,6 +116,11 @@ export interface PerchLaunchSpec {
         tty_script: string;
         /** The sight-pty helper. */
         helper_path: string;
+        /**
+         * Where the extension writes sends' temp do-files: the console
+         * deletes only those (editor-send-channel.ts).
+         */
+        send_dir: string;
     };
 }
 
@@ -157,6 +162,7 @@ export function build_perch_launch(
         '--stata', esc(spec.stata_path),
         '--ready-file', `{dir}/${PERCH_READY_FILE}`,
         '--end-file', `{dir}/${PERCH_END_FILE}`,
+        '--send-dir', esc(editor.send_dir),
     ];
     if (spec.working_directory !== undefined) {
         options.command.push('--cwd', esc(spec.working_directory));

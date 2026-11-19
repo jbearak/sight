@@ -251,14 +251,14 @@ async function handle_send_command(
         }
 
         const my_temp_file = await create_temp_file(my_code);
-        // A send queued for a starting sight console terminal belongs
-        // to that terminal's queue, which deletes the file once it is
-        // typed, dispatched or dropped.
-        let is_queued = false;
+        // A send a sight console terminal takes belongs to its queue
+        // (while it starts) or its console (which keeps the file until
+        // Stata reads the line), which deletes the file itself.
+        let is_taken = false;
 
         try {
             if (effective_target === 'integrated') {
-                is_queued = await send_to_stata_terminal(
+                is_taken = await send_to_stata_terminal(
                     command, my_temp_file
                 );
             } else if (effective_target === 'app') {
@@ -282,14 +282,14 @@ async function handle_send_command(
                     );
                 }
             } else {
-                is_queued = await send_to_active_terminal(
+                is_taken = await send_to_active_terminal(
                     command, my_temp_file
                 );
             }
         } finally {
             // All send targets enqueue execution asynchronously enough that
             // eager deletion can race the Stata process reading the temp file.
-            if (!is_queued) {
+            if (!is_taken) {
                 schedule_temp_file_cleanup(my_temp_file);
             }
         }

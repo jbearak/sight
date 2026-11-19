@@ -133,8 +133,6 @@ interface VscodeMockState {
     the_error_messages: string[];
     the_update_calls: Array<[string, unknown, number]>;
     the_cleanups: string[];
-    /** Temp files a pane holds until its console gives them to Stata. */
-    the_held_files: Set<string>;
     /** Files the active-terminal path typed with sendText. */
     the_terminal_sends: string[];
     active_terminal?: MockTerminal;
@@ -221,7 +219,6 @@ function create_vscode_mock_state(
         the_error_messages: [],
         the_update_calls: [],
         the_cleanups: [],
-        the_held_files: new Set(),
         the_terminal_sends: [],
         the_app_dispatches: [],
         the_failing_app_paths: new Set(),
@@ -547,9 +544,7 @@ function register_module_mocks(): void {
     }));
 
     // Cleanups are recorded so a test can see when each temp file's
-    // deletion was scheduled. Holds work as in the real module, which
-    // later files may get this mock in place of.
-    const the_mock_held_files = new Set<string>();
+    // deletion was scheduled.
     mock.module(TEMP_FILE_MODULE_URL, () => ({
         DEFAULT_TEMP_FILE_CLEANUP_DELAY_MS: 30000,
         get_temp_dir: () => os.tmpdir(),
@@ -560,22 +555,11 @@ function register_module_mocks(): void {
             current_vscode_state?.the_cleanups.push(file_path);
             // Delete like the real helper, since this mock outlives
             // the file (Bun keeps module mocks for later files).
-            const was_held = the_mock_held_files.has(file_path);
             const my_timeout = setTimeout(() => {
-                if (!was_held && !the_mock_held_files.has(file_path)) {
-                    fs.promises.unlink(file_path).catch(() => {});
-                }
+                fs.promises.unlink(file_path).catch(() => {});
             }, delay_ms);
             my_timeout.unref?.();
             return my_timeout;
-        },
-        hold_temp_file: (file_path: string) => {
-            the_mock_held_files.add(file_path);
-            current_vscode_state?.the_held_files.add(file_path);
-        },
-        release_temp_file: (file_path: string) => {
-            the_mock_held_files.delete(file_path);
-            current_vscode_state?.the_held_files.delete(file_path);
         },
         create_temp_file: async (content: string) => {
             const file_path = path.join(
@@ -862,6 +846,8 @@ interface FakeConsole {
     the_inputs: string[];
     /** One per send_line, in order: resolve with whether it was sent. */
     the_line_reports: Array<Deferred<boolean>>;
+    /** Report each later line sent as soon as it is entered. */
+    report_at_once?: boolean;
     is_closed: boolean;
     ready: Deferred<boolean>;
     done: Deferred<ConsoleEndResult>;
@@ -922,6 +908,9 @@ function create_fake_console_module(the_consoles: FakeConsole[]) {
                     fake.the_inputs.push(`${text}\r`);
                     const report = create_deferred<boolean>();
                     fake.the_line_reports.push(report);
+                    if (fake.report_at_once) {
+                        report.resolve(true);
+                    }
                     return report.promise;
                 },
                 handle_resize: () => {},
@@ -975,11 +964,13 @@ async function create_console_harness(
     setup?: (vscode_state: VscodeMockState) => {
         extension_kind?: number;
         perch_lookup_timeout_ms?: number;
+        perch_unknown_send_cleanup_ms?: number;
     }
 ): Promise<ConsoleHarness> {
     const vscode_state = create_vscode_mock_state(Promise.resolve(1));
-    const { extension_kind, perch_lookup_timeout_ms } =
-        setup?.(vscode_state) ?? {};
+    const {
+        extension_kind, perch_lookup_timeout_ms, perch_unknown_send_cleanup_ms,
+    } = setup?.(vscode_state) ?? {};
     const the_terminals: MockTerminal[] = [];
     const the_consoles: FakeConsole[] = [];
     const harness_state = {
@@ -1014,6 +1005,7 @@ async function create_console_harness(
             create_fake_console_module(the_consoles),
         pty_helper_path,
         perch_lookup_timeout_ms,
+        perch_unknown_send_cleanup_ms,
     });
     terminal_manager.register_stata_terminal(context);
     the_live_terminals.push(the_terminals);
@@ -1164,17 +1156,26 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
         expect(fake.the_inputs).toEqual(
             the_files.map(my_file => `do ${wrap(my_file)}\r`)
         );
+        // The pane took the files: each goes once its console reports
+        // the line given to Stata.
+        expect(vscode_state.the_cleanups).toEqual([]);
+        for (const my_report of fake.the_line_reports) {
+            my_report.resolve(true);
+        }
+        await wait_until(
+            () => vscode_state.the_cleanups.length === 3, 'the cleanups', 2000
+        );
         expect(vscode_state.the_cleanups).toEqual(the_files);
         expect(vscode_state.status_item?.is_shown).toBe(false);
         // Nothing goes through sendText: the pane types into the
         // console directly.
         expect(vscode_state.the_send_calls).toEqual([]);
 
-        // Once ready, sends are typed directly.
+        // Once ready, sends are typed directly; the pane takes the file.
         const later = await create_tracked_send_file('d.do');
         expect(
             await terminal_manager.send_to_stata_terminal('include', later)
-        ).toBe(false);
+        ).toBe(true);
         expect(fake.the_inputs.at(-1)).toBe(`include ${wrap(later)}\r`);
     });
 
@@ -1580,23 +1581,23 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
             () => fake.the_inputs.length === 1, 'the send to be typed', 2000
         );
         // Ready: typed now, but Stata may run something long first.
+        // The pane takes the file, so the caller must not clean it up.
         const second = await create_tracked_send_file('second.do');
         expect(
             await terminal_manager.send_to_stata_terminal('do', second)
-        ).toBe(false);
+        ).toBe(true);
         expect(fake.the_inputs.at(-1)).toBe(`do ${wrap(second)}\r`);
-        expect(vscode_state.the_held_files).toEqual(new Set([first, second]));
+        expect(vscode_state.the_cleanups).toEqual([]);
 
-        // The console gave the first to Stata: the usual delay starts.
-        const cleanups_before = vscode_state.the_cleanups.length;
+        // The console gave the first to Stata: the usual delay starts,
+        // once.
         fake.the_line_reports[0].resolve(true);
         await wait_until(
-            () => !vscode_state.the_held_files.has(first),
-            'the first file to be released',
+            () => vscode_state.the_cleanups.includes(first),
+            'the first file\'s cleanup',
             2000
         );
-        expect(vscode_state.the_cleanups.slice(cleanups_before))
-            .toEqual([first]);
+        expect(vscode_state.the_cleanups).toEqual([first]);
         expect(fs.existsSync(first)).toBe(true);
 
         // Closing the pane with the second still queued deletes it.
@@ -1604,7 +1605,28 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
         await wait_until(
             () => !fs.existsSync(second), 'the queued file to go', 2000
         );
-        expect(vscode_state.the_held_files.size).toBe(0);
+        expect(vscode_state.the_cleanups).toEqual([first]);
+    });
+
+    test('a send Stata reads at once is cleaned up once', async () => {
+        const harness = await create_console_harness();
+        const { vscode_state, terminal_manager } = harness;
+        const first = await create_tracked_send_file('first.do');
+        await terminal_manager.send_to_stata_terminal('do', first);
+        const fake = await console_started(harness);
+        fake.report_at_once = true;
+        fake.ready.resolve(true);
+        await wait_until(
+            () => vscode_state.the_cleanups.includes(first), 'the first', 2000
+        );
+        // The pane takes the file, so the send command, which cleans
+        // up a file nobody took, leaves it: the pane's cleanup is the
+        // only one.
+        const second = await create_tracked_send_file('second.do');
+        expect(await terminal_manager.send_to_stata_terminal('do', second))
+            .toBe(true);
+        await new Promise(resolve => setTimeout(resolve, 20));
+        expect(vscode_state.the_cleanups).toEqual([first, second]);
     });
 
     test('a send the console drops is deleted at once', async () => {
@@ -1621,7 +1643,7 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
         await wait_until(
             () => !fs.existsSync(first), 'the dropped file to go', 2000
         );
-        expect(vscode_state.the_held_files.size).toBe(0);
+        expect(vscode_state.the_cleanups).toEqual([]);
     });
 
     test('the active-terminal command queues for a pane that is still connecting', async () => {
@@ -1818,7 +1840,7 @@ describe.serial('Feature: Stata pane running sight console on macOS and Linux', 
         expect(harness.vscode_state.the_send_calls).toEqual([]);
 
         const third = await create_tracked_send_file('third');
-        expect(await harness.terminal_manager.send_to_stata_terminal('do', third)).toBe(false);
+        expect(await harness.terminal_manager.send_to_stata_terminal('do', third)).toBe(true);
         expect(fake.the_inputs.at(-1)).toBe(`do ${wrap(third)}\r`);
     });
 
@@ -2097,6 +2119,7 @@ async function create_perch_harness(
         extension_kind?: number;
         perch?: (vscode_state: VscodeMockState) => FakePerch | undefined;
         helper_path?: string | null;
+        perch_unknown_send_cleanup_ms?: number;
     } = {}
 ): Promise<{ harness: ConsoleHarness; perch: FakePerch | undefined }> {
     let perch: FakePerch | undefined;
@@ -2114,6 +2137,8 @@ async function create_perch_harness(
             return {
                 extension_kind: options.extension_kind ?? 2,
                 perch_lookup_timeout_ms: 200,
+                perch_unknown_send_cleanup_ms:
+                    options.perch_unknown_send_cleanup_ms,
             };
         }
     );
@@ -2122,6 +2147,14 @@ async function create_perch_harness(
 
 function write_ready_file(dir: string): void {
     fs.writeFileSync(path.join(dir, 'sight-console-ready'), '{"pid":1}');
+}
+
+/** The temp files Perch consoles took with their sends. */
+function handed_files(harness: ConsoleHarness): string[] {
+    const manager = harness.terminal_manager as unknown as {
+        perch_handed_files_for_tests: () => string[];
+    };
+    return manager.perch_handed_files_for_tests();
 }
 
 /** The Perch terminals Sight sends through. */
@@ -2236,7 +2269,7 @@ describe.serial('Feature: Stata console in a Perch session (remote windows)', ()
         expect(created.cwd).toBe('/work/project');
         expect(created.env).toEqual({ ELECTRON_RUN_AS_NODE: '1' });
         expect(created.annotations).toEqual({
-            'sight.console': 'editor', 'sight.sendChannel': '1',
+            'sight.console': 'editor', 'sight.sendChannel': '2',
         });
         expect(created.show).toBe(false);
         expect(created.command).toEqual([
@@ -2246,6 +2279,7 @@ describe.serial('Feature: Stata console in a Perch session (remote windows)', ()
             '--stata', '/usr/local/bin/stata-mp',
             '--ready-file', '{dir}/sight-console-ready',
             '--end-file', '{dir}/sight-console-end',
+            '--send-dir', os.tmpdir(),
             '--cwd', '/work/project',
             '--run', `do ${wrap(first)}`,
         ]);
@@ -2279,13 +2313,14 @@ describe.serial('Feature: Stata console in a Perch session (remote windows)', ()
             },
         ]);
         // The first ran from the command line and is cleaned up as
-        // usual; the console deletes the others once Stata reads them,
-        // so the scheduled cleanups skip them.
-        expect(harness.vscode_state.the_cleanups).toEqual([first, second, third]);
-        expect([...harness.vscode_state.the_held_files]).toEqual([second, third]);
+        // usual; the console took the others, and deletes each once
+        // Stata reads it.
+        expect(harness.vscode_state.the_cleanups).toEqual([first]);
+        expect(handed_files(harness)).toEqual([second, third]);
 
         const fourth = await create_tracked_send_file('fourth');
-        expect(await harness.terminal_manager.send_to_stata_terminal('do', fourth)).toBe(false);
+        expect(await harness.terminal_manager.send_to_stata_terminal('do', fourth)).toBe(true);
+        expect(harness.vscode_state.the_cleanups).toEqual([first]);
         expect(perch!.the_sends).toHaveLength(3);
         expect(perch!.the_sends[2].text).toBe(channel_send(`do ${wrap(fourth)}`, fourth));
         expect(perch!.the_creates).toHaveLength(1);
@@ -2343,6 +2378,7 @@ describe.serial('Feature: Stata console in a Perch session (remote windows)', ()
             '--stata', '/opt/st{{ata}}/stata-mp',
             '--ready-file', '{dir}/sight-console-ready',
             '--end-file', '{dir}/sight-console-end',
+            '--send-dir', os.tmpdir(),
             '--cwd', '/work/{{dir}}',
             '--run', escape(`do ${wrap(first)}`),
         ]);
@@ -2384,7 +2420,7 @@ describe.serial('Feature: Stata console in a Perch session (remote windows)', ()
         close_terminal(harness.vscode_state, the_tracked[0]);
         expect(perch_terminals(harness)).toEqual([]);
 
-        expect(await harness.terminal_manager.send_to_stata_terminal('do', second)).toBe(false);
+        expect(await harness.terminal_manager.send_to_stata_terminal('do', second)).toBe(true);
         expect(perch!.the_sends).toEqual([{
             id: session.id,
             text: channel_send(`do ${wrap(second)}`, second),
@@ -2596,6 +2632,104 @@ describe.serial('Feature: Stata console in a Perch session (remote windows)', ()
         expect(perch!.the_sends).toEqual([]);
     });
 
+    test('a queued send of unknown outcome keeps its file, then deletes it late', async () => {
+        const { harness, perch } = await create_perch_harness({
+            perch_unknown_send_cleanup_ms: 300,
+        });
+        const first = await create_tracked_send_file('first');
+        const queued = await create_tracked_send_file('queued');
+        await harness.terminal_manager.send_to_stata_terminal('do', first);
+        await harness.terminal_manager.send_to_stata_terminal('do', queued);
+        perch!.send_error = perch_error('outcome_unknown');
+        write_ready_file(perch!.the_listed[0].dir);
+        await wait_until(
+            () => harness.vscode_state.the_warning_calls.length === 1,
+            'the warning', 2000
+        );
+        // The console may have it and may still be waiting to run it.
+        await new Promise(resolve => setTimeout(resolve, 100));
+        expect(fs.existsSync(queued)).toBe(true);
+        expect(harness.vscode_state.the_cleanups).toEqual([first]);
+        // Never left behind for good.
+        await wait_until(() => !fs.existsSync(queued), 'the late cleanup', 2000);
+        expect(handed_files(harness)).toEqual([]);
+    });
+
+    test('a send of unknown outcome is deleted when its session ends', async () => {
+        const { harness, perch } = await create_perch_harness();
+        await harness.terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('first')
+        );
+        const session = perch!.the_listed[0];
+        write_ready_file(session.dir);
+        await wait_until(() => harness.vscode_state.the_cleanups.length === 1, 'ready', 2000);
+        perch!.send_error = perch_error('outcome_unknown');
+        const unknown = await create_tracked_send_file('unknown');
+        expect(await harness.terminal_manager.send_to_stata_terminal('do', unknown)).toBe(true);
+        expect(fs.existsSync(unknown)).toBe(true);
+        perch!.fire_end({ ...session, state: 'exited', exit: { code: 0 } });
+        await wait_until(() => !fs.existsSync(unknown), 'the file to go', 2000);
+        expect(harness.vscode_state.the_cleanups).toHaveLength(1);
+    });
+
+    test('a file the console still holds is deleted when its session ends', async () => {
+        const { harness, perch } = await create_perch_harness();
+        await harness.terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('first')
+        );
+        const session = perch!.the_listed[0];
+        write_ready_file(session.dir);
+        await wait_until(() => harness.vscode_state.the_cleanups.length === 1, 'ready', 2000);
+        // Delivered: the console holds it (Stata shows --more--, say),
+        // then dies before Stata reads it.
+        const held = await create_tracked_send_file('held');
+        await harness.terminal_manager.send_to_stata_terminal('do', held);
+        expect(perch!.the_sends).toHaveLength(1);
+        expect(handed_files(harness)).toEqual([held]);
+        perch!.fire_end({ ...session, state: 'exited', exit: { code: 137 } });
+        await wait_until(() => !fs.existsSync(held), 'the held file to go', 2000);
+        expect(handed_files(harness)).toEqual([]);
+    });
+
+    test('files the console deleted are forgotten, so none piles up', async () => {
+        const { harness, perch } = await create_perch_harness();
+        await harness.terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('first')
+        );
+        write_ready_file(perch!.the_listed[0].dir);
+        await wait_until(() => harness.vscode_state.the_cleanups.length === 1, 'ready', 2000);
+        const the_files: string[] = [];
+        for (const my_name of ['a', 'b', 'c']) {
+            const file = await create_tracked_send_file(my_name);
+            the_files.push(file);
+            await harness.terminal_manager.send_to_stata_terminal('do', file);
+        }
+        expect(handed_files(harness)).toEqual(the_files);
+        // The console deletes two once Stata reads them.
+        fs.unlinkSync(the_files[0]);
+        fs.unlinkSync(the_files[1]);
+        await wait_until(
+            () => handed_files(harness).length === 1, 'the map to shrink', 3000
+        );
+        expect(handed_files(harness)).toEqual([the_files[2]]);
+        expect(fs.existsSync(the_files[2])).toBe(true);
+    });
+
+    test('a refused send deletes its file at once, once', async () => {
+        const { harness, perch } = await create_perch_harness();
+        await harness.terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('first')
+        );
+        write_ready_file(perch!.the_listed[0].dir);
+        await wait_until(() => harness.vscode_state.the_cleanups.length === 1, 'ready', 2000);
+        perch!.send_error = perch_error('queue_full');
+        const refused = await create_tracked_send_file('refused');
+        expect(await harness.terminal_manager.send_to_stata_terminal('do', refused)).toBe(true);
+        await wait_until(() => !fs.existsSync(refused), 'the file to go', 2000);
+        expect(handed_files(harness)).toEqual([]);
+        expect(harness.vscode_state.the_cleanups).toHaveLength(1);
+    });
+
     test('no_session ends the console, so the next send starts a new one', async () => {
         const { harness, perch } = await create_perch_harness();
         await harness.terminal_manager.send_to_stata_terminal(
@@ -2669,7 +2803,7 @@ describe.serial('Feature: Stata console in a Perch session (remote windows)', ()
         };
         const second = await create_tracked_send_file('second');
         expect(await manager.send_to_perch_terminal(perch_terminals(harness)[0], 'do', second))
-            .toBe(false);
+            .toBe(true);
         expect(perch!.the_sends.map(my_send => my_send.text))
             .toEqual([channel_send(`do ${wrap(second)}`, second)]);
         expect(await manager.send_to_perch_terminal(harness.vscode_state.terminal, 'do', second))
@@ -2694,7 +2828,7 @@ describe.serial('Feature: Stata console in a Perch session (remote windows)', ()
         expect(perch!.the_sends).toEqual([
             { id: session.id, text: `do ${wrap(second)}`, options: { submit: true } },
         ]);
-        expect(harness.vscode_state.the_held_files.size).toBe(0);
+        expect(handed_files(harness)).toEqual([]);
     });
 
     test('the profile list\'s Stata terminal is a Perch session too', async () => {
@@ -2863,7 +2997,7 @@ describe.serial('Feature: Perch\'s launcher, and Perch in local windows', () => 
             const created = perch!.the_creates[0];
             expect(created.show).toBe(false);
             expect(created.annotations).toEqual({
-            'sight.console': 'editor', 'sight.sendChannel': '1',
+            'sight.console': 'editor', 'sight.sendChannel': '2',
         });
             expect(created.command).toEqual([
                 process.execPath,
@@ -2872,6 +3006,7 @@ describe.serial('Feature: Perch\'s launcher, and Perch in local windows', () => 
                 '--stata', '/usr/local/bin/stata-mp',
                 '--ready-file', '{dir}/sight-console-ready',
                 '--end-file', '{dir}/sight-console-end',
+                '--send-dir', os.tmpdir(),
                 '--cwd', '/work/project',
             ]);
             // Shown, with focus.
