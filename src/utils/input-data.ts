@@ -24,17 +24,28 @@
  *   looks ahead to the next row whose first word is `end`: if a row
  *   before it (this one included) opens a block that needs its own
  *   `end` (a program definition, a `mata` or `python` block, another
- *   `input`), or no `end` follows at all, the data ended before the
- *   row, which is code (`input score`, `10`, `local label score`,
- *   `program define helper`, ..., `end`: one row of data). Otherwise
- *   the `end` closes this data, and the row is data, as Stata reads
- *   it (`input str20 name`, `Mary-Ann Smith`, `end`).
+ *   `input`, each also behind the prefixes the lexer reads there:
+ *   `quietly input`, `version 18: mata:`), or no `end` follows at
+ *   all, the data ended before the row, which is code (`input score`,
+ *   `10`, `local label score`, `program define helper`, ..., `end`:
+ *   one row of data). Otherwise the `end` closes this data, and the
+ *   row is data, as Stata reads it (`input str20 name`,
+ *   `Mary-Ann Smith`, `end`). `by g: input` reads no data ("input may
+ *   not be combined with by"), so it opens no block.
+ * - Inside a `{ }` block, the data ends before a row whose first code
+ *   is `}` (`is_input_brace_row`), as does that look-ahead: data rows
+ *   open no block, so the `}` closes one opened before the `input`.
+ *   This is what Stata does when the data has filled the dataset's
+ *   observations (`set obs 1`, `if _N == 1 {`, `input score`, `10`,
+ *   `}`); with observations still to fill, StataMP 18 reads the `}`
+ *   as a row of data too ("'' cannot be read as a number}") and goes
+ *   on to the next `end`.
  * - Still ambiguous: a row that fits is data whatever it looks like,
  *   so a short command under an `input` without `end` that declares
  *   enough string variables is read as data; and a row that does not
  *   fit, before an `end` that nothing else claims, is data even when
  *   the `input` has no `end` and that `end` closes something Sight
- *   does not count as a block (one opened behind a prefix, say).
+ *   does not count as a block.
  * - When the declaration can't be read (no varlist, a macro, a
  *   range), every row is data up to `end`.
  *
@@ -136,6 +147,22 @@ export function is_input_data_row(
     const the_values = row_fields(strip_comments(row), fields.length + 1);
     return the_values.length <= fields.length &&
         values_fit_fields(the_values, fields);
+}
+
+/**
+ * Whether the first code in the data row `row` (after blanks and
+ * comments) is a `}`: `}`, `} // note` or `} else {`.
+ */
+export function is_input_brace_row(row: string): boolean {
+    const my_code = strip_comments(row);
+    for (let i = 0; i < my_code.length; i++) {
+        const my_char = my_code[i];
+        if (my_char !== ' ' && my_char !== '\t' && my_char !== '\r' &&
+                my_char !== '\n') {
+            return my_char === '}';
+        }
+    }
+    return false;
 }
 
 /**

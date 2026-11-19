@@ -424,7 +424,8 @@ drops a row with text where a number belongs. Code after an `input`
 without `end` usually doesn't fit, though, so at such a row Sight looks
 ahead to the next line whose first word is `end`. If a line before it
 (the row itself included) opens a block that needs its own `end` (a
-program definition, a `mata` or `python` block, another `input`), or
+program definition, a `mata` or `python` block, another `input`, also
+after a prefix such as `quietly input` or `version 18: mata:`), or
 no `end` follows, the data ends before the row, with no `end` (the
 `range` and `text` run through the last row), and that row and the
 lines after it are statements: under `input score`, the row
@@ -433,6 +434,11 @@ next `end`, and under `input str5 city`, `local n = _N` is code there
 too. Otherwise that `end` closes the data and the row is data, as
 Stata reads it: `1 2` under `input x`, or `Mary-Ann Smith` under
 `input str20 name`, before `end`.
+
+Inside a `{ }` block, the data also ends before a line whose first code
+is `}`, which closes a block opened before the `input` (data opens no
+block). Stata does the same once the data has filled the observations
+(`set obs 1`, then `if _N == 1 {`, `input score`, `10`, `}`).
 
 Still ambiguous: a row that fits is data whatever it looks like, so a
 short command under an `input` without `end` that declares enough

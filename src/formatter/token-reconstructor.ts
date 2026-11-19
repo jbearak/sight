@@ -67,8 +67,14 @@ export class TokenReconstructor {
             const indent_info = line_indents.get(state.current_line);
             const should_preserve_whitespace = typeof indent_info === 'object' && indent_info.preserve_whitespace;
 
-            // At line start, apply indentation
-            if (state.at_line_start && my_token.value.trim()) {
+            // `input` data from the start of a line holds that line's
+            // blanks, and its rows are kept as written: no indentation,
+            // whatever else starts on its last line (`Paris; display
+            // city;` under `#delimit ;`, or a row with no `end` after).
+            if (state.at_line_start && my_token.type === 'INPUT_DATA' &&
+                    token_col === 0) {
+                state.at_line_start = false;
+            } else if (state.at_line_start && my_token.value.trim()) {
                 if (should_preserve_whitespace) {
                     // Preserve original whitespace alignment, but apply delta if non-zero
                     // AND normalize mixed whitespace to consistent style
