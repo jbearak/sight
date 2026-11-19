@@ -403,10 +403,12 @@ async function resend_without_console(
                 schedule_temp_file_cleanup(my_send.temp_file_path);
             }
         } catch (my_error) {
-            vscode.window.showErrorMessage(
-                `Error: ${my_error instanceof Error
-                    ? my_error.message : my_error}`
-            );
+            if (!(my_error instanceof SendCancelledError)) {
+                vscode.window.showErrorMessage(
+                    `Error: ${my_error instanceof Error
+                        ? my_error.message : my_error}`
+                );
+            }
             for (const my_rest of the_sends.slice(i)) {
                 fs.promises.unlink(my_rest.temp_file_path).catch(() => {});
             }
@@ -1103,6 +1105,18 @@ async function open_perch_console(
     return { id: session.id, carried_send: true };
 }
 
+/**
+ * A send the user called off before it reached Stata, by dismissing
+ * the choice of a Stata session. Nothing ran, so the send command
+ * says nothing and leaves the cursor where it was.
+ */
+export class SendCancelledError extends Error {
+    constructor() {
+        super('The send was cancelled');
+        this.name = 'SendCancelledError';
+    }
+}
+
 /** Sends made while `creation` runs go to its session, if any. */
 function note_perch_creation(
     creation: Promise<string | null | undefined>
@@ -1127,7 +1141,7 @@ async function send_to_new_perch_console(
     ));
     const opened = await opening;
     if (!opened) {
-        return false;
+        throw new SendCancelledError();
     }
     if (opened.carried_send) {
         // The session's queue owns the temp file.
@@ -1264,8 +1278,9 @@ async function open_launched_perch_console(): Promise<string> {
 }
 
 /**
- * Queue behind a session being opened; dropped if that failed, or the
- * old path (null) if the launcher command did.
+ * Queue behind a session being opened; cancelled if that was
+ * cancelled or failed, dropped if the session has ended, or the old
+ * path (null) if the launcher command failed.
  */
 async function join_perch_creation(
     send: PendingSend
@@ -1274,7 +1289,11 @@ async function join_perch_creation(
     if (id === undefined) {
         return null;
     }
-    const record = id === null ? undefined : the_perch_consoles.get(id);
+    if (id === null) {
+        // Not sent: the opening send already said why, if it failed.
+        throw new SendCancelledError();
+    }
+    const record = the_perch_consoles.get(id);
     if (!record) {
         return false;
     }
@@ -1715,7 +1734,8 @@ async function wait_for_terminal_ready(
  *
  * Returns true if the send was queued for a sight console terminal
  * that isn't ready yet. The queue then owns `temp_file_path` and
- * schedules its deletion; the caller must not.
+ * schedules its deletion; the caller must not. Rejects with
+ * SendCancelledError if the user dismissed the choice of a session.
  */
 export async function send_to_stata_terminal(
     command: StataCommand,

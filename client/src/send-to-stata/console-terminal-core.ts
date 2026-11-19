@@ -323,8 +323,21 @@ export class ConsoleTerminalQueue<TTerminal> {
         return the_sends;
     }
 
-    /** Forget every pane (extension deactivation). */
+    /**
+     * Forget every pane (extension deactivation), deleting the temp
+     * files of the sends it never typed. A send on a console's command
+     * line is cleaned up later instead: the console may still run it.
+     */
     dispose(): void {
+        for (const my_entry of this.entries.values()) {
+            for (const my_send of my_entry.baked) {
+                this.host.schedule_cleanup(my_send.temp_file_path);
+            }
+            this.drop(my_entry.pending);
+            my_entry.baked = [];
+            my_entry.pending = [];
+            my_entry.state = 'closed';
+        }
         this.entries.clear();
     }
 

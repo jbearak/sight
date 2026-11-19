@@ -706,3 +706,23 @@ describe('console terminal queue: carry', () => {
         expect(host.the_deleted).toEqual(['/c.do']);
     });
 });
+
+describe('console terminal queue: dispose', () => {
+    test('deletes the temp files of sends it never typed', () => {
+        const host = new FakeHost();
+        const queue = create_queue(host);
+        const terminal = { id: 't1' };
+        // The first send rides on the console's command line; the
+        // second waits for the console to be ready.
+        queue.track(terminal, [send('/baked.do')]);
+        expect(queue.send(terminal, send('/queued.do'))).toBe(true);
+
+        queue.dispose();
+
+        expect(host.the_deleted).toEqual(['/queued.do']);
+        // The console may still read its command-line file.
+        expect(host.the_cleanups).toEqual(['/baked.do']);
+        expect(queue.is_tracked(terminal)).toBe(false);
+        expect(queue.pending_count()).toBe(0);
+    });
+});

@@ -2378,6 +2378,65 @@ describe.serial('Feature: Stata console in a Perch session (remote windows)', ()
         expect(perch!.the_sends).toEqual([]);
     });
 
+    test('dismissing the session choice sends nothing and leaves the cursor', async () => {
+        const { harness, perch } = await create_perch_harness({
+            perch: vscode_state => {
+                const fake = create_fake_perch(vscode_state);
+                fake.the_listed.push(fake.make_session({
+                    cwd: '/other/workspace', attachedHere: false,
+                }));
+                return fake;
+            },
+        });
+        const { vscode_state, commands_module, context } = harness;
+        vscode_state.target_setting = { globalValue: 'integrated' };
+        // No answer: the user dismisses the choice.
+        vscode_state.quick_pick_answer = undefined;
+        const the_lines = ['display 1', 'display 2'];
+        const my_selection = {
+            isEmpty: true,
+            active: { line: 0 },
+            start: { line: 0, character: 0 },
+        };
+        const my_editor = {
+            document: {
+                uri: {
+                    fsPath: '/tmp/example.do',
+                    toString: () => 'file:///tmp/example.do',
+                },
+                lineCount: the_lines.length,
+                lineAt: (line: number) => ({ text: the_lines[line] }),
+                save: async () => true,
+                getText: () => the_lines.join('\n'),
+            },
+            selection: my_selection as unknown,
+            revealRange: () => {},
+        };
+        vscode_state.active_text_editor = my_editor;
+        const the_registered = new Map<
+            string, (...args: unknown[]) => unknown
+        >();
+        (globalThis as Record<string, unknown>)[
+            SHARED_VSCODE_TEST_STATE_KEY
+        ] = { registered_commands: the_registered };
+        try {
+            commands_module.register_send_to_stata_commands(context);
+            await the_registered.get('sight.doLineOrSelection')?.();
+        } finally {
+            delete (globalThis as Record<string, unknown>)[
+                SHARED_VSCODE_TEST_STATE_KEY
+            ];
+        }
+
+        expect(vscode_state.the_quick_picks).toHaveLength(1);
+        expect(perch!.the_creates).toEqual([]);
+        expect(perch!.the_attaches).toEqual([]);
+        expect(perch!.the_sends).toEqual([]);
+        expect(vscode_state.the_error_messages).toEqual([]);
+        // The statement never ran, so the cursor stays on it.
+        expect(my_editor.selection).toBe(my_selection);
+    });
+
     test('picking a session from another window attaches it and sends there', async () => {
         const { harness, perch } = await create_perch_harness({
             perch: vscode_state => {

@@ -297,18 +297,37 @@ export function is_cli_entry_point(
     );
 }
 
+// How long exit_after_output lets output flush before it exits
+// anyway, in case a handle would keep the process alive.
+const EXIT_FLUSH_LIMIT_MS = 5_000;
+
+/**
+ * Exit with `code` once stdout and stderr have flushed. process.exit
+ * drops what a pipe hasn't taken yet: `sight parse --json` piped to a
+ * slow reader lost all but the first 64 KiB when one file failed. A
+ * write callback can't tell when the pipe has it (Bun calls it before
+ * then), so this sets the exit code and lets the process end on its
+ * own, exiting at the limit if something keeps it alive.
+ */
+function exit_after_output(code: number): void {
+    process.exitCode = code;
+    setTimeout(() => process.exit(code), EXIT_FLUSH_LIMIT_MS).unref();
+}
+
 // Run main if this is the entry point. Use process.argv[1] for
 // Node.js ESM compatibility because import.meta.main is Bun-only.
 if (is_cli_entry_point(process.argv[1])) {
     main().then((code) => {
         // The console is finished when main resolves; exit even if a
         // completion cache or stdin handle would keep the loop alive.
-        if (code !== 0 || process.argv[2] === 'console') {
+        if (process.argv[2] === 'console') {
             process.exit(code);
+        } else if (code !== 0) {
+            exit_after_output(code);
         }
         // Don't exit on success - server is running
     }).catch((error) => {
         console.error('Fatal error:', error);
-        process.exit(1);
+        exit_after_output(1);
     });
 }

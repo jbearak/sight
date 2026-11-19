@@ -16,7 +16,8 @@ import {
     is_console_session_override_set,
     send_to_console_pane_terminal,
     send_to_perch_terminal,
-    send_to_stata_terminal
+    send_to_stata_terminal,
+    SendCancelledError,
 } from './stata-terminal-manager.js';
 import type { StataCommand } from './index.js';
 import { send_to_stata_windows } from './windows-sender.js';
@@ -313,6 +314,10 @@ async function handle_send_command(
             advance_cursor_if_enabled(my_editor, statement_end_line);
         }
     } catch (my_error) {
+        // A cancelled send ran nothing: no error, and no cursor move.
+        if (my_error instanceof SendCancelledError) {
+            return;
+        }
         vscode.window.showErrorMessage(
             `Error: ${my_error instanceof Error ? my_error.message : my_error}`);
     }
