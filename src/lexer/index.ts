@@ -43,13 +43,33 @@ const INPUT_END_LINE = /\n[ \t]*end(?![A-Za-z0-9_.])/g;
 // Under `#delimit ;`, the `;` before a record whose first word is
 // `end`, which ends `input` data (StataMP 18).
 const INPUT_END_RECORD = /;\s*end(?![A-Za-z0-9_.])/g;
-// The first word of an `input` data line after blanks, and of a `;`
-// record after blanks and line breaks.
-const INPUT_LINE_FIRST_WORD = /[ \t\r]*([A-Za-z_]\w*)(?!\w)/y;
-const INPUT_RECORD_FIRST_WORD = /\s*([A-Za-z_]\w*)(?!\w)/y;
-// What may follow `mata` or `python` on a line that opens a block: an
-// optional `:`, then blanks and perhaps a `//` comment.
-const EMBEDDED_BLOCK_OPENER_TAIL = /^:?[ \t\r]*(?:\/\/.*)?\s*$/;
+const CHAR_SPACE = 32;
+const CHAR_TAB = 9;
+const CHAR_LF = 10;
+const CHAR_CR = 13;
+const CHAR_VT = 11;
+const CHAR_FF = 12;
+const CHAR_COLON = 58;
+const CHAR_SLASH = 47;
+const CHAR_UNDERSCORE = 95;
+
+function is_ascii_letter_or_underscore(code: number): boolean {
+  return (code >= 65 && code <= 90) || (code >= 97 && code <= 122) ||
+    code === CHAR_UNDERSCORE;
+}
+
+function is_ascii_word_char(code: number): boolean {
+  return is_ascii_letter_or_underscore(code) || (code >= 48 && code <= 57);
+}
+
+/** A blank on a line; with `across_lines`, a line break as well. */
+function is_row_blank(code: number, across_lines: boolean): boolean {
+  if (code === CHAR_SPACE || code === CHAR_TAB || code === CHAR_CR) {
+    return true;
+  }
+  return across_lines &&
+    (code === CHAR_LF || code === CHAR_VT || code === CHAR_FF);
+}
 const COMMENT_CONTEXT_KEYWORDS = new Set(['program', 'capture', 'quietly', 'noisily', 'by', 'bysort']);
 // A `*` after one of these is multiplication. A string never ends a
 // statement on its own line, so `"ab" * 3` is string repetition, not a
@@ -539,20 +559,51 @@ export class StataLexer {
    * else but blanks and a comment), or another `input`.
    */
   private input_row_opens_block(start: number, end: number, is_semicolon: boolean): boolean {
-    const my_pattern = is_semicolon ? INPUT_RECORD_FIRST_WORD : INPUT_LINE_FIRST_WORD;
-    my_pattern.lastIndex = start;
-    const my_match = my_pattern.exec(this.source);
-    if (my_match === null || my_match.index + my_match[0].length > end) {
+    // Scanned by hand, one pass from `start` to `end`: the first word
+    // of a data line after blanks, or of a `;` record after blanks and
+    // line breaks.
+    const my_source = this.source;
+    let my_word_start = start;
+    while (my_word_start < end &&
+        is_row_blank(my_source.charCodeAt(my_word_start), is_semicolon)) {
+      my_word_start++;
+    }
+    if (my_word_start >= end ||
+        !is_ascii_letter_or_underscore(my_source.charCodeAt(my_word_start))) {
       return false;
     }
-    const my_word = my_match[1];
-    const my_word_end = my_match.index + my_match[0].length;
+    let my_word_end = my_word_start + 1;
+    while (my_word_end < end &&
+        is_ascii_word_char(my_source.charCodeAt(my_word_end))) {
+      my_word_end++;
+    }
+    const my_word = my_source.substring(my_word_start, my_word_end);
     if (PROGRAM_COMMAND_NAMES.has(my_word)) {
       return is_program_definition_header(
-        program_header_text(this.source, my_word_end, is_semicolon));
+        program_header_text(my_source, my_word_end, is_semicolon));
     }
     if (my_word === 'mata' || my_word === 'python') {
-      return EMBEDDED_BLOCK_OPENER_TAIL.test(this.source.substring(my_word_end, end));
+      // What may follow on a line that opens a block: an optional `:`,
+      // then blanks and perhaps a `//` comment.
+      let my_tail = my_word_end;
+      if (my_tail < end && my_source.charCodeAt(my_tail) === CHAR_COLON) {
+        my_tail++;
+      }
+      while (my_tail < end &&
+          is_row_blank(my_source.charCodeAt(my_tail), false)) {
+        my_tail++;
+      }
+      if (my_tail + 1 < end &&
+          my_source.charCodeAt(my_tail) === CHAR_SLASH &&
+          my_source.charCodeAt(my_tail + 1) === CHAR_SLASH) {
+        const my_line_end = my_source.indexOf('\n', my_tail);
+        my_tail = my_line_end === -1 || my_line_end > end ? end : my_line_end;
+      }
+      while (my_tail < end &&
+          is_row_blank(my_source.charCodeAt(my_tail), true)) {
+        my_tail++;
+      }
+      return my_tail >= end;
     }
     return INPUT_COMMAND_NAMES.has(my_word);
   }
