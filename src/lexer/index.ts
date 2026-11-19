@@ -43,9 +43,10 @@ const INPUT_END_LINE = /\n[ \t]*end(?![A-Za-z0-9_.])/g;
 // Under `#delimit ;`, the `;` before a record whose first word is
 // `end`, which ends `input` data (StataMP 18).
 const INPUT_END_RECORD = /;\s*end(?![A-Za-z0-9_.])/g;
-// The first word of an `input` data row, after blanks (and line
-// breaks, which a `;` record may start with).
-const INPUT_ROW_FIRST_WORD = /\s*([A-Za-z_]\w*)(?!\w)/y;
+// The first word of an `input` data line after blanks, and of a `;`
+// record after blanks and line breaks.
+const INPUT_LINE_FIRST_WORD = /[ \t\r]*([A-Za-z_]\w*)(?!\w)/y;
+const INPUT_RECORD_FIRST_WORD = /\s*([A-Za-z_]\w*)(?!\w)/y;
 // What may follow `mata` or `python` on a line that opens a block: an
 // optional `:`, then blanks and perhaps a `//` comment.
 const EMBEDDED_BLOCK_OPENER_TAIL = /^:?[ \t\r]*(?:\/\/.*)?\s*$/;
@@ -538,8 +539,9 @@ export class StataLexer {
    * else but blanks and a comment), or another `input`.
    */
   private input_row_opens_block(start: number, end: number, is_semicolon: boolean): boolean {
-    INPUT_ROW_FIRST_WORD.lastIndex = start;
-    const my_match = INPUT_ROW_FIRST_WORD.exec(this.source);
+    const my_pattern = is_semicolon ? INPUT_RECORD_FIRST_WORD : INPUT_LINE_FIRST_WORD;
+    my_pattern.lastIndex = start;
+    const my_match = my_pattern.exec(this.source);
     if (my_match === null || my_match.index + my_match[0].length > end) {
       return false;
     }
