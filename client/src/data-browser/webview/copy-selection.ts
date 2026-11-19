@@ -242,8 +242,11 @@ export function take_over_copy<TRows>(
     }
     const my_listed = list_selection(selection, my_shape, grid);
     const the_missing: number[] = [];
-    // The one view the rows the grid has are from; null once two are.
-    let my_view: number | undefined | null;
+    // The one view the rows the grid has are from (undefined while it
+    // has none of them); is_mixed once a row's view differs or is
+    // unknown.
+    let my_view: number | undefined;
+    let is_mixed = false;
     for (const my_row of my_listed.rows) {
         if (my_row >= grid.row_count) continue;
         if (!grid.has_row(my_row, my_listed.columns)) {
@@ -251,13 +254,15 @@ export function take_over_copy<TRows>(
             continue;
         }
         const my_row_view = grid.row_view(my_row);
-        if (my_view === undefined) {
+        if (my_row_view === undefined) {
+            is_mixed = true;
+        } else if (my_view === undefined) {
             my_view = my_row_view;
-        } else if (my_view !== null && my_row_view !== my_view) {
-            my_view = null;
+        } else if (my_row_view !== my_view) {
+            is_mixed = true;
         }
     }
-    if (my_view === null) {
+    if (is_mixed) {
         // The grid shows rows of two orders (a sort or filter is still
         // landing): no copy is right until it has.
         take_event();

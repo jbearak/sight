@@ -178,9 +178,10 @@ export function use_row_loader(): UseRowLoaderResult {
     // The request each page shown came from, so a `rowCells` follow-up
     // completes only the page it belongs to.
     const page_request_ids = useRef(new Map<number, string>());
-    // The host view each page shown was read in (RowResponse), so a
-    // copy takes rows of one view only.
-    const page_views = useRef(new Map<number, number>());
+    // The host view each page's rows were read in (RowResponse), by
+    // the page's rows themselves, so a copy, which reads the pages a
+    // render shows, takes rows of one view only.
+    const page_views = useRef(new WeakMap<CellValue[][], number>());
     // Waiting requestFullText calls, by request id.
     const full_text_waiters = useRef(
         new Map<string, (texts: string[] | null) => void>()
@@ -299,7 +300,6 @@ export function use_row_loader(): UseRowLoaderResult {
         });
 
         pages_ref.current = my_pages;
-        page_views.current.clear();
         order_version_ref.current += 1;
         set_pages(my_pages);
         pending_pages.current.clear();
@@ -350,7 +350,6 @@ export function use_row_loader(): UseRowLoaderResult {
 
                 const my_pages = new Map<number, CellValue[][]>();
                 pages_ref.current = my_pages;
-                page_views.current.clear();
                 order_version_ref.current += 1;
                 page_size_ref.current = my_msg.page_size ?? PAGE_SIZE;
                 set_metadata(my_msg);
@@ -379,7 +378,7 @@ export function use_row_loader(): UseRowLoaderResult {
                     return;
                 }
                 page_request_ids.current.set(my_msg.start, my_msg.request_id);
-                page_views.current.set(my_msg.start, my_msg.view_generation);
+                page_views.current.set(my_msg.rows, my_msg.view_generation);
                 set_pages(my_previous => {
                     const my_next = new Map(my_previous);
                     my_next.set(my_msg.start, my_msg.rows);
@@ -401,7 +400,7 @@ export function use_row_loader(): UseRowLoaderResult {
                     const my_page = my_previous.get(my_msg.start);
                     if (!my_page) return my_previous;
                     const my_next = new Map(my_previous);
-                    my_next.set(my_msg.start, my_page.map((my_row, i) => {
+                    const my_patched = my_page.map((my_row, i) => {
                         const my_cells = my_msg.rows[i];
                         if (!my_cells) return my_row;
                         const my_out = my_row.slice();
@@ -409,7 +408,13 @@ export function use_row_loader(): UseRowLoaderResult {
                             my_out[my_col] = my_cells[j];
                         });
                         return my_out;
-                    }));
+                    });
+                    // The same rows, completed: the same view.
+                    const my_view = page_views.current.get(my_page);
+                    if (my_view !== undefined) {
+                        page_views.current.set(my_patched, my_view);
+                    }
+                    my_next.set(my_msg.start, my_patched);
                     pages_ref.current = my_next;
                     return my_next;
                 });
@@ -646,12 +651,13 @@ export function use_row_loader(): UseRowLoaderResult {
     }
 
     /** The host view row `row_index`'s page was read in, if loaded. */
-    const get_row_view = useCallback((row_index: number) => {
+    function get_row_view(row_index: number): number | undefined {
         const my_page_size = page_size_ref.current;
         const my_page_start = Math.floor(row_index / my_page_size)
             * my_page_size;
-        return page_views.current.get(my_page_start);
-    }, []);
+        const my_page = pages.get(my_page_start);
+        return my_page ? page_views.current.get(my_page) : undefined;
+    }
 
     const apply_sort = useCallback(
         (keys: SortKey[], labels_on: boolean) => {

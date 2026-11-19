@@ -250,6 +250,49 @@ describe('copying rows the grid has not loaded', () => {
         });
     });
 
+    it('reads them in the view of the rows the grid has', async () => {
+        const my_grid = make_grid(true, new Set([0, 1]));
+        my_grid.row_views.set(0, 4).set(1, 4);
+        await take_over_copy(make_event(),
+            { range: undefined, rows: [], columns: [0] }, my_grid);
+        expect(my_grid.load_views).toEqual([4]);
+    });
+
+    it('fails, reading nothing, if the grid has rows of two views', async () => {
+        const my_grid = make_grid(true, new Set([0, 1]));
+        my_grid.row_views.set(0, 4).set(1, 5);
+        const my_event = make_event();
+        const my_result = await take_over_copy(my_event,
+            { range: undefined, rows: [], columns: [0] }, my_grid);
+        expect(my_event.calls).toEqual([
+            'preventDefault', 'stopImmediatePropagation',
+        ]);
+        expect(my_result?.kind).toBe('failed');
+        expect(my_grid.the_loads).toEqual([]);
+    });
+
+    it('fails, even with every row loaded, across two views', async () => {
+        const my_grid = make_grid(true, new Set([0, 2]));
+        my_grid.row_views.set(0, 4).set(2, 5);
+        // Rows 0 and 2 only: Glide could copy them at once, in two
+        // orders.
+        const my_result = await take_over_copy(make_event(),
+            { range: undefined, rows: [0, 2], columns: [] }, my_grid);
+        expect(my_result).toEqual({
+            kind: 'failed',
+            message: expect.stringContaining('changed during the copy'),
+        });
+    });
+
+    it('fails if a row it has came from no known view', async () => {
+        const my_grid = make_grid(true, new Set([0, 1]));
+        my_grid.row_view = () => undefined;
+        const my_result = await take_over_copy(make_event(),
+            { range: undefined, rows: [], columns: [0] }, my_grid);
+        expect(my_result?.kind).toBe('failed');
+        expect(my_grid.the_loads).toEqual([]);
+    });
+
     it('fails if the rows shown change order meanwhile', async () => {
         const my_grid = make_grid(true, new Set([0]));
         my_grid.on_load = () => {
