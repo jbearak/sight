@@ -1291,6 +1291,23 @@ describe('binary command name', () => {
         expect(() => get_branch_push_ref('')).toThrow(/detached HEAD/);
     });
 
+    it('runs the same tests in CI and in the release build', () => {
+        const read = (name: string) => readFileSync(
+            join(__dirname, '../../.github/workflows', name), 'utf8');
+        const test_runs = (content: string) =>
+            content.match(/run: bun test.*|run: bun run test\S*/g) ?? [];
+        expect(test_runs(read('ci.yml'))).toEqual(['run: bun run test:ci']);
+        expect(test_runs(read('release-build.yml')))
+            .toEqual(['run: bun run test:ci']);
+        // helper-pty.test.ts runs in its own process, after the rest.
+        const package_json = JSON.parse(readFileSync(
+            join(__dirname, '../../package.json'), 'utf8'));
+        expect(package_json.scripts['test:ci']).toBe(
+            'bun test --path-ignore-patterns=' +
+            '\'tests/integration/console/helper-pty.test.ts\' && ' +
+            'bun test ./tests/integration/console/helper-pty.test.ts');
+    });
+
     it('runs tests before publishing release artifacts', () => {
         const workflow_path = join(
             __dirname,
@@ -1326,7 +1343,10 @@ describe('binary command name', () => {
             'Upload release artifacts',
             'Trigger release publish workflow'
         );
-        expect(workflow_content).toContain('run: bun test ./tests');
+        // The same test run as CI, which on the pinned Bun must run
+        // helper-pty.test.ts in its own process.
+        expect(workflow_content).toContain('run: bun run test:ci');
+        expect(workflow_content).not.toContain('run: bun test ./tests');
         expect(workflow_content).toContain(
             'bun scripts/smoke-stdio-startup.ts ./dist/sight-server.js'
         );

@@ -19,6 +19,34 @@ export interface StatementBounds {
 
 export type DelimiterMode = 'cr' | 'semicolon';
 
+/** A place in the document, 0-indexed. */
+export interface Position {
+    line: number;
+    character: number;
+}
+
+/**
+ * A closed block (or `if`/`else` chain): its lines, and where its
+ * headers start and its closers end.
+ */
+export interface BlockBounds extends StatementBounds {
+    start: Position;
+    end: Position;
+    /** Where each header in it starts (one per `if`/`else` part). */
+    header_starts: Position[];
+    /** Where each closer in it ends (one per `if`/`else` part). */
+    closer_ends: Position[];
+}
+
+/**
+ * A statement read under `#delimit ;`: from its first token (a comment
+ * line before it included) to the end of its `;`.
+ */
+export interface SemicolonStatement {
+    start: Position;
+    end: Position;
+}
+
 /** A `#delimit` directive: where it ends and the mode it sets. */
 interface DelimitDirective {
     line: number;
@@ -39,9 +67,11 @@ export interface DocumentReading {
      * The lines of each closed block (or `if`/`else` chain), keyed by
      * the lines of its headers and closers.
      */
-    block_by_line: Map<number, StatementBounds>;
+    block_by_line: Map<number, BlockBounds>;
     /** The lines of every closed block and `if`/`else` chain. */
-    the_blocks: StatementBounds[];
+    the_blocks: BlockBounds[];
+    /** The statements read under `#delimit ;`, in order. */
+    semicolon_statements: SemicolonStatement[];
 }
 
 const COMMENT_TOKEN_TYPES: ReadonlySet<TokenType> = new Set<TokenType>([
@@ -139,7 +169,61 @@ export function read_document(text: string): DocumentReading {
         joined_lines,
         delimit_directives,
         ...find_blocks(the_tokens),
+        semicolon_statements: find_semicolon_statements(the_tokens),
     };
+}
+
+/**
+ * The statements read under `#delimit ;`, each from its first token to
+ * the end of its `;` (or of the `end` closing a mata or python block).
+ * As in read_document, a comment after the `;` that ends a line's last
+ * statement starts no statement.
+ */
+function find_semicolon_statements(
+    the_tokens: Token[]
+): SemicolonStatement[] {
+    const the_statements: SemicolonStatement[] = [];
+    const tracker = new SemicolonStatementTracker();
+    let delimiter_mode: DelimiterMode = 'cr';
+    let statement_start: Position | null = null;
+    let previous_end: Position | null = null;
+    let closed_line = -1;
+    for (const my_token of the_tokens) {
+        if (my_token.type === 'DELIMIT_DIRECTIVE') {
+            delimiter_mode = delimit_directive_mode(my_token);
+        }
+        tracker.note(my_token, delimiter_mode);
+        if (my_token.type === 'WHITESPACE' || my_token.type === 'EOF') {
+            continue;
+        }
+        // A `\n` terminator's range ends on the next line.
+        const my_end = my_token.type === 'STATEMENT_TERMINATOR'
+            ? my_token.range.start
+            : my_token.range.end;
+        if (!tracker.is_open) {
+            if (statement_start !== null) {
+                // A `#delimit` ends the statement before it.
+                const is_directive = my_token.type === 'DELIMIT_DIRECTIVE';
+                the_statements.push({
+                    start: statement_start,
+                    end: is_directive && previous_end !== null
+                        ? previous_end
+                        : my_token.range.end,
+                });
+            }
+            statement_start = null;
+            closed_line = my_end.line;
+        } else if (statement_start === null &&
+            delimiter_mode === 'semicolon' &&
+            !is_trailing_comment(my_token, closed_line)) {
+            statement_start = my_token.range.start;
+        }
+        previous_end = my_end;
+    }
+    if (statement_start !== null && previous_end !== null) {
+        the_statements.push({ start: statement_start, end: previous_end });
+    }
+    return the_statements;
 }
 
 /**
@@ -154,11 +238,11 @@ export function read_document(text: string): DocumentReading {
  * together. That holds for `if x di "a"` / `else di "b"` too.
  */
 function find_blocks(the_tokens: Token[]): {
-    block_by_line: Map<number, StatementBounds>;
-    the_blocks: StatementBounds[];
+    block_by_line: Map<number, BlockBounds>;
+    the_blocks: BlockBounds[];
 } {
-    const block_by_line = new Map<number, StatementBounds>();
-    const the_blocks: StatementBounds[] = [];
+    const block_by_line = new Map<number, BlockBounds>();
+    const the_blocks: BlockBounds[] = [];
     let the_nodes: StataNode[];
     try {
         the_nodes = new StataParser().parse(the_tokens).ast.nodes;
@@ -172,8 +256,8 @@ function find_blocks(the_tokens: Token[]): {
 
 function collect_blocks(
     the_nodes: StataNode[],
-    block_by_line: Map<number, StatementBounds>,
-    the_blocks: StatementBounds[]
+    block_by_line: Map<number, BlockBounds>,
+    the_blocks: BlockBounds[]
 ): void {
     for (let i = 0; i < the_nodes.length; i++) {
         const the_chain = [the_nodes[i]];
@@ -186,9 +270,15 @@ function collect_blocks(
         const is_block = the_chain.length > 1 ||
             is_closed_block(the_chain[0]);
         if (is_block && the_chain.every(is_complete)) {
-            const my_bounds = {
-                start_line: the_chain[0].range.start.line,
-                end_line: the_chain[the_chain.length - 1].range.end.line,
+            const my_first = the_chain[0].range.start;
+            const my_last = the_chain[the_chain.length - 1].range.end;
+            const my_bounds: BlockBounds = {
+                start_line: my_first.line,
+                end_line: my_last.line,
+                start: my_first,
+                end: my_last,
+                header_starts: the_chain.map(my_node => my_node.range.start),
+                closer_ends: the_chain.map(my_node => my_node.range.end),
             };
             for (const my_node of the_chain) {
                 add_block(block_by_line, my_node.range.start.line, my_bounds);
@@ -205,9 +295,9 @@ function collect_blocks(
 
 /** Key `bounds` by `line`, keeping the outer of two blocks there. */
 function add_block(
-    block_by_line: Map<number, StatementBounds>,
+    block_by_line: Map<number, BlockBounds>,
     line: number,
-    bounds: StatementBounds
+    bounds: BlockBounds
 ): void {
     const my_old = block_by_line.get(line);
     if (my_old === undefined ||
@@ -272,6 +362,30 @@ function is_closed_block(node: StataNode): boolean {
 function is_trailing_comment(token: Token, closed_line: number): boolean {
     return COMMENT_TOKEN_TYPES.has(token.type) &&
         token.range.start.line === closed_line;
+}
+
+// The last reading of each open document and the version it read, so
+// repeated sends from an unchanged document (a selection on a long
+// file) don't lex it again. VS Code keeps one TextDocument object per
+// open document, and its version goes up with every edit.
+const THE_READINGS = new WeakMap<
+    vscode.TextDocument,
+    { version: number; reading: DocumentReading }
+>();
+
+/** read_document for `document`, reused while its version holds. */
+function read_text_document(document: vscode.TextDocument): DocumentReading {
+    const my_version: unknown = document.version;
+    if (typeof my_version !== 'number') {
+        return read_document(document.getText());
+    }
+    const my_cached = THE_READINGS.get(document);
+    if (my_cached !== undefined && my_cached.version === my_version) {
+        return my_cached.reading;
+    }
+    const my_reading = read_document(document.getText());
+    THE_READINGS.set(document, { version: my_version, reading: my_reading });
+    return my_reading;
 }
 
 /** The lines Stata reads together with the line after them. */
@@ -415,11 +529,214 @@ export interface CodeToSend {
     statement_end_line: number | null;
 }
 
+/** Negative if `a` comes before `b`, 0 if they are equal. */
+function compare_positions(a: Position, b: Position): number {
+    return a.line - b.line || a.character - b.character;
+}
+
+function earlier(a: Position, b: Position): Position {
+    return compare_positions(a, b) <= 0 ? a : b;
+}
+
+function later(a: Position, b: Position): Position {
+    return compare_positions(a, b) >= 0 ? a : b;
+}
+
+/** Is `position` within `range`, its ends included? */
+function is_within(
+    position: Position,
+    range: { start: Position; end: Position }
+): boolean {
+    return compare_positions(range.start, position) <= 0 &&
+        compare_positions(position, range.end) <= 0;
+}
+
+/** The `;` statement `position` is in, if any. */
+function semicolon_statement_at(
+    reading: DocumentReading,
+    position: Position
+): SemicolonStatement | undefined {
+    return reading.semicolon_statements.find(
+        my_statement => is_within(position, my_statement));
+}
+
+/** Does `statement` close a block (`};`, `} else {;`)? */
+function is_closer(
+    reading: DocumentReading,
+    statement: SemicolonStatement
+): boolean {
+    return reading.the_blocks.some(my_block => my_block.closer_ends.some(
+        my_end => is_within(my_end, statement)));
+}
+
+/** The part of the document a send covers, by character. */
+interface SendRange {
+    start: Position;
+    end: Position;
+}
+
+/**
+ * The cursor's statement under `#delimit ;`, by character, or null if
+ * no `;` statement touches `line` (`#delimit cr` code, a blank line).
+ *
+ * A line can hold the end of one statement and the start of the next
+ * (`1; clear;`). The cursor's statements are those that start on its
+ * line; a line that starts none (the middle or last line of a
+ * statement, or a block's closer alone) sends the statement through
+ * it. A block's closer starts no statement: on `}; clear;`, the
+ * cursor sends `clear;`. A header or closer in the range brings in its
+ * whole block, as statement_bounds does by line.
+ */
+function semicolon_statement_range(
+    reading: DocumentReading,
+    line: number
+): SendRange | null {
+    const the_touching = reading.semicolon_statements.filter(
+        my_statement => my_statement.start.line <= line &&
+            line <= my_statement.end.line);
+    if (the_touching.length === 0) {
+        return null;
+    }
+    const the_starting = the_touching.filter(my_statement =>
+        my_statement.start.line === line &&
+        !is_closer(reading, my_statement));
+    const the_chosen = the_starting.length > 0 ? the_starting : the_touching;
+    const my_range: SendRange = {
+        start: the_chosen[0].start,
+        end: the_chosen[the_chosen.length - 1].end,
+    };
+    let is_widened = true;
+    while (is_widened) {
+        is_widened = false;
+        for (const my_block of reading.the_blocks) {
+            const is_in_range = [
+                ...my_block.header_starts, ...my_block.closer_ends,
+            ].some(my_edge => is_within(my_edge, my_range));
+            if (!is_in_range) {
+                continue;
+            }
+            const my_start = earlier(my_range.start,
+                semicolon_statement_at(reading, my_block.start)?.start ??
+                    my_block.start);
+            const my_end = later(my_range.end,
+                semicolon_statement_at(reading, my_block.end)?.end ??
+                    my_block.end);
+            if (compare_positions(my_start, my_range.start) !== 0 ||
+                compare_positions(my_end, my_range.end) !== 0) {
+                my_range.start = my_start;
+                my_range.end = my_end;
+                is_widened = true;
+            }
+        }
+    }
+    return my_range;
+}
+
+/**
+ * From the top to the end of `range`. If that would leave a block
+ * open, it runs on to the end of the block's closer.
+ */
+function upward_range(reading: DocumentReading, range: SendRange): SendRange {
+    let my_end = range.end;
+    let is_widened = true;
+    while (is_widened) {
+        is_widened = false;
+        for (const my_block of reading.the_blocks) {
+            if (compare_positions(my_block.start, my_end) < 0 &&
+                compare_positions(my_end, my_block.end) < 0) {
+                my_end = semicolon_statement_at(reading, my_block.end)?.end ??
+                    my_block.end;
+                is_widened = true;
+            }
+        }
+    }
+    return { start: { line: 0, character: 0 }, end: my_end };
+}
+
+/**
+ * From the start of `range` to the end of the document. If that would
+ * start inside a block, it starts at the block's header instead.
+ */
+function downward_range(
+    reading: DocumentReading,
+    range: SendRange,
+    document: vscode.TextDocument
+): SendRange {
+    let my_start = range.start;
+    let is_widened = true;
+    while (is_widened) {
+        is_widened = false;
+        for (const my_block of reading.the_blocks) {
+            if (compare_positions(my_block.start, my_start) < 0 &&
+                compare_positions(my_start, my_block.end) <= 0) {
+                my_start = semicolon_statement_at(
+                    reading, my_block.start)?.start ?? my_block.start;
+                is_widened = true;
+            }
+        }
+    }
+    const my_last_line = document.lineCount - 1;
+    return {
+        start: my_start,
+        end: {
+            line: my_last_line,
+            character: document.lineAt(my_last_line).text.length,
+        },
+    };
+}
+
+/**
+ * Does a `;` statement start on `range`'s last line after it ends? With
+ * `is_closer_skipped`, only one Send statement would send from there.
+ */
+function has_statement_after(
+    reading: DocumentReading,
+    range: SendRange,
+    is_closer_skipped = false
+): boolean {
+    return reading.semicolon_statements.some(my_statement =>
+        my_statement.start.line === range.end.line &&
+        compare_positions(my_statement.start, range.end) >= 0 &&
+        !(is_closer_skipped && is_closer(reading, my_statement)));
+}
+
+/**
+ * The text of `range`, widened to whole lines where that brings in no
+ * other statement: indentation before its start, and a comment after
+ * its last `;`, are sent with it.
+ */
+function get_range_text(
+    document: vscode.TextDocument,
+    reading: DocumentReading,
+    range: SendRange
+): string {
+    const the_lines: string[] = [];
+    for (let my_line = range.start.line; my_line <= range.end.line;
+        my_line++) {
+        the_lines.push(document.lineAt(my_line).text);
+    }
+    const my_last = the_lines.length - 1;
+    if (has_statement_after(reading, range)) {
+        the_lines[my_last] =
+            the_lines[my_last].slice(0, range.end.character);
+    }
+    const my_before = the_lines[0].slice(0, range.start.character);
+    if (my_before.trim() !== '') {
+        the_lines[0] = the_lines[0].slice(range.start.character);
+    }
+    return the_lines.join('\n');
+}
+
 /**
  * The code to send for the cursor's statement (or `selection`), the
  * lines up to the end of the statement, or the lines from its start.
  * Code that starts in a `#delimit ;` region gets a `#delimit ;` line
  * first, so Stata reads it as the document does.
+ *
+ * Under `#delimit ;`, the cursor's statement is cut from the lines it
+ * shares with other statements (see semicolon_statement_range), and
+ * Send Upward and Downward Lines end and start where it does. If its
+ * last line holds the next statement, the cursor stays on that line.
  */
 export function find_code_to_send(
     document: vscode.TextDocument,
@@ -427,12 +744,34 @@ export function find_code_to_send(
     cursor_line: number,
     selection: SelectedText | null
 ): CodeToSend {
-    const reading = read_document(document.getText());
+    const reading = read_text_document(document);
     if (mode === 'statement' && selection !== null) {
         return {
             code: code_for_delimiter(selection.text, delimiter_mode_at(
                 reading, selection.line, selection.character)),
             statement_end_line: null,
+        };
+    }
+    const my_statement = semicolon_statement_range(reading, cursor_line);
+    if (my_statement !== null) {
+        let my_range = my_statement;
+        if (mode === 'upward') {
+            my_range = upward_range(reading, my_statement);
+        } else if (mode === 'downward') {
+            my_range = downward_range(reading, my_statement, document);
+        }
+        let my_end_line: number | null = null;
+        if (mode === 'statement') {
+            my_end_line = has_statement_after(reading, my_range, true)
+                ? Math.max(cursor_line, my_range.end.line - 1)
+                : my_range.end.line;
+        }
+        return {
+            code: code_for_delimiter(
+                get_range_text(document, reading, my_range),
+                delimiter_mode_at(reading, my_range.start.line,
+                    my_range.start.character)),
+            statement_end_line: my_end_line,
         };
     }
     let find_bounds = statement_bounds;
@@ -455,7 +794,7 @@ export function detect_statement(
     line: number
 ): StatementBounds {
     return statement_bounds(
-        read_document(document.getText()), line, document.lineCount);
+        read_text_document(document), line, document.lineCount);
 }
 
 export function get_upward_bounds(
@@ -463,7 +802,7 @@ export function get_upward_bounds(
     line: number
 ): StatementBounds {
     return upward_bounds(
-        read_document(document.getText()), line, document.lineCount);
+        read_text_document(document), line, document.lineCount);
 }
 
 export function get_downward_bounds(
@@ -471,7 +810,7 @@ export function get_downward_bounds(
     line: number
 ): StatementBounds {
     return downward_bounds(
-        read_document(document.getText()), line, document.lineCount);
+        read_text_document(document), line, document.lineCount);
 }
 
 export function get_statement_text(

@@ -62,8 +62,10 @@ jobs:
       - name: Typecheck
         run: bun run typecheck
 
+      # The same split run as ci.yml, which says why helper-pty.test.ts
+      # needs its own process on the pinned Bun.
       - name: Test
-        run: bun test ./tests
+        run: bun run test:ci
 
   package:
     permissions:

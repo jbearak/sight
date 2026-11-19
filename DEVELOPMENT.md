@@ -22,6 +22,12 @@ bun run test
 
 This runs `bun run typecheck` first, then executes the test suite.
 
+CI and the release build run `bun run test:ci` instead. It runs
+`tests/integration/console/helper-pty.test.ts` in its own process,
+which the Bun version CI pins needs (see the comment in
+`.github/workflows/ci.yml`). Change the test command there, not in
+either workflow.
+
 ## Data Browser Benchmarks
 
 The data browser has a benchmark harness under
