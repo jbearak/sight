@@ -47,6 +47,9 @@ const TERMINAL_MODULE_URL = pathToFileURL(
 const COMMANDS_MODULE_URL = pathToFileURL(
     path.join(SEND_TO_STATA_DIR, 'commands.ts')
 ).href;
+const CD_CONTEXT_MODULE_URL = pathToFileURL(
+    path.join(SEND_TO_STATA_DIR, 'cd-context.ts')
+).href;
 const TEMP_FILE_MODULE_URL = pathToFileURL(
     path.join(SEND_TO_STATA_DIR, 'temp-file.ts')
 ).href;
@@ -1591,12 +1594,98 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
             .toEqual([first]);
         expect(fs.existsSync(first)).toBe(true);
 
-        // Closing the pane with the second still queued deletes it.
+        // The pane closes before the console answers for the second and
+        // a third. Either may be Stata's already (a Windows send whose
+        // reply is due), so neither goes at once: each gets the usual
+        // delay.
+        const third = await create_tracked_send_file('third.do');
+        await terminal_manager.send_to_stata_terminal('do', third);
+        const cleanups_at_close = vscode_state.the_cleanups.length;
         harness.the_terminals[0].creationOptions?.pty?.close();
+        expect(vscode_state.the_held_files.size).toBe(0);
+        expect(vscode_state.the_cleanups.slice(cleanups_at_close))
+            .toEqual([second, third]);
+        expect(fs.existsSync(second)).toBe(true);
+        expect(fs.existsSync(third)).toBe(true);
+
+        // The console then says the second never reached Stata (it was
+        // still queued): it goes at once.
+        fake.the_line_reports[1].resolve(false);
         await wait_until(
             () => !fs.existsSync(second), 'the queued file to go', 2000
         );
-        expect(vscode_state.the_held_files.size).toBe(0);
+        // Stata accepted the third: its file stays, with no second
+        // cleanup.
+        fake.the_line_reports[2].resolve(true);
+        await new Promise(resolve => setTimeout(resolve, 20));
+        expect(fs.existsSync(third)).toBe(true);
+        expect(vscode_state.the_cleanups.slice(cleanups_at_close))
+            .toEqual([second, third]);
+    });
+
+    test('a held file the console drops after the pane closed is deleted once', async () => {
+        const harness = await create_console_harness();
+        const { terminal_manager } = harness;
+        const first = await create_tracked_send_file('first.do');
+        await terminal_manager.send_to_stata_terminal('do', first);
+        const fake = await console_started(harness);
+        fake.ready.resolve(true);
+        await wait_until(
+            () => fake.the_inputs.length === 1, 'the send to be typed', 2000
+        );
+
+        // Hold the 30-second cleanups, to fire them by hand.
+        const the_timers: Array<{
+            callback: () => void; is_cleared: boolean; unref: () => void;
+        }> = [];
+        const real_set_timeout = globalThis.setTimeout;
+        const real_clear_timeout = globalThis.clearTimeout;
+        globalThis.setTimeout = ((
+            callback: (...args: unknown[]) => void,
+            delay_ms?: number,
+            ...args: unknown[]
+        ) => {
+            if (delay_ms !== 30000) {
+                return real_set_timeout(callback, delay_ms, ...args);
+            }
+            const timer = {
+                callback: () => callback(...args),
+                is_cleared: false,
+                unref: () => undefined,
+            };
+            the_timers.push(timer);
+            return timer;
+        }) as unknown as typeof setTimeout;
+        globalThis.clearTimeout = ((handle: unknown) => {
+            const timer = the_timers.find(my_timer => my_timer === handle);
+            if (timer) {
+                timer.is_cleared = true;
+                return;
+            }
+            real_clear_timeout(handle as Parameters<typeof clearTimeout>[0]);
+        }) as typeof clearTimeout;
+        try {
+            // The pane closes with the line unanswered for: its file
+            // gets the usual delay. Then the console says it never
+            // reached Stata: the file goes at once, and only then.
+            harness.the_terminals[0].creationOptions?.pty?.close();
+            fake.the_line_reports[0].resolve(false);
+            await wait_until(
+                () => !fs.existsSync(first), 'the dropped file to go', 2000
+            );
+            // A later file at the same path survives the delay.
+            fs.writeFileSync(first, 'replacement');
+            for (const my_timer of the_timers) {
+                if (!my_timer.is_cleared) {
+                    my_timer.callback();
+                }
+            }
+            await new Promise(resolve => real_set_timeout(resolve, 20));
+            expect(fs.existsSync(first)).toBe(true);
+        } finally {
+            globalThis.setTimeout = real_set_timeout;
+            globalThis.clearTimeout = real_clear_timeout;
+        }
     });
 
     test('a send the console drops is deleted at once', async () => {
@@ -1684,6 +1773,63 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
         expect(fs.readFileSync(file_path, 'utf8')).toBe('display "early"');
         // The pane is revealed, as for any terminal, keeping focus.
         expect(vscode_state.the_show_calls).toEqual([true]);
+    });
+
+    test('the active-terminal CD commands go through the pane\'s queue', async () => {
+        const harness = await create_console_harness();
+        const { vscode_state, context } = harness;
+        const provider = vscode_state.the_profile_providers.get(
+            'sight.stataTerminal'
+        );
+        const profile = await provider!.provideTerminalProfile(NO_CANCEL) as {
+            options: CreateTerminalOptions;
+        };
+        const terminal = create_pane_terminal(
+            harness, vscode_state, profile.options
+        );
+        harness.the_terminals.push(terminal);
+        for (const my_listener of vscode_state.the_open_listeners) {
+            my_listener(terminal);
+        }
+        vscode_state.active_terminal = terminal;
+        vscode_state.active_text_editor = {
+            document: {
+                uri: {
+                    fsPath: '/tmp/example.do',
+                    toString: () => 'file:///tmp/example.do',
+                },
+                lineCount: 1,
+                save: async () => true,
+                getText: () => '',
+            },
+            selection: {
+                isEmpty: true,
+                active: { line: 0 },
+                start: { line: 0, character: 0 },
+            },
+            revealRange: () => {},
+        };
+        const cd_module = await import(CD_CONTEXT_MODULE_URL);
+        await cd_module.execute_cd_command('file', 'terminal', context);
+
+        expect(vscode_state.the_error_messages).toEqual([]);
+        // Not sendText, which a connecting pane drops.
+        expect(vscode_state.the_terminal_sends).toEqual([]);
+        expect(vscode_state.the_send_calls).toEqual([]);
+        // The queue owns the file: no cleanup timer meanwhile.
+        expect(vscode_state.the_cleanups).toEqual([]);
+        expect(vscode_state.status_item?.text).toContain('1 send');
+        expect(vscode_state.the_show_calls).toEqual([true]);
+
+        const fake = await console_started(harness);
+        fake.ready.resolve(true);
+        await wait_until(
+            () => fake.the_inputs.length === 1, 'the queued cd', 2000
+        );
+        const typed = fake.the_inputs[0];
+        const file_path = typed.slice('do `"'.length, -`"'\r`.length);
+        the_created_files.push(file_path);
+        expect(fs.readFileSync(file_path, 'utf8')).toBe('cd "/tmp"');
     });
 });
 
@@ -2587,6 +2733,46 @@ describe.serial('Feature: Stata console in a Perch session (remote windows)', ()
             .toBeNull();
         expect(await manager.send_to_perch_terminal(undefined, 'do', second)).toBeNull();
         expect(harness.vscode_state.the_send_calls).toEqual([]);
+    });
+
+    test('the active-terminal CD commands type into a Perch terminal, not through Perch', async () => {
+        const { harness, perch } = await create_perch_harness();
+        const { vscode_state, context } = harness;
+        await harness.terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('first')
+        );
+        write_ready_file(perch!.the_listed[0].dir);
+        await wait_until(() => vscode_state.the_cleanups.length === 1, 'ready', 2000);
+        const sends_before = perch!.the_sends.length;
+        vscode_state.active_terminal = perch_terminals(harness)[0];
+        vscode_state.active_text_editor = {
+            document: {
+                uri: {
+                    fsPath: '/tmp/example.do',
+                    toString: () => 'file:///tmp/example.do',
+                },
+                lineCount: 1,
+                save: async () => true,
+                getText: () => '',
+            },
+            selection: {
+                isEmpty: true,
+                active: { line: 0 },
+                start: { line: 0, character: 0 },
+            },
+            revealRange: () => {},
+        };
+        const cd_module = await import(CD_CONTEXT_MODULE_URL);
+        await cd_module.execute_cd_command('file', 'terminal', context);
+
+        // As before: the ordinary terminal send, at once, with the
+        // usual cleanup.
+        expect(vscode_state.the_error_messages).toEqual([]);
+        expect(perch!.the_sends.length).toBe(sends_before);
+        expect(vscode_state.the_terminal_sends).toHaveLength(1);
+        const file_path = vscode_state.the_terminal_sends[0];
+        the_created_files.push(file_path);
+        expect(vscode_state.the_cleanups.at(-1)).toBe(file_path);
     });
 
     test('the profile list\'s Stata terminal is a Perch session too', async () => {

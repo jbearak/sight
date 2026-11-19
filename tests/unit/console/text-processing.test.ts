@@ -15,6 +15,9 @@ describe('classify_prompt', () => {
         expect(classify_prompt('. ')).toBe('stata');
         expect(classify_prompt('  1. ')).toBe('block');
         expect(classify_prompt(' 12. ')).toBe('block');
+        // Line 100 on has no leading blank (StataMP 18: `103. `).
+        expect(classify_prompt('103. ')).toBe('block');
+        expect(classify_prompt('1000. ')).toBe('block');
         expect(classify_prompt(': ')).toBe('mata');
         expect(classify_prompt('>>> ')).toBe('python');
         expect(classify_prompt('... ')).toBe('python');

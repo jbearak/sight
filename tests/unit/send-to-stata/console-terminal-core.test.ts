@@ -725,4 +725,80 @@ describe('console terminal queue: dispose', () => {
         expect(queue.is_tracked(terminal)).toBe(false);
         expect(queue.pending_count()).toBe(0);
     });
+
+    test('drops the sends of an open offer and ignores its answer', async () => {
+        const host = new FakeHost();
+        const queue = create_queue(host);
+        const terminal = { id: 't1' };
+        queue.track(terminal);
+        queue.send(terminal, send('/a.do'));
+        const done = queue.handle_closed(
+            terminal, process_exit(CONSOLE_EXIT_AUTOMATION_NOT_REGISTERED)
+        );
+        await wait_until(() => host.the_offers.length === 1, 'the offer');
+
+        queue.dispose();
+        expect(queue.pending_count()).toBe(0);
+        expect(host.the_deleted).toEqual(['/a.do']);
+        expect(host.the_counts.at(-1)).toBe(0);
+
+        host.the_offer_answers[0].resolve(OFFER_CHOICE_SESSION);
+        await done;
+        expect(host.override_set_count).toBe(0);
+        expect(host.the_dispatched).toEqual([]);
+        expect(host.the_events.filter(e => e.startsWith('dispatch')))
+            .toEqual([]);
+        expect(host.resolutions_of('/a.do')).toBe(1);
+    });
+
+    test('a pane tracked after dispose still drops its sends when its offer is dismissed', async () => {
+        const host = new FakeHost();
+        const queue = create_queue(host);
+        queue.dispose();
+        const terminal = { id: 'late' };
+        queue.track(terminal);
+        queue.send(terminal, send('/late.do'));
+        const done = queue.handle_closed(
+            terminal, process_exit(CONSOLE_EXIT_AUTOMATION_NOT_REGISTERED)
+        );
+        await wait_until(() => host.the_offers.length === 1, 'the offer');
+
+        host.the_offer_answers[0].resolve(undefined);
+        await done;
+        expect(host.the_deleted).toEqual(['/late.do']);
+        expect(queue.pending_count()).toBe(0);
+        expect(host.the_counts.at(-1)).toBe(0);
+    });
+
+    test('reports the true count when it stops a dispatch', async () => {
+        const host = new FakeHost();
+        host.fallback_in_effect = true;
+        let open_gate: () => void = () => {};
+        host.the_dispatch_gates.set('/one.do', new Promise<void>(resolve => {
+            open_gate = resolve;
+        }));
+        const queue = create_queue(host);
+        const terminal = { id: 't1' };
+        queue.track(terminal);
+        for (const my_file of ['/one.do', '/two.do', '/three.do']) {
+            queue.send(terminal, send(my_file));
+        }
+        const running = queue.handle_closed(
+            terminal, process_exit(CONSOLE_EXIT_AUTOMATION_NOT_REGISTERED)
+        );
+        await wait_until(
+            () => host.the_events.includes('dispatch /one.do'),
+            'the first dispatch'
+        );
+
+        queue.dispose();
+        open_gate();
+        await running;
+
+        expect(host.the_dispatched).toEqual(['/one.do']);
+        expect(host.the_deleted).toEqual(['/two.do', '/three.do']);
+        expect(queue.pending_count()).toBe(0);
+        // The status bar shows the last count reported.
+        expect(host.the_counts.at(-1)).toBe(0);
+    });
 });

@@ -91,6 +91,7 @@ export class ConsoleSession {
     private last_line_in_transcript = false;
     private completion_generation = 0;
     private exited = false;
+    private sends_closed = false;
     private reported_ready = false;
 
     private prompt_timer: unknown = null;
@@ -173,10 +174,15 @@ export class ConsoleSession {
 
     /**
      * A line sent from the editor, entered as if typed at the prompt
-     * and then Enter. It never answers `--more--`: while the pager
-     * shows (and behind earlier held sends) it waits, and each held
-     * line goes at the next command prompt. `on_sent` reports whether
-     * it reached Stata (see StataBackend.submit_line).
+     * and then Enter. It never answers `--more--`, and it goes only at
+     * a recognized command prompt (`. `, or a block, Mata, Python,
+     * continuation or `pause` prompt): the last text on screen matches
+     * one after PROMPT_QUIET_MS of quiet. While Stata runs a command,
+     * shows `--more--` or shows text that isn't a known prompt, it
+     * waits, with a note under the input, and each held line goes at
+     * the next command prompt, in order. So `on_sent(true)` (see
+     * StataBackend.submit_line) comes when the line is entered at a
+     * recognized prompt, not when a terminal would have buffered it.
      *
      * The line is entered on its own: what the user has typed but not
      * entered is set aside and put back after it. A line the user
@@ -184,16 +190,25 @@ export class ConsoleSession {
      * so it runs before them.
      */
     send_line(line: string, on_sent?: LineSentCallback): void {
-        if (this.exited) {
+        if (this.exited || this.sends_closed) {
             on_sent?.(false);
             return;
         }
-        if (this.prompt_kind === 'more' || this.held_sends.length > 0) {
+        if (this.held_sends.length > 0 || !this.at_command_prompt()) {
             this.held_sends.push({ line, on_sent });
             this.show_editor(true);
             return;
         }
         this.enter_sent_line(line, on_sent);
+    }
+
+    /**
+     * The console is closing: answer every held send false now, and
+     * every later one at once. Nothing more is entered for the editor.
+     */
+    close_sends(): void {
+        this.sends_closed = true;
+        this.drop_held_sends();
     }
 
     /** Show a short one-row note under the editor until the next key. */
@@ -349,31 +364,62 @@ export class ConsoleSession {
         }
     }
 
+    private at_command_prompt(): boolean {
+        return this.prompt_kind !== null
+            && COMMAND_PROMPT_KINDS.has(this.prompt_kind);
+    }
+
     /**
      * Enter a sent line as its own line, then put back what the user
      * was typing (never joined to the sent line).
      */
-    private enter_sent_line(line: string, on_sent?: LineSentCallback): void {
+    private enter_sent_line(line: string, on_sent?: LineSentCallback): boolean {
         const typed = this.editor.buffer;
         const typed_cursor = this.editor.cursor;
         this.message = null;
         this.editor.set_buffer(line);
-        this.submit(line, on_sent);
-        if (typed.length > 0) {
+        const entered = this.submit(line, on_sent);
+        // A rejected line must not stay in the input for the next Enter.
+        if (!entered || typed.length > 0) {
             this.editor.set_buffer(typed);
             this.editor.cursor = typed_cursor;
             this.show_editor();
         }
+        return entered;
     }
 
-    private submit(line: string, on_sent?: LineSentCallback): void {
+    /**
+     * At a command prompt: enter the first held send that can be
+     * entered. One rejected (too long) is answered false, and the next
+     * is tried at the same prompt; the rejection's note stays.
+     */
+    private enter_held_sends(): void {
+        let rejection: string | null = null;
+        for (let held = this.held_sends.shift(); held; held = this.held_sends.shift()) {
+            if (this.enter_sent_line(held.line, held.on_sent)) {
+                if (rejection !== null) {
+                    this.message = rejection;
+                    this.show_editor(true);
+                }
+                return;
+            }
+            rejection = this.message;
+        }
+        if (this.editor.buffer.length === 0 && this.staged.length > 0) {
+            this.editor.set_buffer(this.staged.shift() ?? '');
+            this.show_editor();
+        }
+    }
+
+    /** Returns false if the line was rejected (not given to Stata). */
+    private submit(line: string, on_sent?: LineSentCallback): boolean {
         const max_bytes = this.options.backend.max_line_bytes();
         if (max_bytes !== null && Buffer.byteLength(line, 'utf8') > max_bytes) {
             this.message = `Line is longer than ${max_bytes} bytes and `
                 + 'was not sent; put it in a do-file.';
             this.show_editor();
             on_sent?.(false);
-            return;
+            return false;
         }
         const kind = this.prompt_kind;
         this.editor.menu = null;
@@ -384,6 +430,9 @@ export class ConsoleSession {
             // Typed ahead while Stata runs: Stata echoes the line when it
             // reads it, after the running command's output.
             this.render_input('', 0, false);
+            // A prompt that arrived but wasn't yet recognized is this
+            // line's now: it must not release a held send.
+            this.clear_timer('prompt');
         } else {
             this.render_input(this.editor.buffer, this.editor.buffer.length, false);
             this.options.write('\r\n');
@@ -417,6 +466,7 @@ export class ConsoleSession {
         this.editor.reset();
         this.prompt_kind = null;
         this.options.backend.submit_line(line, drawn, on_sent);
+        return true;
     }
 
     private paste(text: string): void {
@@ -523,19 +573,20 @@ export class ConsoleSession {
             return;
         }
         this.prompt_kind = kind;
-        // A send held at `--more--` goes before staged pasted lines.
-        const held = COMMAND_PROMPT_KINDS.has(kind) ? this.held_sends.shift() : undefined;
-        if (!held && COMMAND_PROMPT_KINDS.has(kind) && this.editor.buffer.length === 0
+        // A held send goes before staged pasted lines.
+        const has_held = COMMAND_PROMPT_KINDS.has(kind) && this.held_sends.length > 0;
+        if (!has_held && COMMAND_PROMPT_KINDS.has(kind) && this.editor.buffer.length === 0
             && this.staged.length > 0) {
             this.editor.set_buffer(this.staged.shift() ?? '');
         }
         this.show_editor(true);
+        // The held send first: a send made from on_ready comes after it.
+        if (has_held) {
+            this.enter_held_sends();
+        }
         if (kind === 'stata' && !this.reported_ready) {
             this.reported_ready = true;
             this.options.on_ready?.();
-        }
-        if (held) {
-            this.enter_sent_line(held.line, held.on_sent);
         }
     }
 

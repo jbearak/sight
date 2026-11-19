@@ -36,7 +36,8 @@ class FakeBridgeProcess implements ProcessTransport {
         this.finish = resolve;
     });
     constructor(private readonly handlers: Record<string, Handler>) {}
-    send(line: string): void {
+    send(line: string, on_written: (written: boolean) => void): void {
+        on_written(true);
         const request = JSON.parse(line) as Reply;
         const op = String(request.op);
         this.ops.push(op);
