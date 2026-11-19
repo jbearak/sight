@@ -10,25 +10,31 @@
  * number of observations, so it reads what the `input` statement
  * declares instead:
  *
- * - A row is consistent with the declaration when each numeric
- *   variable among the first n fields (n declared variables) has a
- *   field that Stata reads as a number. Extra fields are ignored
- *   (`1 2` under `input x` gives x = 1), a missing string field is
- *   blank, and a blank row is skipped, as in Stata.
- * - A row that is not consistent makes Stata print "cannot be read as
- *   a number" and drop it, which no working do-file relies on, so
- *   Sight reads the data as having ended before it: `input score`,
- *   `10`, `local label score` is one row of data and then a `local`.
- * - A string variable takes any field, so `program demo` under
- *   `input str12 a str12 b` is data, as it is in Stata.
- * - A row with more fields than declared variables is not data
- *   either, and the data ends before it (`is_input_data_row`). Stata
- *   would ignore the extra fields, but rows of real data don't have
- *   them, while the code after an `input` without `end` usually
- *   does: under `input str5 city`, `Paris` is data and the
- *   `local n = _N` after it is code. A row with at most as many
- *   fields as variables, and a number for each numeric one, is still
- *   data, whatever it looks like.
+ * - A row fits the declaration when it has no more fields than there
+ *   are declared variables, and each numeric variable has a field
+ *   that Stata reads as a number (`is_input_data_row`). A missing
+ *   string field is blank, and a blank row is skipped, as in Stata. A
+ *   string variable takes any field, so `program demo` under
+ *   `input str12 a str12 b` fits, and is data, as it is in Stata.
+ * - Stata reads a row that does not fit as well: it ignores extra
+ *   fields (`1 2` under `input x` gives x = 1), and drops a row with
+ *   text for a number after printing "cannot be read as a number".
+ *   Rows of real data rarely do either, while the code after an
+ *   `input` without `end` usually does. So at such a row the lexer
+ *   looks ahead to the next row whose first word is `end`: if a row
+ *   before it (this one included) opens a block that needs its own
+ *   `end` (a program definition, a `mata` or `python` block, another
+ *   `input`), or no `end` follows at all, the data ended before the
+ *   row, which is code (`input score`, `10`, `local label score`,
+ *   `program define helper`, ..., `end`: one row of data). Otherwise
+ *   the `end` closes this data, and the row is data, as Stata reads
+ *   it (`input str20 name`, `Mary-Ann Smith`, `end`).
+ * - Still ambiguous: a row that fits is data whatever it looks like,
+ *   so a short command under an `input` without `end` that declares
+ *   enough string variables is read as data; and a row that does not
+ *   fit, before an `end` that nothing else claims, is data even when
+ *   the `input` has no `end` and that `end` closes something Sight
+ *   does not count as a block (one opened behind a prefix, say).
  * - When the declaration can't be read (no varlist, a macro, a
  *   range), every row is data up to `end`.
  *

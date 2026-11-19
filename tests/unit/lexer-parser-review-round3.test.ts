@@ -400,3 +400,74 @@ describe('a string in a Mata block under #delimit ;', () => {
         expect(directive_lines(my_source)).toEqual([0, 5]);
     });
 });
+
+describe('a row that does not fit, and the end after it', () => {
+    // StataMP 18 reads all of these as data: `1 2` gives x = 1,
+    // `Mary-Ann Smith` gives "Mary-Ann", and `abc` is dropped after
+    // "'abc' cannot be read as a number".
+    const DATA_BEFORE_END = [
+        'input x\n1 2\nend\nlist\n',
+        'input str20 name\nMary-Ann Smith\nLos-Angeles\nend\nlist\n',
+        'clear\ninput x\n1\nabc\n2\nend\nlist\n',
+        '#delimit ;\ninput x;\n1 2;\nend;\nlist;\n',
+        // A program after the `end` doesn't claim it.
+        'input x\n1 2\nend\nprogram define p\n    display 1\nend\n',
+    ];
+
+    it('is data when nothing else claims the end', () => {
+        for (const my_source of DATA_BEFORE_END) {
+            const my_result = parse(my_source);
+            expect(my_result.errors).toEqual([]);
+            const my_input = my_result.ast.nodes.find((my_node) =>
+                my_node.type === 'command' && my_node.name === 'input');
+            expect(my_input?.type === 'command' && my_input.input_data !== undefined &&
+                my_input.input_data.has_end === undefined).toBe(true);
+        }
+    });
+
+    for_each_formatter_mode('is kept as written', (my_mode) => {
+        for (const my_source of DATA_BEFORE_END) {
+            expect_formats_to(my_source, my_mode, my_source);
+        }
+    });
+
+    // The program (or another block) before the next `end` claims it,
+    // so the data ended before the row (stringobs, input-no-end).
+    const CODE_BEFORE_PROGRAM = 'clear\nset obs 1\ngenerate id = 1\ninput score\n10\n' +
+        'local label score\nprogram define helper\n    display 1\nend\n' +
+        'display "`label\'"\nhelper\nlist\n';
+
+    it('is code when a block that needs its own end opens first', () => {
+        expect(shape(nodes_of(CODE_BEFORE_PROGRAM))).toEqual([
+            'clear', 'set', 'generate', 'input', 'macro_def', 'program',
+            'display', 'helper', 'list',
+        ]);
+        for (const my_opener of ['mata', 'python:', 'input str5 b']) {
+            const the_nodes = nodes_of(
+                `input str5 a\nParis\nlocal n = _N\n${my_opener}\nend\n`);
+            expect(shape(the_nodes).slice(0, 2)).toEqual(['input', 'macro_def']);
+            expect(command_at(the_nodes, 0).input_data?.content).toBe('Paris');
+            expect(the_nodes.length).toBe(3);
+        }
+    });
+
+    for_each_formatter_mode('keeps the data and the code before the program', (my_mode) => {
+        expect_formats_to(CODE_BEFORE_PROGRAM, my_mode, CODE_BEFORE_PROGRAM);
+    });
+
+    it('is code when no end follows', () => {
+        const the_nodes = nodes_of('input str5 city\nParis\nlocal n = _N\ndisplay `n\'\n');
+        expect(shape(the_nodes)).toEqual(['input', 'macro_def', 'display']);
+        expect(command_at(the_nodes, 0).input_data?.content).toBe('Paris');
+    });
+
+    it('costs linear time over many such rows', () => {
+        const lex_it = (my_text: string) => {
+            new StataLexer().tokenize(my_text);
+        };
+        expect(growth('1 2\n', lex_it, 'input x\n', 'end\nlist\n')).toBeLessThan(5);
+        expect(growth('abc\n', lex_it, 'input x\n', 'end\nlist\n')).toBeLessThan(5);
+        expect(growth('1 2\n', lex_it, 'input x\n', '')).toBeLessThan(5);
+        expect(growth('input x\n1 2\nlocal a 1\n', lex_it, '', 'end\n')).toBeLessThan(5);
+    });
+});

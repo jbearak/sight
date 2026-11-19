@@ -43,6 +43,12 @@ const INPUT_END_LINE = /\n[ \t]*end(?![A-Za-z0-9_.])/g;
 // Under `#delimit ;`, the `;` before a record whose first word is
 // `end`, which ends `input` data (StataMP 18).
 const INPUT_END_RECORD = /;\s*end(?![A-Za-z0-9_.])/g;
+// The first word of an `input` data row, after blanks (and line
+// breaks, which a `;` record may start with).
+const INPUT_ROW_FIRST_WORD = /\s*([A-Za-z_]\w*)(?!\w)/y;
+// What may follow `mata` or `python` on a line that opens a block: an
+// optional `:`, then blanks and perhaps a `//` comment.
+const EMBEDDED_BLOCK_OPENER_TAIL = /^:?[ \t\r]*(?:\/\/.*)?\s*$/;
 const COMMENT_CONTEXT_KEYWORDS = new Set(['program', 'capture', 'quietly', 'noisily', 'by', 'bysort']);
 // A `*` after one of these is multiplication. A string never ends a
 // statement on its own line, so `"ab" * 3` is string repetition, not a
@@ -191,6 +197,11 @@ export class StataLexer {
   // next_input_end_candidate).
   private input_end_candidate:
     { searched_from: number; index: number; is_semicolon: boolean } | null = null;
+  // The last yes of input_end_follows_unclaimed: rows from `from` up
+  // to `until` (the row of the `end` that closes the data) are data.
+  private input_end_lookahead: {
+    from: number; until: number; is_semicolon: boolean;
+  } | null = null;
   // Where `input` data quotes have no closing quote (see input_row_end).
   private input_quote_scan: InputQuoteScan = create_input_quote_scan();
   // The offset of the source's last `"`, once looked up (see
@@ -226,6 +237,7 @@ export class StataLexer {
     this.input_declaration_start = 0;
     this.input_end_candidate = null;
     this.input_quote_scan = create_input_quote_scan();
+    this.input_end_lookahead = null;
     this.last_double_quote_offset = null;
     this.state = initialState || {
       delimiterMode: 'cr',
@@ -425,7 +437,8 @@ export class StataLexer {
       const my_row_end = input_row_end(
         this.source, my_row_start, is_semicolon, this.input_quote_scan);
       const my_row = this.source.substring(my_row_start, my_row_end);
-      if (the_fields !== null && !is_input_data_row(my_row, the_fields)) {
+      if (the_fields !== null && !is_input_data_row(my_row, the_fields) &&
+          !this.input_end_follows_unclaimed(my_row_start, is_semicolon)) {
         break;
       }
       my_has_rows = my_has_rows || my_row.trim() !== '';
@@ -468,6 +481,78 @@ export class StataLexer {
     the_tokens.push(this.scan_raw_token('WORD', this.position + 'end'.length));
     the_tokens.push(...this.scan_end_tail_tokens(is_semicolon));
     return the_tokens;
+  }
+
+  /**
+   * Whether the `input` data row starting at `row_start`, which does
+   * not fit the declared variables, is data all the same: the next row
+   * whose first word is `end` closes the data, and no row from this
+   * one up to it opens a block that needs an `end` of its own (a
+   * program definition, a `mata` or `python` block, another `input`).
+   * StataMP 18 reads such a row as data (it ignores extra fields, and
+   * drops a row with text for a number after "cannot be read as a
+   * number"), so `1 2` then `end` under `input x` is data. When such a
+   * block opens first, that `end` is its own, and when no `end`
+   * follows, nothing closes the data: either way the data ended before
+   * this row, which is code.
+   *
+   * One scan per data block: a later row of the same block up to the
+   * same `end` reuses the answer (see input_end_lookahead).
+   */
+  private input_end_follows_unclaimed(row_start: number, is_semicolon: boolean): boolean {
+    const my_cache = this.input_end_lookahead;
+    if (my_cache !== null && my_cache.is_semicolon === is_semicolon &&
+        my_cache.from <= row_start && row_start < my_cache.until) {
+      return true;
+    }
+    if (this.next_input_end_candidate(row_start - 1, is_semicolon) === -1) {
+      return false;
+    }
+    let my_row_start = row_start;
+    let my_is_data = false;
+    while (my_row_start < this.source.length) {
+      if (is_input_end_row(this.source, my_row_start, is_semicolon)) {
+        my_is_data = true;
+        break;
+      }
+      const my_row_end = input_row_end(
+        this.source, my_row_start, is_semicolon, this.input_quote_scan);
+      if (this.input_row_opens_block(my_row_start, my_row_end, is_semicolon)) {
+        break;
+      }
+      my_row_start = my_row_end + 1;
+    }
+    // Only a yes is kept: after a no the data ends, and a later block
+    // must not reuse it.
+    if (my_is_data) {
+      this.input_end_lookahead = { from: row_start, until: my_row_start, is_semicolon };
+    }
+    return my_is_data;
+  }
+
+  /**
+   * Whether the row from `start` to `end` (a line, or a `;` record)
+   * opens a block that needs its own `end`: a program definition (by
+   * is_program_definition_header, as for any `program` statement), a
+   * `mata` or `python` block (the word, an optional `:`, and nothing
+   * else but blanks and a comment), or another `input`.
+   */
+  private input_row_opens_block(start: number, end: number, is_semicolon: boolean): boolean {
+    INPUT_ROW_FIRST_WORD.lastIndex = start;
+    const my_match = INPUT_ROW_FIRST_WORD.exec(this.source);
+    if (my_match === null || my_match.index + my_match[0].length > end) {
+      return false;
+    }
+    const my_word = my_match[1];
+    const my_word_end = my_match.index + my_match[0].length;
+    if (PROGRAM_COMMAND_NAMES.has(my_word)) {
+      return is_program_definition_header(
+        program_header_text(this.source, my_word_end, is_semicolon));
+    }
+    if (my_word === 'mata' || my_word === 'python') {
+      return EMBEDDED_BLOCK_OPENER_TAIL.test(this.source.substring(my_word_end, end));
+    }
+    return INPUT_COMMAND_NAMES.has(my_word);
   }
 
   /**
