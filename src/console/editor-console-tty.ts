@@ -141,6 +141,8 @@ export function run_tty_console(args: TtyConsoleArgs): void {
     let partial_timer: ReturnType<typeof setTimeout> | null = null;
     /** Sent files waiting out their cleanup delay. */
     const the_sent_files = new Map<string, ReturnType<typeof setTimeout>>();
+    /** Files of sends the console hasn't entered yet. */
+    const the_waiting_files = new Set<string>();
 
     const delete_file = (file_path: string): void => {
         try {
@@ -150,6 +152,7 @@ export function run_tty_console(args: TtyConsoleArgs): void {
         }
     };
     const settle_file = (file_path: string, sent: boolean): void => {
+        the_waiting_files.delete(file_path);
         if (!sent) {
             delete_file(file_path);
             return;
@@ -168,6 +171,9 @@ export function run_tty_console(args: TtyConsoleArgs): void {
         // Stata has ended, so it reads none of these any more.
         for (const [my_file, my_timer] of the_sent_files) {
             clearTimeout(my_timer);
+            delete_file(my_file);
+        }
+        for (const my_file of the_waiting_files) {
             delete_file(my_file);
         }
         process.exit(code);
@@ -192,6 +198,9 @@ export function run_tty_console(args: TtyConsoleArgs): void {
                 settle_file(file, false);
             }
             return;
+        }
+        if (file !== undefined) {
+            the_waiting_files.add(file);
         }
         void the_console.send_line(send.line).then((sent) => {
             if (file !== undefined) {
