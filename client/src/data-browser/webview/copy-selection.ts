@@ -18,6 +18,12 @@ import type {
  * the text to the host to put on the clipboard. Glide still copies
  * every selection it can copy at once.
  *
+ * A copy takes rows of one view only (one dataset, sort, and filter,
+ * as the host numbers them): rows the grid has from one view and rows
+ * read from the host in another would be in two orders. If the grid's
+ * rows are of two views, or the host's view is no longer theirs, the
+ * copy fails with a message and leaves the clipboard alone.
+ *
  * A copy is bounded (MAX_COPY_CELLS); a larger one fails with a
  * message and leaves the clipboard alone. The selected rows are listed
  * only then, never on each render: a selection of ten million rows is
@@ -64,13 +70,17 @@ export interface CopyGrid<TRows = unknown> {
     to_text: (cells: CellArray, columns: readonly number[]) => string;
     /** Whether the grid has row `row`'s cells in `columns`, all read. */
     has_row: (row: number, columns: readonly number[]) => boolean;
+    /** The host view a row the grid has was read in. */
+    row_view: (row: number) => number | undefined;
     /**
-     * Read rows the grid hasn't loaded (ascending), for `columns`.
-     * Rejects, with why, if they can't be read.
+     * Read rows the grid hasn't loaded (ascending), for `columns`, all
+     * in one host view: `view` if given. Rejects, with why, if they
+     * can't be read or aren't in that view.
      */
     load_rows: (
         rows: readonly number[],
-        columns: readonly number[]
+        columns: readonly number[],
+        view: number | undefined
     ) => Promise<TRows>;
     /** Changes whenever the rows shown change order or dataset. */
     order_version: () => number;
@@ -196,8 +206,8 @@ function format_count(count: number): string {
 }
 
 const ORDER_CHANGED_MESSAGE =
-    'the rows shown changed during the copy (a sort or filter); copy '
-    + 'again.';
+    'the rows shown changed during the copy (a sort, filter, or '
+    + 'reload); copy again.';
 
 /**
  * Take a copy of `selection` if Glide can't make it at once (a long
@@ -231,10 +241,31 @@ export function take_over_copy<TRows>(
         });
     }
     const my_listed = list_selection(selection, my_shape, grid);
-    const the_missing = my_listed.rows.filter(
-        my_row => my_row < grid.row_count
-            && !grid.has_row(my_row, my_listed.columns)
-    );
+    const the_missing: number[] = [];
+    // The one view the rows the grid has are from; null once two are.
+    let my_view: number | undefined | null;
+    for (const my_row of my_listed.rows) {
+        if (my_row >= grid.row_count) continue;
+        if (!grid.has_row(my_row, my_listed.columns)) {
+            the_missing.push(my_row);
+            continue;
+        }
+        const my_row_view = grid.row_view(my_row);
+        if (my_view === undefined) {
+            my_view = my_row_view;
+        } else if (my_view !== null && my_row_view !== my_view) {
+            my_view = null;
+        }
+    }
+    if (my_view === null) {
+        // The grid shows rows of two orders (a sort or filter is still
+        // landing): no copy is right until it has.
+        take_event();
+        return Promise.resolve({
+            kind: 'failed',
+            message: ORDER_CHANGED_MESSAGE,
+        });
+    }
     let the_parts: CellPart[] | null = null;
     if (the_missing.length === 0) {
         the_parts = plan_parts(
@@ -250,7 +281,7 @@ export function take_over_copy<TRows>(
         try {
             if (the_parts === null) {
                 const my_loaded = await grid.load_rows(
-                    the_missing, my_listed.columns
+                    the_missing, my_listed.columns, my_view
                 );
                 if (grid.order_version() !== my_version) {
                     return { kind: 'failed', message: ORDER_CHANGED_MESSAGE };
@@ -287,9 +318,9 @@ export function take_over_copy<TRows>(
 
 /** What the copy handler posts to the host. */
 export type CopyMessage =
-    | { type: 'copyStarted' }
-    | { type: 'copyText'; text: string; is_whole: boolean }
-    | { type: 'copyFailed'; message: string };
+    | { type: 'copyStarted'; copy_id: number }
+    | { type: 'copyText'; copy_id: number; text: string; is_whole: boolean }
+    | { type: 'copyFailed'; copy_id: number; message: string };
 
 export interface CopyHandlerOptions<TRows> {
     /** The selection and grid now, or null before the grid is up. */
@@ -304,17 +335,19 @@ export interface CopyHandlerOptions<TRows> {
 
 /**
  * The window's copy listener (capture phase). Every copy, the grid's
- * or not, is newer than the copies still being made: those then post
- * nothing, so the most recent copy wins the clipboard.
+ * or not, posts `copyStarted` with its id, and a copy taken over
+ * posts its result with the same id. The host decides which copy is
+ * the most recent, across this listener and Copy Column, and writes
+ * only that one to the clipboard.
  */
 export function create_copy_handler<TRows>(
     options: CopyHandlerOptions<TRows>
 ): (event: CopyEventLike) => void {
-    let latest_copy = 0;
+    let next_copy_id = 0;
     return event => {
-        latest_copy += 1;
-        const my_copy_id = latest_copy;
-        options.post({ type: 'copyStarted' });
+        next_copy_id += 1;
+        const my_copy_id = next_copy_id;
+        options.post({ type: 'copyStarted', copy_id: my_copy_id });
         const my_state = options.get_state();
         if (!my_state || !options.is_grid_focused()) return;
         const my_copy = take_over_copy(
@@ -322,14 +355,18 @@ export function create_copy_handler<TRows>(
         );
         if (!my_copy) return;
         void my_copy.then(my_result => {
-            if (my_copy_id !== latest_copy) return;
             options.post(my_result.kind === 'copied'
                 ? {
                     type: 'copyText',
+                    copy_id: my_copy_id,
                     text: my_result.text,
                     is_whole: my_result.is_whole,
                 }
-                : { type: 'copyFailed', message: my_result.message });
+                : {
+                    type: 'copyFailed',
+                    copy_id: my_copy_id,
+                    message: my_result.message,
+                });
         });
     };
 }

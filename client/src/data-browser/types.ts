@@ -110,6 +110,8 @@ export interface TimingMessage {
  */
 export interface CopyTextMessage {
     type: 'copyText';
+    /** The `copyStarted` this copy began with. */
+    copy_id: number;
     text: string;
     /** False if a long strL couldn't be read and its preview was copied. */
     is_whole: boolean;
@@ -118,26 +120,33 @@ export interface CopyTextMessage {
 /** A copy the webview couldn't make. */
 export interface CopyFailedMessage {
     type: 'copyFailed';
+    /** The `copyStarted` this copy began with. */
+    copy_id: number;
     message: string;
 }
 
 /**
- * The user copied something in the webview (any copy event). A copy
- * the host is still making for an earlier request (Copy Column) must
- * not overwrite it.
+ * The user copied something in the webview (any copy event). The host
+ * puts on the clipboard only the most recent copy, of any kind: a copy
+ * still being made for an earlier event or Copy Column writes nothing.
+ * `copy_id` identifies this copy's later `copyText` or `copyFailed`.
  */
 export interface CopyStartedMessage {
     type: 'copyStarted';
+    copy_id: number;
 }
 
 /**
  * Rows a copy needs that the grid hasn't loaded: rows `[start, start +
  * count)` in the order shown, columns `[col_start, col_end)`, with
- * every strL read (none `pending`).
+ * every strL read (none `pending`). With `view_generation`, the host
+ * reads them only in that view (see `RowResponse.view_generation`);
+ * in another it answers null.
  */
 export interface RequestCopyRowsMessage {
     type: 'requestCopyRows';
     request_id: string;
+    view_generation?: number;
     start: number;
     count: number;
     col_start: number;
@@ -170,6 +179,12 @@ export interface RowResponse {
     col_start?: number;
     rows: CellValue[][];
     request_id: string;
+    /**
+     * The host's view (dataset, sort, and filter) the rows were read
+     * in. It changes whenever the rows shown change order or dataset,
+     * so rows with the same view are in one order.
+     */
+    view_generation: number;
 }
 
 export type MissingValueStyle =
@@ -315,6 +330,8 @@ export interface CopyRowsMessage {
     type: 'copyRows';
     request_id: string;
     rows: CellValue[][] | null;
+    /** The view the rows were read in (see `RowResponse`). */
+    view_generation?: number;
     message?: string;
 }
 

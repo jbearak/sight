@@ -656,7 +656,9 @@ async function make_copy_panel(): Promise<{
     panel_like.disposed = false;
     panel_like.file_changed = false;
     panel_like.generation = 3;
-    panel_like.copy_generation = 0;
+    panel_like.copy_seq = 0;
+    panel_like.webview_copy = null;
+    panel_like.view_generation = 0;
     panel_like.effective_perm = new Uint32Array([4, 3, 2, 1, 0]);
     panel_like.panel = {
         webview: {
@@ -702,6 +704,7 @@ describe('DataBrowserPanel rows read for a copy', () => {
                 [{ raw: 'a' }, { raw: 'long a' }],
                 [{ raw: 'b' }, { raw: 'long b' }],
             ],
+            view_generation: 0,
         }]);
     });
 
@@ -737,7 +740,7 @@ describe('DataBrowserPanel Copy Column', () => {
         the_clipboard_writes.length = 0;
         const my_copy = panel_like.handle_copy_column(0, true, true);
         // The user copies a cell meanwhile.
-        await panel_like.handle_message({ type: 'copyStarted' });
+        await panel_like.handle_message({ type: 'copyStarted', copy_id: 1 });
         finish();
         await my_copy;
         expect(the_clipboard_writes).toEqual([]);
@@ -745,5 +748,65 @@ describe('DataBrowserPanel Copy Column', () => {
         const my_second = panel_like.handle_copy_column(0, true, true);
         await my_second;
         expect(the_clipboard_writes).toEqual(['whole column']);
+    });
+
+    it('wins over an earlier keyboard copy still reading its rows', async () => {
+        const { panel_like } = await make_copy_panel();
+        panel_like.dta_file = { variables: [{ name: 'make' }] };
+        panel_like.run_job = async () => ({
+            kind: 'copy', text: 'NEW COLUMN',
+        });
+        the_clipboard_writes.length = 0;
+        // A keyboard copy of a selection with a row not loaded: it
+        // starts, then reads the row from the host...
+        await panel_like.handle_message({ type: 'copyStarted', copy_id: 1 });
+        // ...while the user picks Copy Column, which finishes first.
+        await panel_like.handle_message({
+            type: 'copyColumn', col_index: 0,
+            show_labels: true, show_formats: true,
+        });
+        // The keyboard copy's text arrives last.
+        await panel_like.handle_message({
+            type: 'copyText', copy_id: 1, text: 'OLD SELECTION',
+            is_whole: true,
+        });
+        expect(the_clipboard_writes).toEqual(['NEW COLUMN']);
+    });
+
+    it('yields to a later keyboard copy that finishes first', async () => {
+        const { panel_like } = await make_copy_panel();
+        panel_like.dta_file = { variables: [{ name: 'make' }] };
+        let finish: () => void = () => undefined;
+        const my_gate = new Promise<void>(resolve => {
+            finish = resolve;
+        });
+        panel_like.run_job = async () => {
+            await my_gate;
+            return { kind: 'copy', text: 'OLD COLUMN' };
+        };
+        the_clipboard_writes.length = 0;
+        const my_column = panel_like.handle_copy_column(0, true, true);
+        await panel_like.handle_message({ type: 'copyStarted', copy_id: 7 });
+        await panel_like.handle_message({
+            type: 'copyText', copy_id: 7, text: 'NEW SELECTION',
+            is_whole: true,
+        });
+        finish();
+        await my_column;
+        expect(the_clipboard_writes).toEqual(['NEW SELECTION']);
+    });
+
+    it('writes only the latest of two keyboard copies', async () => {
+        const { panel_like } = await make_copy_panel();
+        the_clipboard_writes.length = 0;
+        await panel_like.handle_message({ type: 'copyStarted', copy_id: 1 });
+        await panel_like.handle_message({ type: 'copyStarted', copy_id: 2 });
+        await panel_like.handle_message({
+            type: 'copyText', copy_id: 2, text: 'second', is_whole: true,
+        });
+        await panel_like.handle_message({
+            type: 'copyText', copy_id: 1, text: 'first', is_whole: true,
+        });
+        expect(the_clipboard_writes).toEqual(['second']);
     });
 });

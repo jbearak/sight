@@ -53,10 +53,14 @@ function make_grid(
     version: number;
     load_error: Error | null;
     on_load: () => void;
+    row_views: Map<number, number>;
+    load_views: (number | undefined)[];
 } {
     const my_grid = {
         fetch_count: 0,
         the_loads: [] as number[][],
+        row_views: new Map<number, number>(),
+        load_views: [] as (number | undefined)[],
         version: 0,
         load_error: null as Error | null,
         on_load: () => undefined as void,
@@ -65,8 +69,14 @@ function make_grid(
         to_text: (cells: CellArray, columns: readonly number[]) =>
             getCopyBufferContents(cells, columns).textPlain,
         has_row: (row: number) => loaded_rows.has(row),
-        load_rows: async (rows: readonly number[]): Promise<Rows> => {
+        row_view: (row: number) => my_grid.row_views.get(row) ?? 0,
+        load_rows: async (
+            rows: readonly number[],
+            _columns: readonly number[],
+            view: number | undefined
+        ): Promise<Rows> => {
             my_grid.the_loads.push([...rows]);
+            my_grid.load_views.push(view);
             my_grid.on_load();
             if (my_grid.load_error) throw my_grid.load_error;
             return new Map(rows.map(my_row => [
@@ -297,7 +307,7 @@ describe('copying a very large selection', () => {
 });
 
 describe('the most recent copy wins', () => {
-    it('drops an earlier copy that finishes after a later one', async () => {
+    it('posts each copy with its id, for the host to pick the latest', async () => {
         const my_grid = make_grid();
         let release: () => void = () => undefined;
         const my_gate = new Promise<void>(resolve => {
@@ -331,8 +341,12 @@ describe('the most recent copy wins', () => {
         expect(my_second.calls).toEqual([]);
         release();
         await new Promise(resolve => setTimeout(resolve, 5));
+        // The host, which writes the clipboard, drops copy 1: copy 2
+        // started after it.
         expect(the_posts).toEqual([
-            { type: 'copyStarted' }, { type: 'copyStarted' },
+            { type: 'copyStarted', copy_id: 1 },
+            { type: 'copyStarted', copy_id: 2 },
+            { type: 'copyText', copy_id: 1, text: FULL, is_whole: true },
         ]);
     });
 
@@ -349,8 +363,8 @@ describe('the most recent copy wins', () => {
         on_copy(make_event());
         await new Promise(resolve => setTimeout(resolve, 5));
         expect(the_posts).toEqual([
-            { type: 'copyStarted' },
-            { type: 'copyText', text: FULL, is_whole: true },
+            { type: 'copyStarted', copy_id: 1 },
+            { type: 'copyText', copy_id: 1, text: FULL, is_whole: true },
         ]);
     });
 });
