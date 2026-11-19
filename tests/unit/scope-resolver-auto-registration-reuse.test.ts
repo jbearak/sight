@@ -171,11 +171,14 @@ describe('auto-discovered backward registration reuse', () => {
 });
 
 describe('create_listing_cache_resolve_fs', () => {
-    it('reuses an unchanged listing and sees a new file at once', () => {
+    it('reuses an unchanged listing and sees a new file at once', async () => {
         const root = make_workspace(['a.do']);
-        // Settled long ago, so the listing may be cached.
+        // Modified long ago, so the listing may be cached. Setting the
+        // time stamps the directory's ctime now; the cache compares it
+        // with a millisecond clock, so let a few milliseconds pass.
         const past = new Date(Date.now() - 60_000);
         fs.utimesSync(root, past, past);
+        await Bun.sleep(5);
         const listing = create_listing_cache_resolve_fs({ settle_ms: 0 });
         const first = listing.readdirSync(root, { withFileTypes: true });
         expect(listing.readdirSync(root, { withFileTypes: true }))
