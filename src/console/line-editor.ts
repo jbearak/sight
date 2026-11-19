@@ -91,6 +91,9 @@ export class LineEditor {
                 return this.handle_alt(event.letter);
             case 'ctrl':
                 return this.handle_ctrl(event.letter);
+            case 'editor_send':
+                // The session takes these before the editor sees keys.
+                return NONE;
             case 'key':
                 break;
         }

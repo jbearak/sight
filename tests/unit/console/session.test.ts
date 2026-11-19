@@ -8,6 +8,8 @@
 import { describe, expect, it } from 'bun:test';
 import {
     ConsoleSession,
+    EDITOR_SEND_TIMEOUT_MS,
+    ESCAPE_TIMEOUT_MS,
     MAX_CANONICAL_LINE_BYTES,
     PROMPT_QUIET_MS,
     type Clock,
@@ -16,6 +18,7 @@ import {
 import type { StataPty } from '../../../src/console/pty';
 import { PtyBackend } from '../../../src/console/pty-backend';
 import { strip_ansi } from '../../../src/console/prompt-detector';
+import { EDITOR_SEND_START, encode_editor_send } from '../../../src/console/editor-send-channel';
 
 class ManualClock implements Clock {
     now_ms = 0;
@@ -80,6 +83,7 @@ function setup(options: {
     completer?: Completer | null;
     history?: string[];
     on_ready?: () => void;
+    on_editor_send?: (payload: string) => void;
 } = {}) {
     const clock = new ManualClock();
     const pty = new FakePty();
@@ -94,6 +98,7 @@ function setup(options: {
         completer: options.completer ?? null,
         color_mode: 'streams',
         on_ready: options.on_ready,
+        on_editor_send: options.on_editor_send,
     });
     const at_prompt = (text = '. '): void => {
         session.handle_output(text);
@@ -635,5 +640,106 @@ describe('ConsoleSession', () => {
         expect(transcript).toEqual(['summarize']);
         session.handle_output('varlist required\nr(100);\n');
         expect(transcript).toEqual([]);
+    });
+});
+
+describe('ConsoleSession with editor sends in its input', () => {
+    const SEND = encode_editor_send({
+        line: 'do "a.do"',
+        file: '/tmp/stata_send_0123456789abcdef0123456789abcdef.do',
+    });
+
+    // As without editor sends: a lone Esc is the Esc key once it has
+    // waited ESCAPE_TIMEOUT_MS, and the start of Alt+key before that.
+    for (const editor_sends of [false, true]) {
+        it(`keeps the Esc timing ${editor_sends ? 'with' : 'without'} editor sends`, () => {
+            const the_payloads: string[] = [];
+            const late = setup(editor_sends
+                ? { on_editor_send: (payload) => the_payloads.push(payload) }
+                : {});
+            late.at_prompt();
+            late.session.handle_input('\x1b[200~abc\ndef\x1b[201~');
+            expect(late.session.staged_lines).toEqual(['def']);
+            late.session.handle_input('\x1b');
+            late.clock.advance(ESCAPE_TIMEOUT_MS + 10);
+            // The Esc key cancelled the staged pasted line.
+            expect(late.session.staged_lines).toEqual([]);
+            late.session.handle_input('z');
+            expect(late.session.buffer).toBe('abcz');
+
+            const quick = setup(editor_sends
+                ? { on_editor_send: (payload) => the_payloads.push(payload) }
+                : {});
+            quick.at_prompt();
+            quick.session.handle_input('\x1b[200~abc\ndef\x1b[201~');
+            quick.session.handle_input('\x1b');
+            quick.clock.advance(ESCAPE_TIMEOUT_MS - 5);
+            quick.session.handle_input('z');
+            // Alt+z: the staged line stays, and no z is typed.
+            expect(quick.session.staged_lines).toEqual(['def']);
+            expect(quick.session.buffer).toBe('abc');
+            expect(the_payloads).toEqual([]);
+        });
+    }
+
+    it('passes a send on, leaving the input and note alone', () => {
+        const the_payloads: string[] = [];
+        const { pty, session, at_prompt } = setup({
+            on_editor_send: (payload) => the_payloads.push(payload),
+        });
+        at_prompt();
+        session.handle_input('di 1');
+        session.handle_input(SEND.slice(0, 9));
+        session.handle_input(SEND.slice(9));
+        expect(the_payloads).toHaveLength(1);
+        expect(session.buffer).toBe('di 1');
+        expect(pty.written).toEqual([]);
+    });
+
+    it('passes a send on at --more-- without answering it', () => {
+        const the_payloads: string[] = [];
+        const { pty, session, at_prompt } = setup({
+            on_editor_send: (payload) => the_payloads.push(payload),
+        });
+        at_prompt('--more--');
+        session.handle_input(SEND);
+        expect(the_payloads).toHaveLength(1);
+        expect(pty.written).toEqual([]);
+    });
+
+    it('takes a pasted send as pasted text', () => {
+        const the_payloads: string[] = [];
+        const { pty, session, at_prompt } = setup({
+            on_editor_send: (payload) => the_payloads.push(payload),
+        });
+        at_prompt();
+        session.handle_input(`\x1b[200~${SEND}\x1b[201~`);
+        expect(the_payloads).toEqual([]);
+        expect(pty.written).toEqual([]);
+    });
+
+    it('never lets a broken send swallow Ctrl+C, Enter or later typing', () => {
+        const the_payloads: string[] = [];
+        const { pty, session, clock, at_prompt } = setup({
+            on_editor_send: (payload) => the_payloads.push(payload),
+        });
+        at_prompt();
+        session.handle_input('slow\r');
+        session.handle_input(`${EDITOR_SEND_START}{"line":`);
+        session.handle_input('\x03');
+        expect(pty.interrupts).toBe(1);
+        at_prompt('\n. ');
+
+        // A send that stops arriving is dropped after a while.
+        session.handle_input(`${EDITOR_SEND_START}{"line":"x"`);
+        clock.advance(EDITOR_SEND_TIMEOUT_MS + 1);
+        session.handle_input('di 2\r');
+        expect(pty.written).toEqual(['slow\r', 'di 2\r']);
+
+        // A whole send after a broken one is read.
+        at_prompt('\n. ');
+        session.handle_input(`${EDITOR_SEND_START}{"li`);
+        session.handle_input(SEND);
+        expect(the_payloads).toHaveLength(1);
     });
 });

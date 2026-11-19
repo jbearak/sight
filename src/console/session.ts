@@ -35,6 +35,12 @@ export { MAX_CANONICAL_LINE_BYTES };
 export const PROMPT_QUIET_MS = 50;
 export const COLOR_FLUSH_MS = 30;
 export const ESCAPE_TIMEOUT_MS = 25;
+/**
+ * How long an editor send that has started may pause before it is
+ * dropped (or its first bytes read as keys): sends arrive whole, so
+ * this is only a bound on a broken one.
+ */
+export const EDITOR_SEND_TIMEOUT_MS = 1000;
 /** What Stata's console inserts where it wraps an echoed long line. */
 const ECHO_WRAP_MARKER = '\r\n> ';
 
@@ -64,12 +70,17 @@ export interface SessionOptions {
     color_mode: ColorOutputMode;
     /** Called once, when Stata's top-level prompt first shows. */
     on_ready?: () => void;
+    /**
+     * With this, input may carry editor sends (editor-send-channel.ts),
+     * each passed here as its payload, never taken as keys.
+     */
+    on_editor_send?: (payload: string) => void;
 }
 
 export class ConsoleSession {
     private readonly options: SessionOptions;
     private readonly editor: LineEditor;
-    private readonly decoder = new KeyDecoder();
+    private readonly decoder: KeyDecoder;
     private readonly colorizer: OutputColorizer;
 
     /** Screen text after the last newline Stata printed (may hold ANSI). */
@@ -100,6 +111,9 @@ export class ConsoleSession {
 
     constructor(options: SessionOptions) {
         this.options = options;
+        this.decoder = new KeyDecoder({
+            editor_sends: options.on_editor_send !== undefined,
+        });
         this.editor = new LineEditor(() => options.history.all());
         this.colorizer = new OutputColorizer(options.color_mode, () => this.on_stata_error());
     }
@@ -169,6 +183,13 @@ export class ConsoleSession {
                     this.handle_key(my_event);
                 }
             }, ESCAPE_TIMEOUT_MS);
+        } else if (this.decoder.has_pending_frame()) {
+            this.escape_timer = this.options.clock.set_timeout(() => {
+                this.escape_timer = null;
+                for (const my_event of this.decoder.flush_frame()) {
+                    this.handle_key(my_event);
+                }
+            }, EDITOR_SEND_TIMEOUT_MS);
         }
     }
 
@@ -261,6 +282,11 @@ export class ConsoleSession {
 
     private handle_key(event: KeyEvent): void {
         if (this.exited) {
+            return;
+        }
+        if (event.type === 'editor_send') {
+            // Not a key: it leaves the note, the pager and input alone.
+            this.options.on_editor_send?.(event.payload);
             return;
         }
         this.message = null;

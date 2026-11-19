@@ -29,6 +29,8 @@ export interface SessionHostOptions {
     on_end?: () => void;
     /** Called once, when Stata's top-level prompt first shows. */
     on_ready?: () => void;
+    /** Editor sends carried in the input (ConsoleSession option). */
+    on_editor_send?: (payload: string) => void;
 }
 
 export interface SessionHost {
@@ -91,6 +93,7 @@ export function start_session_host(options: SessionHostOptions): SessionHost {
         completer,
         color_mode: options.color_output,
         on_ready: options.on_ready,
+        on_editor_send: options.on_editor_send,
     });
     for (const my_event of pending.splice(0)) {
         deliver(my_event);
