@@ -25,6 +25,7 @@ import {
   input_declaration_fields,
   input_row_end,
   InputQuoteScan,
+  is_input_brace_row,
   is_input_data_row,
   is_input_end_row,
 } from '../utils/input-data';
@@ -214,6 +215,10 @@ export class StataLexer {
   private input_data_pending = false;
   // Offset just past the `input` word, where its declaration starts.
   private input_declaration_start = 0;
+  // How many `{` blocks of Stata code are open here, and were open at
+  // the pending `input` (see scan_input_data).
+  private stata_brace_depth = 0;
+  private input_brace_depth = 0;
   // The last search for an `end` after `input` data (see
   // next_input_end_candidate).
   private input_end_candidate:
@@ -256,6 +261,8 @@ export class StataLexer {
     this.semicolon_statement = new SemicolonStatementTracker();
     this.input_data_pending = false;
     this.input_declaration_start = 0;
+    this.stata_brace_depth = 0;
+    this.input_brace_depth = 0;
     this.input_end_candidate = null;
     this.input_quote_scan = create_input_quote_scan();
     this.input_end_lookahead = null;
@@ -402,6 +409,7 @@ export class StataLexer {
           this.if_condition_ends_before(start_line, start_column))) {
       this.input_data_pending = true;
       this.input_declaration_start = this.position;
+      this.input_brace_depth = this.stata_brace_depth;
     }
   }
 
@@ -458,6 +466,9 @@ export class StataLexer {
       const my_row_end = input_row_end(
         this.source, my_row_start, is_semicolon, this.input_quote_scan);
       const my_row = this.source.substring(my_row_start, my_row_end);
+      if (this.input_brace_depth > 0 && is_input_brace_row(my_row)) {
+        break;
+      }
       if (the_fields !== null && !is_input_data_row(my_row, the_fields) &&
           !this.input_end_follows_unclaimed(my_row_start, is_semicolon)) {
         break;
@@ -538,7 +549,9 @@ export class StataLexer {
       }
       const my_row_end = input_row_end(
         this.source, my_row_start, is_semicolon, this.input_quote_scan);
-      if (this.input_row_opens_block(my_row_start, my_row_end, is_semicolon)) {
+      if (this.input_row_opens_block(my_row_start, my_row_end, is_semicolon) ||
+          (this.input_brace_depth > 0 && is_input_brace_row(
+            this.source.substring(my_row_start, my_row_end)))) {
         break;
       }
       my_row_start = my_row_end + 1;
@@ -556,38 +569,89 @@ export class StataLexer {
    * opens a block that needs its own `end`: a program definition (by
    * is_program_definition_header, as for any `program` statement), a
    * `mata` or `python` block (the word, an optional `:`, and nothing
-   * else but blanks and a comment), or another `input`.
+   * else but blanks and a comment), or another `input`. The block may
+   * follow the prefixes where the lexer opens it: `mata` and `python`
+   * after argument-free prefixes (`quietly`, `capture:`) and the colon
+   * of any colon prefix (`by g:`, `version 18:`, `frame f:`); `input`
+   * after those, except `by` and the estimation-style colon prefixes
+   * (StataMP 18: "input may not be combined with by"); a program
+   * definition only with no prefix.
    */
   private input_row_opens_block(start: number, end: number, is_semicolon: boolean): boolean {
     // Scanned by hand, one pass from `start` to `end`: the first word
     // of a data line after blanks, or of a `;` record after blanks and
-    // line breaks.
+    // line breaks, then the word after each prefix.
     const my_source = this.source;
     let my_word_start = start;
-    while (my_word_start < end &&
-        is_row_blank(my_source.charCodeAt(my_word_start), is_semicolon)) {
-      my_word_start++;
+    let my_has_prefix = false;
+    let my_takes_input = true;
+    let my_word = '';
+    let my_word_end = start;
+    for (;;) {
+      while (my_word_start < end &&
+          is_row_blank(my_source.charCodeAt(my_word_start), is_semicolon)) {
+        my_word_start++;
+      }
+      if (my_word_start >= end ||
+          !is_ascii_letter_or_underscore(my_source.charCodeAt(my_word_start))) {
+        return false;
+      }
+      my_word_end = my_word_start + 1;
+      while (my_word_end < end &&
+          is_ascii_word_char(my_source.charCodeAt(my_word_end))) {
+        my_word_end++;
+      }
+      my_word = my_source.substring(my_word_start, my_word_end);
+      if (ARGUMENT_FREE_PREFIXES.has(my_word)) {
+        // `quietly`, or `capture:` with its optional colon.
+        my_word_start = my_word_end;
+        while (my_word_start < end &&
+            is_row_blank(my_source.charCodeAt(my_word_start), is_semicolon)) {
+          my_word_start++;
+        }
+        if (my_word_start < end &&
+            my_source.charCodeAt(my_word_start) === CHAR_COLON) {
+          my_word_start++;
+        }
+        my_has_prefix = true;
+        continue;
+      }
+      if (!EMBEDDED_OPENER_COLON_PREFIXES.has(my_word)) {
+        break;
+      }
+      // A colon prefix (`version 18:`, `by g (t):`): the command
+      // starts after the colon on this row, if it has one.
+      let my_colon = my_word_end;
+      while (my_colon < end && my_source.charCodeAt(my_colon) !== CHAR_COLON) {
+        my_colon++;
+      }
+      if (my_colon >= end) {
+        return false;
+      }
+      my_takes_input = my_takes_input && STAR_COMMENT_COLON_PREFIXES.has(my_word);
+      my_has_prefix = true;
+      my_word_start = my_colon + 1;
     }
-    if (my_word_start >= end ||
-        !is_ascii_letter_or_underscore(my_source.charCodeAt(my_word_start))) {
-      return false;
-    }
-    let my_word_end = my_word_start + 1;
-    while (my_word_end < end &&
-        is_ascii_word_char(my_source.charCodeAt(my_word_end))) {
-      my_word_end++;
-    }
-    const my_word = my_source.substring(my_word_start, my_word_end);
     if (PROGRAM_COMMAND_NAMES.has(my_word)) {
+      if (my_has_prefix) {
+        return false;
+      }
       return is_program_definition_header(
         program_header_text(my_source, my_word_end, is_semicolon));
     }
     if (my_word === 'mata' || my_word === 'python') {
       // What may follow on a line that opens a block: an optional `:`,
       // then blanks and perhaps a `//` comment.
+      // Blanks may come before the colon (`mata :`), as where the
+      // lexer opens the block.
       let my_tail = my_word_end;
-      if (my_tail < end && my_source.charCodeAt(my_tail) === CHAR_COLON) {
-        my_tail++;
+      let my_colon = my_tail;
+      while (my_colon < end &&
+          is_row_blank(my_source.charCodeAt(my_colon), false)) {
+        my_colon++;
+      }
+      if (my_colon < end && my_source.charCodeAt(my_colon) === CHAR_COLON) {
+        my_tail = my_colon + 1;
       }
       while (my_tail < end &&
           is_row_blank(my_source.charCodeAt(my_tail), false)) {
@@ -605,7 +669,7 @@ export class StataLexer {
       }
       return my_tail >= end;
     }
-    return INPUT_COMMAND_NAMES.has(my_word);
+    return my_takes_input && INPUT_COMMAND_NAMES.has(my_word);
   }
 
   /**
@@ -1522,8 +1586,10 @@ export class StataLexer {
         }
         return this.makeToken('OPERATOR', '~', startLine, startColumn);
       case '{':
+        this.stata_brace_depth++;
         return this.makeToken('LBRACE', char, startLine, startColumn);
       case '}':
+        this.stata_brace_depth = Math.max(0, this.stata_brace_depth - 1);
         return this.makeToken('RBRACE', char, startLine, startColumn);
       case '(':
         return this.makeToken('LPAREN', char, startLine, startColumn);
