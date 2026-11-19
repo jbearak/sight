@@ -28,8 +28,16 @@ const LEADING_BLANKS_RE = /^[ \t]*/;
  * it on its last line: spaces and a trailing comment. Empty when the
  * content doesn't end that way. One pass over the line: a regex for
  * this backtracks polynomially on input such as `;//;//;//`.
+ *
+ * Only a `;` that ends the statement counts (`is_code_semicolon`, given
+ * the index of a `;` in `content`). Any other, such as one in the
+ * string `"a;\t//b"`, is part of the embedded code, which must come
+ * back byte for byte.
  */
-function inline_unit_terminator(content: string): string {
+function inline_unit_terminator(
+    content: string,
+    is_code_semicolon: (index: number) => boolean
+): string {
     const line_start = content.lastIndexOf('\n') + 1;
     const line_end = content.trimEnd().length;
     const ends_with_block_comment = content.endsWith('*/', line_end) &&
@@ -40,6 +48,9 @@ function inline_unit_terminator(content: string): string {
     for (let i = content.indexOf(';', line_start);
         i !== -1 && i < line_end;
         i = content.indexOf(';', i + 1)) {
+        if (!is_code_semicolon(i)) {
+            continue;
+        }
         let rest_start = i + 1;
         while (content[rest_start] === ' ' || content[rest_start] === '\t') {
             rest_start++;
@@ -52,6 +63,54 @@ function inline_unit_terminator(content: string): string {
         }
     }
     return '';
+}
+
+/** Text to put in place of `content.slice(start, end)`. */
+interface TextReplacement {
+    start: number;
+    end: number;
+    text: string;
+}
+
+/**
+ * The offsets in `content` of `range`, given its line offsets; the end
+ * character is clamped to its line (a range can end at
+ * MAX_SAFE_INTEGER). Undefined when a line is past the end.
+ */
+function range_offsets(
+    content: string,
+    line_offsets: readonly number[],
+    range: Range
+): { start: number; end: number } | undefined {
+    if (range.start.line >= line_offsets.length ||
+        range.end.line >= line_offsets.length) {
+        return undefined;
+    }
+    const end_line_end = range.end.line + 1 < line_offsets.length
+        ? line_offsets[range.end.line + 1] - 1 // before the newline
+        : content.length;
+    return {
+        start: line_offsets[range.start.line] + range.start.character,
+        end: Math.min(
+            line_offsets[range.end.line] + range.end.character, end_line_end),
+    };
+}
+
+/** `content` with non-overlapping replacements applied, in one pass. */
+function apply_replacements(
+    content: string,
+    replacements: TextReplacement[]
+): string {
+    const the_sorted = [...replacements].sort((a, b) => a.start - b.start);
+    const the_parts: string[] = [];
+    let my_cursor = 0;
+    for (const my_replacement of the_sorted) {
+        the_parts.push(
+            content.slice(my_cursor, my_replacement.start), my_replacement.text);
+        my_cursor = my_replacement.end;
+    }
+    the_parts.push(content.slice(my_cursor));
+    return the_parts.join('');
 }
 
 /**
@@ -197,8 +256,12 @@ export class CodeFormatter {
         const the_embedded_blocks: Map<string, { content: string; range: ContextRange }> = new Map();
         let my_placeholder_counter = 0;
 
-        // Extract embedded blocks and replace with placeholders.
-        let my_modified_content = document.content;
+        // Extract embedded blocks and replace with placeholders. The
+        // line offsets are computed once: the units don't overlap, so
+        // each replacement is located in the original content and they
+        // are all applied in one pass below.
+        const the_offsets = compute_line_offsets(document.content);
+        const the_replacements: TextReplacement[] = [];
 
         // Coalesce the context ranges into non-overlapping replacement units.
         // A unit is one context range, unless two or more ranges share a
@@ -214,6 +277,33 @@ export class CodeFormatter {
             context_ranges,
             program_ending_block_end_lines(document.ast?.nodes ?? [])
         );
+
+        // Columns of each line's `;` that ends a statement: a `#delimit ;`
+        // terminator, or (in `#delimit cr`) a `;` right before the `///`
+        // that continues the statement. Never one inside a string.
+        const the_semicolon_columns = new Map<number, Set<number>>();
+        const the_tokens = document.tokens ?? [];
+        for (let i = 0; i < the_tokens.length; i++) {
+            const my_token = the_tokens[i];
+            if (my_token.value !== ';') {
+                continue;
+            }
+            let my_next = i + 1;
+            while (the_tokens[my_next]?.type === 'WHITESPACE') {
+                my_next++;
+            }
+            if (my_token.type !== 'STATEMENT_TERMINATOR' &&
+                the_tokens[my_next]?.type !== 'CONTINUATION') {
+                continue;
+            }
+            const my_line = my_token.range.start.line;
+            let my_columns = the_semicolon_columns.get(my_line);
+            if (!my_columns) {
+                my_columns = new Set();
+                the_semicolon_columns.set(my_line, my_columns);
+            }
+            my_columns.add(my_token.range.start.character);
+        }
 
         for (const my_unit of the_replacement_units) {
             // Prevent resource exhaustion from too many embedded blocks
@@ -231,9 +321,20 @@ export class CodeFormatter {
             const my_end_delimiter = my_unit.range.end_delimiter;
             const my_end_has_terminator = my_end_delimiter !== undefined &&
                 !my_end_delimiter.command.includes(';');
+            // The content's last line is a suffix of the unit's last
+            // document line (only leading blanks are stripped), so a
+            // content index maps to a document column by this shift.
+            const my_end_line = my_unit.actual_range.end.line;
+            const my_last_line_start = my_unit.content.lastIndexOf('\n') + 1;
+            const my_last_line_shift =
+                get_line_text(the_doc, my_end_line).length -
+                (my_unit.content.length - my_last_line_start);
             const my_terminator =
                 my_unit.range.is_single_line || my_end_has_terminator
-                    ? inline_unit_terminator(my_unit.content)
+                    ? inline_unit_terminator(my_unit.content, (index) =>
+                        the_semicolon_columns.get(my_end_line)?.has(
+                            index - my_last_line_start + my_last_line_shift
+                        ) ?? false)
                     : '';
             the_embedded_blocks.set(my_placeholder, {
                 content: my_unit.content.slice(
@@ -242,14 +343,20 @@ export class CodeFormatter {
             });
 
             // Replace the unit with the placeholder using its actual range
-            my_modified_content = this.replace_range_in_content(
-                my_modified_content,
-                my_unit.actual_range,
-                my_placeholder + my_terminator
-            );
+            const my_span = range_offsets(
+                document.content, the_offsets, my_unit.actual_range);
+            if (my_span !== undefined) {
+                the_replacements.push({
+                    ...my_span,
+                    text: my_placeholder + my_terminator,
+                });
+            }
 
             my_placeholder_counter++;
         }
+
+        const my_modified_content =
+            apply_replacements(document.content, the_replacements);
 
         // For embedded blocks, we fall back to returning the content with preserved blocks
         // since the source-preserving formatter works on the full token stream
@@ -561,42 +668,6 @@ export class CodeFormatter {
         }
 
         return the_block_lines.join('\n');
-    }
-
-    /**
-     * Replace a range in content with new text.
-     * 
-     * Note: The end character position is clamped to the actual line length to prevent
-     * overflow when MAX_SAFE_INTEGER is used (e.g., for single-line embedded calls).
-     */
-    private replace_range_in_content(
-        content: string,
-        range: Range,
-        new_text: string
-    ): string {
-        const the_offsets = compute_line_offsets(content);
-
-        // Ensure indices are in bounds
-        if (range.start.line >= the_offsets.length || range.end.line >= the_offsets.length) {
-            return content;
-        }
-
-        const the_start_offset = the_offsets[range.start.line] + range.start.character;
-        
-        // Calculate end offset, clamping to actual line length if needed
-        // This prevents overflow when MAX_SAFE_INTEGER is used as end character
-        let the_end_offset = the_offsets[range.end.line] + range.end.character;
-        
-        // Only clamp if the calculated offset exceeds content length
-        // This is an optimization to avoid extra calculations in the common case
-        if (the_end_offset > content.length) {
-            const the_line_end_offset = range.end.line + 1 < the_offsets.length
-                ? the_offsets[range.end.line + 1] - 1  // -1 to exclude newline
-                : content.length;
-            the_end_offset = the_line_end_offset;
-        }
-
-        return content.substring(0, the_start_offset) + new_text + content.substring(the_end_offset);
     }
 
     /**

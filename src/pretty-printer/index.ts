@@ -256,7 +256,8 @@ export class PrettyPrinter {
         const trailing = this.printTrailingTrivia(node, result);
         result += trailing.same_line;
         if (node.type === 'command' && node.input_data !== undefined) {
-            result += this.printInputData(node.input_data.content);
+            result += this.printInputData(
+                node.input_data, node.range.end.line);
         }
 
         return { code: result, own_line: body_own_line + trailing.own_line };
@@ -280,9 +281,19 @@ export class PrettyPrinter {
      * The data lines of an `input` statement, as written, and the `end`
      * that closes them at the statement's indentation.
      */
-    private printInputData(content: string): string {
+    private printInputData(
+        input_data: NonNullable<CommandNode['input_data']>,
+        end_line: number
+    ): string {
         const terminator = this.getStatementTerminator();
-        const data = content === '' ? '' : content + terminator;
+        // A single blank data line has empty content too: there are data
+        // lines when `end` comes after the line the data starts on. Under
+        // `#delimit ;` the data starts right after the `;` on the `input`
+        // line, so only its content says whether there are records.
+        const has_data_lines = this.delimiter_mode === 'semicolon'
+            ? input_data.content !== ''
+            : end_line > input_data.content_range.start.line;
+        const data = has_data_lines ? input_data.content + terminator : '';
         return `${terminator}${data}${this.getIndent()}end`;
     }
 
@@ -576,8 +587,7 @@ export class PrettyPrinter {
 
         if (option.argument !== undefined) {
             const close_paren = option.argument_unclosed ? '' : ')';
-            const argument = format_expression_spacing(option.argument);
-            result += `(${argument}${close_paren}`;
+            result += `(${option.argument}${close_paren}`;
         }
 
         return result;
