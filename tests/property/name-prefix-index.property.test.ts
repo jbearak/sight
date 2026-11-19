@@ -1,14 +1,17 @@
 /**
  * The abbreviation index answers exactly what a scan of the map with
- * `startsWith` answers, through any sequence of additions, earlier
- * redeclarations and changes made without telling the index.
+ * `startsWith` answers, through any sequence of additions and earlier
+ * redeclarations made by its owner. Changes made behind the owner's
+ * back (between analyses) are seen by the next index, never by a
+ * cached one: a module-level cache keyed on the map's size once
+ * returned stale answers after a same-size replacement.
  */
 import { describe, expect, it } from 'bun:test';
 import * as fc from 'fast-check';
-import {
-    has_name_with_prefix,
-    index_name_prefixes,
-} from '../../src/analyzer/name-prefix-index';
+import { NamePrefixIndex } from '../../src/analyzer/name-prefix-index';
+import { SemanticAnalyzer } from '../../src/analyzer';
+import { StataLexer } from '../../src/lexer';
+import { StataParser } from '../../src/parser';
 
 // A small alphabet with both cases, so prefixes collide often and
 // case must be kept apart.
@@ -16,7 +19,8 @@ const NAME = fc.stringMatching(/^[aAb_][aAb_0]{0,4}$/);
 
 type Step =
     | { kind: 'add'; name: string; line: number }
-    | { kind: 'add_unindexed'; name: string; line: number }
+    | { kind: 'external_set'; name: string; line: number }
+    | { kind: 'external_delete'; name: string }
     | { kind: 'query'; prefix: string; line: number };
 
 const STEP: fc.Arbitrary<Step> = fc.oneof(
@@ -26,9 +30,13 @@ const STEP: fc.Arbitrary<Step> = fc.oneof(
         line: fc.nat(20),
     }),
     fc.record({
-        kind: fc.constant('add_unindexed' as const),
+        kind: fc.constant('external_set' as const),
         name: NAME,
         line: fc.nat(20),
+    }),
+    fc.record({
+        kind: fc.constant('external_delete' as const),
+        name: NAME,
     }),
     fc.record({
         kind: fc.constant('query' as const),
@@ -52,34 +60,76 @@ describe('name prefix index', () => {
     it('agrees with a startsWith scan', () => {
         fc.assert(fc.property(fc.array(STEP, { maxLength: 60 }), (the_steps) => {
             const names = new Map<string, { line: number }>();
+            const line_of = (my_value: { line: number }): number => my_value.line;
+            let index = new NamePrefixIndex(names, line_of);
             for (const my_step of the_steps) {
-                if (my_step.kind === 'query') {
-                    expect(has_name_with_prefix(
-                        names, my_step.prefix, my_step.line,
-                        (my_value) => my_value.line
-                    )).toBe(naive(names, my_step.prefix, my_step.line));
-                    continue;
-                }
-                // Keep the earliest line, as declaration directives do.
-                const existing = names.get(my_step.name);
-                if (existing !== undefined && existing.line <= my_step.line) {
-                    continue;
-                }
-                names.set(my_step.name, { line: my_step.line });
-                if (my_step.kind === 'add') {
-                    index_name_prefixes(names, my_step.name, my_step.line);
-                } else if (existing !== undefined) {
-                    // A change the index cannot see by size: tell it.
-                    index_name_prefixes(names, my_step.name, my_step.line);
+                switch (my_step.kind) {
+                    case 'query':
+                        expect(index.has(my_step.prefix, my_step.line))
+                            .toBe(naive(names, my_step.prefix, my_step.line));
+                        break;
+                    case 'add': {
+                        // Keep the earliest line, as declaration
+                        // directives do.
+                        const existing = names.get(my_step.name);
+                        if (existing !== undefined && existing.line <= my_step.line) {
+                            break;
+                        }
+                        names.set(my_step.name, { line: my_step.line });
+                        index.add(my_step.name, my_step.line);
+                        break;
+                    }
+                    case 'external_set':
+                        // A change the owner did not make: a new
+                        // analysis starts a new index.
+                        names.set(my_step.name, { line: my_step.line });
+                        index = new NamePrefixIndex(names, line_of);
+                        break;
+                    case 'external_delete':
+                        names.delete(my_step.name);
+                        index = new NamePrefixIndex(names, line_of);
+                        break;
                 }
             }
         }), { numRuns: 300 });
     });
 
     it('matches names in exact case', () => {
-        const names = new Map([['Price', 0]]);
-        expect(has_name_with_prefix(names, 'Pri')).toBe(true);
-        expect(has_name_with_prefix(names, 'pri')).toBe(false);
+        const index = new NamePrefixIndex(new Map([['Price', 0]]));
+        expect(index.has('Pri')).toBe(true);
+        expect(index.has('pri')).toBe(false);
+    });
+});
+
+describe('declared variables changed between analyses', () => {
+    function undefined_messages(
+        declared: Map<string, { line: number }>
+    ): string[] {
+        const tokens = new StataLexer().tokenize('su oldp newp\n').tokens;
+        const ast = new StataParser().parse(tokens).ast;
+        return new SemanticAnalyzer().analyze(
+            ast, 'file:///main.do', undefined,
+            { declared_variables: declared, undefined_variable_enabled: true },
+            tokens
+        ).diagnostics.map((my_diagnostic) => my_diagnostic.message);
+    }
+
+    it('sees a key replaced by another of the same count', () => {
+        const declared = new Map([['oldprice', { line: 0 }]]);
+        expect(undefined_messages(declared)).toEqual(['newp may not be defined']);
+        declared.delete('oldprice');
+        declared.set('newprice', { line: 0 });
+        expect(undefined_messages(declared)).toEqual(['oldp may not be defined']);
+    });
+
+    it('sees a key moved to a later line', () => {
+        const declared = new Map([
+            ['oldprice', { line: 0 }],
+            ['newprice', { line: 0 }],
+        ]);
+        expect(undefined_messages(declared)).toEqual([]);
+        declared.set('newprice', { line: 5 });
+        expect(undefined_messages(declared)).toEqual(['newp may not be defined']);
     });
 });
 
@@ -103,14 +153,15 @@ describe('name prefix index work', () => {
 
     it('scans the map a constant number of times across interleaved adds and lookups', () => {
         const names = new CountingMap<string, number>();
+        const index = new NamePrefixIndex(names);
         for (let i = 0; i < 2000; i++) {
             const name = `v${i}_long`;
             names.set(name, 0);
-            index_name_prefixes(names, name);
-            expect(has_name_with_prefix(names, `v${i}_`)).toBe(true);
-            expect(has_name_with_prefix(names, `w${i}`)).toBe(false);
+            index.add(name);
+            expect(index.has(`v${i}_`)).toBe(true);
+            expect(index.has(`w${i}`)).toBe(false);
         }
         // The first lookup builds the index; later ones never rescan.
-        expect(names.iterations).toBeLessThanOrEqual(2);
+        expect(names.iterations).toBeLessThanOrEqual(1);
     });
 });

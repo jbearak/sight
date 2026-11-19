@@ -27,7 +27,6 @@ import { URI } from 'vscode-uri';
 import {
     ArgumentSpec,
     CommandNode,
-    ForwardCall,
     IdentifierNode,
     OptionSpec,
     ProgramSignature,
@@ -83,8 +82,7 @@ export interface MacroWriteContext {
     /** Programs defined in this file. */
     file_programs: ReadonlyMap<string, ProgramSymbol>;
     /**
-     * Programs defined in this file so far, in statement order, then
-     * programs found anywhere in the workspace. A call reaches a
+     * Programs found anywhere in the workspace. A call reaches a
      * workspace program's `c_local` argument names only when Stata
      * could load that program at the call (see
      * `find_c_local_arg_program`).
@@ -94,8 +92,11 @@ export interface MacroWriteContext {
     uri?: string;
     /** True when the statement is inside a program body. */
     in_program_body?: boolean;
-    /** `do`/`run`/`include` calls this file has made so far. */
-    forward_calls?: readonly ForwardCall[];
+    /**
+     * Programs a top-level `program drop` removed since this file last
+     * defined them. A top-level call does not reach them.
+     */
+    dropped_programs?: ReadonlySet<string>;
     /**
      * The file's token stream. Without it, names that a call passes to
      * a `c_local` argument are not read.
@@ -208,79 +209,40 @@ function uri_file_name(uri: string): string | undefined {
     }
 }
 
-const PATH_SEPARATOR_RE = /[\\/]/;
-
-/**
- * True if `uri` has the file name of a static `do`/`run`/`include`
- * path that ends before `node` starts. `run lib` runs `lib.do`. The
- * analyzer resolves no paths, so only the file name is compared,
- * exactly except for the extension's case.
- */
-function is_forward_called_before(
-    uri: string,
-    node: CommandNode,
-    the_calls: readonly ForwardCall[]
-): boolean {
-    const file_name = uri_file_name(uri);
-    if (file_name === undefined) return false;
-    const extension = node_path.posix.extname(file_name);
-    const stem = file_name.slice(0, file_name.length - extension.length);
-    const start = node.range.start;
-    for (const my_call of the_calls) {
-        const end = my_call.range.end;
-        if (!my_call.is_static
-            || end.line > start.line
-            || (end.line === start.line && end.character > start.character)) {
-            continue;
-        }
-        const called = my_call.raw_path.split(PATH_SEPARATOR_RE).pop() ?? '';
-        const called_extension = node_path.posix.extname(called);
-        const called_stem = called.slice(0, called.length - called_extension.length);
-        const effective_extension = called_extension === ''
-            ? '.do' : called_extension;
-        if (called_stem === stem
-            && effective_extension.toLowerCase() === extension.toLowerCase()) {
-            return true;
-        }
-    }
-    return false;
-}
-
 /**
  * The program whose positional `c_local` names a call to `name`
- * defines. The workspace index holds every program in the workspace,
- * whether or not the caller ever runs the file that defines it, so a
- * workspace program counts only when Stata could reach it at the call:
+ * defines, as far as this file alone shows. The workspace index holds
+ * every program in the workspace, whether or not the caller ever runs
+ * the file that defines it, so here a program counts only when Stata
+ * could reach it at the call without another file running first:
  *
- * - one this file defined before the call (`file_programs`);
+ * - one this file defined before the call (`file_programs`), unless a
+ *   top-level `program drop` removed it since, for a top-level call;
  * - an ado named after the program, which Stata loads from the
  *   adopath on first call;
  * - inside a program body, one defined anywhere in this file, since
  *   the body runs only when called, after the file has loaded (an
- *   ado's helper subprograms usually follow the main program);
- * - one in a file this file ran or included earlier by a path with
- *   that file name (`run library.do`).
+ *   ado's helper subprograms usually follow the main program).
  *
- * A program in an unrelated `.do` file is not reachable: workspace
- * symbols alone do not define a caller's locals.
+ * A program in another `.do` file counts only through the resolved
+ * execution scope: the diagnostics provider credits programs from
+ * files this file runs, includes, or names in a `sight:` directive
+ * (see `collect_c_local_arg_calls`). Workspace symbols alone do not
+ * define a caller's locals.
  */
 function find_c_local_arg_program(
     name: string,
-    node: CommandNode,
     context: MacroWriteContext
 ): ProgramSymbol | undefined {
     const file_program = context.file_programs.get(name);
-    if (file_program) return file_program;
+    const is_dropped = context.in_program_body !== true
+        && context.dropped_programs?.has(name) === true;
+    if (file_program && !is_dropped) return file_program;
     const workspace_program = context.workspace_programs?.get(name);
     if (!workspace_program?.c_local_arg_positions) return undefined;
     const source_uri = workspace_program.sourceUri;
     if (is_auto_loaded_ado(source_uri, name)) return workspace_program;
     if (context.in_program_body === true && source_uri === context.uri) {
-        return workspace_program;
-    }
-    if (source_uri !== context.uri && is_forward_called_before(
-        source_uri, node, context.forward_calls ?? []
-    )) {
         return workspace_program;
     }
     return undefined;
@@ -440,7 +402,7 @@ export function command_macro_writes(
     }
     // Names the caller passes for the program to c_local
     // (`_getrhs rhs`), defined at the argument word.
-    const the_positions = find_c_local_arg_program(node.fullName, node, context)
+    const the_positions = find_c_local_arg_program(node.fullName, context)
         ?.c_local_arg_positions;
     if (the_positions && context.tokens) {
         for (const my_created of resolve_c_local_arg_names(
