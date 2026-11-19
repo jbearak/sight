@@ -8,6 +8,7 @@
 import { describe, expect, it } from 'bun:test';
 import {
     ConsoleSession,
+    ESCAPE_TIMEOUT_MS,
     MAX_CANONICAL_LINE_BYTES,
     PROMPT_QUIET_MS,
     type Clock,
@@ -232,6 +233,31 @@ describe('ConsoleSession', () => {
         expect(third.session.buffer).toBe('');
     });
 
+    // A lone Esc is the Esc key once it has waited ESCAPE_TIMEOUT_MS,
+    // and the start of Alt+key before that.
+    it('reads a lone Esc as the Esc key after its wait', () => {
+        const late = setup();
+        late.at_prompt();
+        late.session.handle_input('\x1b[200~abc\ndef\x1b[201~');
+        expect(late.session.staged_lines).toEqual(['def']);
+        late.session.handle_input('\x1b');
+        late.clock.advance(35);
+        // The Esc key cancelled the staged pasted line.
+        expect(late.session.staged_lines).toEqual([]);
+        late.session.handle_input('z');
+        expect(late.session.buffer).toBe('abcz');
+
+        const quick = setup();
+        quick.at_prompt();
+        quick.session.handle_input('\x1b[200~abc\ndef\x1b[201~');
+        quick.session.handle_input('\x1b');
+        quick.clock.advance(ESCAPE_TIMEOUT_MS - 5);
+        quick.session.handle_input('z');
+        // Alt+z: the staged line stays, and no z is typed.
+        expect(quick.session.staged_lines).toEqual(['def']);
+        expect(quick.session.buffer).toBe('abc');
+    });
+
     it('interrupts Stata on Ctrl+C both at a prompt and while busy', () => {
         const { pty, session, screen, at_prompt } = setup();
         at_prompt();
@@ -402,19 +428,57 @@ describe('ConsoleSession', () => {
         expect(the_reports).toEqual([true]);
     });
 
-    it('reports a send made while Stata runs only when Stata can read it', () => {
-        const { pty, session, at_prompt } = setup();
+    it('reports a send made while Stata runs only at a recognized prompt', () => {
+        const { pty, session, clock, at_prompt, screen } = setup();
         const the_reports: boolean[] = [];
         at_prompt();
         session.handle_input('sleep 60000\r');
         session.send_line('do "a.do"', (sent) => the_reports.push(sent));
         // The pseudo-terminal would take the line now, but Stata is
-        // asleep: the do-file must outlive the sleep.
+        // asleep: the line waits, and so does its do-file's cleanup.
+        expect(pty.written).toEqual(['sleep 60000\r']);
+        expect(strip_ansi(screen.join(''))).toContain('1 send from the editor waits');
+        // Output, quiet spells and a minute pass without a prompt.
+        session.handle_output('running');
+        clock.advance(30000);
+        session.handle_output('\nstill running\n');
+        clock.advance(30000);
         expect(pty.written).toEqual(['sleep 60000\r']);
         expect(the_reports).toEqual([]);
-        at_prompt('\n. ');
+        // Stata's prompt, in the output of the command that ends.
+        session.handle_output('done\n\n. ');
+        expect(pty.written).toEqual(['sleep 60000\r']);
+        clock.advance(PROMPT_QUIET_MS + 1);
         expect(pty.written).toEqual(['sleep 60000\r', 'do "a.do"\r']);
         expect(the_reports).toEqual([true]);
+        // The line was entered after the prompt, on its own line.
+        expect(strip_ansi(screen.join(''))).toMatch(/\. do "a\.do"\r*\n$/);
+    });
+
+    it('holds a send after text that is not a known prompt, and says so', () => {
+        const { pty, session, clock, at_prompt, screen } = setup();
+        const the_reports: string[] = [];
+        at_prompt();
+        session.handle_input('cmd\r');
+        at_prompt('\nabc. ');
+        session.send_line('do "a.do"', (sent) => the_reports.push(`a ${sent}`));
+        clock.advance(60000);
+        expect(pty.written).toEqual(['cmd\r']);
+        expect(the_reports).toEqual([]);
+        expect(strip_ansi(screen.join('')))
+            .toMatch(/abc\. \r?\n?.*1 send from the editor waits/s);
+        // Enter gets a fresh prompt from Stata, and the send goes.
+        session.handle_input('\r');
+        at_prompt('\n. ');
+        expect(pty.written).toEqual(['cmd\r', '\r', 'do "a.do"\r']);
+        expect(the_reports).toEqual(['a true']);
+
+        // Or Ctrl+C drops the sends that wait.
+        session.handle_input('cmd\r');
+        at_prompt('\nabc. ');
+        session.send_line('do "b.do"', (sent) => the_reports.push(`b ${sent}`));
+        session.handle_input('\x03');
+        expect(the_reports).toEqual(['a true', 'b false']);
     });
 
     it('tries the next held send when one is too long to enter', () => {
@@ -597,5 +661,56 @@ describe('ConsoleSession', () => {
         expect(transcript).toEqual(['summarize']);
         session.handle_output('varlist required\nr(100);\n');
         expect(transcript).toEqual([]);
+    });
+});
+
+describe('ConsoleSession: every editor send is answered once', () => {
+    type Step = 'prompt' | 'pager' | 'ctrl_c' | 'close' | 'exit' | 'send' | 'long';
+    const THE_STEPS: Step[] = ['prompt', 'pager', 'ctrl_c', 'close', 'exit', 'send', 'long'];
+
+    /** Every sequence of `length` steps. */
+    function* sequences(length: number): Generator<Step[]> {
+        if (length === 0) {
+            yield [];
+            return;
+        }
+        for (const my_rest of sequences(length - 1)) {
+            for (const my_step of THE_STEPS) {
+                yield [...my_rest, my_step];
+            }
+        }
+    }
+
+    it('answers each send exactly once, whatever happens, in any order', () => {
+        for (const the_steps of sequences(4)) {
+            const { session, at_prompt } = setup();
+            const the_answers = new Map<number, boolean[]>();
+            let next_id = 0;
+            const send = (line: string): void => {
+                const id = next_id++;
+                the_answers.set(id, []);
+                session.send_line(line, (sent) => the_answers.get(id)?.push(sent));
+            };
+            at_prompt();
+            session.handle_input('busy\r');
+            send('do "first.do"');
+            send('do "second.do"');
+            for (const my_step of the_steps) {
+                switch (my_step) {
+                    case 'prompt': at_prompt('\n. '); break;
+                    case 'pager': at_prompt('\n--more--'); break;
+                    case 'ctrl_c': session.handle_input('\x03'); break;
+                    case 'close': session.close_sends(); break;
+                    case 'exit': session.handle_exit(); break;
+                    case 'send': send('do "more.do"'); break;
+                    case 'long': send('x'.repeat(MAX_CANONICAL_LINE_BYTES + 1)); break;
+                }
+            }
+            session.handle_exit();
+            for (const [my_id, my_answers] of the_answers) {
+                expect({ steps: the_steps, id: my_id, count: my_answers.length })
+                    .toEqual({ steps: the_steps, id: my_id, count: 1 });
+            }
+        }
     });
 });
