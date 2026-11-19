@@ -186,15 +186,26 @@ defines those locals at the call when the name is fixed, comes from a
 `local()`-style option (in full, or abbreviated as far as the
 program's `syntax` allows), or is a plain-name argument (see
 [Configuration](configuration.md#locals-named-by-program-arguments)).
-For a plain-name argument the program must be defined at the call in
-execution order: earlier in the file, in an ado named after it, in the
-caller's parent scope, or in a file that a statement before the call
-loads, at any depth and by path (`run setup.do`, where `setup.do`
-runs `library.do`; a `sight: do`/`run`/`include` directive counts
-too). A call inside a program body reaches a program loaded anywhere
-in the file, since the body runs when the program is called. A
-program found only in the workspace index does not count, nor does
-one a top-level `program drop` removed before the call.
+
+Which definition of the program a call uses follows Stata: a program
+already in memory is used, and the ado named after the program is
+loaded only when none is (also after `program drop`). So the call
+uses the definition that execution order reaches: earlier in the
+file, in the caller's parent scope, or in a file that a statement
+before the call loads, at any depth and by path (`run setup.do`,
+where `setup.do` runs `library.do`; a `sight: do`/`run`/`include`
+directive counts too); with none of those, the ado named after it. A
+call inside a program body reaches a program defined or loaded
+anywhere in the file, since the body runs when the program is called.
+When only one workspace file defines the program, that definition is
+used for a fixed name or an option; a plain-name argument needs one
+of the definitions above. A program found only in the workspace index
+does not count for a plain-name argument, nor does one a top-level
+`program drop` removed before the call. When several workspace files
+define the program and the caller loads none of them, only the ado
+named after it counts. The local the call sets is a real definition:
+Go-to-definition, hover, completion and Find References point at the
+argument word, the option argument, or the call.
 
 ## Forward Scope Resolution
 

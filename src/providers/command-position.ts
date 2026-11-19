@@ -135,7 +135,7 @@ export function is_command_position_by(
  * abbreviation Stata accepts (`capt`, `quie`, `n`, `noisi`), exact
  * case. `by` and `bysort` take a varlist, so they are not.
  */
-function is_single_line_prefix(word: string): boolean {
+export function is_single_line_prefix(word: string): boolean {
     const canonical = PREFIX_COMMANDS.get(word);
     return canonical !== undefined &&
         canonical !== 'by' && canonical !== 'bysort';

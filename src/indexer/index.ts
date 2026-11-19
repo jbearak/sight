@@ -23,10 +23,7 @@ import {
     WorkspaceSymbolMatch,
 } from '../types';
 import { DependencyGraph, type GraphUpdateResult } from '../dependency-graph';
-import {
-    create_empty_symbol_table,
-    merge_symbol_tables
-} from '../analyzer';
+import { create_empty_symbol_table } from '../analyzer';
 import { analyze_source, prepare_forward_calls } from '../source-analysis';
 import {
     ScopeResolver,
@@ -65,17 +62,11 @@ export interface IndexedFileData {
     context_ranges?: ContextRange[];
 }
 
-const ADO_URI_RE = /\.ado$/i;
-
-/**
- * The program Stata auto-loads from the file at `uri`: `setter` for
- * `setter.ado`. The extension is matched without case (a filesystem
- * name, not Stata syntax); the program name is the file's stem.
- */
-function auto_loaded_program_name(uri: string): string | undefined {
-    if (!ADO_URI_RE.test(uri)) return undefined;
-    const base = path.posix.basename(URI.parse(uri).path);
-    return base.slice(0, base.length - '.ado'.length);
+/** Copy every entry of `from` into `to`, later entries winning. */
+function copy_entries<V>(from: ReadonlyMap<string, V>, to: Map<string, V>): void {
+    for (const [my_name, my_value] of from) {
+        to.set(my_name, my_value);
+    }
 }
 
 /**
@@ -989,25 +980,41 @@ export class WorkspaceIndexer {
     /**
      * Get all symbols in the workspace (merged).
      *
-     * When several files define a program, the one in the ado named
-     * after it (`setter` in `setter.ado`) is kept: that is the file
-     * Stata loads when the program is called before any file defines
-     * it. Among other definitions, the last file indexed wins.
+     * Each name keeps one symbol. For a program defined in several
+     * files, that is the one in the file whose URI sorts first, so the
+     * answer never depends on the order files were indexed in; every
+     * file's definition is also listed in `program_definitions`. Which
+     * definition a call uses depends on what the caller has loaded, so
+     * callers decide that at lookup time (see
+     * `src/analyzer/program-macro-writes.ts`). For other symbol kinds
+     * the last file indexed wins.
      */
     get_all_symbols(): SymbolTable {
-        let all_symbols: SymbolTable = create_empty_symbol_table();
-
-        for (const entry of this.symbol_index.values()) {
-            all_symbols = merge_symbol_tables(all_symbols, entry.symbols);
-        }
+        const all_symbols: SymbolTable = create_empty_symbol_table();
+        const program_definitions = new Map<string, ProgramSymbol[]>();
+        const program_uris = new Map<string, string>();
         for (const [my_uri, my_entry] of this.symbol_index) {
-            const name = auto_loaded_program_name(my_uri);
-            const program = name === undefined
-                ? undefined : my_entry.symbols.programs.get(name);
-            if (name !== undefined && program) {
-                all_symbols.programs.set(name, program);
+            const symbols = my_entry.symbols;
+            for (const [my_name, my_program] of symbols.programs) {
+                const the_definitions = program_definitions.get(my_name);
+                if (the_definitions) {
+                    the_definitions.push(my_program);
+                } else {
+                    program_definitions.set(my_name, [my_program]);
+                }
+                const kept_uri = program_uris.get(my_name);
+                if (kept_uri === undefined || my_uri < kept_uri) {
+                    program_uris.set(my_name, my_uri);
+                    all_symbols.programs.set(my_name, my_program);
+                }
             }
+            copy_entries(symbols.localMacros, all_symbols.localMacros);
+            copy_entries(symbols.globalMacros, all_symbols.globalMacros);
+            copy_entries(symbols.variables, all_symbols.variables);
+            copy_entries(symbols.scalars, all_symbols.scalars);
+            copy_entries(symbols.matrices, all_symbols.matrices);
         }
+        all_symbols.program_definitions = program_definitions;
         return all_symbols;
     }
 

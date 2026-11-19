@@ -109,3 +109,80 @@ describe_unix('sight parse --json piped to a slow reader', () => {
         expect(my_status).toBe(2);
     }, 30_000);
 });
+
+/**
+ * A reader that stops early (`| head -1`) closes the pipe while the
+ * CLI is still writing. The CLI stops writing and exits with the code
+ * its result gives, without printing an EPIPE error.
+ */
+function make_many_inputs(): string {
+    const my_dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sight-epipe-'));
+    const the_lines: string[] = [];
+    for (let i = 0; i < 400; i++) {
+        the_lines.push(`display \`undefined_${i}'`);
+    }
+    // Large enough that the pipe cannot hold all of it.
+    for (let i = 0; i < 100; i++) {
+        the_lines.push(`do leaf.do argument_${i}`);
+    }
+    for (let i = 0; i < 40; i++) {
+        fs.writeFileSync(path.join(my_dir, `f${i}.do`),
+            the_lines.join('\n') + '\n');
+    }
+    fs.writeFileSync(path.join(my_dir, 'leaf.do'), 'args a\n');
+    return my_dir;
+}
+
+function run_with_early_close(
+    command: string,
+    the_args: string[],
+    cwd: string
+): { status: number; stderr: string } {
+    const my_quoted = [command, ...the_args]
+        .map(my_arg => `'${my_arg.replace(/'/g, `'\\''`)}'`)
+        .join(' ');
+    const my_script = `${my_quoted} 2>err.txt | head -c 10 >/dev/null; ` +
+        'echo "${PIPESTATUS[0]}"';
+    const my_result = spawnSync('bash', ['-c', my_script], {
+        cwd,
+        encoding: 'utf8',
+    });
+    return {
+        status: Number.parseInt(my_result.stdout.trim(), 10),
+        stderr: fs.readFileSync(path.join(cwd, 'err.txt'), 'utf8'),
+    };
+}
+
+describe_unix('sight commands piped to a reader that closes early', () => {
+    const the_runtimes: Array<[string, string, boolean]> = [
+        ['bun', path.join(REPO_ROOT, 'src/cli.ts'), true],
+        ['node', BUNDLED_ENTRY, fs.existsSync(BUNDLED_ENTRY)],
+    ];
+    for (const [my_runtime, my_entry, my_available] of the_runtimes) {
+        const the_commands: Array<[string, string[], number]> = [
+            ['parse', ['parse', '--json', ...Array.from(
+                { length: 40 }, (_, i) => `f${i}.do`)], 0],
+            ['check', ['check', '--workspace', '.', '--no-config',
+                '--format', 'json', '.'], 1],
+            ['graph', ['graph', '--json', '.'], 0],
+        ];
+        for (const [my_name, the_args, my_status] of the_commands) {
+            it.skipIf(!my_available)(
+                `${my_name} exits ${my_status} quietly (${my_runtime})`,
+                () => {
+                    const my_dir = make_many_inputs();
+                    try {
+                        const result = run_with_early_close(
+                            my_runtime, [my_entry, ...the_args], my_dir);
+                        expect(result.stderr).not.toContain('EPIPE');
+                        expect(result.stderr).toBe('');
+                        expect(result.status).toBe(my_status);
+                    } finally {
+                        fs.rmSync(my_dir, { recursive: true, force: true });
+                    }
+                },
+                30_000
+            );
+        }
+    }
+});

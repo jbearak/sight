@@ -844,6 +844,13 @@ export interface SymbolTable {
   variables: Map<string, VariableSymbol>;
   scalars: Map<string, ScalarSymbol>;
   matrices: Map<string, MatrixSymbol>;
+  /**
+   * Every workspace file's definition of each program, set only on
+   * the table `WorkspaceIndexer.get_all_symbols` returns. `programs`
+   * keeps one of them; which one a call uses depends on what the
+   * caller has loaded.
+   */
+  program_definitions?: ReadonlyMap<string, readonly ProgramSymbol[]>;
 }
 
 export interface ProgramSymbol {

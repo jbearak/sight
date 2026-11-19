@@ -275,23 +275,33 @@ function split_words(text: string): string[] {
             i++;
             continue;
         }
-        let end: number;
-        if (text.startsWith('`"', i)) {
-            end = compound_quote_end(text, i);
-        } else if (text[i] === '"') {
-            const close = text.indexOf('"', i + 1);
-            end = close < 0 ? text.length : close + 1;
-        } else {
-            end = i;
-            while (end < text.length && !is_space(text[end]) &&
-                text[end] !== '"' && !text.startsWith('`"', end)) {
-                end++;
-            }
-        }
+        const end = word_end(text, i, false);
         the_words.push(text.slice(i, end));
         i = end;
     }
     return the_words;
+}
+
+/**
+ * Where the word that starts at `start` ends: after the closing quote
+ * of a quoted or compound-quoted string, else at a space or quote (and
+ * at a comma when `stop_at_comma`).
+ */
+function word_end(text: string, start: number, stop_at_comma: boolean): number {
+    if (text.startsWith('`"', start)) {
+        return compound_quote_end(text, start);
+    }
+    if (text[start] === '"') {
+        const close = text.indexOf('"', start + 1);
+        return close < 0 ? text.length : close + 1;
+    }
+    let end = start;
+    while (end < text.length && !is_space(text[end]) &&
+        text[end] !== '"' && !text.startsWith('`"', end) &&
+        !(stop_at_comma && text[end] === ',')) {
+        end++;
+    }
+    return end;
 }
 
 /**
@@ -322,9 +332,15 @@ function call_arguments(
         return [];
     }
     const text = text_without_comments(tokens, path_start, node.range.end);
-    const comma = text.indexOf(',');
-    // The path is the first word.
-    return split_words(comma < 0 ? text : text.slice(0, comma)).slice(1);
+    // The path is the first word; a comma inside a quoted path
+    // (`do "survey, wave 1.do" 2019`) is part of it.
+    let path_begin = 0;
+    while (path_begin < text.length && is_space(text[path_begin])) {
+        path_begin++;
+    }
+    const path_end = word_end(text, path_begin, true);
+    const comma = text.indexOf(',', path_end);
+    return split_words(text.slice(path_end, comma < 0 ? text.length : comma));
 }
 
 /**

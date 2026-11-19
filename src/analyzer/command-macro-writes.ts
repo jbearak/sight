@@ -77,17 +77,33 @@ export interface CommandMacroWrites {
     unknown_target: boolean;
 }
 
+/**
+ * What a program's definition says about the caller macros a call to
+ * it sets.
+ */
+export type WritingProgram = Pick<
+    ProgramSymbol,
+    | 'c_locals'
+    | 'c_local_arg_positions'
+    | 'macro_creating_local_options'
+    | 'macro_creating_global_options'
+    | 'signature'
+>;
+
 /** What `command_macro_writes` needs beyond the statement. */
 export interface MacroWriteContext {
     /** Programs defined in this file. */
-    file_programs: ReadonlyMap<string, ProgramSymbol>;
+    file_programs: ReadonlyMap<string, WritingProgram>;
     /**
-     * Programs found anywhere in the workspace. A call reaches a
-     * workspace program's `c_local` argument names only when Stata
-     * could load that program at the call (see
-     * `find_c_local_arg_program`).
+     * Programs found anywhere in the workspace. A workspace program
+     * counts only when it is the program's one definition outside
+     * this file (see `sole_workspace_program`); a call to a program
+     * that several files define is decided with the caller's
+     * resolved execution scope instead.
      */
     workspace_programs?: ReadonlyMap<string, ProgramSymbol>;
+    /** Every workspace file's definition of each program. */
+    workspace_program_definitions?: ReadonlyMap<string, readonly ProgramSymbol[]>;
     /** URI of the file being analyzed. */
     uri?: string;
     /** True when the statement is inside a program body. */
@@ -176,14 +192,85 @@ function positional_words(
 }
 
 /**
+ * The workspace definition of `name` that a call can be credited with
+ * from this file alone. Inside a program body that is this file's own
+ * definition when it has one: the body runs only when called, after
+ * the whole file has loaded (an ado's helpers usually follow its main
+ * program). Otherwise it is the only definition in another file, or,
+ * when only this file defines it, this file's. With several
+ * definitions in other files, which one a call uses depends on what
+ * the caller loaded (a program in memory is used; the ado named after
+ * it is loaded only when none is), so it is left to the resolved
+ * execution scope (see `collect_program_macro_writes`). Without the
+ * definitions list, the merged entry is used.
+ */
+export function sole_workspace_program(
+    name: string,
+    context: MacroWriteContext
+): ProgramSymbol | undefined {
+    const merged = context.workspace_programs?.get(name);
+    const the_definitions = context.workspace_program_definitions?.get(name);
+    if (!the_definitions) return merged;
+    const { own, other, other_count } =
+        split_definitions(the_definitions, context.uri);
+    if (own && (context.in_program_body === true || other_count === 0)) {
+        return own;
+    }
+    return other_count === 1 ? other : undefined;
+}
+
+interface SplitDefinitions {
+    /** This file's definition, if any. */
+    own?: ProgramSymbol;
+    /** One definition in another file, if any. */
+    other?: ProgramSymbol;
+    /** How many definitions are in other files. */
+    other_count: number;
+}
+
+/**
+ * A program's definitions split into this file's and other files',
+ * read once per definitions list and file: a helper name such as
+ * `Estimate` has hundreds of definitions, and a file may call it many
+ * times.
+ */
+const SPLIT_CACHE = new WeakMap<
+    readonly ProgramSymbol[], Map<string | undefined, SplitDefinitions>
+>();
+
+function split_definitions(
+    the_definitions: readonly ProgramSymbol[],
+    uri: string | undefined
+): SplitDefinitions {
+    let by_uri = SPLIT_CACHE.get(the_definitions);
+    if (!by_uri) {
+        by_uri = new Map();
+        SPLIT_CACHE.set(the_definitions, by_uri);
+    }
+    const cached = by_uri.get(uri);
+    if (cached) return cached;
+    const split: SplitDefinitions = { other_count: 0 };
+    for (const my_definition of the_definitions) {
+        if (my_definition.sourceUri === uri) {
+            split.own ??= my_definition;
+        } else {
+            split.other ??= my_definition;
+            split.other_count++;
+        }
+    }
+    by_uri.set(uri, split);
+    return split;
+}
+
+/**
  * A program the file defines, else one from the workspace.
  */
 function find_program(
     name: string,
     context: MacroWriteContext
-): ProgramSymbol | undefined {
+): WritingProgram | undefined {
     return context.file_programs.get(name)
-        ?? context.workspace_programs?.get(name);
+        ?? sole_workspace_program(name, context);
 }
 
 /**
@@ -192,7 +279,7 @@ function find_program(
  * matched without case (it is a filesystem name, not Stata syntax);
  * the program name is matched exactly.
  */
-function is_auto_loaded_ado(uri: string, program_name: string): boolean {
+export function is_auto_loaded_ado(uri: string, program_name: string): boolean {
     const base = uri_file_name(uri);
     if (base === undefined) return false;
     const extension = node_path.posix.extname(base);
@@ -219,7 +306,7 @@ function uri_file_name(uri: string): string | undefined {
  * - one this file defined before the call (`file_programs`), unless a
  *   top-level `program drop` removed it since, for a top-level call;
  * - an ado named after the program, which Stata loads from the
- *   adopath on first call;
+ *   adopath on first call, when no other file defines the program;
  * - inside a program body, one defined anywhere in this file, since
  *   the body runs only when called, after the file has loaded (an
  *   ado's helper subprograms usually follow the main program).
@@ -233,12 +320,12 @@ function uri_file_name(uri: string): string | undefined {
 function find_c_local_arg_program(
     name: string,
     context: MacroWriteContext
-): ProgramSymbol | undefined {
+): WritingProgram | undefined {
     const file_program = context.file_programs.get(name);
     const is_dropped = context.in_program_body !== true
         && context.dropped_programs?.has(name) === true;
     if (file_program && !is_dropped) return file_program;
-    const workspace_program = context.workspace_programs?.get(name);
+    const workspace_program = sole_workspace_program(name, context);
     if (!workspace_program?.c_local_arg_positions) return undefined;
     const source_uri = workspace_program.sourceUri;
     if (is_auto_loaded_ado(source_uri, name)) return workspace_program;
@@ -256,7 +343,7 @@ function find_c_local_arg_program(
  */
 function program_option_specs(
     names: readonly string[],
-    program: ProgramSymbol
+    program: WritingProgram
 ): MacroCreatingOption[] {
     const the_min_lengths = new Map<string, number>();
     for (const my_option of program.signature?.options ?? []) {
@@ -274,31 +361,29 @@ function program_option_specs(
 }
 
 /**
- * The `local()`/`global()` options of a user program, from the first
- * of the file's and the workspace's definitions that has any.
+ * The `local()`/`global()` options of a user program: the file's
+ * definition when it has one, else the workspace's (see `find_program`).
  */
 function program_macro_options(
     name: string,
     context: MacroWriteContext
 ): MacroCreatingCommand | undefined {
-    for (const my_programs of [context.file_programs, context.workspace_programs]) {
-        const program = my_programs?.get(name);
-        if (
-            program
-            && (program.macro_creating_local_options
-                || program.macro_creating_global_options)
-        ) {
-            return {
-                name,
-                min_abbreviation: 0,
-                local_options: program_option_specs(
-                    program.macro_creating_local_options ?? [], program),
-                global_options: program_option_specs(
-                    program.macro_creating_global_options ?? [], program),
-            };
-        }
+    const program = find_program(name, context);
+    if (
+        !program
+        || (!program.macro_creating_local_options
+            && !program.macro_creating_global_options)
+    ) {
+        return undefined;
     }
-    return undefined;
+    return {
+        name,
+        min_abbreviation: 0,
+        local_options: program_option_specs(
+            program.macro_creating_local_options ?? [], program),
+        global_options: program_option_specs(
+            program.macro_creating_global_options ?? [], program),
+    };
 }
 
 /**

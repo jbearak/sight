@@ -80,11 +80,18 @@ as a use of the variable, at the name's own range: `i.foo`, `c.foo`,
 A word that names a file does not count, even when the part before the
 dot reads like an operator (`old` is `o`, `l`, `d`): `save old.dta`,
 `save dir/old.dta`, and `merge 1:1 id using old.dta` are not uses of a
-variable named `dta`. A file name is a word after `using`, or a word
-before the first comma of `save`, `saveold`, `use`, `do`, `run`,
+variable named `dta`. A file name is a word after `using` (up to a
+separate `if` or `in`; `using if.dta l.dta` names two files), or a
+word before the first comma of `save`, `saveold`, `use`, `do`, `run`,
 `include`, `erase`, `rm`, `type`, `copy`, `translate`, `cd`, `mkdir`,
-or `rmdir`. Neither is `r(N).foo`: a parenthesized operator argument
-counts only after an operator such as `ib` or `L`.
+or `rmdir` when that word is the statement's command: first in the
+statement after any prefixes, or first after the condition of a
+one-line `if` (`if 1 save l.dta`), where the condition ends as the
+parser ends it. Elsewhere those words are ordinary names: in
+`if _N > 0 regress type i.x`, `type` is a variable and `i.x` is a use
+of `x`; in `if save == 1 regress y L.dta`, `L.dta` is a use of `dta`.
+Neither is `r(N).foo`: a parenthesized operator argument counts only
+after an operator such as `ib` or `L`.
 
 ## Variable Result Ordering
 
