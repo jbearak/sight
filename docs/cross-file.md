@@ -186,6 +186,11 @@ defines those locals at the call when the name is fixed, comes from a
 `local()`-style option (in full, or abbreviated as far as the
 program's `syntax` allows), or is a plain-name argument (see
 [Configuration](configuration.md#locals-named-by-program-arguments)).
+For a plain-name argument the program must be reachable at the call:
+defined earlier in the file, in an ado named after it, in a file the
+caller itself ran or included earlier, or in the caller's parent
+scope. A program found only in the workspace index does not count,
+nor does one that a file run by the caller runs in turn.
 
 ## Forward Scope Resolution
 
