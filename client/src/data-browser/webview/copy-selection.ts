@@ -249,13 +249,18 @@ export function take_over_copy<TRows>(
     let is_mixed = false;
     for (const my_row of my_listed.rows) {
         if (my_row >= grid.row_count) continue;
-        if (!grid.has_row(my_row, my_listed.columns)) {
+        // A row whose cells are still loading is fetched, but its view
+        // still pins the copy: otherwise a selection of only such rows
+        // would take whatever view the host answers with.
+        const is_ready = grid.has_row(my_row, my_listed.columns);
+        if (!is_ready) {
             the_missing.push(my_row);
-            continue;
         }
         const my_row_view = grid.row_view(my_row);
         if (my_row_view === undefined) {
-            is_mixed = true;
+            if (is_ready) {
+                is_mixed = true;
+            }
         } else if (my_view === undefined) {
             my_view = my_row_view;
         } else if (my_row_view !== my_view) {

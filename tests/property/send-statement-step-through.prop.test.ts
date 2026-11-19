@@ -320,9 +320,10 @@ class Writer {
                     for (const my_item of my_body) {
                         this.write(my_item, '\n');
                     }
-                    // An empty `else` body still holds a marker, so a
-                    // branch sent alone shows.
-                    if (my_has_else && my_body.length === 0) {
+                    // The final `else` has no marker in its header,
+                    // and its body may hold only blanks or comments:
+                    // give it one, so a branch sent alone shows.
+                    if (my_has_else && (my_is_last || my_body.length === 0)) {
                         this.put(`di ${this.marker()}`, '\n');
                     }
                 });

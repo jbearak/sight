@@ -69,7 +69,9 @@ function make_grid(
         to_text: (cells: CellArray, columns: readonly number[]) =>
             getCopyBufferContents(cells, columns).textPlain,
         has_row: (row: number) => loaded_rows.has(row),
-        row_view: (row: number) => my_grid.row_views.get(row) ?? 0,
+        // As in the real grid, a row that is not resident has no view.
+        row_view: (row: number) => my_grid.row_views.get(row)
+            ?? (loaded_rows.has(row) ? 0 : undefined),
         load_rows: async (
             rows: readonly number[],
             _columns: readonly number[],
@@ -256,6 +258,15 @@ describe('copying rows the grid has not loaded', () => {
         await take_over_copy(make_event(),
             { range: undefined, rows: [], columns: [0] }, my_grid);
         expect(my_grid.load_views).toEqual([4]);
+    });
+
+    it('pins the view of resident rows whose cells are still loading', async () => {
+        // No selected row is ready, but the grid knows their view.
+        const my_grid = make_grid(true, new Set<number>());
+        my_grid.row_views.set(0, 7).set(1, 7).set(2, 7);
+        await take_over_copy(make_event(),
+            { range: undefined, rows: [], columns: [0] }, my_grid);
+        expect(my_grid.load_views).toEqual([7]);
     });
 
     it('fails, reading nothing, if the grid has rows of two views', async () => {
