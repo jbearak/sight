@@ -389,17 +389,20 @@ export class StataLexer {
   }
 
   /**
-   * Whether a line in `source` from offset `start` up to `end` begins
-   * with a program definition header (`program define helper`).
+   * Whether a line (or record) in the source from offset `start`
+   * up to `end` begins with a program definition header (`program
+   * define helper`).
    */
   private has_program_header_line(start: number, end: number): boolean {
-    PROGRAM_HEADER_LINE.lastIndex = start;
+    // Only the region, so a file of many `input` blocks stays linear.
+    const region = this.source.substring(start, end);
+    PROGRAM_HEADER_LINE.lastIndex = 0;
     for (;;) {
-      const my_match = PROGRAM_HEADER_LINE.exec(this.source);
-      if (my_match === null || my_match.index >= end) {
+      const my_match = PROGRAM_HEADER_LINE.exec(region);
+      if (my_match === null) {
         return false;
       }
-      const my_word_end = my_match.index + my_match[0].length;
+      const my_word_end = start + my_match.index + my_match[0].length;
       if (PROGRAM_COMMAND_NAMES.has(my_match[1]) &&
           is_program_definition_header(
             logical_line_text(this.source, my_word_end))) {
