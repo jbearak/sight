@@ -291,7 +291,9 @@ export function create_input_quote_scan(): InputQuoteScan {
  * source's length if none does. A `///` comment joins the next line to
  * the row, as does a block comment open at a newline; a `;` or `///`
  * inside a double-quoted or compound-quoted field is text (StataMP 18
- * reads the record `"a;end";` as the value `a;end`). Under
+ * reads the record `"a;end";` as the value `a;end`), except that under
+ * `#delimit ;` a `;` ends the record even inside a compound quote
+ * (StataMP 18 reads `` `"a;b"'; `` as two records). Under
  * `#delimit ;` a quoted field runs on across lines to its closing
  * quote, as in Stata (`"Long` then `label" 42;` is one record); under
  * `#delimit cr` it ends at the end of its line. A quote that no
@@ -341,8 +343,9 @@ export function input_row_end(
 /**
  * The offset just past the quoted field that opens at `start` (a `"`,
  * or the `` `" `` of a compound quote) in `source`: past its closing
- * quote, or, when it has none (under `#delimit cr`, none on its line),
- * at the end of its line. Reads each character at most once, apart
+ * quote; at the `;` that ends the record inside a compound quote under
+ * `#delimit ;`; or, when it has none (under `#delimit cr`, none on its
+ * line), at the end of its line. Reads each character at most once, apart
  * from one scan to the end of the source per kind of quote, which
  * `quote_scan` remembers.
  */
@@ -358,6 +361,9 @@ function quoted_field_end(
         const my_char = source[i];
         if (my_char === '"' && (!is_compound || source[i + 1] === '\'')) {
             return i + (is_compound ? 2 : 1);
+        }
+        if (my_char === ';' && is_compound && is_semicolon) {
+            return i;
         }
         if (my_char === '\n') {
             if (!is_semicolon) {

@@ -193,6 +193,9 @@ export class StataLexer {
     { searched_from: number; index: number; is_semicolon: boolean } | null = null;
   // Where `input` data quotes have no closing quote (see input_row_end).
   private input_quote_scan: InputQuoteScan = create_input_quote_scan();
+  // The offset of the source's last `"`, once looked up (see
+  // unclosed_string_stop), or -1 if it has none.
+  private last_double_quote_offset: number | null = null;
 
   tokenize(source: string, initialState?: LexerState): LexerResult {
     this.source = source;
@@ -223,6 +226,7 @@ export class StataLexer {
     this.input_declaration_start = 0;
     this.input_end_candidate = null;
     this.input_quote_scan = create_input_quote_scan();
+    this.last_double_quote_offset = null;
     this.state = initialState || {
       delimiterMode: 'cr',
       line: 0,
@@ -1800,14 +1804,17 @@ export class StataLexer {
     let segment_start_line = startLine;
     let segment_start_column = startColumn;
     let properly_closed = false;
+    const my_stop = this.unclosed_string_stop();
 
     while (!this.isAtEnd()) {
       const char = this.peek();
 
       // Under `#delimit ;` a line break inside a string is part of it:
       // Stata's ml_searc.ado sets `local options "... LOg` then
-      // `MAXFEAS(integer 1000) ... TRace" ;`.
-      if (char === '\n' && this.state.delimiterMode !== 'semicolon') {
+      // `MAXFEAS(integer 1000) ... TRace" ;`. A string that no `"`
+      // closes stops where unclosed_string_stop says.
+      if ((char === '\n' && this.state.delimiterMode !== 'semicolon') ||
+          (my_stop !== -1 && this.position >= my_stop)) {
         const error: LexerError = {
           message: 'Unclosed string literal',
           range: this.makeRange(startLine, startColumn, this.line, this.column + 1),
@@ -1993,6 +2000,39 @@ export class StataLexer {
     return the_tokens;
   }
 
+  /**
+   * Under `#delimit ;`, where a simple string that opened just before
+   * the current position stops when no `"` follows to close it: StataMP
+   * 18 would read the rest of the file into it, so Sight ends it at the
+   * end of its line, or at a `;` that is the last code on that line
+   * (which then ends the statement): `display "oops;` then
+   * `local one 1;` leaves the `local` a statement of its own, with the
+   * open quote still reported. -1 when the string has a `"` after it,
+   * or under `#delimit cr` (where every string ends at its line).
+   */
+  private unclosed_string_stop(): number {
+    if (this.state.delimiterMode !== 'semicolon') {
+      return -1;
+    }
+    if (this.last_double_quote_offset === null) {
+      this.last_double_quote_offset = this.source.lastIndexOf('"');
+    }
+    if (this.position <= this.last_double_quote_offset) {
+      return -1;
+    }
+    let my_line_end = this.source.indexOf('\n', this.position);
+    if (my_line_end === -1) {
+      my_line_end = this.source.length;
+    }
+    let my_last = my_line_end - 1;
+    while (my_last >= this.position && /\s/.test(this.source[my_last])) {
+      my_last--;
+    }
+    return my_last >= this.position && this.source[my_last] === ';'
+      ? my_last
+      : my_line_end;
+  }
+
   private scanCompoundString(startLine: number, startColumn: number): Token | Token[] {
     const the_tokens: Token[] = [];
     let depth = 1;
@@ -2002,7 +2042,11 @@ export class StataLexer {
     while (!this.isAtEnd() && depth > 0) {
       const char = this.peek();
 
-      if (char === '\n') {
+      // Under `#delimit ;` a compound string runs on across lines, but
+      // a `;` in it ends the statement (StataMP 18 reads
+      // `` local d `"x;y"'; `` as `` local d `"x `` and `` y"' ``).
+      if ((char === '\n' && this.state.delimiterMode !== 'semicolon') ||
+          (char === ';' && this.state.delimiterMode === 'semicolon')) {
         const error: LexerError = {
           message: 'Unclosed string literal',
           range: this.makeRange(startLine, startColumn, this.line, this.column + 1),

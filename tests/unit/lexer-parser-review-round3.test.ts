@@ -259,7 +259,14 @@ describe('a quoted input field under #delimit ;', () => {
     it('ends at the end of its line when no quote closes it', () => {
         const my_source = '"abc 1;\nx 2;\n';
         expect(input_row_end(my_source, 0, true)).toBe(11);
-        expect(input_row_end('`"abc 1;\nx 2;\n', 0, true)).toBe(12);
+    });
+
+    it('ends at a ; inside a compound quote', () => {
+        // StataMP 18 reads `` `"a;b"'; `` as two records, and a
+        // compound quote over two lines as one.
+        expect(input_row_end('`"a;b"\'; ', 0, true)).toBe(3);
+        expect(input_row_end('`"p\nq"\'; ', 0, true)).toBe(7);
+        expect(input_row_end('`"abc 1;\nx 2;\n', 0, true)).toBe(7);
     });
 
     it('is scanned in linear time', () => {
@@ -276,6 +283,7 @@ describe('a quoted input field under #delimit ;', () => {
         expect(growth('"a" 1; ', scan_rows(true), '', '\n')).toBeLessThan(5);
         expect(growth('"a" 1\n', scan_rows(false))).toBeLessThan(5);
         expect(growth('`"a\n', scan_rows(true))).toBeLessThan(5);
+        expect(growth('`"a;\n', scan_rows(true))).toBeLessThan(5);
         expect(growth('"a\n', scan_rows(false))).toBeLessThan(5);
     });
 });
@@ -332,5 +340,48 @@ describe('a bracket touching a name in assert', () => {
     for_each_formatter_mode('stays attached to its name', (my_mode) => {
         const my_source = 'local weight 1\nassert x[`weight\'] == 1\n';
         expect_formats_to(my_source, my_mode, my_source);
+    });
+});
+
+describe('a string under #delimit ;', () => {
+    function string_errors(my_source: string): number[] {
+        return new StataLexer().tokenize(my_source).errors
+            .map((my_error) => my_error.range.start.line);
+    }
+
+    it('may span lines in compound quotes', () => {
+        // StataMP 18: `` local b `"p `` then `` q"'; `` sets b.
+        const my_source = '#delimit ;\nlocal b `"p\nq"\';\n' +
+            'display `"B[`b\']"\';\n#delimit cr\n';
+        expect(string_errors(my_source)).toEqual([]);
+        expect(shape(nodes_of(my_source)))
+            .toEqual(['directive', 'macro_def', 'display', 'directive']);
+    });
+
+    it('ends at a ; inside compound quotes', () => {
+        // StataMP 18 reads `` local txt `"one; `` as a statement
+        // ("invalid syntax"); the `"` after `two` then opens a string
+        // that nothing closes.
+        expect(string_errors('#delimit ;\nlocal txt `"one;\ntwo"\';\n'))
+            .toEqual([1, 2]);
+    });
+
+    it('that nothing closes ends at the end of its line', () => {
+        const my_source = '#delimit ;\ndisplay "oops;\nlocal one 1;\n' +
+            'local two 2;\ndisplay `one\' + `two\';\n';
+        expect(string_errors(my_source)).toEqual([1]);
+        expect(shape(nodes_of(my_source)))
+            .toEqual(['directive', 'display', 'macro_def', 'macro_def', 'display']);
+        // A later `"` closes it, as in Stata.
+        expect(shape(nodes_of('#delimit ;\ndisplay "a;\nb";\nlocal one 1;\n')))
+            .toEqual(['directive', 'display', 'macro_def']);
+    });
+
+    it('that nothing closes costs linear time', () => {
+        const lex_it = (my_text: string) => {
+            new StataLexer().tokenize(my_text);
+        };
+        expect(growth('display "a;\n', lex_it, '#delimit ;\n')).toBeLessThan(5);
+        expect(growth('display `"a;\n', lex_it, '#delimit ;\n')).toBeLessThan(5);
     });
 });
