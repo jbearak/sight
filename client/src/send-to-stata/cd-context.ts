@@ -16,7 +16,8 @@ import {
 import { send_to_stata_app } from './applescript.js';
 import { send_to_terminal } from './terminal.js';
 import {
-    send_to_stata_terminal
+    send_to_stata_terminal,
+    SendCancelledError,
 } from './stata-terminal-manager.js';
 
 const CONTEXT_KEY = 'sight.cdMenuVisible';
@@ -173,8 +174,11 @@ export async function execute_cd_command(
             await send_to_terminal('do', temp_file_path);
         }
     } catch (my_error) {
-        vscode.window.showErrorMessage(
-            `Error: ${my_error instanceof Error ? my_error.message : my_error}`);
+        if (!(my_error instanceof SendCancelledError)) {
+            vscode.window.showErrorMessage(
+                `Error: ${my_error instanceof Error
+                    ? my_error.message : my_error}`);
+        }
     } finally {
         if (!is_queued) {
             schedule_temp_file_cleanup(temp_file_path);
