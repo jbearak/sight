@@ -444,10 +444,103 @@ describe('sight graph --json', () => {
         });
         expect(document.edges.map((my_edge: Json) => my_edge.arguments)).toEqual([
             ['if', 'price', '>', '100'],
-            ['in', '1/2', 'using', 'y', '[aw=x]', '=z+1', ',', 'nostop'],
+            ['in', '1/2', 'using', 'y', '[aw=x]', '=z+1'],
             ['a', 'b'],
             ['2019', '"rural"', "`a'b", '"x`y\'z"'],
             ['a>b'],
+        ]);
+    });
+
+    it('passes the words before the first comma, as args reads them', async () => {
+        // What `args` and `0' receive in Stata 18.
+        const document = await graph_of({
+            'master.do': [
+                'do child.do x, nostop',
+                'do child.do,nostop',
+                'include child.do, adopath',
+                'do child.do a /// comment',
+                'b',
+                'do child.do a /* x */b',
+                'do child.do a/* x */b',
+                'do child.do first /*text*/second',
+                'do child.do a"b c"d e',
+                'do child.do `"a "b" c"\' d',
+                'do child.do "a,b" c',
+                'include child.do',
+                '',
+            ].join('\n'),
+            'child.do': 'args a b c d\n',
+        });
+        expect(document.edges.map((my_edge: Json) => my_edge.arguments)).toEqual([
+            ['x'],
+            [],
+            [],
+            ['a', 'b'],
+            ['a', 'b'],
+            ['ab'],
+            ['first', 'second'],
+            ['a', '"b c"', 'd', 'e'],
+            ['`"a "b" c"\'', 'd'],
+            ['"a'],
+            [],
+        ]);
+    });
+
+    it('gives an uncalled file its own working directory', async () => {
+        // jobs/a.do runs in work/ and so calls work/b.do, not
+        // work/jobs/b.do, which nobody calls.
+        const document = await graph_of({
+            'main.do': '// sight: cd "work"\ndo jobs/a.do\n',
+            'work/jobs/a.do': 'do b.do\n',
+            'work/b.do': '',
+            'work/jobs/b.do': 'do nearby.do\n',
+            'work/nearby.do': '',
+            'work/jobs/nearby.do': '',
+        });
+        expect(document.edges).toMatchObject([
+            { caller: 'main.do', target: 'work/jobs/a.do' },
+            { caller: 'work/jobs/a.do', target: 'work/b.do' },
+            {
+                caller: 'work/jobs/b.do',
+                target: 'work/jobs/nearby.do',
+                working_directory: null,
+            },
+        ]);
+    });
+
+    it('passes an inherited working directory down every level', async () => {
+        const document = await graph_of({
+            'main.do': '// sight: cd "work"\ndo jobs/a.do\n',
+            'work/jobs/a.do': 'do jobs/b.do\n',
+            'work/jobs/b.do': 'do c.do\n',
+            'work/c.do': '',
+        });
+        expect(document.edges).toMatchObject([
+            { caller: 'main.do', target: 'work/jobs/a.do' },
+            { caller: 'work/jobs/a.do', target: 'work/jobs/b.do' },
+            { caller: 'work/jobs/b.do', target: 'work/c.do', resolution: 'exact' },
+        ]);
+        expect(document.edges[2].working_directory)
+            .toBe(path.join(document.root, 'work'));
+        expect(document.unresolved).toEqual([]);
+    });
+
+    it('resolves a forward directive without an auto-inherited directory', async () => {
+        // docs/cross-file.md: directive paths are relative to the file.
+        const document = await graph_of({
+            'main.do': '// sight: cd "work"\ndo jobs/a.do\n',
+            'work/jobs/a.do': '// sight: do lib.do\n',
+            'work/jobs/lib.do': '',
+            'work/lib.do': '',
+        });
+        expect(document.edges).toMatchObject([
+            { caller: 'main.do', target: 'work/jobs/a.do' },
+            {
+                caller: 'work/jobs/a.do',
+                source: 'directive',
+                target: 'work/jobs/lib.do',
+                working_directory: null,
+            },
         ]);
     });
 
