@@ -64,6 +64,12 @@ export interface RestorePendingState {
     filter: boolean;
 }
 
+/** Rows read for a copy, and the host view they were read in. */
+export interface CopyRowsRead {
+    rows: CellValue[][];
+    view_generation: number;
+}
+
 declare function acquireVsCodeApi(): VsCodeApi;
 
 interface VsCodeApi {
@@ -102,15 +108,20 @@ export interface UseRowLoaderResult {
     ) => Promise<string[] | null>;
     /**
      * Rows `[start, start + count)` in the order shown, columns
-     * `[col_start, col_end)`, with every strL read, for a copy.
-     * Rejects with why if they can't be read or the order changes.
+     * `[col_start, col_end)`, with every strL read, for a copy, and
+     * the host view they were read in. With `view_generation`, only
+     * in that view. Rejects with why if they can't be read, the view
+     * is another, or the order changes.
      */
     request_copy_rows: (
         start: number,
         count: number,
         col_start: number,
-        col_end: number
-    ) => Promise<CellValue[][]>;
+        col_end: number,
+        view_generation: number | undefined
+    ) => Promise<CopyRowsRead>;
+    /** The host view a loaded row was read in; undefined if not loaded. */
+    get_row_view: (row_index: number) => number | undefined;
     /**
      * Bumped whenever the rows shown change order or dataset, so a copy
      * that read some rows before can tell.
@@ -167,6 +178,10 @@ export function use_row_loader(): UseRowLoaderResult {
     // The request each page shown came from, so a `rowCells` follow-up
     // completes only the page it belongs to.
     const page_request_ids = useRef(new Map<number, string>());
+    // The host view each page's rows were read in (RowResponse), by
+    // the page's rows themselves, so a copy, which reads the pages a
+    // render shows, takes rows of one view only.
+    const page_views = useRef(new WeakMap<CellValue[][], number>());
     // Waiting requestFullText calls, by request id.
     const full_text_waiters = useRef(
         new Map<string, (texts: string[] | null) => void>()
@@ -363,6 +378,7 @@ export function use_row_loader(): UseRowLoaderResult {
                     return;
                 }
                 page_request_ids.current.set(my_msg.start, my_msg.request_id);
+                page_views.current.set(my_msg.rows, my_msg.view_generation);
                 set_pages(my_previous => {
                     const my_next = new Map(my_previous);
                     my_next.set(my_msg.start, my_msg.rows);
@@ -384,7 +400,7 @@ export function use_row_loader(): UseRowLoaderResult {
                     const my_page = my_previous.get(my_msg.start);
                     if (!my_page) return my_previous;
                     const my_next = new Map(my_previous);
-                    my_next.set(my_msg.start, my_page.map((my_row, i) => {
+                    const my_patched = my_page.map((my_row, i) => {
                         const my_cells = my_msg.rows[i];
                         if (!my_cells) return my_row;
                         const my_out = my_row.slice();
@@ -392,7 +408,13 @@ export function use_row_loader(): UseRowLoaderResult {
                             my_out[my_col] = my_cells[j];
                         });
                         return my_out;
-                    }));
+                    });
+                    // The same rows, completed: the same view.
+                    const my_view = page_views.current.get(my_page);
+                    if (my_view !== undefined) {
+                        page_views.current.set(my_patched, my_view);
+                    }
+                    my_next.set(my_msg.start, my_patched);
                     pages_ref.current = my_next;
                     return my_next;
                 });
@@ -628,6 +650,15 @@ export function use_row_loader(): UseRowLoaderResult {
         return my_page[row_index - my_page_start];
     }
 
+    /** The host view row `row_index`'s page was read in, if loaded. */
+    function get_row_view(row_index: number): number | undefined {
+        const my_page_size = page_size_ref.current;
+        const my_page_start = Math.floor(row_index / my_page_size)
+            * my_page_size;
+        const my_page = pages.get(my_page_start);
+        return my_page ? page_views.current.get(my_page) : undefined;
+    }
+
     const apply_sort = useCallback(
         (keys: SortKey[], labels_on: boolean) => {
             // Dismiss the restore banner at once: the host's sortApplied
@@ -690,12 +721,16 @@ export function use_row_loader(): UseRowLoaderResult {
             start: number,
             count: number,
             col_start: number,
-            col_end: number
-        ) => new Promise<CellValue[][]>((resolve, reject) => {
+            col_end: number,
+            view_generation: number | undefined
+        ) => new Promise<CopyRowsRead>((resolve, reject) => {
             const my_id = `copy-${next_copy_rows_id.current++}`;
             copy_rows_waiters.current.set(my_id, my_msg => {
-                if (my_msg.rows) {
-                    resolve(my_msg.rows);
+                if (my_msg.rows && my_msg.view_generation !== undefined) {
+                    resolve({
+                        rows: my_msg.rows,
+                        view_generation: my_msg.view_generation,
+                    });
                 } else {
                     reject(new Error(
                         my_msg.message ?? 'the rows could not be read'
@@ -709,6 +744,7 @@ export function use_row_loader(): UseRowLoaderResult {
                 count,
                 col_start,
                 col_end,
+                ...(view_generation !== undefined && { view_generation }),
             });
         }),
         [vscode_api]
@@ -738,6 +774,7 @@ export function use_row_loader(): UseRowLoaderResult {
         cancel_compute,
         request_full_text,
         request_copy_rows,
+        get_row_view,
         order_version,
         file_changed,
     };

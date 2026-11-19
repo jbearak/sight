@@ -101,7 +101,9 @@ async function make_restore_panel(opts: {
         value_label_tables: new Map(),
     };
     panel_like.sidecar = { name: 'ds', subsetted: false };
-    panel_like.copy_generation = 0;
+    panel_like.copy_seq = 0;
+    panel_like.webview_copy = null;
+    panel_like.view_generation = 0;
     panel_like.dataset_key = 'k';
     panel_like.dataset_key_aliases = [];
     panel_like.generation = 0;
@@ -1808,14 +1810,16 @@ describe('copied text from the webview', () => {
         const { panel_like } = await make_restore_panel();
         clipboard_writes = [];
 
+        await panel_like.handle_message({ type: 'copyStarted', copy_id: 1 });
         await panel_like.handle_message({
-            type: 'copyText', text: 'whole', is_whole: true,
+            type: 'copyText', copy_id: 1, text: 'whole', is_whole: true,
         });
         expect(clipboard_writes).toEqual(['whole']);
         expect(warnings).toEqual([]);
 
+        await panel_like.handle_message({ type: 'copyStarted', copy_id: 2 });
         await panel_like.handle_message({
-            type: 'copyText', text: 'preview', is_whole: false,
+            type: 'copyText', copy_id: 2, text: 'preview', is_whole: false,
         });
         expect(clipboard_writes).toEqual(['whole', 'preview']);
         expect(warnings.length).toBe(1);

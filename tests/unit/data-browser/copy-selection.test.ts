@@ -53,10 +53,14 @@ function make_grid(
     version: number;
     load_error: Error | null;
     on_load: () => void;
+    row_views: Map<number, number>;
+    load_views: (number | undefined)[];
 } {
     const my_grid = {
         fetch_count: 0,
         the_loads: [] as number[][],
+        row_views: new Map<number, number>(),
+        load_views: [] as (number | undefined)[],
         version: 0,
         load_error: null as Error | null,
         on_load: () => undefined as void,
@@ -65,8 +69,16 @@ function make_grid(
         to_text: (cells: CellArray, columns: readonly number[]) =>
             getCopyBufferContents(cells, columns).textPlain,
         has_row: (row: number) => loaded_rows.has(row),
-        load_rows: async (rows: readonly number[]): Promise<Rows> => {
+        // As in the real grid, a row that is not resident has no view.
+        row_view: (row: number) => my_grid.row_views.get(row)
+            ?? (loaded_rows.has(row) ? 0 : undefined),
+        load_rows: async (
+            rows: readonly number[],
+            _columns: readonly number[],
+            view: number | undefined
+        ): Promise<Rows> => {
             my_grid.the_loads.push([...rows]);
+            my_grid.load_views.push(view);
             my_grid.on_load();
             if (my_grid.load_error) throw my_grid.load_error;
             return new Map(rows.map(my_row => [
@@ -240,6 +252,58 @@ describe('copying rows the grid has not loaded', () => {
         });
     });
 
+    it('reads them in the view of the rows the grid has', async () => {
+        const my_grid = make_grid(true, new Set([0, 1]));
+        my_grid.row_views.set(0, 4).set(1, 4);
+        await take_over_copy(make_event(),
+            { range: undefined, rows: [], columns: [0] }, my_grid);
+        expect(my_grid.load_views).toEqual([4]);
+    });
+
+    it('pins the view of resident rows whose cells are still loading', async () => {
+        // No selected row is ready, but the grid knows their view.
+        const my_grid = make_grid(true, new Set<number>());
+        my_grid.row_views.set(0, 7).set(1, 7).set(2, 7);
+        await take_over_copy(make_event(),
+            { range: undefined, rows: [], columns: [0] }, my_grid);
+        expect(my_grid.load_views).toEqual([7]);
+    });
+
+    it('fails, reading nothing, if the grid has rows of two views', async () => {
+        const my_grid = make_grid(true, new Set([0, 1]));
+        my_grid.row_views.set(0, 4).set(1, 5);
+        const my_event = make_event();
+        const my_result = await take_over_copy(my_event,
+            { range: undefined, rows: [], columns: [0] }, my_grid);
+        expect(my_event.calls).toEqual([
+            'preventDefault', 'stopImmediatePropagation',
+        ]);
+        expect(my_result?.kind).toBe('failed');
+        expect(my_grid.the_loads).toEqual([]);
+    });
+
+    it('fails, even with every row loaded, across two views', async () => {
+        const my_grid = make_grid(true, new Set([0, 2]));
+        my_grid.row_views.set(0, 4).set(2, 5);
+        // Rows 0 and 2 only: Glide could copy them at once, in two
+        // orders.
+        const my_result = await take_over_copy(make_event(),
+            { range: undefined, rows: [0, 2], columns: [] }, my_grid);
+        expect(my_result).toEqual({
+            kind: 'failed',
+            message: expect.stringContaining('changed during the copy'),
+        });
+    });
+
+    it('fails if a row it has came from no known view', async () => {
+        const my_grid = make_grid(true, new Set([0, 1]));
+        my_grid.row_view = () => undefined;
+        const my_result = await take_over_copy(make_event(),
+            { range: undefined, rows: [], columns: [0] }, my_grid);
+        expect(my_result?.kind).toBe('failed');
+        expect(my_grid.the_loads).toEqual([]);
+    });
+
     it('fails if the rows shown change order meanwhile', async () => {
         const my_grid = make_grid(true, new Set([0]));
         my_grid.on_load = () => {
@@ -297,7 +361,7 @@ describe('copying a very large selection', () => {
 });
 
 describe('the most recent copy wins', () => {
-    it('drops an earlier copy that finishes after a later one', async () => {
+    it('posts each copy with its id, for the host to pick the latest', async () => {
         const my_grid = make_grid();
         let release: () => void = () => undefined;
         const my_gate = new Promise<void>(resolve => {
@@ -331,8 +395,12 @@ describe('the most recent copy wins', () => {
         expect(my_second.calls).toEqual([]);
         release();
         await new Promise(resolve => setTimeout(resolve, 5));
+        // The host, which writes the clipboard, drops copy 1: copy 2
+        // started after it.
         expect(the_posts).toEqual([
-            { type: 'copyStarted' }, { type: 'copyStarted' },
+            { type: 'copyStarted', copy_id: 1 },
+            { type: 'copyStarted', copy_id: 2 },
+            { type: 'copyText', copy_id: 1, text: FULL, is_whole: true },
         ]);
     });
 
@@ -349,8 +417,8 @@ describe('the most recent copy wins', () => {
         on_copy(make_event());
         await new Promise(resolve => setTimeout(resolve, 5));
         expect(the_posts).toEqual([
-            { type: 'copyStarted' },
-            { type: 'copyText', text: FULL, is_whole: true },
+            { type: 'copyStarted', copy_id: 1 },
+            { type: 'copyText', copy_id: 1, text: FULL, is_whole: true },
         ]);
     });
 });

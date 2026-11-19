@@ -301,6 +301,7 @@ export function App(): ReactElement {
         cancel_compute,
         request_full_text,
         request_copy_rows,
+        get_row_view,
         order_version,
         file_changed,
     } = use_row_loader();
@@ -1275,7 +1276,8 @@ export function App(): ReactElement {
      */
     const load_copy_rows = async (
         rows: readonly number[],
-        columns: readonly number[]
+        columns: readonly number[],
+        view: number | undefined
     ): Promise<CopyRows> => {
         let my_col_start = Number.MAX_SAFE_INTEGER;
         let my_col_end = 0;
@@ -1291,6 +1293,9 @@ export function App(): ReactElement {
         const my_chunk_rows = Math.max(
             1, Math.floor(COPY_FETCH_CELLS / my_width)
         );
+        // Every request reads in one view: the rows' the grid has, or
+        // else the first reply's.
+        let my_view = view;
         let i = 0;
         while (i < rows.length) {
             // A run of consecutive rows, at most one chunk long.
@@ -1303,9 +1308,18 @@ export function App(): ReactElement {
             ) {
                 my_count++;
             }
-            const the_rows = await request_copy_rows(
-                my_start, my_count, my_col_start, my_col_end
+            const my_read = await request_copy_rows(
+                my_start, my_count, my_col_start, my_col_end, my_view
             );
+            if (
+                my_view !== undefined
+                && my_read.view_generation !== my_view
+            ) {
+                throw new Error('the rows shown changed during the copy '
+                    + '(a sort, filter, or reload); copy again.');
+            }
+            my_view = my_read.view_generation;
+            const the_rows = my_read.rows;
             if (the_rows.length < my_count) {
                 throw new Error('some rows could not be read');
             }
@@ -1337,6 +1351,7 @@ export function App(): ReactElement {
             to_text: (cells, columns) =>
                 getCopyBufferContents(cells, columns).textPlain,
             has_row: has_copy_row,
+            row_view: get_row_view,
             load_rows: load_copy_rows,
             order_version,
         },
