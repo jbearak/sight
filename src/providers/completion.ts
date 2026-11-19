@@ -34,6 +34,7 @@ import {
     StataLSPConfig,
     ScopeInfo,
 } from '../types';
+import { credited_locals_at } from './program-macro-credit';
 import { program_body_start_line } from '../utils/scope-position';
 import {
     collect_visible_local_macros,
@@ -1358,7 +1359,8 @@ export class CompletionProvider {
                         symbols_for_completion,
                         out_of_scope_symbols,
                         resolved_scope,
-                        inherited_lookup_scope
+                        inherited_lookup_scope,
+                        workspace_symbols
                     );
                     the_completions.push(...macro_completions);
                     return the_completions;
@@ -1395,7 +1397,8 @@ export class CompletionProvider {
                         symbols_for_completion,
                         out_of_scope_symbols,
                         resolved_scope,
-                        inherited_lookup_scope
+                        inherited_lookup_scope,
+                        workspace_symbols
                     );
 
                 case 'variable':
@@ -2083,7 +2086,8 @@ export class CompletionProvider {
         symbols: SymbolTable,
         out_of_scope: SymbolTable,
         resolved_scope?: ResolvedScope,
-        inherited_lookup_scope?: ResolvedScope
+        inherited_lookup_scope?: ResolvedScope,
+        workspace_symbols?: SymbolTable
     ): CompletionItem[] {
         // Use context.form to determine scope and delimiter behavior
         const scope = context.scope;
@@ -2111,11 +2115,21 @@ export class CompletionProvider {
         // CRITICAL FIX: Ensure 'symbols' actually has content and is a valid SymbolTable.
         // In unit tests, partial or mock objects might be passed.
         // Ensure we are accessing the Maps correctly and handling plain objects if necessary.
-        const the_macros: Map<string, MacroSymbol> = scope === 'local'
+        let the_macros: Map<string, MacroSymbol> = scope === 'local'
             ? this.build_local_macro_completion_map(
                 document, symbols, position, inherited_lookup_scope
             )
             : coerce_macro_map(symbols.globalMacros);
+        // Locals that calls before the cursor set through a program the
+        // scope reaches at the call (`setter result`).
+        // The map may be the document's own, so add to a copy.
+        if (scope === 'local') {
+            const the_credited = credited_locals_at(
+                document, inherited_lookup_scope, position, workspace_symbols);
+            if (the_credited.size > 0) {
+                the_macros = new Map([...the_credited, ...the_macros]);
+            }
+        }
         
         // Build lowercase index for faster prefix matching
         // This avoids calling toLowerCase() for each symbol in the loop

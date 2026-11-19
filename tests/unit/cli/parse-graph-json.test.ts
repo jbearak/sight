@@ -486,6 +486,26 @@ describe('sight graph --json', () => {
         ]);
     });
 
+    it('looks for the option comma only after a quoted file name', async () => {
+        const document = await graph_of({
+            'master.do': [
+                'do "survey, wave 1.do" 2019',
+                'do "child,part.do" x',
+                'do "child,part.do" y, nostop',
+                'do `"child,part.do"\' z',
+                '',
+            ].join('\n'),
+            'survey, wave 1.do': 'args year\n',
+            'child,part.do': 'args a\n',
+        });
+        expect(document.edges.map((my_edge: Json) => my_edge.arguments)).toEqual([
+            ['2019'],
+            ['x'],
+            ['y'],
+            ['z'],
+        ]);
+    });
+
     it('gives an uncalled file its own working directory', async () => {
         // jobs/a.do runs in work/ and so calls work/b.do, not
         // work/jobs/b.do, which nobody calls.

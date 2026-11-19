@@ -327,6 +327,11 @@ function exit_after_output(code: number): void {
             }
         };
         my_stream.once('error', done);
+        if (my_stream.destroyed) {
+            // The reader went away (see `quiet_when_reader_closes`).
+            done();
+            continue;
+        }
         try {
             my_stream.end(done);
         } catch {
@@ -335,9 +340,33 @@ function exit_after_output(code: number): void {
     }
 }
 
+/** Subcommands that write a report and then exit. */
+const REPORT_COMMANDS: ReadonlySet<string> = new Set(['check', 'parse', 'graph']);
+
+/**
+ * Stop writing, without an error, once the reader of a report goes
+ * away (`sight parse --json *.do | head -1`). Without a listener the
+ * failed write (EPIPE) is an unhandled error that prints a stack and
+ * exits 1, so the command keeps running and exits with the code its
+ * result gives; its later writes are dropped. Other errors still
+ * throw.
+ */
+function quiet_when_reader_closes(stream: NodeJS.WriteStream): void {
+    stream.on('error', (error: NodeJS.ErrnoException) => {
+        if (error.code === 'EPIPE' || error.code === 'ERR_STREAM_DESTROYED') {
+            return;
+        }
+        throw error;
+    });
+}
+
 // Run main if this is the entry point. Use process.argv[1] for
 // Node.js ESM compatibility because import.meta.main is Bun-only.
 if (is_cli_entry_point(process.argv[1])) {
+    if (REPORT_COMMANDS.has(process.argv[2] ?? '')) {
+        quiet_when_reader_closes(process.stdout);
+        quiet_when_reader_closes(process.stderr);
+    }
     main().then((code) => {
         // The console is finished when main resolves; exit even if a
         // completion cache or stdin handle would keep the loop alive.

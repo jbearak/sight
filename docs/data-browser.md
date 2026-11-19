@@ -156,14 +156,17 @@ only the preview. A binary strL shows as `binary, 1,204 bytes`.
 
 **Ctrl+C**/**Cmd+C** copies the selected cells, rows or columns as
 tab-separated text. Rows the grid hasn't loaded yet (out of view) are read
-first and copied with the rest. If they can't be read, or a sort or filter
-changes the rows shown while the copy runs, the copy fails with a message
-and the clipboard keeps what it held.
+first and copied with the rest, in the same order as the loaded rows. If
+they can't be read, or a sort, filter, or reload has changed the rows shown
+and the grid hasn't caught up yet (or does so during the copy), the copy
+fails with a message and the clipboard keeps what it held. Copy again once
+the grid shows the new order.
 
 - A copy takes at most 1,000,000 cells. A larger selection fails with a
   message; for a whole column, use **Copy column**.
 - The most recent copy wins: a copy still fetching long strings or rows
-  when you copy something else puts nothing on the clipboard.
+  when you copy something else, with the keyboard or **Copy column**, puts
+  nothing on the clipboard.
 
 ## Sorting Rows
 

@@ -9,10 +9,8 @@ import {
 } from '../../src/analyzer';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
-import {
-    TOKENIZE_MIN_ABBREVIATION,
-    collect_c_local_arg_calls,
-} from '../../src/analyzer/c-local-arg-positions';
+import { TOKENIZE_MIN_ABBREVIATION } from '../../src/analyzer/c-local-arg-positions';
+import { collect_program_macro_writes } from '../../src/analyzer/program-macro-writes';
 import { DiagnosticsProvider } from '../../src/providers/diagnostics';
 import {
     ResolvedScope,
@@ -747,14 +745,14 @@ describe('c_local argument positions: work per call', () => {
             the_loads.push({ end: { line: i, character: 12 }, programs });
         }
         CountingMap.visits = 0;
-        const result = collect_c_local_arg_calls(ast.nodes, tokens, {
+        const result = collect_program_macro_writes(ast.nodes, tokens, {
             own_programs: new Map(),
             loaded_before: new Map(),
             loads: the_loads,
         });
         return {
             visits: CountingMap.visits,
-            calls: result.calls.get('dest')?.length ?? 0,
+            calls: result.locals.get('dest')?.length ?? 0,
         };
     }
 

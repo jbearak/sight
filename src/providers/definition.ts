@@ -28,6 +28,7 @@ import {
     MatrixSymbol,
     ScopeResolverConfig,
 } from '../types';
+import { credited_local_definitions } from './program-macro-credit';
 
 
 /** Symbol with a location, as returned by WorkspaceIndexer.find_symbol_definitions */
@@ -190,7 +191,8 @@ export class DefinitionProvider {
                     workspace_indexer,
                     cross_file_config,
                     cancellation_token,
-                    position
+                    position,
+                    workspace_symbols
                 );
             }
             
@@ -217,7 +219,8 @@ export class DefinitionProvider {
                         workspace_indexer,
                         cross_file_config,
                         cancellation_token,
-                        position
+                        position,
+                        workspace_symbols
                     );
                 }
 
@@ -289,7 +292,8 @@ export class DefinitionProvider {
         workspace_indexer?: WorkspaceIndexer,
         cross_file_config?: Partial<ScopeResolverConfig>,
         cancellation_token?: CancellationToken,
-        position?: Position
+        position?: Position,
+        workspace_symbols?: SymbolTable
     ): Promise<Definition | null> {
         // Scope-aware same-file resolution first (#270): a
         // positionally RESOLVED program-scoped local is authoritative
@@ -310,6 +314,14 @@ export class DefinitionProvider {
                 cancellation_token
             )
             : undefined;
+        // A call before this reference to a program the scope reaches
+        // at the call, which sets the local in the caller: the
+        // argument word or option argument naming it is a definition.
+        const the_credited = position
+            ? credited_local_definitions(
+                document, resolved_scope, word, position, workspace_symbols)
+                .flatMap((my_symbol) => this.macro_symbol_to_locations(my_symbol))
+            : [];
 
         if (position && (scoped.out_of_scope || scoped.forward_only)) {
             // THE effective order (classify_effective_local): the
@@ -323,11 +335,10 @@ export class DefinitionProvider {
                 document.scopes, position, word, resolved_scope,
                 document.uri
             );
-            return effective.symbol
-                ? this.locations_to_definition(this.dedupe_locations(
-                    this.macro_symbol_to_locations(effective.symbol)
-                ))
-                : null;
+            const the_effective = effective.symbol
+                ? this.macro_symbol_to_locations(effective.symbol) : [];
+            return this.definition_or_null(this.dedupe_locations(
+                [...the_effective, ...the_credited]));
         }
 
         // Try scope resolver first
@@ -339,7 +350,8 @@ export class DefinitionProvider {
                 document.uri
             );
             if (local_locs.length > 0) {
-                return this.locations_to_definition(local_locs);
+                return this.locations_to_definition(this.dedupe_locations(
+                    [...local_locs, ...the_credited]));
             }
         }
 
@@ -359,17 +371,19 @@ export class DefinitionProvider {
 
         if (local_macro) {
             const out: Location[] = this.macro_symbol_to_locations(local_macro);
-            out.push(...cross_file_locs);
+            out.push(...cross_file_locs, ...the_credited);
             return this.locations_to_definition(this.dedupe_locations(out));
         }
 
-        if (cross_file_locs.length > 0) {
-            return this.locations_to_definition(
-                this.dedupe_locations(cross_file_locs)
-            );
-        }
+        return this.definition_or_null(
+            this.dedupe_locations([...cross_file_locs, ...the_credited]));
+    }
 
-        return null;
+    /** The locations as a definition, or null when there are none. */
+    private definition_or_null(the_locations: Location[]): Definition | null {
+        return the_locations.length > 0
+            ? this.locations_to_definition(the_locations)
+            : null;
     }
 
     /**
@@ -840,7 +854,8 @@ export class DefinitionProvider {
                 workspace_indexer,
                 cross_file_config,
                 cancellation_token,
-                position
+                position,
+                workspace_symbols
             );
         }
         

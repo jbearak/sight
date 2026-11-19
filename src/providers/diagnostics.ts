@@ -11,7 +11,6 @@ import {
     SymbolTable,
     ScopeInfo,
     ForwardCallSite,
-    ProgramSymbol,
     ResolvedScope,
     DirectiveDiagnostic,
     UndefinedSymbolDiagnosticData
@@ -30,9 +29,11 @@ import { createHash } from 'crypto';
 import { DocumentDebounceManager } from '../utils/debounce-manager';
 import { get_line_text, get_line_count } from '../utils/line-utils';
 import {
-    type CLocalArgProgramSources,
-    collect_c_local_arg_calls,
-} from '../analyzer/c-local-arg-positions';
+    type ProgramMacroWrites,
+    global_writes_before,
+    local_writes_before,
+} from '../analyzer/program-macro-writes';
+import { scope_program_macro_writes } from './program-macro-credit';
 import { find_end_diagnostics } from './end-diagnostics';
 import {
     format_out_of_scope_message,
@@ -141,51 +142,6 @@ function call_site_in_uncalled_program_body(
         { body_only: true }
     );
     return reference_scope !== call_scope;
-}
-
-/**
- * Where the programs this file's calls may reach come from, for the
- * positional c_local fallback: the backward chain's programs from
- * other files, this file's own programs, and the programs left by
- * each file this file loads (forward call sites are already resolved
- * by path, transitive, and include `sight:` directive sites).
- */
-function c_local_arg_program_sources(
-    scope: ResolvedScope,
-    document: DocumentState
-): CLocalArgProgramSources {
-    const the_loaded_before = new Map<string, ProgramSymbol>();
-    for (const [my_name, my_program] of scope.symbols.programs) {
-        if (my_program.sourceUri !== document.uri) {
-            the_loaded_before.set(my_name, my_program);
-        }
-    }
-    // A site knows only its line. Where this file's loading statement
-    // ends on that line orders it against a call on the same line
-    // (`run lib.do; setter x;` under `#delimit ;`); with several on
-    // one line, the first end is taken. A site with no statement here
-    // (a directive) counts from the next line.
-    const the_ends = new Map<number, Position>();
-    for (const my_call of document.forward_calls) {
-        const end = my_call.range.end;
-        const known = the_ends.get(my_call.call_site_line);
-        if (known === undefined
-            || end.line < known.line
-            || (end.line === known.line && end.character < known.character)) {
-            the_ends.set(my_call.call_site_line, end);
-        }
-    }
-    return {
-        own_programs: document.symbols.programs,
-        loaded_before: the_loaded_before,
-        loads: (scope.forward_call_symbols ?? []).map((my_site) => ({
-            end: the_ends.get(my_site.call_line) ?? {
-                line: my_site.call_line,
-                character: Number.MAX_SAFE_INTEGER,
-            },
-            programs: my_site.symbols.programs,
-        })),
-    };
 }
 
 // ─── Testability seam for host_is_case_sensitive ─────────────────────────────
@@ -543,22 +499,19 @@ export class DiagnosticsProvider {
             resolved_scope, 0, document.uri
         );
 
-        // Calls that create caller locals through a positional c_local
-        // name of a program the resolved execution scope defines at the
-        // call: from the files that run this one, this file, or a file
-        // it runs or includes (at any depth, or by `sight:` directive).
-        // Built on first use: most runs never reach the c_local fallback
-        // below.
-        let the_c_local_arg_calls: ReturnType<typeof collect_c_local_arg_calls> | undefined;
-        const get_c_local_arg_calls = (
+        // Caller macros that calls set through the definition of a
+        // program the resolved execution scope reaches at the call
+        // (from the files that run this one, this file, a file it runs
+        // or includes at any depth or by `sight:` directive, else the
+        // ado named after the program). Built on first use: most runs
+        // never reach this fallback below.
+        let the_program_writes: ProgramMacroWrites | undefined;
+        const get_program_writes = (
             scope: ResolvedScope
-        ): ReturnType<typeof collect_c_local_arg_calls> => {
-            the_c_local_arg_calls ??= collect_c_local_arg_calls(
-                document.ast?.nodes ?? [],
-                document.tokens,
-                c_local_arg_program_sources(scope, document)
-            );
-            return the_c_local_arg_calls;
+        ): ProgramMacroWrites => {
+            the_program_writes ??= scope_program_macro_writes(
+                document, scope, workspace_symbols);
+            return the_program_writes;
         };
 
         for (const my_diagnostic of this.extract_semantic_diagnostics(document)) {
@@ -611,10 +564,10 @@ export class DiagnosticsProvider {
                     continue;
                 }
                 if (my_diagnostic.code === StataDiagnosticCode.UNDEFINED_MACRO
-                    && reference_kind !== 'global'
-                    && this.is_c_local_arg_from_resolved_program(
+                    && this.is_set_by_program_call(
                         symbol_name,
-                        get_c_local_arg_calls(resolved_scope),
+                        reference_kind,
+                        get_program_writes(resolved_scope),
                         my_diagnostic.range.start
                     )) {
                     continue;
@@ -1851,29 +1804,20 @@ export class DiagnosticsProvider {
     }
 
     /**
-     * True if a call that ends before `reference` starts, in the same
-     * program frame (or both outside any program), passes `macro_name`
-     * to a program that `c_local`s that argument position. The
-     * positional counterpart of `is_c_local_from_resolved_program`.
+     * True if a call that ends before `reference` starts sets the
+     * macro through the program definition it reaches: a local in the
+     * same program frame (or both outside any program), or a global.
      */
-    private is_c_local_arg_from_resolved_program(
+    private is_set_by_program_call(
         macro_name: string,
-        arg_calls: ReturnType<typeof collect_c_local_arg_calls>,
+        reference_kind: ReferenceKind,
+        writes: ProgramMacroWrites,
         reference: Position
     ): boolean {
-        const the_calls = arg_calls.calls.get(macro_name);
-        if (!the_calls) return false;
-        const diagnostic_line = reference.line;
-        const enclosing = arg_calls.program_lines.find(
-            (my_span) => my_span.start <= diagnostic_line
-                && diagnostic_line <= my_span.end
-        );
-        return the_calls.some(
-            (my_call) => (my_call.end.line < reference.line
-                || (my_call.end.line === reference.line
-                    && my_call.end.character <= reference.character))
-                && my_call.program_start_line === enclosing?.start
-        );
+        if (reference_kind === 'global') {
+            return global_writes_before(writes, macro_name, reference).length > 0;
+        }
+        return local_writes_before(writes, macro_name, reference).length > 0;
     }
 
     /**

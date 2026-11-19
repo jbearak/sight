@@ -40,6 +40,7 @@ import {
     CommandNode,
     StataNode,
 } from '../types';
+import { credited_local_definitions } from './program-macro-credit';
 import { compare_positions } from '../utils/scope-position';
 import { nested_statements } from '../utils/node-body';
 import { syntax_option_spelling } from '../utils/syntax-option-name';
@@ -376,7 +377,7 @@ export class HoverProvider {
             const embedded_reference_type =
                 this.get_reference_type_from_context(document, position, word);
             if (embedded_reference_type !== 'global_macro') {
-                const local_macro_content = this.get_local_macro_hover(document, word, resolved_scope, workspace_root, position, workspace_indexer);
+                const local_macro_content = this.get_local_macro_hover(document, word, resolved_scope, workspace_root, position, workspace_indexer, workspace_symbols);
                 if (local_macro_content) {
                     return { contents: local_macro_content, range };
                 }
@@ -748,7 +749,7 @@ export class HoverProvider {
         if (reference_type === 'local_macro') {
             const local_macro_content = this.get_local_macro_hover(
                 document, word, resolved_scope, workspace_root,
-                position, workspace_indexer
+                position, workspace_indexer, workspace_symbols
             );
             if (local_macro_content) {
                 return [{ type: 'local_macro', content: local_macro_content }];
@@ -776,7 +777,7 @@ export class HoverProvider {
         // 1. Check local macros - only for bare identifiers (explicit
         //    local-macro references returned above)
         if (reference_type === 'other') {
-            const local_macro_content = this.get_local_macro_hover(document, word, resolved_scope, workspace_root, position, workspace_indexer);
+            const local_macro_content = this.get_local_macro_hover(document, word, resolved_scope, workspace_root, position, workspace_indexer, workspace_symbols);
             if (local_macro_content) {
                 the_matches.push({ type: 'local_macro', content: local_macro_content });
             }
@@ -1059,7 +1060,21 @@ export class HoverProvider {
         workspace_root?: string,
         position?: Position,
         workspace_indexer?: WorkspaceIndexer,
+        workspace_symbols?: SymbolTable,
     ): MarkupContent | null {
+        // A call before this reference to a program the scope reaches
+        // at the call, which sets the local in the caller, when nothing
+        // else defines it here.
+        const credited_hover = (): MarkupContent | null => {
+            const credited = position
+                ? credited_local_definitions(
+                    document, resolved_scope, word, position, workspace_symbols)[0]
+                : undefined;
+            return credited
+                ? this.render_local_macro_hover(
+                    document, credited, word, workspace_root, undefined)
+                : null;
+        };
         // Scope-aware same-file resolution first (#270).
         const scoped = position
             ? lookup_scoped_local_macro(document.scopes, position, word)
@@ -1115,7 +1130,7 @@ export class HoverProvider {
                 );
             }
             if (scoped.out_of_scope) {
-                return null;
+                return credited_hover();
             }
             // Do-file forward: fall through to the resolved-scope /
             // flat paths, which own do-file-level precedence.
@@ -1145,7 +1160,7 @@ export class HoverProvider {
             );
         }
 
-        return null;
+        return credited_hover();
     }
 
     /**

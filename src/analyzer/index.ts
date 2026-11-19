@@ -1853,6 +1853,8 @@ export class SemanticAnalyzer {
         return {
             file_programs: symbols.programs,
             workspace_programs: this.workspace_symbols?.programs,
+            workspace_program_definitions:
+                this.workspace_symbols?.program_definitions,
             tokens: this.tokens,
             uri: this.uri,
             in_program_body: current_scope.type === 'program',

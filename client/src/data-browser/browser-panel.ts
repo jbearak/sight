@@ -122,6 +122,11 @@ export interface DataBrowserPanelOptions {
 const COMPUTE_WORKER_BUNDLE = path.join('dist', 'data-browser-worker.js');
 const READER_WORKER_BUNDLE = path.join('dist', 'data-browser-reader.js');
 
+/** Why a copy's rows weren't read: the view changed (copy-selection.ts). */
+const ORDER_CHANGED_MESSAGE =
+    'the rows shown changed during the copy (a sort, filter, or '
+    + 'reload); copy again.';
+
 /**
  * Panel options for an installed extension: worker threads when their
  * bundles are present (they are in every packaged build; a source
@@ -161,8 +166,22 @@ export class DataBrowserPanel implements vscode.Disposable {
     private readonly filter_state_store: DataBrowserFilterStateStore;
     private disposed = false;
     private generation = 0;
-    /** Bumped by each copy; a slower, earlier copy then writes nothing. */
-    private copy_generation = 0;
+    /**
+     * The view shown: changes whenever the rows shown change order
+     * (sort, filter) or dataset, and only then. Rows sent to the
+     * webview carry it, so a copy can tell whether rows it holds and
+     * rows it reads are in one order. (`generation` also changes when a
+     * sort or filter starts, which leaves the order as it is.)
+     */
+    private view_generation = 0;
+    /**
+     * Copies of every kind (a copy event in the webview, Copy Column)
+     * take the next number; only the most recent one, the highest,
+     * writes the clipboard. See begin_copy.
+     */
+    private copy_seq = 0;
+    /** The webview's most recent copy, and the number it took. */
+    private webview_copy: { copy_id: number; seq: number } | null = null;
     private sort: SortState = EMPTY_SORT;
     private permutation: Uint32Array | null = null;
     private sort_restored = false;
@@ -306,7 +325,10 @@ export class DataBrowserPanel implements vscode.Disposable {
         this.filter = EMPTY_FILTER;
         this.filtered_indices = null;
         this.filter_restored = false;
-        this.effective_perm = null;
+        this.set_effective_perm(null);
+        // Another dataset, or the same one reread: another view even
+        // in natural order.
+        this.view_generation++;
         this.histogram_cache.clear();
         this.file_changed = false;
         this.page_error_reported = false;
@@ -846,7 +868,7 @@ export class DataBrowserPanel implements vscode.Disposable {
             if (!my_settled && !this.disposed
                 && this.restore_abort === my_abort) {
                 this.reset_restored_prefs();
-                this.effective_perm = null;
+                this.set_effective_perm(null);
                 try {
                     this.post_restore_settled(my_restore_id);
                 } catch {
@@ -1242,17 +1264,20 @@ export class DataBrowserPanel implements vscode.Disposable {
                 await this.handle_request_full_text(msg);
                 break;
             case 'copyStarted':
-                this.copy_generation += 1;
+                this.webview_copy = {
+                    copy_id: msg.copy_id,
+                    seq: this.begin_copy(),
+                };
                 break;
             case 'requestCopyRows':
                 await this.handle_copy_rows(msg);
                 break;
             case 'copyText':
-                // The webview sends only its latest copy.
-                this.copy_generation += 1;
+                if (!this.is_latest_webview_copy(msg.copy_id)) break;
                 await this.handle_copy_text(msg.text, msg.is_whole);
                 break;
             case 'copyFailed':
+                if (!this.is_latest_webview_copy(msg.copy_id)) break;
                 vscode.window.showErrorMessage(`Copy failed: ${msg.message}`);
                 break;
             case 'copyColumn':
@@ -1807,11 +1832,23 @@ export class DataBrowserPanel implements vscode.Disposable {
     }
 
     private recompute_effective(): void {
-        this.effective_perm = compose_effective(
+        this.set_effective_perm(compose_effective(
             this.filtered_indices,
             this.permutation,
             this.dta_file?.nobs ?? 0
-        );
+        ));
+    }
+
+    /**
+     * Set the order shown, moving to a new view unless it stays the
+     * natural order (a settle to natural order keeps the rows the
+     * webview has, which are still right).
+     */
+    private set_effective_perm(next: Uint32Array | null): void {
+        if (next !== null || this.effective_perm !== null) {
+            this.view_generation++;
+        }
+        this.effective_perm = next;
     }
 
     /** Visible row count: the effective permutation length when sort or
@@ -1916,6 +1953,7 @@ export class DataBrowserPanel implements vscode.Disposable {
         // folds in any active sort and filter; slice() copies the window
         // so only it, not the whole order, goes to the reader thread.
         const my_generation = this.generation;
+        const my_view = this.view_generation;
         let my_rows: PageRows;
         if (this.effective_perm) {
             const my_start = Math.max(0, request.start);
@@ -1956,6 +1994,7 @@ export class DataBrowserPanel implements vscode.Disposable {
             col_start: request.col_start,
             rows: my_read.rows,
             request_id: request.request_id,
+            view_generation: my_view,
         };
 
         this.panel.webview.postMessage(my_response);
@@ -2063,12 +2102,15 @@ export class DataBrowserPanel implements vscode.Disposable {
     /**
      * Rows a copy needs that the grid hasn't loaded, read as a page is
      * (in the order shown) but whole: strL cells a page would send
-     * later are waited for. Null, with why, if they can't be read or
-     * the order shown changes meanwhile (the rows would be others).
+     * later are waited for. Null, with why, if they can't be read, the
+     * view isn't the one the copy asked for, or the view changes
+     * meanwhile (the rows would be others). The reply names the view
+     * the rows were read in.
      */
     private async handle_copy_rows(
         msg: RequestCopyRowsMessage
     ): Promise<void> {
+        const my_view = this.view_generation;
         const reply = (
             rows: CellValue[][] | null,
             message?: string
@@ -2078,6 +2120,7 @@ export class DataBrowserPanel implements vscode.Disposable {
                 type: 'copyRows',
                 request_id: msg.request_id,
                 rows,
+                ...(rows !== null && { view_generation: my_view }),
                 ...(message !== undefined && { message }),
             };
             this.panel.webview.postMessage(my_reply);
@@ -2085,6 +2128,15 @@ export class DataBrowserPanel implements vscode.Disposable {
         const my_reader = this.page_reader();
         if (!my_reader || this.file_changed) {
             reply(null, 'the file can no longer be read');
+            return;
+        }
+        // Rows the copy holds are from another view: these would be in
+        // another order.
+        if (
+            msg.view_generation !== undefined
+            && msg.view_generation !== my_view
+        ) {
+            reply(null, ORDER_CHANGED_MESSAGE);
             return;
         }
         const my_generation = this.generation;
@@ -2124,8 +2176,11 @@ export class DataBrowserPanel implements vscode.Disposable {
                 : String(my_err));
             return;
         }
-        if (my_generation !== this.generation) {
-            reply(null, 'the rows shown changed (a sort or filter)');
+        if (
+            my_generation !== this.generation
+            || my_view !== this.view_generation
+        ) {
+            reply(null, ORDER_CHANGED_MESSAGE);
             return;
         }
         reply(the_rows);
@@ -2167,6 +2222,29 @@ export class DataBrowserPanel implements vscode.Disposable {
     }
 
     /**
+     * Start a copy: it takes the next number, and every copy started
+     * before it, of any kind, may no longer write the clipboard. The
+     * host is the clipboard's one writer, so the most recent copy wins
+     * here, whichever entry point each copy came from.
+     */
+    private begin_copy(): number {
+        this.copy_seq += 1;
+        return this.copy_seq;
+    }
+
+    /** Whether copy `seq` is still the most recent copy. */
+    private is_latest_copy(seq: number): boolean {
+        return seq === this.copy_seq;
+    }
+
+    /** Whether the webview's copy `copy_id` is the most recent copy. */
+    private is_latest_webview_copy(copy_id: number): boolean {
+        return this.webview_copy !== null
+            && this.webview_copy.copy_id === copy_id
+            && this.is_latest_copy(this.webview_copy.seq);
+    }
+
+    /**
      * Put text the webview copied on the clipboard. A webview can't
      * write it there itself once the copy event is over, and the full
      * value of a long strL comes too late for the event.
@@ -2202,8 +2280,7 @@ export class DataBrowserPanel implements vscode.Disposable {
         if (!this.dta_file.variables[col_index]) return;
 
         const my_file = this.dta_file;
-        this.copy_generation += 1;
-        const my_copy_generation = this.copy_generation;
+        const my_copy_seq = this.begin_copy();
         // Pin the order on screen when the user clicked: the job copies
         // in that order even if a sort or filter commits meanwhile.
         const my_order = this.effective_perm
@@ -2239,7 +2316,7 @@ export class DataBrowserPanel implements vscode.Disposable {
         // A refresh to another dataset makes the copy moot, and a copy
         // made since is newer: the most recent copy wins.
         if (this.dta_file !== my_file || this.disposed) return;
-        if (my_copy_generation !== this.copy_generation) return;
+        if (!this.is_latest_copy(my_copy_seq)) return;
         if (my_result.kind !== 'copy') return;
         await vscode.env.clipboard.writeText(my_result.text);
     }
