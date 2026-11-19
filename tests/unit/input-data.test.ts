@@ -39,7 +39,9 @@ function format_source(source: string, mode: FormatterMode): string {
 }
 
 const SOURCE = [
-    'input str8 name age',
+    // `tag' is a string, so the unexpanded macro is a value (as a
+    // number it would not fit the declaration, which ends the data).
+    'input str8 name str8 tag',
     '"bob" 25',
     'john `v\'',
     'end',
@@ -110,7 +112,7 @@ describe('input data', () => {
     for_each_formatter_mode('keeps the data as written', (mode) => {
         const source = [
             'if 1 {',
-            'input x y',
+            'input str1 x y',
             '  1    2',
             '"a"  3',
             'end',
@@ -119,7 +121,7 @@ describe('input data', () => {
         ].join('\n');
         expect(format_source(source, mode)).toBe([
             'if 1 {',
-            '    input x y',
+            '    input str1 x y',
             '  1    2',
             '"a"  3',
             '    end',

@@ -77,7 +77,9 @@ describe('TextMate Grammar - Star Comment Patterns', () => {
     
     describe('Grammar pattern order', () => {
         it('should have comments before commands in top-level patterns', () => {
-            const top_patterns = grammar.patterns;
+            // The statement rules sit in cr-content, which the top level
+            // and the #delimit ; region both include.
+            const top_patterns = grammar.repository['cr-content'].patterns;
             const comment_index = top_patterns.findIndex(
                 (p: { include?: string }) => p.include === '#comments'
             );

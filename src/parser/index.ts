@@ -37,7 +37,7 @@ import { compare_positions } from '../utils/scope-position';
 import { delimit_keyword } from '../utils/delimit-directive';
 import { delimit_directive_mode } from '../utils/semicolon-statement';
 import { program_signature_syntax_nodes } from '../utils/node-body';
-import { PROGRAM_COMMAND_NAMES, PROGRAM_SUBCOMMANDS } from '../utils/program-definition';
+import { PROGRAM_COMMAND_NAMES } from '../utils/program-definition';
 import {
   COLON_PREFIX_COMMANDS,
   PREFIX_COMMANDS,
@@ -188,10 +188,11 @@ const SUBSCRIPTED_TOKEN_TYPES: ReadonlySet<TokenType> = new Set([
 
 /**
  * File commands whose first argument is always the path: they take no
- * `using`, so a path may start with a directory named `using`.
+ * `using`, so a path may start with a directory named `using`
+ * (`cd using/data` changes to the directory `using/data`).
  */
 const PATH_ONLY_FILE_COMMANDS: ReadonlySet<string> = new Set([
-  'do', 'run', 'include',
+  'do', 'run', 'include', 'cd', 'chdir',
 ]);
 
 /** `label` and the abbreviations StataMP 18 accepts, down to `la`. */
@@ -308,14 +309,16 @@ export interface ParserOptions {
 
 /**
  * The command that `input` data after `node` belongs to: `node` itself,
- * or the command a one-line `if` or `else` ends with (`if 1 input x`).
+ * or the command a one-line `if`, `else` or `else if` ends with
+ * (`if 1 input x`, `else if 1 input x`).
  */
 function input_data_command(node: StataNode | null): CommandNode | null {
   if (node?.type === 'command') {
     return node;
   }
   if ((node?.type === 'if' || node?.type === 'else') &&
-      node.is_single_statement === true) {
+      (node.is_single_statement === true ||
+        (node.type === 'else' && node.is_else_if === true))) {
     return input_data_command(node.body[node.body.length - 1] ?? null);
   }
   return null;
@@ -607,7 +610,9 @@ export class StataParser {
    * Attach the data lines after an `input` statement (one INPUT_DATA
    * token, from the lexer) and consume the `end` line that closes them.
    * Stata discards the rest of that line (`end foo`, `end // c`), which
-   * the AST does not keep, so printing it would lose that text.
+   * the AST does not keep, so printing it would lose that text. Data
+   * that stops before a row that doesn't fit the declared variables
+   * has no `end` (see StataLexer.scan_input_data).
    */
   private read_input_data(node: CommandNode): void {
     const data_token = this.advance();
@@ -615,6 +620,12 @@ export class StataParser {
       this.advance(); // the newline ending the last data line
     }
     if (!this.checkWord('end')) {
+      node.input_data = {
+        content: data_token.value,
+        content_range: data_token.range,
+        has_end: false,
+      };
+      node.range = this.makeRange(node.range.start, data_token.range.end);
       return;
     }
     const end_token = this.advance();
@@ -754,7 +765,11 @@ export class StataParser {
         if (my_token.type === 'STATEMENT_TERMINATOR') {
           continue;
         }
-        if (joins_next && the_kept.length > 0) {
+        // A `//` comment runs to the end of its line, so the line after
+        // it stays on its own line (under `#delimit ;`, `x = 1 // c`
+        // then `///` then `+ 2;` is `x = 1 + 2`).
+        if (joins_next && the_kept.length > 0 &&
+            the_kept[the_kept.length - 1].type !== 'COMMENT_LINE') {
           joined_lines.add(my_token);
         }
         joins_next = false;
@@ -830,50 +845,14 @@ export class StataParser {
   }
 
   /**
-   * Does `program` at the current token start a definition? Stata accepts
-   * `program [define] name`; `program dir`, `program drop`, and
-   * `program list` (and their abbreviations) are other subcommands.
+   * Does `program` at the current token start a definition? The lexer
+   * decides (see src/utils/program-definition.ts): `program [define]
+   * name` as the first code of a statement, outside another
+   * definition; not `program dir`, `program drop`, `program list` or a
+   * `plugin` declaration.
    */
   private starts_program_definition(): boolean {
-    // In `#delimit cr` mode a line break is a terminator token, so the
-    // next significant WORD is on the same logical statement.
-    const next = this.tokens[this.next_header_token(this.current + 1)];
-    return next !== undefined && is_program_name_start(next) &&
-      !PROGRAM_SUBCOMMANDS.has(next.value) && !this.declares_plugin();
-  }
-
-  /**
-   * Does the current `program` statement have the `plugin` option? A
-   * plugin declaration (`program hello, plugin using(...)`) has no body
-   * and no `end`, so it is parsed as an ordinary command.
-   */
-  private declares_plugin(): boolean {
-    let saw_comma = false;
-    let depth = 0;
-    for (let i = this.current + 1; i < this.tokens.length; i++) {
-      const my_token = this.tokens[i];
-      if (my_token.type === 'STATEMENT_TERMINATOR') {
-        if (is_swallowed_continuation_terminator(
-          my_token, this.tokens[i - 1].type === 'CONTINUATION')) {
-          continue;
-        }
-        return false;
-      }
-      if (my_token.type === 'EOF') {
-        return false;
-      }
-      if (my_token.type === 'LPAREN') {
-        depth++;
-      } else if (my_token.type === 'RPAREN') {
-        depth = Math.max(0, depth - 1);
-      } else if (my_token.type === 'COMMA' && depth === 0) {
-        saw_comma = true;
-      } else if (saw_comma && depth === 0 && my_token.type === 'WORD' &&
-          my_token.value === 'plugin') {
-        return true;
-      }
-    }
-    return false;
+    return this.peek().starts_program_definition === true;
   }
 
   /**
@@ -911,11 +890,13 @@ export class StataParser {
     this.current = this.next_header_token(this.current);
     // `define` itself is always the keyword (a program named define is
     // `program define define`); an abbreviation is the keyword only when a
-    // name follows.
+    // name follows, apart from it: `` program de`p' `` names the program
+    // `de` plus the macro's text.
     const after_keyword = this.tokens[this.next_header_token(this.current + 1)];
     if (this.check('WORD') && PROGRAM_DEFINE_KEYWORDS.has(this.peek().value) &&
         (this.peek().value === 'define' ||
-         (after_keyword !== undefined && is_program_name_start(after_keyword)))) {
+         (after_keyword !== undefined && is_program_name_start(after_keyword) &&
+          !this.isAdjacentToken(this.peek(), after_keyword)))) {
       define_keyword = this.advance().value;
     }
 
@@ -1990,11 +1971,20 @@ export class StataParser {
    * define l 1 in`, `char x[note] a in b` and `note x: a in b`.
    * 'text' runs to the end of the statement; 'labels' (label define)
    * still has options after a comma. `notes drop x in 1` and `notes
-   * replace x in 2: text` have a real `in`, before any colon.
+   * replace x in 2: text` have a real `in`, before any colon. `char
+   * rename oldvar newvar, replace` is not text: it has an option.
    */
   private free_text_kind(command_name: string): 'text' | 'labels' | undefined {
     if (command_name === 'char') {
-      return 'text';
+      const my_subcommand_index = this.next_header_token(this.current);
+      const my_subcommand = this.tokens[my_subcommand_index];
+      const my_after = this.tokens[my_subcommand_index + 1];
+      // A variable named rename is `char rename[note] text`
+      const is_rename = my_subcommand?.type === 'WORD' &&
+        my_subcommand.value === 'rename' &&
+        !(my_after?.type === 'LBRACKET' &&
+          this.isAdjacentToken(my_subcommand, my_after));
+      return is_rename ? undefined : 'text';
     }
     if (LABEL_COMMAND_NAMES.has(command_name)) {
       const my_subcommand = this.tokens[this.next_header_token(this.current)];
@@ -2129,20 +2119,45 @@ export class StataParser {
   }
 
   /**
-   * Is the current token the qualifier keyword `word`? A keyword that
-   * follows a macro reference is part of a name instead: StataMP 18
-   * reads `` `stem'using `` as `housing` when `stem` is `ho`, and
-   * `` `stem'in `` and `` `stem'if `` likewise.
+   * Is the current token the qualifier keyword `word`? Stata expands
+   * macros before it reads the line, so a keyword glued to the end of
+   * a macro (`` `opts'in 1/2 ``) depends on the macro: StataMP 18 reads
+   * the qualifier `in` when `opts` is empty, and the one name
+   * `detailin` when it is `detail` (`` `stem'using `` is `housing` when
+   * `stem` is `ho`). Inside an expression (`in_expression`, after `=`)
+   * Sight reads the name, as before. In a command's arguments it reads
+   * the qualifier, the reading under which such a line runs whatever
+   * the macro holds before it ends in a blank, as with optional
+   * `` `opts' ``; since that is a guess, the statement is marked
+   * unprintable, so AST formatting cannot add a blank that would split
+   * the name the other reading sees.
    */
-  private at_qualifier_word(word: 'if' | 'in' | 'using'): boolean {
+  private at_qualifier_word(
+    word: 'if' | 'in' | 'using', in_expression = false
+  ): boolean {
     if (!this.checkWord(word)) {
       return false;
     }
     // Only a macro before the word: one after it (`` if`c' ``) may hold
     // leading blanks, which would leave `if` a keyword.
     const my_previous = this.tokens[this.current - 1];
-    return my_previous === undefined ||
-      !this.isAdjacentOperandFragment(my_previous, this.peek());
+    if (my_previous === undefined ||
+        !this.isAdjacentOperandFragment(my_previous, this.peek())) {
+      return true;
+    }
+    const is_macro = my_previous.type === 'MACRO_REF_LOCAL' ||
+      my_previous.type === 'MACRO_REF_GLOBAL';
+    if (in_expression || !is_macro) {
+      return false;
+    }
+    const my_start = my_previous.range.start;
+    const my_last = this.unprintable_ranges[this.unprintable_ranges.length - 1];
+    if (my_last === undefined || my_last.start.line !== my_start.line ||
+        my_last.start.character !== my_start.character) {
+      this.unprintable_ranges.push(
+        this.makeRange(my_start, this.peek().range.end));
+    }
+    return true;
   }
 
   /**
@@ -2230,11 +2245,14 @@ export class StataParser {
   /**
    * Does a weight clause start at token index `index`? Either
    * `[keyword = ...]` with a Stata weight keyword, or the
-   * `` [`weight'`exp'] `` idiom of programs that use `syntax`. A `[`
-   * touching the operand before it opens a subscript instead:
-   * `` price[`weight'] `` is an observation of `price` (StataMP 18).
+   * `` [`weight'`exp'] `` idiom of programs that use `syntax`. Inside
+   * an expression (`in_expression`: after `=`, in an `if` condition) a
+   * `[` touching the operand before it opens a subscript instead:
+   * `` generate x = price[`weight'] `` is an observation of `price`.
+   * In a varlist it is the weight: StataMP 18 reads
+   * `` summarize price[`weight'`exp'] `` as weighted.
    */
-  private is_weight_start(index: number): boolean {
+  private is_weight_start(index: number, in_expression = false): boolean {
     const open = this.tokens[index];
     const keyword = this.tokens[index + 1];
     if (open?.type !== 'LBRACKET' || keyword === undefined) {
@@ -2242,7 +2260,7 @@ export class StataParser {
     }
     if (keyword.type === 'MACRO_REF_LOCAL') {
       const before = this.tokens[index - 1];
-      const is_subscript = before !== undefined &&
+      const is_subscript = in_expression && before !== undefined &&
         SUBSCRIPTED_TOKEN_TYPES.has(before.type) &&
         this.isAdjacentToken(before, open);
       return keyword.value === "`weight'" && !is_subscript;
@@ -4922,7 +4940,7 @@ export class StataParser {
 
       // Track parenthesis and subscript-bracket depth; a comma inside
       // either (`f(a, b)`, `M[1,2]`) does not start the options.
-      if (token.type === 'LBRACKET' && !this.is_weight_start(this.current)) {
+      if (token.type === 'LBRACKET' && !this.is_weight_start(this.current, true)) {
         bracket_depth++;
       } else if (token.type === 'RBRACKET') {
         bracket_depth = Math.max(0, bracket_depth - 1);
@@ -4945,11 +4963,12 @@ export class StataParser {
           break;
         }
         // Stop at qualifier keywords
-        if (this.at_qualifier_word('if') || this.at_qualifier_word('in') ||
-            this.at_qualifier_word('using')) {
+        if (this.at_qualifier_word('if', true) ||
+            this.at_qualifier_word('in', true) ||
+            this.at_qualifier_word('using', true)) {
           break;
         }
-        if (this.is_weight_start(this.current)) {
+        if (this.is_weight_start(this.current, true)) {
           break;
         }
       }
@@ -5095,7 +5114,7 @@ export class StataParser {
       // A weight clause ends the qualifier. Checked before depth tracking
       // because its `[` would otherwise count as a subscript bracket.
       if (paren_depth === 0 && bracket_depth === 0 &&
-          this.is_weight_start(this.current)) {
+          this.is_weight_start(this.current, true)) {
         break;
       }
 

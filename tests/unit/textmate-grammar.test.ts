@@ -22,7 +22,8 @@ function test_pattern(pattern: any, text: string) {
 
 describe('TextMate Grammar - Mata Block Detection', () => {
   it('should have mata-inline pattern before mata-block in patterns array', () => {
-    const the_patterns = grammar.patterns;
+    // The statement rules sit in cr-content (see the top level).
+    const the_patterns = grammar.repository['cr-content'].patterns;
     const mata_inline_index = the_patterns.findIndex((my_p: any) => my_p.include === '#mata-inline');
     const mata_block_index = the_patterns.findIndex((my_p: any) => my_p.include === '#mata-block');
     

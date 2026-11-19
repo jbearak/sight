@@ -1,7 +1,9 @@
 /**
  * Which `program` statements define a program (and so have a body that
- * runs to an `end`), shared by the lexer, the parser and the context
- * tracker so they agree on where a program definition starts.
+ * runs to an `end`). The lexer decides, with program_header_text and
+ * is_program_definition_header, and marks the `program` token
+ * (Token.starts_program_definition), which the parser reads, so the
+ * two agree on where a program definition starts.
  */
 
 /**
@@ -25,7 +27,10 @@ export const PROGRAM_SUBCOMMANDS: ReadonlySet<string> = new Set([
     'di', 'dir', 'drop', 'l', 'li', 'lis', 'list',
 ]);
 
-const FIRST_WORD = /^[ \t]+([A-Za-z_][A-Za-z0-9_]*)/;
+// The first word after `program` (`.name` for a class member program,
+// as in Stata's gsem_depvar_header.ado), or the quote of a macro that
+// names the program (`` program `p' ``, `program $p`).
+const FIRST_WORD = /^[ \t]+(\.?[A-Za-z_][A-Za-z0-9_]*|[`$])/;
 const PLUGIN_WORD = /\bplugin\b/;
 // A `//` comment start: as in Stata 18, at the start of the text or
 // after a space or tab (`program p, rclass//x` has no comment).
@@ -126,8 +131,67 @@ export function logical_line_text(source: string, start: number): string {
 }
 
 /**
+ * The text of the statement from `start` in `source` (just past the
+ * `program` word), with comments blanked: under `#delimit cr` the rest
+ * of the logical line (see logical_line_text), under `#delimit ;` up to
+ * the `;` that ends the statement, where a line break is a blank and a
+ * `//` comment runs to the end of its line (`program // note` then
+ * `define p;` defines p). One linear scan of the statement.
+ */
+export function program_header_text(
+    source: string, start: number, is_semicolon: boolean
+): string {
+    if (!is_semicolon) {
+        return logical_line_text(source, start);
+    }
+    const the_parts: string[] = [];
+    let my_kept_from = start;
+    let i = start;
+    while (i < source.length && source[i] !== ';') {
+        let my_comment_end = -1;
+        if (source[i] === '/' && source[i + 1] === '*') {
+            my_comment_end = block_comment_end(source, i);
+        } else if (source[i] === '/' && source[i + 1] === '/' &&
+                (i === start || /\s/.test(source[i - 1]))) {
+            const my_newline = source.indexOf('\n', i);
+            my_comment_end = my_newline === -1 ? source.length : my_newline;
+        }
+        if (my_comment_end === -1) {
+            i++;
+            continue;
+        }
+        the_parts.push(source.slice(my_kept_from, i), ' ');
+        i = my_comment_end;
+        my_kept_from = i;
+    }
+    the_parts.push(source.slice(my_kept_from, i));
+    return the_parts.join('').replace(/\s/g, ' ');
+}
+
+/** Offset just past the block comment opening at `start` (nested). */
+function block_comment_end(text: string, start: number): number {
+    let my_depth = 0;
+    let i = start;
+    while (i < text.length) {
+        if (text[i] === '/' && text[i + 1] === '*') {
+            my_depth++;
+            i += 2;
+        } else if (text[i] === '*' && text[i + 1] === '/') {
+            my_depth--;
+            i += 2;
+            if (my_depth === 0) {
+                return i;
+            }
+        } else {
+            i++;
+        }
+    }
+    return text.length;
+}
+
+/**
  * Whether `program` followed by `text_after_program` (the rest of its
- * logical line, see logical_line_text) defines a program: a name or
+ * statement, see program_header_text) defines a program: a name or
  * `define` follows, not a subcommand (`program drop x`), and there is
  * no `plugin` option (a plugin declaration has no body or `end`).
  */

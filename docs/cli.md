@@ -400,12 +400,24 @@ unquoted paths all give the same object.
 
 An `input` statement outside a program reads the lines after it as data,
 up to a line whose first word is `end` (under `#delimit ;`, the
-`;`-ended records up to one whose first word is `end`). Its `range` and
-`text` run through that `end`, and the data lines are not statements.
-When a program definition header comes before that `end`, the `end`
-belongs to the program: Stata has stopped reading data once the
-dataset's observations were filled, so the lines are read as
-statements.
+`;`-ended records up to one whose first word is `end`; a `;` inside a
+quoted value doesn't end a record). Its `range` and `text` run through
+that `end`, and the data lines are not statements.
+
+Stata also stops reading data once it has filled the observations of a
+dataset that already has some (`set obs 1` then `input x`), which Sight
+cannot know. So Sight reads what the `input` statement declares: a row
+fits when each numeric variable among its first fields has a field
+Stata reads as a number (extra fields are ignored, a missing string
+field is blank, and a blank row is skipped). The data ends before the
+first row that doesn't fit, with no `end` (the `range` and `text` run
+through the last row), and that row and the lines after it are
+statements: under `input score`, the row `local label
+score` starts with text where `score` needs a number, so it is code.
+A row of text under string variables is data (`program demo` under
+`input str12 a str12 b`), as it is in Stata. When the declaration can't
+be read (no variable list, or a macro in it), every line up to `end` is
+data.
 
 - `name` is the command as written. `canonical_name` is the full name of a
   built-in command that `name` abbreviates (`reg` is `regress`), or null for

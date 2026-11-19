@@ -5,7 +5,8 @@
  * - `` program `cmdname' `` defines the program the macro names, and
  *   its `end` closes the definition (as in Stata's dtaverify_115.ado).
  * - Under `#delimit ;`, `program // note` then `define p;` defines `p`.
- * - `` `stem'using `` is one name, not a macro and the `using` keyword.
+ * - `` `stem'using `` is one name, not a macro and the `using` keyword,
+ *   inside an expression (in a varlist see lexer-parser-review-round2).
  * - `` price[`weight'] `` is a subscript, not a weight clause.
  * - The text of `label variable`, `label data`, `label define`, `char`
  *   and `note …:` is text: Stata reads `in`, `if` and `using` there as
@@ -136,12 +137,15 @@ describe('a keyword glued to a macro', () => {
         });
     }
 
-    it('is part of the name in a varlist', () => {
-        const my_node = command_at(
-            nodes_of(`${SETUP}summarize \`stem'in \`stem'using, detail\n`, true), 1);
-        expect(my_node.inExpression).toBeUndefined();
-        expect(my_node.using).toBeUndefined();
+    it('is the qualifier in a varlist, with the statement left as written', () => {
+        // StataMP 18 reads `in` when the macro is empty and a name
+        // (`hoin`) when it isn't; Sight reads the qualifier and keeps
+        // AST formatting from adding a blank (see at_qualifier_word).
+        const my_result = parse(`${SETUP}summarize x \`stem'in 1/2, detail\n`, true);
+        const my_node = command_at(my_result.ast.nodes, 1);
+        expect(my_node.inExpression).toBe('1/2');
         expect(my_node.options?.map((my_option) => my_option.name)).toEqual(['detail']);
+        expect(my_result.ast.unprintable_ranges).toHaveLength(1);
     });
 
     it('is still a keyword after a space', () => {
