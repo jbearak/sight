@@ -445,10 +445,11 @@ project rather than just the open buffer.
 
 Sight recognizes a variable as defined when it sees one of:
 
-- `generate` / `gen`, `egen`, `input` — explicit creation.
-- `rename` / `ren` — the new name is registered.
-- `confirm variable` (or an abbreviation down to `confirm v`, in
-  lowercase as Stata requires) — treated as an assertion that
+- `generate` (or any abbreviation down to `g`), `egen`, `input`
+  (down to `inp`) — explicit creation.
+- `rename` (down to `ren`) — the new name is registered.
+- `confirm variable` (`confirm` down to `conf`, `variable` down to
+  `v`, in lowercase as Stata requires) — treated as an assertion that
   the variable exists; useful for declaring columns loaded from a
   dataset without disabling the diagnostic.
 - `sight: variables name [name …]` — manual declaration, forward-only.

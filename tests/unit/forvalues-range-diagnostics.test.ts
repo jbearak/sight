@@ -149,6 +149,34 @@ describe('EmptyForvaluesRangeAnalyzer Unit Tests', () => {
             ).toHaveLength(1);
         });
 
+        it('reports a loop after a version prefix', () => {
+            const the_sources = [
+                'version 16: forvalues i = 3/1 {\n}\n',
+                'version 16.1: forvalues i = 3/1 {\n}\n',
+                'vers 16 : forvalues i = 3/1 {\n}\n',
+                'capture noisily version 16: forvalues i = 3/1 {\n}\n',
+                'version 16: quietly forvalues i = 3/1 {\n}\n',
+                'qui: forvalues i = 3/1 {\n}\n',
+                'noisily forvalues i = 3/1 {\n}\n',
+                'capture quietly: forvalues i = 3/1 {\n}\n',
+            ];
+            for (const my_source of the_sources) {
+                expect({ my_source, count: found(my_source).length })
+                    .toEqual({ my_source, count: 1 });
+            }
+            // Both headers of the reported repro.
+            const the_ranges = found(
+                'version 16: forvalues i = 3/1 {\n    display `i\'\n}\n' +
+                    'forvalues j = 3/1 {\n    display `j\'\n}\n'
+            ).map((d) => `${d.range.start.line}:${d.range.start.character}`);
+            expect(the_ranges).toEqual(['0:26', '3:14']);
+        });
+
+        it('does not take a version argument without its colon as a prefix', () => {
+            expect(found('version 16 forvalues i = 3/1 {\n}\n')).toHaveLength(0);
+            expect(found('display 16: forvalues i = 3/1 {\n}\n')).toHaveLength(0);
+        });
+
         it('reports a range split by a /// continuation', () => {
             expect(found('forvalues i = 3 ///\n    /1 {\n}\n')).toHaveLength(
                 1

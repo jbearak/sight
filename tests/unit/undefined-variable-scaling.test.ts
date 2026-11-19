@@ -1,0 +1,64 @@
+/**
+ * Checking abbreviated variable references must not scan every known
+ * variable per reference. A file that creates n variables and reads
+ * each by an abbreviation (`gen v1_long = 1` ... `sum v1_`) cost
+ * O(n^2) prefix comparisons: 32 million at n = 8,000.
+ *
+ * The bound is on growth, not on time: analysis of 8x the lines must
+ * take well under the 64x a quadratic check takes. Each size keeps its
+ * fastest of several runs, so a slow run (GC, JIT) does not count.
+ */
+import { describe, expect, it } from 'bun:test';
+import { SemanticAnalyzer } from '../../src/analyzer';
+import { StataLexer } from '../../src/lexer';
+import { StataParser } from '../../src/parser';
+import { StataDiagnosticCode } from '../../src/types';
+
+function source(count: number, interleaved: boolean): string {
+    const the_lines = ['set obs 1'];
+    if (interleaved) {
+        for (let i = 0; i < count; i++) {
+            the_lines.push(`gen v${i}_long = 1`, `sum v${i}_`);
+        }
+    } else {
+        for (let i = 0; i < count; i++) the_lines.push(`gen v${i}_long = 1`);
+        for (let i = 0; i < count; i++) the_lines.push(`sum v${i}_`);
+    }
+    return the_lines.join('\n') + '\n';
+}
+
+/** Fastest analysis time of `source`, and its undefined variables. */
+function fastest_analysis_ms(text: string): { time_ms: number; undefined_count: number } {
+    const tokens = new StataLexer().tokenize(text).tokens;
+    const ast = new StataParser().parse(tokens).ast;
+    let time_ms = Number.POSITIVE_INFINITY;
+    let undefined_count = -1;
+    for (let i = 0; i < 5; i++) {
+        const start_ms = performance.now();
+        const result = new SemanticAnalyzer().analyze(
+            ast, 'file:///scaling.do', undefined,
+            { undefined_variable_enabled: true }, tokens
+        );
+        time_ms = Math.min(time_ms, performance.now() - start_ms);
+        undefined_count = result.diagnostics.filter((my_diagnostic) =>
+            my_diagnostic.code === StataDiagnosticCode.UNDEFINED_VARIABLE
+        ).length;
+    }
+    return { time_ms, undefined_count };
+}
+
+describe('undefined-variable check scaling', () => {
+    for (const interleaved of [false, true]) {
+        const shape = interleaved ? 'interleaved' : 'grouped';
+        it(`grows about linearly with abbreviated references (${shape})`, () => {
+            // Warm up the JIT so the small size is not inflated.
+            fastest_analysis_ms(source(500, interleaved));
+            const small = fastest_analysis_ms(source(1000, interleaved));
+            const large = fastest_analysis_ms(source(8000, interleaved));
+            expect(small.undefined_count).toBe(0);
+            expect(large.undefined_count).toBe(0);
+            // Linear is about 8x; quadratic about 64x.
+            expect(large.time_ms / small.time_ms).toBeLessThan(24);
+        }, 60_000);
+    }
+});

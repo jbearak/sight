@@ -13,6 +13,7 @@ import * as os from 'os';
 import * as path from 'path';
 import { run_check_with_cwd } from '../../src/cli/check';
 import { StataDiagnosticCode } from '../../src/types';
+import { VARIABLE_COMMAND_MIN_ABBREVIATIONS } from '../../src/analyzer';
 import { create_document_state } from '../property/helpers/document-utils';
 
 /** Messages of the UNDEFINED_VARIABLE diagnostics (the check on). */
@@ -129,5 +130,83 @@ describe('confirm variable', () => {
     it('defines nothing for a capitalized subcommand, which Stata rejects', () => {
         expect(undefined_variables('confirm Variable price\nsu price\n'))
             .toEqual(['price may not be defined']);
+    });
+});
+
+/**
+ * Commands that create variables, in every spelling Stata accepts.
+ * The minimum abbreviations are the command database's
+ * `min_abbreviation` (`g`, `inp`, `ren`, `conf`).
+ */
+describe('abbreviated variable-creating commands', () => {
+    /** `name` and each abbreviation of it down to `min_length`. */
+    function spellings(name: string, min_length: number): string[] {
+        const the_spellings: string[] = [];
+        for (let i = min_length; i <= name.length; i++) {
+            the_spellings.push(name.slice(0, i));
+        }
+        return the_spellings;
+    }
+
+    it('defines the variable for every abbreviation of generate', () => {
+        for (const my_command of spellings('generate', 1)) {
+            expect(undefined_variables(
+                `set obs 1\n${my_command} year = 1\nlist year\n`
+            )).toEqual([]);
+        }
+    });
+
+    it('defines the variable after a storage type', () => {
+        expect(undefined_variables(
+            'g byte year = 1\nge double x = 2\nlist year x\n'
+        )).toEqual([]);
+    });
+
+    it('defines the variable for every abbreviation of rename', () => {
+        for (const my_command of spellings('rename', 3)) {
+            expect(undefined_variables(
+                `gen a = 1\n${my_command} a b\nlist b\n`
+            )).toEqual([]);
+        }
+    });
+
+    it('defines the variables for every abbreviation of input', () => {
+        for (const my_command of spellings('input', 3)) {
+            expect(undefined_variables(
+                `${my_command} a b\n1 2\nend\nlist a b\n`
+            )).toEqual([]);
+        }
+    });
+
+    it('defines the variable for every abbreviation of confirm', () => {
+        for (const my_command of spellings('confirm', 4)) {
+            expect(undefined_variables(
+                `${my_command} variable price\nsu price\n`
+            )).toEqual([]);
+        }
+    });
+
+    it('defines nothing for a shorter or capitalized spelling', () => {
+        expect(undefined_variables(
+            'G year = 1\nre a b\ninpu2 c\ncon variable d\nlist year b c d\n'
+        )).toEqual([
+            'year may not be defined',
+            'b may not be defined',
+            'c may not be defined',
+            'd may not be defined',
+        ]);
+    });
+
+    it('matches the command database minimum abbreviations', () => {
+        const cache = JSON.parse(fs.readFileSync(path.join(
+            import.meta.dir, '../../src/command-database/caches/v18.json'
+        ), 'utf8')) as {
+            commands: Record<string, { min_abbreviation: number }>;
+        };
+        expect(Object.fromEntries(
+            ['generate', 'egen', 'input', 'rename', 'confirm'].map(
+                (my_name) => [my_name, cache.commands[my_name]?.min_abbreviation]
+            )
+        )).toEqual(VARIABLE_COMMAND_MIN_ABBREVIATIONS);
     });
 });

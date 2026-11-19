@@ -612,8 +612,13 @@ a plain name. An `args` entry that is just a macro (`` `x' ``) has
   - `range`: the call site; for a backward directive, the directive in the
     child file.
   - `raw_path`: the path as written.
-  - `arguments`: the raw tokens after the path (`do clean.do 2019`), or
-    `[]`.
+  - `arguments`: the words after the path, in source order, or `[]`.
+    That is everything Stata passes to the do-file, so it includes
+    words such as `if`, `in`, `using`, a weight (`[aw=x]`), and a
+    `, options` tail: `do clean.do 2019 if x > 1` gives
+    `["2019", "if", "x", ">", "1"]`. Words are separated by spaces;
+    a quoted string, and text with no space in it (`a>b`,
+    `` `a'b ``), is one word.
   - `static`: false when the path contains a macro reference.
   - `source`: `command` for `do`/`run`/`include` statements, `directive`
     for forward directives (`sight: do file.do`), or `backward_directive`
@@ -622,6 +627,10 @@ a plain name. An `args` entry that is just a macro (`` `x' ``) has
   - `working_directory`: the absolute directory the path is resolved
     against at the call site, after top-level literal `cd` commands and
     `sight: cd` directives; null when it is the caller's own directory.
+    A file with no `sight: cd` of its own inherits its parent's, as in
+    `sight check` (see [Working Directory](cross-file.md#working-directory)):
+    when `main.do` has `sight: cd "work"` and calls `jobs/child.do`,
+    `do grand.do` in the child resolves to `work/grand.do`.
   - `target`: the called file, relative to ROOT (absolute when outside
     ROOT), or null when unresolved.
   - `resolution`: `exact`, `case_only` (found, but the case differs from

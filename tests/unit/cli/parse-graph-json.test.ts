@@ -344,6 +344,56 @@ describe('sight graph --json', () => {
         expect(document.entry_points).toEqual(['main.do']);
     });
 
+    async function graph_of(files: Record<string, string>): Promise<Json> {
+        const directory = fs.mkdtempSync(path.join(os.tmpdir(), 'sight-graph-'));
+        for (const [my_name, my_text] of Object.entries(files)) {
+            fs.mkdirSync(path.dirname(path.join(directory, my_name)), { recursive: true });
+            fs.writeFileSync(path.join(directory, my_name), my_text);
+        }
+        const { stdout, output } = capture();
+        const code = await run_graph_with_cwd(['--json', '--no-config', directory], directory, output);
+        expect(code).toBe(0);
+        return JSON.parse(stdout.join(''));
+    }
+
+    it('resolves a grandchild in the working directory its caller inherits', async () => {
+        // child.do inherits main.do's `sight: cd`, as `sight check` has it.
+        const document = await graph_of({
+            'main.do': '// sight: cd "work"\ndo jobs/child.do\n',
+            'work/jobs/child.do': 'do grand.do\n',
+            'work/grand.do': 'display 1\n',
+        });
+        expect(document.edges).toMatchObject([
+            { caller: 'main.do', target: 'work/jobs/child.do', resolution: 'exact' },
+            { caller: 'work/jobs/child.do', target: 'work/grand.do', resolution: 'exact' },
+        ]);
+        expect(document.edges[1].working_directory).toBe(path.join(document.root, 'work'));
+        expect(document.unresolved).toEqual([]);
+        expect(document.entry_points).toEqual(['main.do']);
+    });
+
+    it('passes every word after the file name as an argument', async () => {
+        const document = await graph_of({
+            'master.do': [
+                'do child.do if price > 100',
+                'do child.do in 1/2 using y [aw=x] =z+1 , nostop // note',
+                'run child.do a ///',
+                '    b',
+                'do "child.do" 2019 "rural" `a\'b "x`y\'z"',
+                'capture noisily do child.do a>b',
+                '',
+            ].join('\n'),
+            'child.do': 'args a b c d\n',
+        });
+        expect(document.edges.map((my_edge: Json) => my_edge.arguments)).toEqual([
+            ['if', 'price', '>', '100'],
+            ['in', '1/2', 'using', 'y', '[aw=x]', '=z+1', ',', 'nostop'],
+            ['a', 'b'],
+            ['2019', '"rural"', "`a'b", '"x`y\'z"'],
+            ['a>b'],
+        ]);
+    });
+
     it('finds cycles as strongly connected components', () => {
         const adjacency = new Map<string, Set<string>>([
             ['a', new Set(['b'])],
