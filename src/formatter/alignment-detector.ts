@@ -26,7 +26,6 @@ const COMMENT_TOKEN_TYPES: ReadonlySet<string> = new Set([
   'COMMENT_LINE', 'COMMENT_BLOCK', 'CONTINUATION',
 ]);
 
-
 /**
  * Statements under `#delimit ;` that span lines. A line break there is
  * whitespace, so each later line of a statement continues it, as the
