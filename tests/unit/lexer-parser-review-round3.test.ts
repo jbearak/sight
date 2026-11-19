@@ -305,6 +305,10 @@ describe('a program named with a Unicode letter', () => {
             .filter((my_token) => my_token.type === 'WORD')
             .map((my_token) => my_token.value);
         expect(the_words).toEqual(['local', 'café', 'gen', 'x½']);
+        const the_globals = lex('display "$café"\n')
+            .filter((my_token) => my_token.type === 'MACRO_REF_GLOBAL')
+            .map((my_token) => my_token.value);
+        expect(the_globals).toEqual(['$café']);
     });
 });
 
@@ -383,5 +387,16 @@ describe('a string under #delimit ;', () => {
         };
         expect(growth('display "a;\n', lex_it, '#delimit ;\n')).toBeLessThan(5);
         expect(growth('display `"a;\n', lex_it, '#delimit ;\n')).toBeLessThan(5);
+    });
+});
+
+describe('a string in a Mata block under #delimit ;', () => {
+    it('keeps a ; in compound quotes as text, and ends at its line', () => {
+        // StataMP 18 reads the block by lines: t is "c;d", and
+        // `u = "e` is "mismatched quotes" on its own line.
+        const my_source = '#delimit ;\nmata;\ns = "a;b"\nt = `"c;d"\'\n' +
+            'end\n#delimit cr\ndisplay "after"\n';
+        expect(new StataLexer().tokenize(my_source).errors).toEqual([]);
+        expect(directive_lines(my_source)).toEqual([0, 5]);
     });
 });

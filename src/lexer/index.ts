@@ -1946,7 +1946,8 @@ export class StataLexer {
           }
         } else {
           // $name form - consume word characters
-          while (/[a-zA-Z0-9_]/.test(this.peek()) && !this.isAtEnd()) {
+          while ((this.isAlphaNumeric(this.peek()) || this.peek() === '_') &&
+              !this.isAtEnd()) {
             this.advance();
           }
         }
@@ -2008,10 +2009,11 @@ export class StataLexer {
    * (which then ends the statement): `display "oops;` then
    * `local one 1;` leaves the `local` a statement of its own, with the
    * open quote still reported. -1 when the string has a `"` after it,
-   * or under `#delimit cr` (where every string ends at its line).
+   * under `#delimit cr` (where every string ends at its line), or in a
+   * Mata or Python block (see reads_semicolon_statements).
    */
   private unclosed_string_stop(): number {
-    if (this.state.delimiterMode !== 'semicolon') {
+    if (!this.reads_semicolon_statements()) {
       return -1;
     }
     if (this.last_double_quote_offset === null) {
@@ -2033,11 +2035,24 @@ export class StataLexer {
       : my_line_end;
   }
 
+  /**
+   * Whether Stata code is read as `;`-ended statements here: under
+   * `#delimit ;`, outside a Mata or Python block. (StataMP 18 reads a
+   * Mata block under `#delimit ;` by physical lines, where a string
+   * ends at its line and a `;` in it is text; such strings keep the
+   * reading they had.)
+   */
+  private reads_semicolon_statements(): boolean {
+    return this.state.delimiterMode === 'semicolon' &&
+      this.get_current_context() === LanguageContext.STATA;
+  }
+
   private scanCompoundString(startLine: number, startColumn: number): Token | Token[] {
     const the_tokens: Token[] = [];
     let depth = 1;
     let segment_start_line = startLine;
     let segment_start_column = startColumn;
+    const is_semicolon_statement = this.reads_semicolon_statements();
 
     while (!this.isAtEnd() && depth > 0) {
       const char = this.peek();
@@ -2045,8 +2060,8 @@ export class StataLexer {
       // Under `#delimit ;` a compound string runs on across lines, but
       // a `;` in it ends the statement (StataMP 18 reads
       // `` local d `"x;y"'; `` as `` local d `"x `` and `` y"' ``).
-      if ((char === '\n' && this.state.delimiterMode !== 'semicolon') ||
-          (char === ';' && this.state.delimiterMode === 'semicolon')) {
+      if ((char === '\n' && !is_semicolon_statement) ||
+          (char === ';' && is_semicolon_statement)) {
         const error: LexerError = {
           message: 'Unclosed string literal',
           range: this.makeRange(startLine, startColumn, this.line, this.column + 1),
@@ -2182,7 +2197,8 @@ export class StataLexer {
           }
         } else {
           // $name form - consume word characters
-          while (/[a-zA-Z0-9_]/.test(this.peek()) && !this.isAtEnd()) {
+          while ((this.isAlphaNumeric(this.peek()) || this.peek() === '_') &&
+              !this.isAtEnd()) {
             this.advance();
           }
         }

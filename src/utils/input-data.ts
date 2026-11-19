@@ -146,13 +146,12 @@ export function is_consistent_input_row(
 }
 
 /**
- * Whether the first fields of a row, `values`, give each numeric
+ * Whether the first fields of a row, `the_values`, give each numeric
  * variable of `fields` a number (or are none: a blank row).
  */
 function values_fit_fields(
-    values: readonly RowField[], fields: readonly InputFieldKind[]
+    the_values: readonly RowField[], fields: readonly InputFieldKind[]
 ): boolean {
-    const the_values = values;
     if (the_values.length === 0) {
         return true;
     }
@@ -345,9 +344,9 @@ export function input_row_end(
  * or the `` `" `` of a compound quote) in `source`: past its closing
  * quote; at the `;` that ends the record inside a compound quote under
  * `#delimit ;`; or, when it has none (under `#delimit cr`, none on its
- * line), at the end of its line. Reads each character at most once, apart
- * from one scan to the end of the source per kind of quote, which
- * `quote_scan` remembers.
+ * line), at the end of its line. Reads each character at most once,
+ * apart from one scan to the end of the source per kind of quote,
+ * which `quote_scan` remembers.
  */
 function quoted_field_end(
     source: string, start: number, is_semicolon: boolean,

@@ -33,7 +33,7 @@
     },
     "client": {
       "name": "sight",
-      "version": "0.17.6",
+      "version": "0.15.1",
       "dependencies": {
         "@glideapps/glide-data-grid": "^6.0.3",
         "@jbearak/dta-parser": "^1.0.0",
