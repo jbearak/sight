@@ -20,9 +20,28 @@ import { arbitrary_non_reserved_identifier } from './generators';
 // argument (`di 1, 2` shows `1 2` in Stata 18).
 const DISPLAY_NAMES = new Set(['di', 'dis', 'disp', 'displ', 'displa', 'display']);
 
+/**
+ * A name the parser reads as an ordinary command: not `di` (display's
+ * arguments are not a varlist), `pr` (a program definition), or any
+ * other short word with its own syntax. These properties are about
+ * ordinary commands, and a random two-letter name hits one of those
+ * often enough to fail a CI run now and then.
+ */
+function arbitrary_plain_name(): fc.Arbitrary<string> {
+    return arbitrary_non_reserved_identifier().filter((my_name) => {
+        if (DISPLAY_NAMES.has(my_name)) {
+            return false;
+        }
+        const my_command = parse(`${my_name} zzv`);
+        return my_command !== null && my_command.name === my_name &&
+            my_command.varlist?.length === 1 &&
+            my_command.varlist[0].name === 'zzv';
+    });
+}
+
 /** A command name whose comma starts its options. */
 function arbitrary_option_command(): fc.Arbitrary<string> {
-    return arbitrary_non_reserved_identifier().filter((my_name) => !DISPLAY_NAMES.has(my_name));
+    return arbitrary_plain_name();
 }
 
 /**
@@ -48,8 +67,8 @@ describe('Feature: varlist-parsing-consolidation', () => {
         it('should parse commands with varlist correctly', () => {
             fc.assert(
                 fc.property(
-                    arbitrary_non_reserved_identifier(),
-                    fc.array(arbitrary_non_reserved_identifier(), { minLength: 1, maxLength: 3 }),
+                    arbitrary_plain_name(),
+                    fc.array(arbitrary_plain_name(), { minLength: 1, maxLength: 3 }),
                     (cmd_name, the_vars) => {
                         const source = `${cmd_name} ${the_vars.join(' ')}`;
                         const cmd = parse(source);
@@ -71,8 +90,8 @@ describe('Feature: varlist-parsing-consolidation', () => {
         it('should parse commands with expression correctly', () => {
             fc.assert(
                 fc.property(
-                    arbitrary_non_reserved_identifier(),
-                    arbitrary_non_reserved_identifier(),
+                    arbitrary_plain_name(),
+                    arbitrary_plain_name(),
                     fc.integer({ min: 1, max: 100 }),
                     (cmd_name, var_name, value) => {
                         const source = `${cmd_name} ${var_name} = ${value}`;
@@ -93,8 +112,8 @@ describe('Feature: varlist-parsing-consolidation', () => {
         it('should parse commands with if-qualifier correctly', () => {
             fc.assert(
                 fc.property(
-                    arbitrary_non_reserved_identifier(),
-                    arbitrary_non_reserved_identifier(),
+                    arbitrary_plain_name(),
+                    arbitrary_plain_name(),
                     fc.integer({ min: 1, max: 100 }),
                     (cmd_name, var_name, value) => {
                         const source = `${cmd_name} ${var_name} if x > ${value}`;
@@ -116,8 +135,8 @@ describe('Feature: varlist-parsing-consolidation', () => {
         it('should parse commands with in-qualifier correctly', () => {
             fc.assert(
                 fc.property(
-                    arbitrary_non_reserved_identifier(),
-                    arbitrary_non_reserved_identifier(),
+                    arbitrary_plain_name(),
+                    arbitrary_plain_name(),
                     fc.integer({ min: 1, max: 100 }),
                     (cmd_name, var_name, end_val) => {
                         const source = `${cmd_name} ${var_name} in 1/${end_val}`;
@@ -139,8 +158,8 @@ describe('Feature: varlist-parsing-consolidation', () => {
             fc.assert(
                 fc.property(
                     arbitrary_option_command(),
-                    arbitrary_non_reserved_identifier(),
-                    arbitrary_non_reserved_identifier(),
+                    arbitrary_plain_name(),
+                    arbitrary_plain_name(),
                     (cmd_name, var_name, opt_name) => {
                         const source = `${cmd_name} ${var_name}, ${opt_name}`;
                         const cmd = parse(source);
@@ -163,9 +182,9 @@ describe('Feature: varlist-parsing-consolidation', () => {
             fc.assert(
                 fc.property(
                     arbitrary_option_command(),
-                    arbitrary_non_reserved_identifier(),
-                    arbitrary_non_reserved_identifier(),
-                    arbitrary_non_reserved_identifier(),
+                    arbitrary_plain_name(),
+                    arbitrary_plain_name(),
+                    arbitrary_plain_name(),
                     (cmd_name, var_name, opt_name, opt_arg) => {
                         const source = `${cmd_name} ${var_name}, ${opt_name}(${opt_arg})`;
                         const cmd = parse(source);
@@ -185,8 +204,8 @@ describe('Feature: varlist-parsing-consolidation', () => {
         it('should parse commands with parenthesized groups correctly', () => {
             fc.assert(
                 fc.property(
-                    arbitrary_non_reserved_identifier(),
-                    fc.array(arbitrary_non_reserved_identifier(), { minLength: 1, maxLength: 3 }),
+                    arbitrary_plain_name(),
+                    fc.array(arbitrary_plain_name(), { minLength: 1, maxLength: 3 }),
                     (cmd_name, the_vars) => {
                         const source = `${cmd_name} (${the_vars.join(' ')})`;
                         const cmd = parse(source);
@@ -216,7 +235,7 @@ describe('Feature: varlist-parsing-consolidation', () => {
         it('should handle standalone * wildcard', () => {
             fc.assert(
                 fc.property(
-                    arbitrary_non_reserved_identifier(),
+                    arbitrary_plain_name(),
                     (cmd_name) => {
                         const source = `${cmd_name} *`;
                         const cmd = parse(source);
@@ -276,7 +295,7 @@ describe('Feature: varlist-parsing-consolidation', () => {
                 fc.property(
                     arbitrary_file_command(),
                     arbitrary_simple_path(),
-                    arbitrary_non_reserved_identifier(),
+                    arbitrary_plain_name(),
                     (cmd_name, file_path, opt_name) => {
                         const source = `${cmd_name} ${file_path}, ${opt_name}`;
                         const cmd = parse(source);
@@ -305,9 +324,9 @@ describe('Feature: varlist-parsing-consolidation', () => {
         it('should produce consistent varlist between direct and frame-prefixed', () => {
             fc.assert(
                 fc.property(
-                    arbitrary_non_reserved_identifier(),
-                    arbitrary_non_reserved_identifier(),
-                    fc.array(arbitrary_non_reserved_identifier(), { minLength: 1, maxLength: 3 }),
+                    arbitrary_plain_name(),
+                    arbitrary_plain_name(),
+                    fc.array(arbitrary_plain_name(), { minLength: 1, maxLength: 3 }),
                     (frame_name, cmd_name, the_vars) => {
                         const direct_source = `${cmd_name} ${the_vars.join(' ')}`;
                         const frame_source = `frame ${frame_name}: ${cmd_name} ${the_vars.join(' ')}`;
@@ -333,10 +352,10 @@ describe('Feature: varlist-parsing-consolidation', () => {
         it('should produce consistent options between direct and frame-prefixed', () => {
             fc.assert(
                 fc.property(
-                    arbitrary_non_reserved_identifier(),
+                    arbitrary_plain_name(),
                     arbitrary_option_command(),
-                    arbitrary_non_reserved_identifier(),
-                    arbitrary_non_reserved_identifier(),
+                    arbitrary_plain_name(),
+                    arbitrary_plain_name(),
                     (frame_name, cmd_name, var_name, opt_name) => {
                         const direct_source = `${cmd_name} ${var_name}, ${opt_name}`;
                         const frame_source = `frame ${frame_name}: ${cmd_name} ${var_name}, ${opt_name}`;
@@ -360,9 +379,9 @@ describe('Feature: varlist-parsing-consolidation', () => {
         it('should produce consistent qualifiers between direct and frame-prefixed', () => {
             fc.assert(
                 fc.property(
-                    arbitrary_non_reserved_identifier(),
-                    arbitrary_non_reserved_identifier(),
-                    arbitrary_non_reserved_identifier(),
+                    arbitrary_plain_name(),
+                    arbitrary_plain_name(),
+                    arbitrary_plain_name(),
                     fc.integer({ min: 1, max: 100 }),
                     (frame_name, cmd_name, var_name, value) => {
                         const direct_source = `${cmd_name} ${var_name} if x > ${value}`;
