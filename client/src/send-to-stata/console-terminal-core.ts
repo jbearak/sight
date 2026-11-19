@@ -122,6 +122,8 @@ interface ShowingOffer {
     pending: PendingSend[];
     terminal_count: number;
     done: Promise<void>;
+    /** dispose() dropped its sends: its answer does nothing. */
+    is_void?: boolean;
 }
 
 const OFFER_TIMED_OUT = Symbol('offer timed out');
@@ -340,6 +342,7 @@ export class ConsoleTerminalQueue<TTerminal> {
             this.showing_offer = null;
             this.drop(offer.pending);
             offer.pending = [];
+            offer.is_void = true;
             this.stop_offer_wait?.();
         }
         for (const my_entry of this.entries.values()) {
@@ -375,8 +378,9 @@ export class ConsoleTerminalQueue<TTerminal> {
         message: string
     ): Promise<void> {
         const answer = await this.ask_with_timeout(message);
-        if (this.is_disposed) {
+        if (offer.is_void) {
             // dispose() dropped the sends; the answer applies to nothing.
+            // An offer for a pane tracked after dispose() still counts.
             return;
         }
         let use_app = false;

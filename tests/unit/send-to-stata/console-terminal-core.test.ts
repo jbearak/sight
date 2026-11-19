@@ -751,6 +751,25 @@ describe('console terminal queue: dispose', () => {
         expect(host.resolutions_of('/a.do')).toBe(1);
     });
 
+    test('a pane tracked after dispose still drops its sends when its offer is dismissed', async () => {
+        const host = new FakeHost();
+        const queue = create_queue(host);
+        queue.dispose();
+        const terminal = { id: 'late' };
+        queue.track(terminal);
+        queue.send(terminal, send('/late.do'));
+        const done = queue.handle_closed(
+            terminal, process_exit(CONSOLE_EXIT_AUTOMATION_NOT_REGISTERED)
+        );
+        await wait_until(() => host.the_offers.length === 1, 'the offer');
+
+        host.the_offer_answers[0].resolve(undefined);
+        await done;
+        expect(host.the_deleted).toEqual(['/late.do']);
+        expect(queue.pending_count()).toBe(0);
+        expect(host.the_counts.at(-1)).toBe(0);
+    });
+
     test('reports the true count when it stops a dispatch', async () => {
         const host = new FakeHost();
         host.fallback_in_effect = true;

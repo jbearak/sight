@@ -142,13 +142,22 @@ export function create_console_pane(
     let user_closed = false;
     /** Temp files of typed lines the console hasn't answered for. */
     const the_held_files = new Set<string>();
+    /** Cleanups end_held_files scheduled, by file. */
+    const the_end_cleanups = new Map<string, NodeJS.Timeout>();
 
     const settle_file = (file_path: string, sent: boolean): void => {
         if (!the_held_files.delete(file_path)) {
             return;
         }
         release_temp_file(file_path);
+        const end_cleanup = the_end_cleanups.get(file_path);
+        the_end_cleanups.delete(file_path);
         if (!sent) {
+            // Deleted once: a later file at this path must outlive
+            // the cleanup scheduled when the pane ended.
+            if (end_cleanup !== undefined) {
+                clearTimeout(end_cleanup);
+            }
             fs.promises.unlink(file_path).catch(() => {});
         } else if (!ended) {
             schedule_temp_file_cleanup(file_path);
@@ -164,7 +173,9 @@ export function create_console_pane(
     const end_held_files = (): void => {
         for (const my_file of the_held_files) {
             release_temp_file(my_file);
-            schedule_temp_file_cleanup(my_file);
+            the_end_cleanups.set(
+                my_file, schedule_temp_file_cleanup(my_file)
+            );
         }
     };
 
