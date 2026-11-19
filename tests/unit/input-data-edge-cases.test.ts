@@ -153,9 +153,21 @@ describe('input under #delimit ;', () => {
             SOURCE,
             '#delimit ;\ninput x y;\n1 2;\n3 4;\nend;\nlist;\n',
             '#delimit ;\ninput x;\nend;\nlist;\n',
+            '#delimit ;\nif 1 {;\n    input x;\n1;\n    end;\n};\nlist;\n',
         ]) {
             expect(format_stable(my_source, mode)).toBe(my_source);
         }
+    });
+
+    for_each_formatter_mode('keeps records on the input line and code after end', (mode) => {
+        const formatted = format_stable(
+            '#delimit ;\ninput x; 1; 2;\n3;\nend; display "same line";\n', mode);
+        const { parse_result } = parse(formatted);
+        const input = parse_result.ast.nodes[1];
+        expect(input?.type === 'command' ? input.input_data?.content.trim() : null)
+            .toBe('1; 2;\n3');
+        expect(node_names(parse_result.ast.nodes))
+            .toEqual(['directive', 'input', 'display']);
     });
 });
 
@@ -244,6 +256,17 @@ describe('a colon prefix before mata:', () => {
             const source = `${my_prefix} mata: st_numscalar("n", 1)\n`;
             expect(context_at(source, my_prefix.length + 12))
                 .toBe(LanguageContext.MATA);
+        }
+    });
+
+    for_each_formatter_mode('keeps the line as written', (mode) => {
+        for (const my_line of [
+            'mi xeq: mata: st_numscalar("n", 1)', 'mi xeq 1: mata: x = 1',
+            'bysort g: mata: x = 1', 'mi xeq: quietly mata: x = 1',
+            'mi xeq: python: print(1)',
+        ]) {
+            const source = `${my_line}\ndisplay 2\n`;
+            expect(format_stable(source, mode)).toBe(source);
         }
     });
 
