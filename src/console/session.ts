@@ -91,6 +91,7 @@ export class ConsoleSession {
     private last_line_in_transcript = false;
     private completion_generation = 0;
     private exited = false;
+    private sends_closed = false;
     private reported_ready = false;
 
     private prompt_timer: unknown = null;
@@ -187,7 +188,7 @@ export class ConsoleSession {
      * so it runs before them.
      */
     send_line(line: string, on_sent?: LineSentCallback): void {
-        if (this.exited) {
+        if (this.exited || this.sends_closed) {
             on_sent?.(false);
             return;
         }
@@ -197,6 +198,15 @@ export class ConsoleSession {
             return;
         }
         this.enter_sent_line(line, on_sent);
+    }
+
+    /**
+     * The console is closing: answer every held send false now, and
+     * every later one at once. Nothing more is entered for the editor.
+     */
+    close_sends(): void {
+        this.sends_closed = true;
+        this.drop_held_sends();
     }
 
     /** Show a short one-row note under the editor until the next key. */
