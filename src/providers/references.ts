@@ -89,79 +89,111 @@ const TRIVIA_TYPES: ReadonlySet<string> = new Set([
     'WHITESPACE', 'COMMENT_LINE', 'COMMENT_BLOCK', 'CONTINUATION',
 ]);
 
-/**
- * Index of the significant token before `index` in a raw lexer
- * stream, or -1: skips comments and a `///` line end, which does not
- * end the statement.
- */
-function previous_significant_index(tokens: Token[], index: number): number {
-    let i = index - 1;
-    while (i >= 0) {
-        const my_token = tokens[i];
-        if (TRIVIA_TYPES.has(my_token.type)) {
-            i--;
-        } else if (
-            my_token.type === 'STATEMENT_TERMINATOR' &&
-            tokens[i - 1]?.type === 'CONTINUATION'
-        ) {
-            i -= 2;
-        } else {
-            return i;
-        }
-    }
-    return -1;
-}
-
 function touches(left: Token, right: Token): boolean {
     return left.range.end.line === right.range.start.line &&
         left.range.end.character === right.range.start.character;
 }
 
+/** Token types a file-name lookback passes over (`copy "a" b.dta`). */
+const FILE_NAME_REGION_TYPES: ReadonlySet<string> = new Set([
+    'WORD', 'STRING', 'MACRO_REF_LOCAL', 'MACRO_REF_GLOBAL', 'NUMBER',
+    'OPERATOR',
+]);
+
+/** Token types after which a new statement starts. */
+const STATEMENT_START_TYPES: ReadonlySet<string> = new Set([
+    'STATEMENT_TERMINATOR', 'LBRACE', 'RBRACE', 'DELIMIT_DIRECTIVE',
+]);
+
+/** Qualifiers that end the file names after `using`. */
+const QUALIFIER_WORDS: ReadonlySet<string> = new Set(['if', 'in']);
+
+/**
+ * Which words of a token stream are file names, worked out in one
+ * forward pass so a statement with many operands costs no more than
+ * reading it (a backward search from each operand was quadratic).
+ */
+interface FileNameContext {
+    /** Index of the first token of the touching run holding each token. */
+    run_start: Int32Array;
+    /** Index of the significant token before each token, or -1. */
+    previous_significant: Int32Array;
+    /**
+     * Whether a word starting right after each significant token is a
+     * file name: that token is `using` or a file name after it, or a
+     * FILE_ARGUMENT_COMMANDS command comes before it with only words,
+     * strings, macros, numbers and operators in between.
+     */
+    names_follow: Uint8Array;
+}
+
+function build_file_name_context(tokens: Token[]): FileNameContext {
+    const run_start = new Int32Array(tokens.length);
+    const previous_significant = new Int32Array(tokens.length);
+    const names_follow = new Uint8Array(tokens.length);
+    let my_previous = -1;
+    // Within the current stretch of FILE_NAME_REGION_TYPES tokens.
+    let is_after_file_command = false;
+    let is_after_using = false;
+    // The statement began with a one-line `if exp`, so a file command
+    // later in it is the command (`if 1 save l.dta`).
+    let is_if_statement = false;
+    for (let i = 0; i < tokens.length; i++) {
+        const my_token = tokens[i];
+        run_start[i] = i > 0 && touches(tokens[i - 1], my_token)
+            ? run_start[i - 1]
+            : i;
+        previous_significant[i] = my_previous;
+        const is_continued_line_end =
+            my_token.type === 'STATEMENT_TERMINATOR' &&
+            tokens[i - 1]?.type === 'CONTINUATION';
+        if (TRIVIA_TYPES.has(my_token.type) || is_continued_line_end) {
+            continue;
+        }
+        my_previous = i;
+        if (STATEMENT_START_TYPES.has(my_token.type)) {
+            is_if_statement = false;
+        }
+        if (!FILE_NAME_REGION_TYPES.has(my_token.type)) {
+            is_after_file_command = false;
+            is_after_using = false;
+            continue;
+        }
+        if (my_token.type === 'WORD') {
+            if (my_token.value === 'using') {
+                is_after_using = true;
+            } else if (QUALIFIER_WORDS.has(my_token.value)) {
+                is_after_using = false;
+            }
+            const is_command = (): boolean => is_command_position_by(
+                tokens, i, (j) => previous_significant[j]);
+            if (my_token.value === 'if' && is_command()) {
+                is_if_statement = true;
+            } else if (
+                FILE_ARGUMENT_COMMANDS.has(my_token.value) &&
+                (is_if_statement || is_command())
+            ) {
+                is_after_file_command = true;
+            }
+        }
+        if (is_after_file_command || is_after_using) {
+            names_follow[i] = 1;
+        }
+    }
+    return { run_start, previous_significant, names_follow };
+}
+
 /**
  * Whether the word holding `tokens[index]` is a file name: the run of
  * touching tokens around it (`dir/old.dta`, `../x/old.dta`) follows
- * `using`, or follows a FILE_ARGUMENT_COMMANDS word in command
- * position with no comma in between.
+ * `using` (`append using first.dta l.dta`), or follows a
+ * FILE_ARGUMENT_COMMANDS word in command position with no comma in
+ * between.
  */
-function is_in_file_name(tokens: Token[], index: number): boolean {
-    let run_start = index;
-    while (run_start > 0 && touches(tokens[run_start - 1], tokens[run_start])) {
-        run_start--;
-    }
-    let my_i = previous_significant_index(tokens, run_start);
-    let saw_word = false;
-    while (my_i >= 0) {
-        const my_token = tokens[my_i];
-        if (my_token.type !== 'WORD') {
-            // Words before a comma, quoted names and macros may sit
-            // between the command and this word (`copy "a" b.dta`).
-            if (
-                my_token.type === 'STRING' ||
-                my_token.type === 'MACRO_REF_LOCAL' ||
-                my_token.type === 'MACRO_REF_GLOBAL' ||
-                my_token.type === 'NUMBER' ||
-                my_token.type === 'OPERATOR'
-            ) {
-                my_i = previous_significant_index(tokens, my_i);
-                saw_word = true;
-                continue;
-            }
-            return false;
-        }
-        if (my_token.value === 'using' && !saw_word) {
-            return true;
-        }
-        if (
-            FILE_ARGUMENT_COMMANDS.has(my_token.value) &&
-            is_command_position_by(tokens, my_i, (i) =>
-                previous_significant_index(tokens, i))
-        ) {
-            return true;
-        }
-        my_i = previous_significant_index(tokens, my_i);
-        saw_word = true;
-    }
-    return false;
+function is_in_file_name(context: FileNameContext, index: number): boolean {
+    const my_previous =
+        context.previous_significant[context.run_start[index]];
+    return my_previous >= 0 && context.names_follow[my_previous] === 1;
 }
 
 /**
@@ -184,7 +216,10 @@ function closes_operator_argument(tokens: Token[], index: number): boolean {
                     touches(operator, my_token) &&
                     FACTOR_OPERATOR_PATTERN.test(operator.value);
             }
-        } else if (my_token.type === 'STATEMENT_TERMINATOR') {
+        } else if (
+            my_token.type === 'STATEMENT_TERMINATOR' &&
+            tokens[i - 1]?.type !== 'CONTINUATION'
+        ) {
             return false;
         }
     }
@@ -214,7 +249,11 @@ function dotted_name(tokens: Token[], index: number): string | null {
  * the word must not be a file name, so neither `save results.dta` nor
  * `save old.dta` counts as a use of a variable named `dta`.
  */
-function is_operator_prefixed_name(tokens: Token[], index: number): boolean {
+function is_operator_prefixed_name(
+    tokens: Token[],
+    index: number,
+    get_context: () => FileNameContext = () => build_file_name_context(tokens),
+): boolean {
     const token = tokens[index];
     if (dotted_name(tokens, index) === null) return false;
     const previous = tokens[index - 1];
@@ -233,7 +272,7 @@ function is_operator_prefixed_name(tokens: Token[], index: number): boolean {
         default:
             is_operator = false;
     }
-    return is_operator && !is_in_file_name(tokens, index);
+    return is_operator && !is_in_file_name(get_context(), index);
 }
 
 export interface TokenMatch {
@@ -319,6 +358,10 @@ export class ReferencesProvider {
 
         // Pre-build embedded context lookup for O(1) checks - avoids O(n*m)
         const embedded_lines = is_macro ? null : this.build_embedded_context_lines(context_ranges);
+        // Built on first use, once for the whole stream.
+        let file_names: FileNameContext | undefined;
+        const get_file_names = (): FileNameContext =>
+            file_names ??= build_file_name_context(tokens);
 
         for (let i = 0; i < tokens.length; i++) {
             // Periodic cancellation check (Req 5.3, 5.4)
@@ -349,7 +392,7 @@ export class ReferencesProvider {
                     if (
                         dotted_name(tokens, i) ===
                             search_context.symbol_name &&
-                        is_operator_prefixed_name(tokens, i)
+                        is_operator_prefixed_name(tokens, i, get_file_names)
                     ) {
                         token_name = token.value.slice(1);
                         name_offset = 1;

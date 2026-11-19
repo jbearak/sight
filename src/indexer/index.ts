@@ -65,6 +65,19 @@ export interface IndexedFileData {
     context_ranges?: ContextRange[];
 }
 
+const ADO_URI_RE = /\.ado$/i;
+
+/**
+ * The program Stata auto-loads from the file at `uri`: `setter` for
+ * `setter.ado`. The extension is matched without case (a filesystem
+ * name, not Stata syntax); the program name is the file's stem.
+ */
+function auto_loaded_program_name(uri: string): string | undefined {
+    if (!ADO_URI_RE.test(uri)) return undefined;
+    const base = path.posix.basename(URI.parse(uri).path);
+    return base.slice(0, base.length - '.ado'.length);
+}
+
 /**
  * Workspace Indexer for Sight.
  */
@@ -975,12 +988,25 @@ export class WorkspaceIndexer {
 
     /**
      * Get all symbols in the workspace (merged).
+     *
+     * When several files define a program, the one in the ado named
+     * after it (`setter` in `setter.ado`) is kept: that is the file
+     * Stata loads when the program is called before any file defines
+     * it. Among other definitions, the last file indexed wins.
      */
     get_all_symbols(): SymbolTable {
         let all_symbols: SymbolTable = create_empty_symbol_table();
 
         for (const entry of this.symbol_index.values()) {
             all_symbols = merge_symbol_tables(all_symbols, entry.symbols);
+        }
+        for (const [my_uri, my_entry] of this.symbol_index) {
+            const name = auto_loaded_program_name(my_uri);
+            const program = name === undefined
+                ? undefined : my_entry.symbols.programs.get(name);
+            if (name !== undefined && program) {
+                all_symbols.programs.set(name, program);
+            }
         }
         return all_symbols;
     }

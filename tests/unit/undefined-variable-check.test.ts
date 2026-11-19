@@ -186,6 +186,110 @@ describe('abbreviated variable-creating commands', () => {
         }
     });
 
+    it('does not define the storage types input names', () => {
+        // `inp double wage` creates only `wage`, so `doub` and `str1`
+        // abbreviate nothing (they did, when the types were taken as
+        // variable names, in every spelling of input).
+        for (const my_command of spellings('input', 3)) {
+            expect(undefined_variables([
+                `${my_command} double wage str10 city float f byte b`,
+                '1 Boston 1 1',
+                'end',
+                'list doub str1 floa byt wage city f b',
+            ].join('\n') + '\n')).toEqual([
+                'doub may not be defined',
+                'str1 may not be defined',
+                'floa may not be defined',
+                'byt may not be defined',
+            ]);
+        }
+    });
+
+    /**
+     * Each statement, written with every spelling of its command,
+     * leaves the same undefined variables as with the full word.
+     */
+    const SAME_AS_FULL_WORD: Array<{
+        command: keyof typeof VARIABLE_COMMAND_MIN_ABBREVIATIONS;
+        source: (command: string) => string;
+    }> = [
+        {
+            command: 'generate',
+            source: (my_command) => [
+                'set obs 1',
+                `${my_command} byte x = 1`,
+                `${my_command} double y:ylab = 2`,
+                `${my_command} str5 s = "a"`,
+                `${my_command} strL t = "a"`,
+                `${my_command} z = 1`,
+                'list x y s t z doub str5 byt ylab',
+            ].join('\n') + '\n',
+        },
+        {
+            command: 'input',
+            source: (my_command) => [
+                `${my_command} double wage str10 city strL note long l int i`,
+                '1 a b 1 1',
+                'end',
+                'list doub str1 strL lon wage city note l i',
+            ].join('\n') + '\n',
+        },
+        {
+            command: 'rename',
+            source: (my_command) => [
+                'set obs 1',
+                'gen a = 1',
+                'gen b = 1',
+                'gen c1 = 1',
+                'gen e1 = 1',
+                `${my_command} a a2`,
+                `${my_command} (b c1) (b2 c2)`,
+                `${my_command} e* f*`,
+                'list a2 b2 c2 f1',
+            ].join('\n') + '\n',
+        },
+        {
+            command: 'confirm',
+            source: (my_command) => [
+                `capture ${my_command} variable p`,
+                `capture ${my_command} var q`,
+                `capture ${my_command} v r`,
+                `capture ${my_command} numeric variable s`,
+                'list p q r s',
+            ].join('\n') + '\n',
+        },
+    ];
+
+    for (const my_case of SAME_AS_FULL_WORD) {
+        it(`treats every abbreviation of ${my_case.command} as the full word`, () => {
+            const expected = undefined_variables(my_case.source(my_case.command));
+            for (const my_command of spellings(
+                my_case.command,
+                VARIABLE_COMMAND_MIN_ABBREVIATIONS[my_case.command]
+            )) {
+                expect(undefined_variables(my_case.source(my_command)))
+                    .toEqual(expected);
+            }
+        });
+    }
+
+    it('reads the storage types in the full-word cases', () => {
+        expect(undefined_variables(SAME_AS_FULL_WORD[0].source('generate')))
+            .toEqual([
+                'doub may not be defined',
+                'str5 may not be defined',
+                'byt may not be defined',
+                'ylab may not be defined',
+            ]);
+        expect(undefined_variables(SAME_AS_FULL_WORD[1].source('input')))
+            .toEqual([
+                'doub may not be defined',
+                'str1 may not be defined',
+                'strL may not be defined',
+                'lon may not be defined',
+            ]);
+    });
+
     it('defines nothing for a shorter or capitalized spelling', () => {
         expect(undefined_variables(
             'G year = 1\nre a b\ninpu2 c\ncon variable d\nlist year b c d\n'

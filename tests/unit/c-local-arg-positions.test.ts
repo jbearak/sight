@@ -9,7 +9,10 @@ import {
 } from '../../src/analyzer';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
-import { TOKENIZE_MIN_ABBREVIATION } from '../../src/analyzer/c-local-arg-positions';
+import {
+    TOKENIZE_MIN_ABBREVIATION,
+    collect_c_local_arg_calls,
+} from '../../src/analyzer/c-local-arg-positions';
 import { DiagnosticsProvider } from '../../src/providers/diagnostics';
 import {
     ResolvedScope,
@@ -163,11 +166,11 @@ describe('c_local argument positions: extraction', () => {
             '    c_local `where\' 1',
             'end',
         ].join('\n'), 'setter')).toBeUndefined();
-        // Numbered locals with tokenize anywhere in the body.
+        // Numbered locals with tokenize before the c_local.
         expect(positions_of([
             'program define setter',
-            '    c_local `1\' 1',
             '    tokenize "a b"',
+            '    c_local `1\' 1',
             'end',
         ].join('\n'), 'setter')).toBeUndefined();
         // `` local `n' `` may set a numbered local.
@@ -180,8 +183,8 @@ describe('c_local argument positions: extraction', () => {
         ].join('\n'), 'setter')).toBeUndefined();
         expect(positions_of([
             'program define setter',
-            '    c_local `1\' 1',
             '    local `n\'',
+            '    c_local `1\' 1',
             'end',
         ].join('\n'), 'setter')).toBeUndefined();
         // gettoken into a numbered local.
@@ -381,17 +384,18 @@ describe('c_local argument positions: resolved-scope fallback', () => {
         setter_range: Range = {
             start: { line: 0, character: 0 },
             end: { line: 3, character: 3 },
-        }
+        },
+        setter_uri: string = 'file:///parent.do'
     ): Promise<string[]> {
         const provider = new DiagnosticsProvider({ sendDiagnostics: () => {} });
         const symbols = create_empty_symbol_table();
         symbols.programs.set('setter', {
             name: 'setter',
             location: {
-                uri: 'file:///parent.do',
+                uri: setter_uri,
                 range: setter_range,
             },
-            sourceUri: 'file:///parent.do',
+            sourceUri: setter_uri,
             c_local_arg_positions: [1],
         });
         const resolved_scope: ResolvedScope = {
@@ -437,7 +441,23 @@ describe('c_local argument positions: resolved-scope fallback', () => {
         expect(await diagnose(code, {
             start: { line: 2, character: 0 },
             end: { line: 5, character: 3 },
-        })).toEqual(['rhs']);
+        }, 'file:///test.do')).toEqual(['rhs']);
+    });
+
+    it('keeps the warning after a top-level program drop', async () => {
+        expect(await diagnose([
+            'program drop setter',
+            'setter rhs',
+            'display "`rhs\'"',
+        ].join('\n'))).toEqual(['rhs']);
+        // A drop that may not run (inside a block) is not counted.
+        expect(await diagnose([
+            'if 0 {',
+            '    program drop setter',
+            '}',
+            'setter rhs',
+            'display "`rhs\'"',
+        ].join('\n'))).toEqual([]);
     });
 
     it('keeps warnings the call does not cover', async () => {
@@ -451,6 +471,88 @@ describe('c_local argument positions: resolved-scope fallback', () => {
             'end',
             'display "`quoted\'"',
         ].join('\n'))).sort()).toEqual(['early', 'early', 'nm', 'quoted']);
+    });
+});
+
+describe('c_local argument positions: resets after the c_local', () => {
+    // A reset of the numbered locals after `` c_local `1' `` ran
+    // cannot undo the caller's local (StataMP 18: `result` is set).
+    function numbered(the_body: string[]): number[] | undefined {
+        return positions_of(
+            ['program define setter', ...the_body, 'end'].join('\n'),
+            'setter'
+        );
+    }
+
+    it('credits a c_local before a later reset', () => {
+        for (const my_reset of [
+            'token "x y"', 'tokenize "x y"', 'macro shift',
+            'local 1 x', 'local `n\' x', 'gettoken 1 : 0',
+        ]) {
+            expect(numbered(['    c_local `1\' 1', `    ${my_reset}`]))
+                .toEqual([1]);
+        }
+    });
+
+    it('credits a c_local before a reset later in the same loop body', () => {
+        expect(numbered([
+            '    forvalues i = 1/2 {',
+            '        c_local `1\' 1',
+            '        tokenize "x y"',
+            '    }',
+        ])).toEqual([1]);
+    });
+
+    it('does not credit a c_local after a reset earlier in a loop body', () => {
+        expect(numbered([
+            '    forvalues i = 1/2 {',
+            '        tokenize "x y"',
+            '        c_local `1\' 1',
+            '    }',
+        ])).toBeUndefined();
+    });
+
+    it('does not credit a c_local after a reset in an earlier branch', () => {
+        expect(numbered([
+            '    if "`2\'" != "" {',
+            '        tokenize "x y"',
+            '    }',
+            '    c_local `1\' 1',
+        ])).toBeUndefined();
+        expect(numbered([
+            '    if 1 {',
+            '    }',
+            '    else {',
+            '        macro shift',
+            '    }',
+            '    c_local `1\' 1',
+        ])).toBeUndefined();
+    });
+
+    it('starts each branch of an if/else chain from the state before it', () => {
+        expect(numbered([
+            '    if "`2\'" != "" {',
+            '        tokenize "x y"',
+            '    }',
+            '    else if "`3\'" != "" {',
+            '        macro shift',
+            '    }',
+            '    else {',
+            '        c_local `1\' 1',
+            '    }',
+        ])).toEqual([1]);
+    });
+
+    it('credits the caller in the laterToken case', () => {
+        const code = [
+            'program define setter',
+            '    c_local `1\' 1',
+            '    token "x y"',
+            'end',
+            'capture setter result',
+            'display "`result\'"',
+        ].join('\n');
+        expect(undefined_macros(analyze(code))).toEqual([]);
     });
 });
 
@@ -568,38 +670,36 @@ describe('c_local argument positions: which programs a call can reach', () => {
         expect(undefined_macros(result)).toEqual([]);
     });
 
-    for (const my_call of ['run library.do', 'run library', 'do "sub/library.do"', 'include library.do']) {
-        it(`uses a program from a file called earlier: ${my_call}`, () => {
-            const workspace_symbols = workspace_from(
-                SETTER, 'file:///work/sub/library.do'
-            );
-            const result = analyze(
-                [my_call, CALL].join('\n'),
-                workspace_symbols,
-                'file:///work/main.do'
-            );
-            expect(undefined_macros(result)).toEqual([]);
-        });
-    }
-
-    it('ignores a program from a file called only after the call', () => {
+    it('leaves a program from a file called earlier to the resolved scope', () => {
+        // Which file `run library.do` runs is a path question: the
+        // diagnostics provider answers it from the resolved execution
+        // scope (see tests/integration/c-local-arg-reachability-cli),
+        // not the analyzer from a file name.
         const workspace_symbols = workspace_from(
-            SETTER, 'file:///work/library.do'
+            SETTER, 'file:///work/sub/library.do'
         );
-        for (const my_call of ['run other.do', 'run library.ado', 'run `lib\'']) {
-            const result = analyze(
-                [my_call, CALL].join('\n'),
-                workspace_symbols,
-                'file:///work/main.do'
-            );
-            expect(undefined_macros(result)).toContain('result');
-        }
         const result = analyze(
-            [CALL, 'run library.do'].join('\n'),
+            ['run sub/library.do', CALL].join('\n'),
             workspace_symbols,
             'file:///work/main.do'
         );
         expect(undefined_macros(result)).toEqual(['result']);
+    });
+
+    it('ignores a same-file program after a top-level program drop', () => {
+        const dropped = [SETTER, 'program drop review_setter', CALL].join('\n');
+        expect(undefined_macros(analyze(dropped))).toEqual(['result']);
+        const dropped_all = [SETTER, 'program drop _all', CALL].join('\n');
+        expect(undefined_macros(analyze(dropped_all))).toEqual(['result']);
+        // Dropped, then defined again: the usual idiom.
+        const redefined = [
+            'capture program drop review_setter', SETTER, CALL,
+        ].join('\n');
+        expect(undefined_macros(analyze(redefined))).toEqual([]);
+        const dropped_then_redefined = [
+            SETTER, 'program drop review_setter', SETTER, CALL,
+        ].join('\n');
+        expect(undefined_macros(analyze(dropped_then_redefined))).toEqual([]);
     });
 
     it('ignores another file\'s program from inside a program body', () => {
@@ -613,5 +713,58 @@ describe('c_local argument positions: which programs a call can reach', () => {
             'end',
         ].join('\n'), workspace_symbols, 'file:///work/caller.ado');
         expect(undefined_macros(result)).toEqual(['result']);
+    });
+});
+
+describe('c_local argument positions: work per call', () => {
+    // Before, each call compared its name against every earlier
+    // `do`/`run`/`include`: 160,000 path splits for 400 loads and 400
+    // calls. Counted, not timed: every read of a loaded file's
+    // program map is a visit.
+    class CountingMap<K, V> extends Map<K, V> {
+        static visits = 0;
+        override get(key: K): V | undefined {
+            CountingMap.visits++;
+            return super.get(key);
+        }
+        override [Symbol.iterator](): MapIterator<[K, V]> {
+            CountingMap.visits++;
+            return super[Symbol.iterator]();
+        }
+    }
+
+    function visits(count: number): { visits: number; calls: number } {
+        const code = 'run empty.do\n'.repeat(count)
+            + 'run lib.do\n'
+            + 'setter dest\n'.repeat(count)
+            + 'display "`dest\'"\n';
+        const tokens = new StataLexer().tokenize(code).tokens;
+        const ast = new StataParser().parse(tokens).ast;
+        const the_loads = [];
+        for (let i = 0; i <= count; i++) {
+            const programs = new CountingMap<string, { c_local_arg_positions?: number[] }>();
+            if (i === count) programs.set('setter', { c_local_arg_positions: [1] });
+            the_loads.push({ end: { line: i, character: 12 }, programs });
+        }
+        CountingMap.visits = 0;
+        const result = collect_c_local_arg_calls(ast.nodes, tokens, {
+            own_programs: new Map(),
+            loaded_before: new Map(),
+            loads: the_loads,
+        });
+        return {
+            visits: CountingMap.visits,
+            calls: result.calls.get('dest')?.length ?? 0,
+        };
+    }
+
+    it('reads each loaded file a bounded number of times', () => {
+        const small = visits(200);
+        const large = visits(400);
+        expect(small.calls).toBe(200);
+        expect(large.calls).toBe(400);
+        // Two passes over each load: linear, about 2x for 2x the input.
+        expect(large.visits).toBeLessThanOrEqual(2 * (400 + 1));
+        expect(large.visits).toBeLessThan(small.visits * 2.1);
     });
 });

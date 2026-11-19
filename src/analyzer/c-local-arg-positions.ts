@@ -27,6 +27,7 @@ import {
 import { nested_statements } from '../utils/node-body';
 import { is_valid_identifier } from './option-argument-parser';
 import { group_name_words, whole_word_item } from '../utils/name-words';
+import { PROGRAM_COMMAND_NAMES } from '../utils/program-definition';
 
 const C_LOCAL_MACRO_NAME_RE = /^`([A-Za-z_][A-Za-z0-9_]*)'$/;
 const C_LOCAL_DIGIT_NAME_RE = /^`([1-9][0-9]*)'$/;
@@ -198,22 +199,83 @@ function collect_c_local_name_macros(
 ): void {
     for (const my_node of nodes) {
         if (my_node.type === 'program') continue;
-        if (my_node.type === 'command' && my_node.fullName === 'c_local') {
-            const the_items = (my_node.varlist ?? []).filter(
-                (my_item) => my_item.recovery_only !== true
-            );
-            // The parser splits `` `where'_x `` into two items; a name
-            // joined to more text is not the argument alone.
-            const first = whole_word_item(group_name_words(the_items)[0]);
-            const match = first
-                ? C_LOCAL_MACRO_NAME_RE.exec(first.name)
-                    ?? C_LOCAL_DIGIT_NAME_RE.exec(first.name)
-                : null;
-            if (match) names.add(match[1]);
-        }
+        const name = c_local_name_macro(my_node);
+        if (name !== undefined) names.add(name);
         const the_body = nested_statements(my_node);
         if (the_body) collect_c_local_name_macros(the_body, names);
     }
+}
+
+/**
+ * The macro that `node` uses as its whole `c_local` name: `where` for
+ * `` c_local `where' … ``, `1` for `` c_local `1' … ``. Undefined for
+ * any other statement.
+ */
+function c_local_name_macro(node: StataNode): string | undefined {
+    if (node.type !== 'command' || node.fullName !== 'c_local') {
+        return undefined;
+    }
+    const the_items = (node.varlist ?? []).filter(
+        (my_item) => my_item.recovery_only !== true
+    );
+    // The parser splits `` `where'_x `` into two items; a name
+    // joined to more text is not the argument alone.
+    const first = whole_word_item(group_name_words(the_items)[0]);
+    const match = first
+        ? C_LOCAL_MACRO_NAME_RE.exec(first.name)
+            ?? C_LOCAL_DIGIT_NAME_RE.exec(first.name)
+        : null;
+    return match?.[1];
+}
+
+/**
+ * Adds to `positions` each numbered `` c_local `N' `` in `nodes` that
+ * runs, on its first pass, before anything may have changed the
+ * numbered locals (`changes_numbered_local`). A reset after the
+ * `c_local` ran cannot undo the caller's local, so
+ * `` c_local `1' 1 `` then `tokenize "x y"` still names argument 1.
+ *
+ * `changed` says whether the numbered locals may already have changed
+ * on entry; the result says whether they may have after `nodes`. The
+ * branches of an `if` and its `else` chain each start from the state
+ * before the `if`; after the chain, a change in any branch counts.
+ * A loop body is read once, in order: its first pass is what the
+ * caller's local depends on. Nested program definitions are skipped.
+ */
+function collect_numbered_c_local_positions(
+    nodes: readonly StataNode[],
+    changed: boolean,
+    positions: Set<number>
+): boolean {
+    // State before the current `if`/`else` chain, and the union of
+    // its branches' outcomes so far.
+    let chain_entry = changed;
+    let chain_changed = changed;
+    for (const my_node of nodes) {
+        if (my_node.type === 'program') continue;
+        if (my_node.type === 'else') {
+            const after = collect_numbered_c_local_positions(
+                my_node.body, chain_entry, positions);
+            chain_changed = chain_changed || after;
+            changed = chain_changed;
+            continue;
+        }
+        chain_entry = changed;
+        if (!changed) {
+            const name = c_local_name_macro(my_node);
+            if (name !== undefined && DIGITS_RE.test(name)) {
+                positions.add(Number(name));
+            }
+        }
+        if (changes_numbered_local(my_node)) changed = true;
+        const the_body = nested_statements(my_node);
+        if (the_body) {
+            changed = collect_numbered_c_local_positions(
+                the_body, changed, positions);
+        }
+        chain_changed = changed;
+    }
+    return changed;
 }
 
 /**
@@ -302,8 +364,9 @@ function collect_gettoken_bindings(
  * `c_local` name, sorted and unique. Covers:
  *
  * - `args a b` then `` c_local `b' `` (position 2);
- * - `` c_local `1' `` when nothing in the body changes the numbered
- *   locals (`tokenize`, `macro shift`, `local 1 …`);
+ * - `` c_local `1' `` when nothing before it in the body may have
+ *   changed the numbered locals (`tokenize`, `macro shift`,
+ *   `local 1 …`; see `collect_numbered_c_local_positions`);
  * - a leading `gettoken a 0 : 0` then `` c_local `a' `` (position 1).
  *
  * An `args`/`gettoken` name counts only when that statement is the
@@ -321,15 +384,7 @@ export function extract_c_local_arg_positions(
     if (the_names.size === 0) return [];
 
     const the_positions = new Set<number>();
-    const has_digit_name = [...the_names].some((my_name) => DIGITS_RE.test(my_name));
-    if (
-        has_digit_name
-        && !body.some((my_node) => some_statement(my_node, changes_numbered_local))
-    ) {
-        for (const my_name of the_names) {
-            if (DIGITS_RE.test(my_name)) the_positions.add(Number(my_name));
-        }
-    }
+    collect_numbered_c_local_positions(body, false, the_positions);
 
     const the_bindings = new Map<string, Array<{ position: number; range: Range }>>();
     collect_args_bindings(body, the_bindings);
@@ -362,12 +417,11 @@ function compare_positions(a: Position, b: Position): number {
     return a.line !== b.line ? a.line - b.line : a.character - b.character;
 }
 
-function position_text(position: Position): string {
-    return `${position.line}:${position.character}`;
-}
-
-/** Index of the first token starting at or after `position`. */
-function first_token_at_or_after(tokens: readonly Token[], position: Position): number {
+/**
+ * Index of the first token starting at or after `position`, by binary
+ * search: `tokens` are in source order.
+ */
+export function first_token_at_or_after(tokens: readonly Token[], position: Position): number {
     let low = 0;
     let high = tokens.length;
     while (low < high) {
@@ -493,80 +547,187 @@ export interface CLocalArgCall {
     name: string;
     /** Line of the call statement. */
     line: number;
+    /** Where the call statement ends. */
+    end: Position;
     /** Start line of the program body holding the call, if any. */
     program_start_line?: number;
 }
 
+/** A program's positional `c_local` argument positions. */
+interface CLocalArgProgram {
+    c_local_arg_positions?: number[];
+}
+
+/**
+ * Where the programs a file's calls may reach come from, besides the
+ * file's own definitions. Built from the resolved execution scope.
+ */
+export interface CLocalArgProgramSources {
+    /** This file's programs, by name (the analyzer's symbol table). */
+    own_programs: ReadonlyMap<string, CLocalArgProgram>;
+    /**
+     * Programs defined before the file runs: those of the files that
+     * run or include it (the backward chain).
+     */
+    loaded_before: ReadonlyMap<string, CLocalArgProgram>;
+    /**
+     * Files the file runs, includes or names in a `sight:` directive,
+     * at any depth, each with where the statement in this file that
+     * loads it ends and the programs it leaves defined. A program
+     * outlives the do-file that defined it.
+     */
+    loads: ReadonlyArray<{
+        end: Position;
+        programs: ReadonlyMap<string, CLocalArgProgram>;
+    }>;
+}
+
+/**
+ * The names a literal `program drop` removes, or `all` for
+ * `program drop _all`. Undefined for any other statement.
+ */
+export function program_drop_targets(
+    node: StataNode
+): { names: string[]; all: boolean } | undefined {
+    if (node.type !== 'command' || !PROGRAM_COMMAND_NAMES.has(node.fullName)) {
+        return undefined;
+    }
+    const the_items = (node.varlist ?? []).filter(
+        (my_item) => my_item.recovery_only !== true
+    );
+    if (the_items[0]?.name !== 'drop') return undefined;
+    const the_names: string[] = [];
+    let all = false;
+    for (const my_item of the_items.slice(1)) {
+        if (my_item.name === '_all') {
+            all = true;
+        } else if (my_item.name === '_allado') {
+            // Drops only programs loaded from ados, which this file's
+            // own definitions are not; such a program reloads anyway.
+            continue;
+        } else if (is_valid_identifier(my_item.name)) {
+            the_names.push(my_item.name);
+        }
+    }
+    return { names: the_names, all };
+}
+
 /**
  * The caller locals that calls in `nodes` create through positional
- * `c_local` names of `programs`, grouped by local name. Also returns
- * the line spans of the program definitions in `nodes`, so a caller
- * can tell which program frame a reference sits in.
+ * `c_local` names, grouped by local name. Also returns the line spans
+ * of the program definitions in `nodes`, so a caller can tell which
+ * program frame a reference sits in.
  *
- * A call outside any program body does not reach a program that
- * `nodes` itself defines only after the call: Stata has not defined
- * it yet when the call runs.
+ * Which program a call reaches follows execution order. A call
+ * outside any program body reaches a program that is defined when it
+ * runs: one from `sources.loaded_before`, one this file defined
+ * earlier (also inside an `if` block), or one from a file loaded by
+ * an earlier statement; a later definition or load replaces it, and a
+ * literal `program drop` at the top level removes it. A call inside a
+ * program body runs whenever the program is called, which can be
+ * after anything in the file, so it reaches a program defined or
+ * loaded anywhere in the file. All lookups are prepared once, so the
+ * work is linear in the statements and loaded programs.
  */
 export function collect_c_local_arg_calls(
     nodes: readonly StataNode[],
     tokens: readonly Token[],
-    programs: ReadonlyMap<string, {
-        c_local_arg_positions?: number[];
-        location?: { range: Range };
-    }>
+    sources: CLocalArgProgramSources
 ): {
     calls: Map<string, CLocalArgCall[]>;
     program_lines: Array<{ start: number; end: number }>;
 } {
     const calls = new Map<string, CLocalArgCall[]>();
     const program_lines: Array<{ start: number; end: number }> = [];
-    // Start positions of this file's program definitions, by name.
-    const the_definitions = new Map<string, Set<string>>();
-    for (const my_node of nodes) {
-        if (my_node.type !== 'program') continue;
-        const the_starts = the_definitions.get(my_node.name) ?? new Set();
-        the_starts.add(position_text(my_node.range.start));
-        the_definitions.set(my_node.name, the_starts);
+    const the_loads = [...sources.loads].sort(
+        (a, b) => compare_positions(a.end, b.end));
+
+    // Positions of the program each name reaches at the current
+    // statement, for calls outside program bodies.
+    const available = new Map<string, number[] | undefined>();
+    for (const [my_name, my_program] of sources.loaded_before) {
+        available.set(my_name, my_program.c_local_arg_positions);
     }
-    /** True if `program` is this file's definition after `call`. */
-    const is_later_own_definition = (
-        name: string,
-        call: CommandNode
-    ): boolean => {
-        const start = programs.get(name)?.location?.range.start;
-        return start !== undefined
-            && compare_positions(start, call.range.start) > 0
-            && (the_definitions.get(name)?.has(position_text(start)) ?? false);
+    // Positions of some program each name may reach from a body.
+    const anywhere = new Map<string, number[]>();
+    const note_anywhere = (name: string, program: CLocalArgProgram): void => {
+        const the_positions = program.c_local_arg_positions;
+        if (the_positions && the_positions.length > 0 && !anywhere.has(name)) {
+            anywhere.set(name, the_positions);
+        }
     };
-    const visit = (the_nodes: readonly StataNode[], program_start_line?: number): void => {
+    for (const [my_name, my_program] of sources.own_programs) {
+        note_anywhere(my_name, my_program);
+    }
+    for (const [my_name, my_program] of sources.loaded_before) {
+        note_anywhere(my_name, my_program);
+    }
+    for (const my_load of the_loads) {
+        for (const [my_name, my_program] of my_load.programs) {
+            note_anywhere(my_name, my_program);
+        }
+    }
+
+    let next_load = 0;
+    /** Applies each load that ends by `position`. */
+    const apply_loads_before = (position: Position): void => {
+        while (
+            next_load < the_loads.length
+            && compare_positions(the_loads[next_load].end, position) <= 0
+        ) {
+            for (const [my_name, my_program] of the_loads[next_load].programs) {
+                available.set(my_name, my_program.c_local_arg_positions);
+            }
+            next_load++;
+        }
+    };
+
+    const visit = (
+        the_nodes: readonly StataNode[],
+        program_start_line: number | undefined,
+        at_top_level: boolean
+    ): void => {
         for (const my_node of the_nodes) {
+            apply_loads_before(my_node.range.start);
             if (my_node.type === 'program') {
                 program_lines.push({
                     start: my_node.range.start.line,
                     end: my_node.range.end.line,
                 });
-                visit(my_node.body, my_node.range.start.line);
+                visit(my_node.body, my_node.range.start.line, false);
+                available.set(
+                    my_node.name,
+                    sources.own_programs.get(my_node.name)?.c_local_arg_positions
+                );
                 continue;
             }
+            const the_drop = at_top_level
+                ? program_drop_targets(my_node) : undefined;
+            if (the_drop?.all) available.clear();
+            for (const my_name of the_drop?.names ?? []) {
+                available.delete(my_name);
+            }
             if (my_node.type === 'command') {
-                const the_positions = programs.get(my_node.fullName)?.c_local_arg_positions;
-                if (the_positions && (program_start_line !== undefined
-                    || !is_later_own_definition(my_node.fullName, my_node))) {
-                    for (const my_created of resolve_c_local_arg_names(my_node, tokens, the_positions)) {
-                        const the_list = calls.get(my_created.name) ?? [];
-                        the_list.push({
-                            name: my_created.name,
-                            line: my_node.range.start.line,
-                            program_start_line,
-                        });
-                        calls.set(my_created.name, the_list);
-                    }
+                const the_positions = program_start_line === undefined
+                    ? available.get(my_node.fullName)
+                    : anywhere.get(my_node.fullName);
+                for (const my_created of resolve_c_local_arg_names(
+                    my_node, tokens, the_positions ?? []
+                )) {
+                    const the_list = calls.get(my_created.name) ?? [];
+                    the_list.push({
+                        name: my_created.name,
+                        line: my_node.range.start.line,
+                        end: my_node.range.end,
+                        program_start_line,
+                    });
+                    calls.set(my_created.name, the_list);
                 }
             }
             const the_body = nested_statements(my_node);
-            if (the_body) visit(the_body, program_start_line);
+            if (the_body) visit(the_body, program_start_line, false);
         }
     };
-    visit(nodes);
+    visit(nodes, undefined, true);
     return { calls, program_lines };
 }

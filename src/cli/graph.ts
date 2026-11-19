@@ -11,13 +11,11 @@ import { URI } from 'vscode-uri';
 import package_json from '../../package.json' with { type: 'json' };
 import { DependencyGraph } from '../dependency-graph';
 import { ScopeResolver, scope_resolver_config_for } from '../scope-resolver';
+import { analyze_source, prepare_forward_calls } from '../source-analysis';
 import {
-    analyze_source,
-    prepare_forward_calls,
-    SourceAnalysis,
-} from '../source-analysis';
-import {
+    CdCommand,
     CommandNode,
+    DirectiveParseResult,
     ForwardCall,
     ForwardCallType,
     StataLSPConfig,
@@ -175,18 +173,17 @@ function index_commands(nodes: StataNode[], into: Map<string, CommandNode>): voi
     }
 }
 
-/** Tokens that separate words but are never part of one. */
-const TRIVIA_TYPES: ReadonlySet<string> = new Set([
-    'WHITESPACE', 'COMMENT_LINE', 'COMMENT_BLOCK', 'CONTINUATION',
-    'STATEMENT_TERMINATOR', 'EOF',
+/**
+ * Tokens that end a word and add no text of their own: a line
+ * comment, a `///` line break, the end of the statement.
+ */
+const WORD_BREAK_TYPES: ReadonlySet<string> = new Set([
+    'WHITESPACE', 'COMMENT_LINE', 'CONTINUATION', 'STATEMENT_TERMINATOR',
+    'EOF',
 ]);
 
 function compare_positions(a: Range['start'], b: Range['start']): number {
     return a.line - b.line || a.character - b.character;
-}
-
-function touches(left: Token, right: Token): boolean {
-    return compare_positions(left.range.end, right.range.start) === 0;
 }
 
 /** Index of the first token that starts at or after `position`. */
@@ -205,19 +202,112 @@ function first_token_at(tokens: Token[], position: Range['start']): number {
 }
 
 /**
- * The words after the path of a `do`/`run`/`include` command, in
- * source order: everything to the end of the statement, qualifiers,
- * weights and a `, options` tail included, since Stata passes every
- * word after the file name to the do-file. Touching tokens form one
- * word (`a>b`, `` "x`y'z" ``, `[aw=x]`), as Stata splits them for
- * `args`. The path is the first word, so a quoted path with a macro
- * inside (`` "step`wave'.do" ``) stays out of the arguments.
+ * The text of `tokens` from `start` to `end` as Stata reads it once
+ * comments are gone (Stata 18): a block comment vanishes, so `a`, a
+ * block comment and `b` with no space between them read `ab`, while
+ * space, a line comment and a `///` line break become one space.
+ */
+function text_without_comments(
+    tokens: Token[],
+    start: Range['start'],
+    end: Range['start'],
+): string {
+    const the_parts: string[] = [];
+    let previous_end: Range['start'] | null = null;
+    for (let i = first_token_at(tokens, start); i < tokens.length; i++) {
+        const my_token = tokens[i];
+        if (compare_positions(my_token.range.start, end) >= 0) {
+            break;
+        }
+        if (WORD_BREAK_TYPES.has(my_token.type)) {
+            the_parts.push(' ');
+            previous_end = null;
+            continue;
+        }
+        if (previous_end !== null &&
+            compare_positions(previous_end, my_token.range.start) !== 0) {
+            the_parts.push(' ');
+        }
+        if (my_token.type !== 'COMMENT_BLOCK') {
+            the_parts.push(my_token.value);
+        }
+        previous_end = my_token.range.end;
+    }
+    return the_parts.join('');
+}
+
+/** End of the compound-quoted string `` `"..."' `` that starts at `start`. */
+function compound_quote_end(text: string, start: number): number {
+    let depth = 0;
+    let i = start;
+    while (i < text.length) {
+        if (text.startsWith('`"', i)) {
+            depth++;
+            i += 2;
+        } else if (text.startsWith('"\'', i)) {
+            depth--;
+            i += 2;
+            if (depth === 0) {
+                return i;
+            }
+        } else {
+            i++;
+        }
+    }
+    return text.length;
+}
+
+function is_space(character: string): boolean {
+    return character === ' ' || character === '\t';
+}
+
+/**
+ * Split `text` into words as `args` does: at spaces, with a quoted
+ * (`"a b"`) or compound-quoted (`` `"a "b" c"' ``) string as one word
+ * even where it touches other text (`a"b c"d` is three words). Words
+ * keep their quotes as written.
+ */
+function split_words(text: string): string[] {
+    const the_words: string[] = [];
+    let i = 0;
+    while (i < text.length) {
+        if (is_space(text[i])) {
+            i++;
+            continue;
+        }
+        let end: number;
+        if (text.startsWith('`"', i)) {
+            end = compound_quote_end(text, i);
+        } else if (text[i] === '"') {
+            const close = text.indexOf('"', i + 1);
+            end = close < 0 ? text.length : close + 1;
+        } else {
+            end = i;
+            while (end < text.length && !is_space(text[end]) &&
+                text[end] !== '"' && !text.startsWith('`"', end)) {
+                end++;
+            }
+        }
+        the_words.push(text.slice(i, end));
+        i = end;
+    }
+    return the_words;
+}
+
+/**
+ * What a `do` or `run` command passes to the do-file: the words after
+ * the path and before the first comma, as `args` reads them (Stata
+ * 18). The first comma ends them, even inside quotes; what follows is
+ * `do`'s own options (`nostop`), and Stata rejects any other option
+ * without running the file. `include` passes nothing. Qualifier-like
+ * words are ordinary words here (`if price > 100`).
  */
 function call_arguments(
+    call_type: ForwardCallType,
     node: CommandNode | undefined,
     tokens: Token[],
 ): string[] {
-    if (node === undefined) {
+    if (node === undefined || call_type === 'include') {
         return [];
     }
     const the_items = [...(node.varlist ?? []), ...(node.extra_args ?? [])];
@@ -231,35 +321,10 @@ function call_arguments(
     if (path_start === undefined) {
         return [];
     }
-    let i = first_token_at(tokens, path_start);
-    // Skip the path: the run of tokens touching its first one.
-    while (i + 1 < tokens.length && touches(tokens[i], tokens[i + 1])) {
-        i++;
-    }
-    i++;
-    const the_words: string[] = [];
-    let my_word = '';
-    for (; i < tokens.length; i++) {
-        const my_token = tokens[i];
-        if (compare_positions(my_token.range.start, node.range.end) >= 0) {
-            break;
-        }
-        if (TRIVIA_TYPES.has(my_token.type)) {
-            continue;
-        }
-        if (my_word !== '' && touches(tokens[i - 1], my_token)) {
-            my_word += my_token.value;
-        } else {
-            if (my_word !== '') {
-                the_words.push(my_word);
-            }
-            my_word = my_token.value;
-        }
-    }
-    if (my_word !== '') {
-        the_words.push(my_word);
-    }
-    return the_words;
+    const text = text_without_comments(tokens, path_start, node.range.end);
+    const comma = text.indexOf(',');
+    // The path is the first word.
+    return split_words(comma < 0 ? text : text.slice(0, comma)).slice(1);
 }
 
 /**
@@ -370,31 +435,46 @@ export async function build_graph_document(options: {
     const the_paths = [...options.file_paths].sort((a, b) =>
         display_path(a) < display_path(b) ? -1 : display_path(a) > display_path(b) ? 1 : 0);
 
-    const forward_calls_for = (
-        uri: string,
-        source: SourceAnalysis,
-        working_directory: string | undefined,
-    ): ForwardCall[] => prepare_forward_calls({
-        uri,
-        command_calls: source.analysis.forward_calls,
-        directive_calls: source.directives.forward_calls ?? [],
-        cd_commands: source.analysis.cd_commands,
-        working_directory,
-        workspace_roots: [root],
-    });
-
-    // First, as the workspace indexer does for `sight check`, register
-    // every file's calls with its own or explicitly inherited working
-    // directory. Then resolve each file's working directory as `check`
-    // does for each file it reports on, with auto-discovered parents
-    // from that graph (docs/cross-file.md, Working Directory).
-    const the_sources: Array<{
+    // Facts each file keeps for working-directory resolution and its
+    // edges, so the graph holds no file's tokens or AST past its read.
+    const the_facts: Array<{
         my_path: string;
         caller: string;
         uri: string;
-        source: SourceAnalysis;
+        command_calls: ForwardCall[];
+        cd_commands: CdCommand[];
+        directives: DirectiveParseResult;
+        arguments_by_range: Map<string, string[]>;
         own_working_directory: string | undefined;
+        /** Own or explicitly inherited; what forward directives use. */
+        directive_working_directory: string | undefined;
+        working_directory: string | undefined;
     }> = [];
+    type FileFacts = (typeof the_facts)[number];
+
+    // Command calls resolve against the working directory the file runs
+    // in. Forward directives resolve against the file's own directory,
+    // or one it sets or explicitly inherits, never one inherited from
+    // an auto-discovered caller (docs/cross-file.md, Working Directory).
+    const forward_calls_for = (facts: FileFacts): ForwardCall[] => [
+        ...prepare_forward_calls({
+            uri: facts.uri,
+            command_calls: facts.command_calls,
+            directive_calls: [],
+            cd_commands: facts.cd_commands,
+            working_directory: facts.working_directory,
+            workspace_roots: [root],
+        }),
+        ...prepare_forward_calls({
+            uri: facts.uri,
+            command_calls: [],
+            directive_calls: facts.directives.forward_calls ?? [],
+            cd_commands: [],
+            working_directory: facts.directive_working_directory,
+            workspace_roots: [root],
+        }),
+    ];
+
     for (const my_path of the_paths) {
         const caller = display_path(my_path);
         const read = read_source_file(my_path);
@@ -412,30 +492,72 @@ export async function build_graph_document(options: {
         const is_standalone = directives.standalone !== undefined;
         the_files.push({ path: caller, standalone: is_standalone, error: null });
 
+        const the_commands = new Map<string, CommandNode>();
+        index_commands(source.ast.nodes, the_commands);
+        const arguments_by_range = new Map<string, string[]>();
+        for (const my_call of source.analysis.forward_calls) {
+            const key = range_key(my_call.range);
+            arguments_by_range.set(key, call_arguments(
+                my_call.type, the_commands.get(key), source.tokens));
+        }
+
         const own_working_directory = directives.working_directory
             ? resolve_working_directory_directive(directives.working_directory, root)
             : undefined;
-        const working_directory = own_working_directory ??
+        const directive_working_directory = own_working_directory ??
             await scope_resolver.resolve_inherited_working_directory(
                 directives.directives, uri, is_standalone, scope_resolver_config);
-        dependency_graph.update_caller(
-            uri, forward_calls_for(uri, source, working_directory));
-        the_sources.push({ my_path, caller, uri, source, own_working_directory });
+        const facts: FileFacts = {
+            my_path,
+            caller,
+            uri,
+            command_calls: source.analysis.forward_calls,
+            cd_commands: source.analysis.cd_commands,
+            directives,
+            arguments_by_range,
+            own_working_directory,
+            directive_working_directory,
+            working_directory: directive_working_directory,
+        };
+        dependency_graph.update_caller(uri, forward_calls_for(facts));
+        the_facts.push(facts);
     }
 
-    for (const { my_path, caller, uri, source, own_working_directory } of the_sources) {
-        const directives = source.directives;
-        const working_directory = own_working_directory ??
-            await scope_resolver.resolve_document_working_directory(
-                uri, directives, scope_resolver_config);
-        const the_calls = forward_calls_for(uri, source, working_directory);
+    // As the workspace indexer does for `sight check`, the calls above
+    // used each file's own or explicitly inherited working directory.
+    // A file also inherits one from an auto-discovered caller, and that
+    // caller's calls may land elsewhere once it has its own inherited
+    // directory, so re-resolve every file against the graph of the last
+    // round and register its calls again until no directory changes
+    // (each round settles at least one more level of callers). The
+    // bound stops a pathological cycle from going on forever.
+    const max_rounds = (config.cross_file.max_backward_depth ?? 10) + 2;
+    for (let round = 0; round < max_rounds; round++) {
+        const the_changed: FileFacts[] = [];
+        for (const my_facts of the_facts) {
+            const working_directory = my_facts.own_working_directory ??
+                await scope_resolver.resolve_document_working_directory(
+                    my_facts.uri, my_facts.directives, scope_resolver_config);
+            if (working_directory !== my_facts.working_directory) {
+                my_facts.working_directory = working_directory;
+                the_changed.push(my_facts);
+            }
+        }
+        if (the_changed.length === 0) {
+            break;
+        }
+        for (const my_facts of the_changed) {
+            dependency_graph.update_caller(
+                my_facts.uri, forward_calls_for(my_facts));
+        }
+    }
 
-        const the_commands = new Map<string, CommandNode>();
-        index_commands(source.ast.nodes, the_commands);
+    for (const my_facts of the_facts) {
+        const { my_path, caller, directives } = my_facts;
         const caller_dir = path.dirname(my_path);
         const the_file_edges: GraphEdge[] = [];
 
-        for (const my_call of the_calls) {
+        for (const my_call of forward_calls_for(my_facts)) {
             let target: string | null = null;
             let resolution: Resolution = 'dynamic';
             if (is_resolvable_static_call(my_call)) {
@@ -456,8 +578,8 @@ export async function build_graph_document(options: {
                 range: my_call.range,
                 raw_path: my_call.raw_path,
                 arguments: my_call.source === 'command'
-                    ? call_arguments(
-                        the_commands.get(range_key(my_call.range)), source.tokens)
+                    ? my_facts.arguments_by_range.get(
+                        range_key(my_call.range)) ?? []
                     : [],
                 static: my_call.is_static,
                 source: my_call.source,

@@ -297,21 +297,42 @@ export function is_cli_entry_point(
     );
 }
 
-// How long exit_after_output lets output flush before it exits
-// anyway, in case a handle would keep the process alive.
-const EXIT_FLUSH_LIMIT_MS = 5_000;
-
 /**
  * Exit with `code` once stdout and stderr have flushed. process.exit
  * drops what a pipe hasn't taken yet: `sight parse --json` piped to a
  * slow reader lost all but the first 64 KiB when one file failed. A
  * write callback can't tell when the pipe has it (Bun calls it before
- * then), so this sets the exit code and lets the process end on its
- * own, exiting at the limit if something keeps it alive.
+ * then, and reports no pending bytes), but in Bun and Node the
+ * callback of `end()` waits until the reader has taken everything, so
+ * this ends both streams and exits when both have finished or failed
+ * (a reader that went away). There is no time limit: a pending write
+ * is never cut off, and once both streams finish, the explicit exit
+ * stops any other handle from keeping the process alive.
  */
 function exit_after_output(code: number): void {
     process.exitCode = code;
-    setTimeout(() => process.exit(code), EXIT_FLUSH_LIMIT_MS).unref();
+    let pending = 2;
+    const finish_one = (): void => {
+        pending--;
+        if (pending === 0) {
+            process.exit(code);
+        }
+    };
+    for (const my_stream of [process.stdout, process.stderr]) {
+        let is_done = false;
+        const done = (): void => {
+            if (!is_done) {
+                is_done = true;
+                finish_one();
+            }
+        };
+        my_stream.once('error', done);
+        try {
+            my_stream.end(done);
+        } catch {
+            done();
+        }
+    }
 }
 
 // Run main if this is the entry point. Use process.argv[1] for
