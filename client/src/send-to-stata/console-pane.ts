@@ -14,11 +14,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { pathToFileURL } from 'url';
 import * as vscode from 'vscode';
-import {
-    hold_temp_file,
-    release_temp_file,
-    schedule_temp_file_cleanup
-} from './temp-file.js';
+import { schedule_temp_file_cleanup } from './temp-file.js';
 
 // ---- The console runtime's contract (src/console/editor-console.ts) ----
 
@@ -141,11 +137,12 @@ export function create_console_pane(
     /** Temp files of typed lines not yet given to Stata. */
     const the_held_files = new Set<string>();
 
+    // A file leaves the set as its deletion is decided, so it is
+    // deleted once.
     const settle_file = (file_path: string, sent: boolean): void => {
         if (!the_held_files.delete(file_path)) {
             return;
         }
-        release_temp_file(file_path);
         if (sent) {
             schedule_temp_file_cleanup(file_path);
         } else {
@@ -258,7 +255,6 @@ export function create_console_pane(
             if (temp_file_path === undefined) {
                 return;
             }
-            hold_temp_file(temp_file_path);
             the_held_files.add(temp_file_path);
             sent.then(
                 is_sent => settle_file(temp_file_path, is_sent),

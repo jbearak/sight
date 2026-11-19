@@ -29,7 +29,11 @@ export type BridgeReply =
     | { ok: true; value: Record<string, unknown> }
     | { ok: false; failure: BridgeFailure }
     | { ok: false; timed_out: true }
-    | { ok: false; bridge_gone: true };
+    /**
+     * The helper ended. `request_written` means the request reached it
+     * first, so it may have acted on it (only the reply is lost).
+     */
+    | { ok: false; bridge_gone: true; request_written?: true };
 
 export interface RequestOptions {
     /**
@@ -109,7 +113,9 @@ export class BridgeClient implements Bridge {
             for (const [my_id, my_pending] of this.pending) {
                 this.pending.delete(my_id);
                 this.clear(my_pending);
-                my_pending.resolve({ ok: false, bridge_gone: true });
+                my_pending.resolve({
+                    ok: false, bridge_gone: true, request_written: true,
+                });
             }
             return stderr;
         });

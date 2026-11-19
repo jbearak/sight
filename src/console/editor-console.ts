@@ -43,6 +43,12 @@ export interface EditorConsoleHost {
     working_directory?: string;
     /** Required on macOS and Linux; unused on Windows. */
     pty?: EditorConsolePty;
+    /**
+     * With this, `handle_input` may carry editor sends in an escape
+     * sequence (editor-send-channel.ts), each passed here, never taken
+     * as keys: for a console on a terminal (editor-console-tty.ts).
+     */
+    on_editor_send?: (payload: string) => void;
 }
 
 export interface EditorConsoleEnd {
@@ -130,6 +136,7 @@ export function start_editor_console(host: EditorConsoleHost): EditorConsole {
             color_output: host.env.NO_COLOR ? 'off' : 'streams',
             history: true,
             working_directory: host.working_directory,
+            on_editor_send: host.on_editor_send,
             start_backend: (events) => {
                 const handle = opened.connection.start_backend(events);
                 resolve_ready(true);
@@ -211,6 +218,7 @@ function start_pty_console(host: EditorConsoleHost): EditorConsole {
             color_output: host.env.NO_COLOR ? 'off' : 'streams',
             history: true,
             working_directory: host.working_directory,
+            on_editor_send: host.on_editor_send,
             // Before Stata's first prompt it may still discard typed
             // input, so sends wait for this.
             on_ready: () => {

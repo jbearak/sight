@@ -14,7 +14,16 @@
  *   --cwd DIR          Stata's working directory
  *   --ready-file PATH  written (atomically, 0600) at the first prompt
  *   --end-file PATH    written when the console ends on its own
- *   --run LINE         typed at the first prompt (the first do/run)
+ *   --run LINE         entered at the first prompt (the first do/run)
+ *   --send-dir DIR     where the extension writes sends' do-files
+ *
+ * Its input is keys, plus editor sends in an escape sequence
+ * (editor-send-channel.ts), which it enters at Stata's prompt as the
+ * pane's sends are, never as keys. It deletes each send's do-file
+ * once Stata has read the line, or at once if Stata never will, and
+ * any it still has when it exits. It deletes only the extension's own
+ * temp do-files in the send directory, and ignores a send naming
+ * another file (or any send, without --send-dir).
  *
  * It exits with the console's code. After a failure it leaves the
  * console's last words on screen until a key, as the pane does.
@@ -27,12 +36,25 @@ import type {
     EditorConsoleEnd,
     EditorConsoleHost,
 } from './editor-console';
+import {
+    delete_editor_send_file,
+    is_editor_send_file,
+    parse_editor_send,
+} from './editor-send-channel';
 
 /** Mirrors editor-console.ts and the extension's console-pane.ts. */
 const EDITOR_CONSOLE_API_VERSION = 3;
 const DEFAULT_COLUMNS = 80;
 const DEFAULT_ROWS = 24;
 const PRESS_ANY_KEY = '\r\n[Press any key to close this pane.]';
+/** As the extension's temp-file cleanup: Stata has read the line. */
+const SENT_FILE_CLEANUP_MS = 30000;
+
+/** The cleanup delay; tests shorten it with SIGHT_TEST_SENT_FILE_DELAY_MS. */
+function sent_file_cleanup_ms(): number {
+    const value = Number(process.env.SIGHT_TEST_SENT_FILE_DELAY_MS);
+    return Number.isInteger(value) && value > 0 ? value : SENT_FILE_CLEANUP_MS;
+}
 
 interface EditorConsoleModule {
     EDITOR_CONSOLE_API_VERSION: number;
@@ -46,6 +68,7 @@ export interface TtyConsoleArgs {
     ready_file?: string;
     end_file?: string;
     run_line?: string;
+    send_dir?: string;
 }
 
 const VALUE_FLAGS: ReadonlyMap<string, keyof TtyConsoleArgs> = new Map([
@@ -55,6 +78,7 @@ const VALUE_FLAGS: ReadonlyMap<string, keyof TtyConsoleArgs> = new Map([
     ['--ready-file', 'ready_file'],
     ['--end-file', 'end_file'],
     ['--run', 'run_line'],
+    ['--send-dir', 'send_dir'],
 ]);
 
 export function parse_tty_console_args(
@@ -126,19 +150,47 @@ export function run_tty_console(args: TtyConsoleArgs): void {
     let key_reader: ((text: string) => void) | null = null;
     let the_console: EditorConsole | null = null;
     let closing = false;
+    let ended = false;
+    /** Sent files waiting out their cleanup delay. */
+    const the_sent_files = new Map<string, ReturnType<typeof setTimeout>>();
+    /** Files of sends the console hasn't entered yet. */
+    const the_waiting_files = new Set<string>();
+
+    // Each file is in at most one of the two collections, and leaves it
+    // as it is deleted, so it is deleted once.
+    const settle_file = (file_path: string, sent: boolean): void => {
+        if (!the_waiting_files.delete(file_path)) {
+            return;
+        }
+        if (!sent) {
+            delete_editor_send_file(file_path);
+            return;
+        }
+        const timer = setTimeout(() => {
+            the_sent_files.delete(file_path);
+            delete_editor_send_file(file_path);
+        }, sent_file_cleanup_ms());
+        the_sent_files.set(file_path, timer);
+    };
 
     const exit = (code: number): void => {
         if (stdin.isTTY) {
             stdin.setRawMode(false);
         }
+        // Stata has ended, so it reads none of these any more.
+        for (const [my_file, my_timer] of the_sent_files) {
+            clearTimeout(my_timer);
+            delete_editor_send_file(my_file);
+        }
+        the_sent_files.clear();
+        for (const my_file of the_waiting_files) {
+            delete_editor_send_file(my_file);
+        }
+        the_waiting_files.clear();
         process.exit(code);
     };
 
-    if (stdin.isTTY) {
-        stdin.setRawMode(true);
-    }
-    stdin.setEncoding('utf8');
-    stdin.on('data', (text: string) => {
+    const handle_keys = (text: string): void => {
         if (key_reader) {
             const reader = key_reader;
             key_reader = null;
@@ -146,7 +198,38 @@ export function run_tty_console(args: TtyConsoleArgs): void {
             return;
         }
         the_console?.handle_input(text);
-    });
+    };
+    // An editor send (editor-send-channel.ts), read from the input by
+    // the console: entered at a prompt, never taken as keys. Its file
+    // goes once Stata has read the line, or at once if it never will.
+    // One that is malformed or names a file that isn't the extension's
+    // (one sent twice, too) is ignored whole.
+    const handle_send = (payload: string): void => {
+        const send = parse_editor_send(payload);
+        if (
+            !send || args.send_dir === undefined
+            || !is_editor_send_file(send.file, args.send_dir)
+            || the_waiting_files.has(send.file)
+            || the_sent_files.has(send.file)
+        ) {
+            return;
+        }
+        const file = send.file;
+        the_waiting_files.add(file);
+        if (!the_console || closing || ended) {
+            settle_file(file, false);
+            return;
+        }
+        void the_console.send_line(send.line).then((sent) => {
+            settle_file(file, sent);
+        });
+    };
+
+    if (stdin.isTTY) {
+        stdin.setRawMode(true);
+    }
+    stdin.setEncoding('utf8');
+    stdin.on('data', handle_keys);
     stdin.resume();
 
     const read_key = (): Promise<string> => new Promise((resolve) => {
@@ -174,6 +257,7 @@ export function run_tty_console(args: TtyConsoleArgs): void {
         env: process.env,
         working_directory: args.working_directory,
         pty: { helper_path: args.helper_path, stata_path: args.stata_path },
+        on_editor_send: handle_send,
     });
     the_console = started;
 
@@ -198,7 +282,9 @@ export function run_tty_console(args: TtyConsoleArgs): void {
             args.ready_file, JSON.stringify({ pid: process.pid })
         );
         if (args.run_line) {
-            started.handle_input(`${args.run_line}\r`);
+            // A send, on its own line: not joined to what the user may
+            // have typed while Stata started.
+            void started.send_line(args.run_line);
         }
     });
 
@@ -208,6 +294,7 @@ export function run_tty_console(args: TtyConsoleArgs): void {
     );
 
     function finish(end: EditorConsoleEnd): void {
+        ended = true;
         if (closing) {
             exit(end.code);
             return;

@@ -14,8 +14,8 @@ import {
     STATA_APP_NOT_FOUND_MESSAGE
 } from './stata-detector.js';
 import { send_to_stata_app } from './applescript.js';
-import { send_to_terminal } from './terminal.js';
 import {
+    send_to_active_terminal,
     send_to_stata_terminal,
     SendCancelledError,
 } from './stata-terminal-manager.js';
@@ -131,13 +131,13 @@ export async function execute_cd_command(
     }
 
     const temp_file_path = await create_temp_file(cd_command);
-    // A send queued for a starting sight console terminal belongs to
-    // that terminal's queue, which deletes the file itself.
-    let is_queued = false;
+    // A send a sight console terminal takes belongs to its queue or
+    // its console, which deletes the file itself.
+    let is_taken = false;
 
     try {
         if (effective_target === 'integrated') {
-            is_queued = await send_to_stata_terminal('do', temp_file_path);
+            is_taken = await send_to_stata_terminal('do', temp_file_path);
         } else if (effective_target === 'app') {
             if (process.platform === 'darwin') {
                 const stata_app = await detect_stata_app();
@@ -171,7 +171,7 @@ export async function execute_cd_command(
                 return;
             }
         } else {
-            await send_to_terminal('do', temp_file_path);
+            is_taken = await send_to_active_terminal('do', temp_file_path);
         }
     } catch (my_error) {
         if (!(my_error instanceof SendCancelledError)) {
@@ -180,7 +180,7 @@ export async function execute_cd_command(
                     ? my_error.message : my_error}`);
         }
     } finally {
-        if (!is_queued) {
+        if (!is_taken) {
             schedule_temp_file_cleanup(temp_file_path);
         }
     }

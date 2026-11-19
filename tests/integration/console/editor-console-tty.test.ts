@@ -13,11 +13,13 @@
 
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { spawnSync } from 'child_process';
+import * as crypto from 'crypto';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
 import { spawn_helper_pty, type HelperPty } from '../../../src/console/helper-pty';
 import { parse_tty_console_args } from '../../../src/console/editor-console-tty';
+import { encode_editor_send } from '../../../src/console/editor-send-channel';
 
 const ROOT = path.resolve(import.meta.dir, '../../..');
 const CLIENT_DIR = path.join(ROOT, 'client');
@@ -77,7 +79,18 @@ interface Run {
 
 let run_count = 0;
 
-function start(options: { stata?: string; run_line?: string } = {}): Run {
+/** A do-file named as the extension names its temp files. */
+function send_file(run: Run, text: string): string {
+    const file = path.join(run.dir, `stata_send_${crypto.randomBytes(16).toString('hex')}.do`);
+    fs.writeFileSync(file, text);
+    return file;
+}
+
+function start(options: {
+    stata?: string;
+    run_line?: string;
+    env?: Record<string, string>;
+} = {}): Run {
     run_count += 1;
     const dir = path.join(BUILD_DIR, `session-${run_count}`);
     fs.mkdirSync(dir, { mode: 0o700 });
@@ -90,6 +103,7 @@ function start(options: { stata?: string; run_line?: string } = {}): Run {
         '--cwd', dir,
         '--ready-file', ready_file,
         '--end-file', end_file,
+        '--send-dir', dir,
     ];
     if (options.run_line) {
         the_args.push('--run', options.run_line);
@@ -101,7 +115,10 @@ function start(options: { stata?: string; run_line?: string } = {}): Run {
         args: the_args,
         columns: 80,
         rows: 24,
-        env: { ...process.env, FAKE_STATA_MODE: 'raw', NO_COLOR: '1', TERM: 'xterm-256color' },
+        env: {
+            ...process.env, FAKE_STATA_MODE: 'raw', NO_COLOR: '1', TERM: 'xterm-256color',
+            ...options.env,
+        },
         on_data: (text) => {
             screen += text;
         },
@@ -114,9 +131,10 @@ describe('parse_tty_console_args', () => {
         expect(parse_tty_console_args([
             '--helper', '/h', '--stata', '/s', '--cwd', '/c',
             '--ready-file', '/r', '--end-file', '/e', '--run', 'do x',
+            '--send-dir', '/t',
         ])).toEqual({
             helper_path: '/h', stata_path: '/s', working_directory: '/c',
-            ready_file: '/r', end_file: '/e', run_line: 'do x',
+            ready_file: '/r', end_file: '/e', run_line: 'do x', send_dir: '/t',
         });
     });
 
@@ -158,6 +176,103 @@ describe_tty('editor console on a terminal (tty.js)', () => {
         expect(await run.terminal.exit_status).toBe(0);
         const end = JSON.parse(fs.readFileSync(run.end_file, 'utf8'));
         expect(end).toEqual({ code: 0, took_stata: true, helper_failed: false });
+    }, 30000);
+
+    it('enters an editor send at the next prompt, never at --more--, and deletes its file', async () => {
+        const run = start({ env: { SIGHT_TEST_SENT_FILE_DELAY_MS: '1500' } });
+        await wait_for(() => fs.existsSync(run.ready_file), 'the ready file');
+        const do_file = send_file(run, 'display 1\n');
+        run.terminal.write('more\r');
+        await wait_for(() => run.screen().includes('--more--'), 'the pager');
+        // Split mid-sequence, with a pause far longer than the Esc
+        // wait, as a slow terminal read may split it.
+        const send = encode_editor_send({ line: `do "${do_file}"`, file: do_file });
+        run.terminal.write(send.slice(0, 7));
+        await sleep(300);
+        run.terminal.write(send.slice(7));
+        await sleep(300);
+        // The pager is still waiting: the send didn't answer it.
+        expect(run.screen()).not.toContain('line 3');
+        expect(run.screen()).not.toContain('ran ');
+        run.terminal.write('q');
+        await wait_for(() => run.screen().includes('line 3 ("q")'), 'the answer');
+        await wait_for(() => run.screen().includes(`ran ${do_file}`), 'the send');
+        // Stata read it, so the file stays for the cleanup delay, and
+        // then goes while the console still runs.
+        expect(fs.existsSync(do_file)).toBe(true);
+        await wait_for(() => !fs.existsSync(do_file), 'the cleanup delay', 5000);
+        run.terminal.write('display still here\r');
+        await wait_for(() => /\nstill here\r/.test(run.screen()), 'the console to run on');
+
+        // A send the console can't enter (it is ending) is deleted.
+        const dropped = send_file(run, 'display 2\n');
+        run.terminal.write('exit\r');
+        run.terminal.write(encode_editor_send({ line: `do "${dropped}"`, file: dropped }));
+        expect(await run.terminal.exit_status).toBe(0);
+        await wait_for(() => !fs.existsSync(dropped), 'the dropped file to go');
+    }, 30000);
+
+    it('deletes, at its exit, the files of sends Stata read', async () => {
+        const run = start();
+        await wait_for(() => fs.existsSync(run.ready_file), 'the ready file');
+        const do_file = send_file(run, 'display 1\n');
+        run.terminal.write(encode_editor_send({ line: `do "${do_file}"`, file: do_file }));
+        await wait_for(() => run.screen().includes(`ran ${do_file}`), 'the send');
+        await sleep(200);
+        expect(fs.existsSync(do_file)).toBe(true);
+        run.terminal.write('exit\r');
+        expect(await run.terminal.exit_status).toBe(0);
+        expect(fs.existsSync(do_file)).toBe(false);
+    }, 30000);
+
+    it('takes a pasted send as pasted text: nothing runs, nothing is deleted', async () => {
+        const run = start();
+        await wait_for(() => fs.existsSync(run.ready_file), 'the ready file');
+        const do_file = send_file(run, 'display 1\n');
+        const send = encode_editor_send({ line: `do "${do_file}"`, file: do_file });
+        run.terminal.write(`\x1b[200~${send}\x1b[201~`);
+        await sleep(500);
+        expect(run.screen()).not.toContain('ran ');
+        expect(fs.existsSync(do_file)).toBe(true);
+        // Clear the pasted text, then end.
+        run.terminal.write('\x03');
+        await sleep(100);
+        run.terminal.write('exit\r');
+        expect(await run.terminal.exit_status).toBe(0);
+        expect(fs.existsSync(do_file)).toBe(true);
+    }, 30000);
+
+    it('ignores a send that names a file other than its own temp files', async () => {
+        const run = start();
+        await wait_for(() => fs.existsSync(run.ready_file), 'the ready file');
+        const other = path.join(run.dir, 'keep.do');
+        fs.writeFileSync(other, 'display 1\n');
+        const outside = path.join(run.dir, 'sub', path.basename(send_file(run, '')));
+        for (const my_file of [other, outside, `${run.dir}/../${path.basename(run.dir)}/keep.do`]) {
+            run.terminal.write(encode_editor_send({ line: `do "${other}"`, file: my_file }));
+        }
+        await sleep(500);
+        expect(run.screen()).not.toContain('ran ');
+        run.terminal.write('exit\r');
+        expect(await run.terminal.exit_status).toBe(0);
+        expect(fs.existsSync(other)).toBe(true);
+    }, 30000);
+
+    it('enters the --run line on its own, apart from text typed while Stata starts', async () => {
+        run_count += 1;
+        const slow_stata = path.join(BUILD_DIR, `slow-stata-${run_count}`);
+        fs.writeFileSync(slow_stata, `#!/bin/sh\nsleep 1\nexec "${FAKE_STATA}" "$@"\n`, { mode: 0o755 });
+        const run = start({ stata: slow_stata, run_line: 'display first line' });
+        await wait_for(() => run.screen().includes('\x1b[?2004h'), 'the console');
+        run.terminal.write('di typed');
+        await wait_for(() => run.screen().includes('first line\r\r\n'), 'the --run output');
+        // The typed text was set aside, not joined to the line.
+        expect(run.screen()).not.toContain('typeddisplay');
+        expect(run.screen()).not.toContain('typed first');
+        run.terminal.write('\r');
+        await wait_for(() => /[\n\x1b[J]typed\r\r\n/.test(run.screen()), 'the typed line');
+        run.terminal.write('exit\r');
+        expect(await run.terminal.exit_status).toBe(0);
     }, 30000);
 
     it('passes a resize through to Stata', async () => {
