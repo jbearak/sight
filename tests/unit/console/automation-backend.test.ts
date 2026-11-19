@@ -237,10 +237,36 @@ describe('AutomationBackend', () => {
         expect(bridge.commands).toEqual(['do "a.do"']);
         // The helper is blocked: Stata may not have the line yet.
         expect(the_reports).toEqual([]);
-        reply({ ok: false, bridge_gone: true });
+        reply({ ok: true, value: {} });
         await advance(10);
-        expect(the_reports).toEqual(['dropped']);
+        expect(the_reports).toEqual(['sent']);
     });
+
+    // The helper calls DoCommandAsync before it replies, so a reply lost
+    // after the request reached the helper is an unknown outcome: Stata
+    // may run the line, and its do-file must stay for the usual cleanup
+    // delay. Only a line the helper never got, or refused, is reported
+    // dropped (its do-file goes at once).
+    for (const [name, the_reply, expected] of [
+        ['a reply lost after the request was written',
+            { ok: false, bridge_gone: true, request_written: true }, 'sent'],
+        ['a request never written',
+            { ok: false, bridge_gone: true }, 'dropped'],
+        ['a refusal from the helper',
+            { ok: false, failure: { error: 'com', detail: {} } }, 'dropped'],
+    ] as const) {
+        it(`reports ${expected} for ${name}`, async () => {
+            const { backend, bridge, advance } = setup();
+            const the_reports: string[] = [];
+            bridge.do_async_reply = Promise.resolve(the_reply);
+            backend.submit_line('do "a.do"', true, (sent) => {
+                the_reports.push(sent ? 'sent' : 'dropped');
+            });
+            bridge.die();
+            await advance(10);
+            expect(the_reports).toEqual([expected]);
+        });
+    }
 
     it('shows a partial line that grows across polls whole', async () => {
         const { backend, bridge, log, advance, screen } = setup();

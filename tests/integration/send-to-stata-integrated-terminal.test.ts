@@ -1594,12 +1594,33 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
             .toEqual([first]);
         expect(fs.existsSync(first)).toBe(true);
 
-        // Closing the pane with the second still queued deletes it.
+        // The pane closes before the console answers for the second and
+        // a third. Either may be Stata's already (a Windows send whose
+        // reply is due), so neither goes at once: each gets the usual
+        // delay.
+        const third = await create_tracked_send_file('third.do');
+        await terminal_manager.send_to_stata_terminal('do', third);
+        const cleanups_at_close = vscode_state.the_cleanups.length;
         harness.the_terminals[0].creationOptions?.pty?.close();
+        expect(vscode_state.the_held_files.size).toBe(0);
+        expect(vscode_state.the_cleanups.slice(cleanups_at_close))
+            .toEqual([second, third]);
+        expect(fs.existsSync(second)).toBe(true);
+        expect(fs.existsSync(third)).toBe(true);
+
+        // The console then says the second never reached Stata (it was
+        // still queued): it goes at once.
+        fake.the_line_reports[1].resolve(false);
         await wait_until(
             () => !fs.existsSync(second), 'the queued file to go', 2000
         );
-        expect(vscode_state.the_held_files.size).toBe(0);
+        // Stata accepted the third: its file stays, with no second
+        // cleanup.
+        fake.the_line_reports[2].resolve(true);
+        await new Promise(resolve => setTimeout(resolve, 20));
+        expect(fs.existsSync(third)).toBe(true);
+        expect(vscode_state.the_cleanups.slice(cleanups_at_close))
+            .toEqual([second, third]);
     });
 
     test('a send the console drops is deleted at once', async () => {

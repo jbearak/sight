@@ -65,9 +65,12 @@ export interface EditorConsoleEnd {
 export interface EditorConsole {
     handle_input(text: string): void;
     /**
-     * A line sent from the editor: entered at the prompt, but never
-     * taken as a `--more--` answer. Resolves true once it is given to
-     * Stata, false if it never will be (dropped, or the console ended).
+     * A line sent from the editor: entered at a recognized prompt,
+     * never taken as a `--more--` answer. Resolves true once it is
+     * given to Stata, false if it never will be (dropped, or the
+     * console ended). On Windows, true comes once Stata's Automation
+     * accepts it, or when the outcome is unknown (the helper ended
+     * after taking it); false means Stata surely never got it.
      */
     send_line(line: string): Promise<boolean>;
     handle_resize(): void;

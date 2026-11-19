@@ -20,6 +20,9 @@ export interface BridgeFailure {
     detail: Record<string, unknown>;
 }
 
+/** How long a request pending at the helper's end waits for its write. */
+const WRITE_SETTLE_WAIT_MS = 500;
+
 /** Reply fields that BridgeFailure carries outside `detail`. */
 const FAILURE_FIELDS: ReadonlySet<string> = new Set([
     'id', 'ok', 'error', 'hresult', 'message', 'event',
@@ -29,7 +32,12 @@ export type BridgeReply =
     | { ok: true; value: Record<string, unknown> }
     | { ok: false; failure: BridgeFailure }
     | { ok: false; timed_out: true }
-    | { ok: false; bridge_gone: true };
+    /**
+     * The helper ended. `request_written` means the request reached
+     * its input first, so it may have acted on it (only the reply is
+     * lost).
+     */
+    | { ok: false; bridge_gone: true; request_written?: true };
 
 export interface RequestOptions {
     /**
@@ -81,7 +89,12 @@ export function reply_text(reply: BridgeReply): string {
 
 /** Line-oriented transport underneath a bridge (a process, or a fake). */
 export interface BridgeTransport {
-    send(line: string): void;
+    /**
+     * Throws if the helper's input is closed. Otherwise `on_written`
+     * is called once: true if the line reached the helper's input,
+     * false if the write failed.
+     */
+    send(line: string, on_written: (written: boolean) => void): void;
     on_line(callback: (line: string) => void): void;
     readonly ended: Promise<string>;
     close(): void;
@@ -93,6 +106,8 @@ interface Pending {
     options: RequestOptions;
     timer: ReturnType<typeof setTimeout> | null;
     slow_timer: ReturnType<typeof setTimeout> | null;
+    /** Whether the request reached the helper's input. */
+    written: Promise<boolean>;
 }
 
 /** A bridge over a line transport: ids, timeouts, late replies. */
@@ -109,7 +124,18 @@ export class BridgeClient implements Bridge {
             for (const [my_id, my_pending] of this.pending) {
                 this.pending.delete(my_id);
                 this.clear(my_pending);
-                my_pending.resolve({ ok: false, bridge_gone: true });
+                // Once the write has settled: a request that reached
+                // the helper may have been acted on. A write that never
+                // settles counts as written (outcome unknown).
+                const late = new Promise<boolean>((resolve) => {
+                    setTimeout(() => resolve(true), WRITE_SETTLE_WAIT_MS)
+                        .unref?.();
+                });
+                void Promise.race([my_pending.written, late]).then((written) => {
+                    my_pending.resolve(written
+                        ? { ok: false, bridge_gone: true, request_written: true }
+                        : { ok: false, bridge_gone: true });
+                });
             }
             return stderr;
         });
@@ -121,7 +147,13 @@ export class BridgeClient implements Bridge {
         }
         const id = this.next_id++;
         return new Promise<BridgeReply>((resolve) => {
-            const entry: Pending = { resolve, options, timer: null, slow_timer: null };
+            let settle_write: (written: boolean) => void = () => undefined;
+            const entry: Pending = {
+                resolve, options, timer: null, slow_timer: null,
+                written: new Promise<boolean>((resolve_written) => {
+                    settle_write = resolve_written;
+                }),
+            };
             if (options.timeout_ms !== undefined) {
                 entry.timer = setTimeout(() => {
                     // Discarded: a late reply finds no entry.
@@ -139,7 +171,9 @@ export class BridgeClient implements Bridge {
             }
             this.pending.set(id, entry);
             try {
-                this.transport.send(JSON.stringify({ id, op, ...params }));
+                this.transport.send(
+                    JSON.stringify({ id, op, ...params }), settle_write
+                );
             } catch {
                 this.pending.delete(id);
                 this.clear(entry);

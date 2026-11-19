@@ -117,8 +117,10 @@ export interface ConsolePane {
      * never as an answer to `--more--`). With `temp_file_path`, the
      * pane owns that file from now on: it is kept until the console
      * gives the line to Stata (a long command may run first), then
-     * deleted after the usual delay; deleted at once if the line is
-     * dropped or the pane ends first.
+     * deleted after the usual delay; deleted at once if the console
+     * reports it never gave the line to Stata. A line the console
+     * hasn't answered for when the pane ends may already be Stata's,
+     * so its file is kept for the usual delay too.
      */
     type_line(text: string, temp_file_path?: string): void;
 }
@@ -138,7 +140,7 @@ export function create_console_pane(
     let ended = false;
     let waiting_for_key = false;
     let user_closed = false;
-    /** Temp files of typed lines not yet given to Stata. */
+    /** Temp files of typed lines the console hasn't answered for. */
     const the_held_files = new Set<string>();
 
     const settle_file = (file_path: string, sent: boolean): void => {
@@ -146,15 +148,23 @@ export function create_console_pane(
             return;
         }
         release_temp_file(file_path);
-        if (sent) {
-            schedule_temp_file_cleanup(file_path);
-        } else {
+        if (!sent) {
             fs.promises.unlink(file_path).catch(() => {});
+        } else if (!ended) {
+            schedule_temp_file_cleanup(file_path);
         }
+        // Ended: its cleanup was scheduled then (end_held_files).
     };
-    const drop_held_files = (): void => {
-        for (const my_file of [...the_held_files]) {
-            settle_file(my_file, false);
+    /**
+     * The pane is ending with lines not answered for. One the console
+     * gave to Stata (a Windows send whose reply is still due) may yet
+     * run, so each file gets the usual delay now; one the console
+     * then reports never sent goes at once.
+     */
+    const end_held_files = (): void => {
+        for (const my_file of the_held_files) {
+            release_temp_file(my_file);
+            schedule_temp_file_cleanup(my_file);
         }
     };
 
@@ -166,8 +176,7 @@ export function create_console_pane(
             return;
         }
         ended = true;
-        // The console normally reported each of these already.
-        drop_held_files();
+        end_held_files();
         options.on_end(end);
     };
     const finish = (end: EditorConsoleEnd): void => {
