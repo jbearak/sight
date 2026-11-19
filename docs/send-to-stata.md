@@ -12,7 +12,7 @@ The extension offers three ways to send code to Stata:
 
 - **Stata GUI Application** (`external`): Sends code to the standalone Stata application via AppleScript (macOS) or the send-to-stata helper, which pastes code into Stata's Command window (Windows).
 - **Integrated Stata Terminal** (`integrated`): Opens and sends code to a dedicated Stata terminal inside VS Code (the Stata pane), which runs [sight console](console.md): Stata with syntax highlighting, completion and colored output. On macOS and Linux, including remote sessions (SSH, WSL, Dev Containers, Tunnels), it runs console Stata (`stata-mp`, `stata-se`, `stata-ic`, `stata-be`, or `stata`); see [macOS and Linux: sight console](#macos-and-linux-sight-console). On native Windows, where Stata has no interactive CLI, it drives the Stata application; see [Windows: sight console](#windows-sight-console).
-- **Active Terminal** (the `Terminal` submenu commands): Sends code to whatever terminal is currently active in VS Code, regardless of type. This is useful for sending commands to Stata running inside `tmux`, a Docker container, or any other terminal session that isn't the extension's built-in Stata terminal. When the active terminal is a Stata pane, these commands send through the pane's queue, like the integrated target, so a send made while the pane is starting waits for it. Each shows the terminal panel if it is hidden, leaving the focus in the editor.
+- **Active Terminal** (the `Terminal` submenu commands): Sends code to whatever terminal is currently active in VS Code, regardless of type. This is useful for sending commands to Stata running inside `tmux`, a Docker container, or any other terminal session that isn't the extension's built-in Stata terminal. When the active terminal is a Stata pane, these commands (CD to File Folder and CD to Workspace Folder too) send through the pane's queue, like the integrated target, so a send made while the pane is starting waits for it. Each shows the terminal panel if it is hidden, leaving the focus in the editor.
 
 ### Target Setting
 
@@ -55,9 +55,9 @@ The extension adds a "Stata" terminal profile to VS Code's terminal dropdown. Yo
 
 On macOS and Linux the Stata pane runs [sight console](console.md) inside the extension, around console Stata. There's nothing separate to install: the extension carries a small helper, `sight-pty`, that gives Stata the terminal it needs (VS Code's extension runtime can't open one itself). Stata starts in your workspace folder.
 
-Code you send while Stata is starting waits in a queue, and the status bar shows how many sends are waiting. The queued sends are typed into the console, in order, once Stata shows its first prompt. Later sends are typed directly.
+Code you send while Stata is starting waits in a queue, and the status bar shows how many sends are waiting. The queued sends are typed into the console, in order, once Stata shows its first prompt.
 
-A send that arrives while Stata shows `--more--` doesn't answer it: it waits, with a note under the prompt, until you answer `--more--` (or Ctrl+C, which drops it) and Stata's prompt returns. Keys you type still answer `--more--` as usual.
+The console enters a send only at Stata's prompt, when Stata reads it at once. A send that arrives while Stata runs a command or shows `--more--` waits, with a note under the prompt, until the prompt returns; sends that wait go one per prompt, in order. A send never answers `--more--`: keys you type answer it as usual. Ctrl+C drops the sends that wait. A send's temporary do-file is kept until Stata reads its line, and deleted 30 seconds after that, or at once if it never runs (Ctrl+C, or the pane closes first).
 
 A send goes on its own line. If you have typed part of a command at the prompt, the console sets it aside, enters the send, and puts your text back to finish. A line you type and enter while sends wait goes to Stata at once, as typing ahead does in console Stata, so it runs before them (Stata may be asking for input, as `display _request()` does, that only you can give).
 
@@ -82,6 +82,7 @@ What differs from the pane described above:
 - Closing the Stata terminal detaches it; Stata keeps running. Sends still reach it, and the terminal reopens from Perch's Sessions view or when the window reloads. To end Stata, type `exit`, or end the session in Perch.
 - Code goes only to Stata sessions with a terminal in this window, or ones this window started. If Sight finds Stata sessions it started from other windows when it needs a new console, it asks whether to send code to one of them or start a new one.
 - A detached Stata waits at `--more--` until someone attaches and presses a key, since nothing answers it. Put `set more off` in your `profile.do`.
+- Sends reach the console as from the Stata pane: entered at Stata's prompt, never as an answer to `--more--`, and each temporary do-file is deleted once Stata has read its line. A Stata session started by an earlier version of Sight gets sends typed as keys, as before, until it ends.
 - A detached Stata may keep holding its license seat while it runs.
 - If Perch can't confirm that a send reached Stata (the connection ended mid-send), Sight says the code may not have run and doesn't send it again.
 
@@ -93,7 +94,7 @@ Each pane starts its own Stata, in a new window, so a second pane gets a second 
 
 Code you send while the console is starting waits in a queue, and the status bar shows how many sends are waiting. The queued sends are typed into the console, in order, once it shows its first prompt.
 
-Stata runs one command at a time, so a send made while a long command runs waits in the console. Its temporary do-file is kept until the console gives the command to Stata, and deleted 30 seconds after that, or at once if the command never runs (Ctrl+C, or the pane closes first).
+Stata runs one command at a time, so a send made while a long command runs waits in the console, until its prompt returns. Its temporary do-file is kept until Stata accepts the command, and deleted 30 seconds after that, or at once if the command never runs (Ctrl+C, the pane closes first, or the console loses Stata before Stata accepts it).
 
 The console doesn't get Stata when:
 
