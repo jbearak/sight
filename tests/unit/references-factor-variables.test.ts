@@ -173,6 +173,13 @@ describe('References Provider - file names are not operator terms', () => {
         'gen r = y/L.dta',                               // 13
         'version 16: save old.dta',                      // 14
         'regress y L(1/3).dta',                          // 15
+        'append using first.dta l.dta',                  // 16
+        'if 1 save l.dta',                               // 17
+        'append using l.dta d.dta',                      // 18
+        'if (1) save l.dta',                             // 19
+        'regress y i.dta if L.dta',                      // 20
+        'capt save old.dta',                             // 21
+        'version 16, user: save old.dta',                // 22
     ].join('\n'));
 
     it('finds operator terms but not extensions', async () => {
@@ -184,6 +191,50 @@ describe('References Provider - file names are not operator terms', () => {
             '12:12-12:15', '12:18-12:21', '12:32-12:35',
             '13:12-13:15',
             '15:17-15:20',
+            '20:12-20:15', '20:21-20:24',
         ].sort());
+    });
+});
+
+describe('References Provider - continued operator arguments', () => {
+    it('finds a name after an operator argument split by ///', async () => {
+        const provider = new ReferencesProvider();
+        const document = create_document(
+            'gen x = 1\nregress y L(1 ///\n2).x\n');
+        const results = await provider.get_references(
+            document, { line: 0, character: 4 }, { includeDeclaration: true }
+        );
+        expect(format_locations(results)).toEqual(['0:4-0:5', '2:3-2:4']);
+    });
+});
+
+describe('References Provider - long operator lists', () => {
+    /** Token reads to scan `regress y` and `count` `i.x` terms. */
+    function count_reads(count: number): number {
+        const tokens = new StataLexer().tokenize(
+            'regress y ' + Array(count).fill('i.x').join(' ')).tokens;
+        let reads = 0;
+        const counted = new Proxy(tokens, {
+            get(target, key, receiver) {
+                if (typeof key === 'string' && /^\d+$/.test(key)) {
+                    reads++;
+                }
+                return Reflect.get(target, key, receiver);
+            },
+        });
+        const matches = new ReferencesProvider().scan_tokens_for_references(
+            counted, 'file:///long.do',
+            { symbol_type: 'variable', symbol_name: 'x' });
+        expect(matches.length).toBe(count);
+        return reads;
+    }
+
+    it('reads each token a bounded number of times', () => {
+        // Linear: doubling the terms about doubles the reads. A search
+        // back from each term for a file command was quadratic.
+        const reads_800 = count_reads(800);
+        const reads_1600 = count_reads(1600);
+        expect(reads_1600 / reads_800).toBeLessThan(2.5);
+        expect(reads_1600).toBeLessThan(1600 * 20);
     });
 });

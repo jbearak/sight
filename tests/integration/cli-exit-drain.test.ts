@@ -2,7 +2,7 @@ import { describe, expect, it } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { spawnSync } from 'child_process';
+import { spawn, spawnSync } from 'child_process';
 import { fileURLToPath } from 'url';
 
 /**
@@ -16,8 +16,9 @@ const REPO_ROOT = path.resolve(
     '../..'
 );
 const BUNDLED_ENTRY = path.join(REPO_ROOT, 'dist', 'sight-server.js');
-// How long the reader waits before reading anything.
-const READER_DELAY_S = 1;
+// How long the reader waits before reading anything: longer than the
+// five seconds the CLI once waited before exiting regardless.
+const READER_DELAY_S = 6;
 
 function make_inputs(): { big: string; missing: string } {
     const my_dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sight-drain-'));
@@ -91,4 +92,20 @@ describe_unix('sight parse --json piped to a slow reader', () => {
         },
         30_000
     );
+
+    it('exits once its output is out, though stdin stays open', async () => {
+        // Nothing but output may hold the exit back: a parent that
+        // never closes our stdin must not keep the CLI running.
+        const inputs = make_inputs();
+        const my_child = spawn('bun', [
+            'src/cli.ts', 'parse', '--json', inputs.missing,
+        ], { cwd: REPO_ROOT, stdio: ['pipe', 'ignore', 'ignore'] });
+        const my_timer = setTimeout(() => my_child.kill(), 15_000);
+        const my_status = await new Promise<number | null>((resolve) => {
+            my_child.on('exit', (code) => resolve(code));
+        });
+        clearTimeout(my_timer);
+        my_child.stdin?.destroy();
+        expect(my_status).toBe(2);
+    }, 30_000);
 });
