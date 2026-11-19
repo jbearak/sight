@@ -40,3 +40,12 @@ export function is_name_letter_or_digit(char: string): boolean {
     }
     return char > '\x7f' && UNICODE_NAME_PART.test(char);
 }
+
+/**
+ * Whether `char` can be part of a name anywhere but its first
+ * character: what a scan for the word under the cursor reads over,
+ * so the editor and the lexer agree on where a name ends.
+ */
+export function is_name_char(char: string): boolean {
+    return char === '_' || is_name_letter_or_digit(char);
+}

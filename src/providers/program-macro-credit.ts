@@ -130,24 +130,30 @@ export function credited_local_definitions(
 
 /**
  * Every write to the local `name` that a call in `document` makes
- * through a program, as macro symbols, wherever it sits.
+ * through a program, as macro symbols, in the program frame of
+ * `line` (or outside any program, as `line` is), before or after it.
  */
 export function all_credited_local_definitions(
     document: DocumentState,
     scope: ResolvedScope | undefined,
     name: string,
+    line: number,
     workspace_symbols?: SymbolTable
 ): MacroSymbol[] {
     if (!scope) return [];
     const writes = scope_program_macro_writes(
         document, scope, workspace_symbols);
+    const frame = program_frame(writes, line);
     return (writes.locals.get(name) ?? [])
+        .filter((my_write) => my_write.program_start_line === frame)
         .map((my_write) => write_symbol(document, my_write));
 }
 
 /**
  * The local whose definition at a call (the argument word or option
- * argument) holds `position`, if any.
+ * argument) holds `position`, if any. A literal `c_local` names no
+ * word at the call (its write spans the whole call), so it never
+ * takes the word under the cursor, such as the program name.
  */
 export function credited_local_at(
     document: DocumentState,
@@ -160,7 +166,10 @@ export function credited_local_at(
         document, scope, workspace_symbols);
     for (const the_writes of writes.locals.values()) {
         for (const my_write of the_writes) {
-            if (position_within_range(position, my_write.range)) {
+            if (
+                my_write.kind !== 'c_local'
+                && position_within_range(position, my_write.range)
+            ) {
                 return write_symbol(document, my_write);
             }
         }

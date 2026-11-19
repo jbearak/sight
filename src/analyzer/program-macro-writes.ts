@@ -223,7 +223,12 @@ export function collect_program_macro_writes(
             }
             const the_drop = at_top_level
                 ? program_drop_targets(my_node) : undefined;
-            if (the_drop?.all) available.clear();
+            if (
+                the_drop?.all
+                || (at_top_level && clears_all_programs(my_node))
+            ) {
+                available.clear();
+            }
             for (const my_name of the_drop?.names ?? []) {
                 available.delete(my_name);
             }
@@ -247,6 +252,13 @@ export function collect_program_macro_writes(
     };
     visit(nodes, undefined, true);
     return result;
+}
+
+/** `clear all`, which drops every program in memory. Exact case. */
+function clears_all_programs(node: StataNode): boolean {
+    return node.type === 'command'
+        && node.fullName === 'clear'
+        && node.varlist?.[0]?.name === 'all';
 }
 
 /**

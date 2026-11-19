@@ -86,7 +86,7 @@ word before the first comma of `save`, `saveold`, `use`, `do`, `run`,
 `include`, `erase`, `rm`, `type`, `copy`, `translate`, `cd`, `mkdir`,
 or `rmdir` when that word is the statement's command: first in the
 statement after any prefixes, or first after the condition of a
-one-line `if` (`if 1 save l.dta`), where the condition ends as the
+one-line `if` (`if 1 save l.dta`, `if 1 version 18: save l.dta`), where the condition ends as the
 parser ends it. Elsewhere those words are ordinary names: in
 `if _N > 0 regress type i.x`, `type` is a variable and `i.x` is a use
 of `x`; in `if save == 1 regress y L.dta`, `L.dta` is a use of `dta`.
