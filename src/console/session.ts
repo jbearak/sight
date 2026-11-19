@@ -361,27 +361,53 @@ export class ConsoleSession {
      * Enter a sent line as its own line, then put back what the user
      * was typing (never joined to the sent line).
      */
-    private enter_sent_line(line: string, on_sent?: LineSentCallback): void {
+    private enter_sent_line(line: string, on_sent?: LineSentCallback): boolean {
         const typed = this.editor.buffer;
         const typed_cursor = this.editor.cursor;
         this.message = null;
         this.editor.set_buffer(line);
-        this.submit(line, on_sent);
-        if (typed.length > 0) {
+        const entered = this.submit(line, on_sent);
+        // A rejected line must not stay in the input for the next Enter.
+        if (!entered || typed.length > 0) {
             this.editor.set_buffer(typed);
             this.editor.cursor = typed_cursor;
             this.show_editor();
         }
+        return entered;
     }
 
-    private submit(line: string, on_sent?: LineSentCallback): void {
+    /**
+     * At a command prompt: enter the first held send that can be
+     * entered. One rejected (too long) is answered false, and the next
+     * is tried at the same prompt; the rejection's note stays.
+     */
+    private enter_held_sends(): void {
+        let rejection: string | null = null;
+        for (let held = this.held_sends.shift(); held; held = this.held_sends.shift()) {
+            if (this.enter_sent_line(held.line, held.on_sent)) {
+                if (rejection !== null) {
+                    this.message = rejection;
+                    this.show_editor(true);
+                }
+                return;
+            }
+            rejection = this.message;
+        }
+        if (this.editor.buffer.length === 0 && this.staged.length > 0) {
+            this.editor.set_buffer(this.staged.shift() ?? '');
+            this.show_editor();
+        }
+    }
+
+    /** Returns false if the line was rejected (not given to Stata). */
+    private submit(line: string, on_sent?: LineSentCallback): boolean {
         const max_bytes = this.options.backend.max_line_bytes();
         if (max_bytes !== null && Buffer.byteLength(line, 'utf8') > max_bytes) {
             this.message = `Line is longer than ${max_bytes} bytes and `
                 + 'was not sent; put it in a do-file.';
             this.show_editor();
             on_sent?.(false);
-            return;
+            return false;
         }
         const kind = this.prompt_kind;
         this.editor.menu = null;
@@ -425,6 +451,7 @@ export class ConsoleSession {
         this.editor.reset();
         this.prompt_kind = null;
         this.options.backend.submit_line(line, drawn, on_sent);
+        return true;
     }
 
     private paste(text: string): void {
@@ -531,16 +558,16 @@ export class ConsoleSession {
             return;
         }
         this.prompt_kind = kind;
-        // A send held at `--more--` goes before staged pasted lines.
-        const held = COMMAND_PROMPT_KINDS.has(kind) ? this.held_sends.shift() : undefined;
-        if (!held && COMMAND_PROMPT_KINDS.has(kind) && this.editor.buffer.length === 0
+        // A held send goes before staged pasted lines.
+        const has_held = COMMAND_PROMPT_KINDS.has(kind) && this.held_sends.length > 0;
+        if (!has_held && COMMAND_PROMPT_KINDS.has(kind) && this.editor.buffer.length === 0
             && this.staged.length > 0) {
             this.editor.set_buffer(this.staged.shift() ?? '');
         }
         this.show_editor(true);
         // The held send first: a send made from on_ready comes after it.
-        if (held) {
-            this.enter_sent_line(held.line, held.on_sent);
+        if (has_held) {
+            this.enter_held_sends();
         }
         if (kind === 'stata' && !this.reported_ready) {
             this.reported_ready = true;

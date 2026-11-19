@@ -417,6 +417,37 @@ describe('ConsoleSession', () => {
         expect(the_reports).toEqual([true]);
     });
 
+    it('tries the next held send when one is too long to enter', () => {
+        const { pty, session, at_prompt, screen } = setup();
+        const the_reports: string[] = [];
+        at_prompt();
+        session.handle_input('slow\r');
+        session.handle_input('di 1');
+        const long_line = 'x'.repeat(MAX_CANONICAL_LINE_BYTES + 1);
+        session.send_line(long_line, (sent) => the_reports.push(`long ${sent}`));
+        session.send_line('do "ok.do"', (sent) => the_reports.push(`ok ${sent}`));
+        at_prompt('\n. ');
+        expect(the_reports).toEqual(['long false', 'ok true']);
+        expect(pty.written).toEqual(['slow\r', 'do "ok.do"\r']);
+        // The rejected line is not left to be entered by the next Enter.
+        expect(session.buffer).toBe('di 1');
+        expect(strip_ansi(screen.join(''))).toContain('was not sent');
+    });
+
+    it('does not leave a rejected send in the input at a prompt', () => {
+        const { pty, session, at_prompt } = setup();
+        const the_reports: boolean[] = [];
+        at_prompt();
+        session.send_line(
+            'x'.repeat(MAX_CANONICAL_LINE_BYTES + 1),
+            (sent) => the_reports.push(sent)
+        );
+        expect(the_reports).toEqual([false]);
+        expect(session.buffer).toBe('');
+        session.handle_input('\r');
+        expect(pty.written).toEqual(['\r']);
+    });
+
     it('enters a send held before the first prompt ahead of one made when ready', () => {
         let send_when_ready: () => void = () => undefined;
         const { pty, session, at_prompt } = setup({
