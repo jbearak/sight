@@ -47,6 +47,9 @@ const TERMINAL_MODULE_URL = pathToFileURL(
 const COMMANDS_MODULE_URL = pathToFileURL(
     path.join(SEND_TO_STATA_DIR, 'commands.ts')
 ).href;
+const CD_CONTEXT_MODULE_URL = pathToFileURL(
+    path.join(SEND_TO_STATA_DIR, 'cd-context.ts')
+).href;
 const TEMP_FILE_MODULE_URL = pathToFileURL(
     path.join(SEND_TO_STATA_DIR, 'temp-file.ts')
 ).href;
@@ -1684,6 +1687,63 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
         expect(fs.readFileSync(file_path, 'utf8')).toBe('display "early"');
         // The pane is revealed, as for any terminal, keeping focus.
         expect(vscode_state.the_show_calls).toEqual([true]);
+    });
+
+    test('the active-terminal CD commands go through the pane\'s queue', async () => {
+        const harness = await create_console_harness();
+        const { vscode_state, context } = harness;
+        const provider = vscode_state.the_profile_providers.get(
+            'sight.stataTerminal'
+        );
+        const profile = await provider!.provideTerminalProfile(NO_CANCEL) as {
+            options: CreateTerminalOptions;
+        };
+        const terminal = create_pane_terminal(
+            harness, vscode_state, profile.options
+        );
+        harness.the_terminals.push(terminal);
+        for (const my_listener of vscode_state.the_open_listeners) {
+            my_listener(terminal);
+        }
+        vscode_state.active_terminal = terminal;
+        vscode_state.active_text_editor = {
+            document: {
+                uri: {
+                    fsPath: '/tmp/example.do',
+                    toString: () => 'file:///tmp/example.do',
+                },
+                lineCount: 1,
+                save: async () => true,
+                getText: () => '',
+            },
+            selection: {
+                isEmpty: true,
+                active: { line: 0 },
+                start: { line: 0, character: 0 },
+            },
+            revealRange: () => {},
+        };
+        const cd_module = await import(CD_CONTEXT_MODULE_URL);
+        await cd_module.execute_cd_command('file', 'terminal', context);
+
+        expect(vscode_state.the_error_messages).toEqual([]);
+        // Not sendText, which a connecting pane drops.
+        expect(vscode_state.the_terminal_sends).toEqual([]);
+        expect(vscode_state.the_send_calls).toEqual([]);
+        // The queue owns the file: no cleanup timer meanwhile.
+        expect(vscode_state.the_cleanups).toEqual([]);
+        expect(vscode_state.status_item?.text).toContain('1 send');
+        expect(vscode_state.the_show_calls).toEqual([true]);
+
+        const fake = await console_started(harness);
+        fake.ready.resolve(true);
+        await wait_until(
+            () => fake.the_inputs.length === 1, 'the queued cd', 2000
+        );
+        const typed = fake.the_inputs[0];
+        const file_path = typed.slice('do `"'.length, -`"'\r`.length);
+        the_created_files.push(file_path);
+        expect(fs.readFileSync(file_path, 'utf8')).toBe('cd "/tmp"');
     });
 });
 
