@@ -53,7 +53,7 @@ import type { WorkspaceIndexer } from '../indexer';
 import { build_scope_resolver_config } from '../scope-resolver';
 import { get_visible_symbols_at } from '../scope-resolver';
 import { get_line_text } from '../utils/line-utils';
-import { is_name_char } from '../utils/stata-name';
+import { is_name_char, is_name_char_or_past_end } from '../utils/stata-name';
 import {
     find_last_token_starting_before,
     find_token_index_at_position,
@@ -609,7 +609,7 @@ export class HoverProvider {
         
         // Find the actual start of the word (cursor might be in the middle)
         let word_start = position.character;
-        while (word_start > 0 && is_name_char(line[word_start - 1])) {
+        while (word_start > 0 && is_name_char_or_past_end(line, word_start - 1)) {
             word_start--;
         }
         
@@ -1828,7 +1828,7 @@ export class HoverProvider {
 
         // Find the start of the word
         let start = character;
-        while (start > 0 && is_name_char(line[start - 1])) {
+        while (start > 0 && is_name_char_or_past_end(line, start - 1)) {
             start--;
         }
 

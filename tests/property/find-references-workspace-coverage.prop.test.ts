@@ -17,6 +17,7 @@ import { Token, ContextRange } from '../../src/types';
 import { DocumentState } from '../../src/document-store';
 import { StataLexer } from '../../src/lexer';
 import { IndexedFileData } from '../../src/indexer';
+import { create_empty_symbol_table } from '../../src/analyzer';
 
 describe('Feature: find-references, Property 7: Workspace Coverage', () => {
     const provider = new ReferencesProvider();
@@ -80,6 +81,7 @@ describe('Feature: find-references, Property 7: Workspace Coverage', () => {
         return {
             get_indexed_files: () => indexed_files,
             find_symbol_definitions: () => [],
+            get_all_symbols: () => create_empty_symbol_table(),
             get_related_uris: () => new Set([...indexed_files.keys(), 'file:///workspace/current.do']),
         } as any;
     }

@@ -29,7 +29,7 @@ import {
     credited_local_at,
 } from './program-macro-credit';
 import { get_line_text } from '../utils/line-utils';
-import { is_name_char } from '../utils/stata-name';
+import { is_name_char, is_name_char_or_past_end } from '../utils/stata-name';
 import {
     classify_effective_local,
     is_cross_file_hidden_local,
@@ -1073,7 +1073,7 @@ export class ReferencesProvider {
 
         // Find the start of the word
         let start = character;
-        while (start > 0 && is_name_char(line[start - 1])) {
+        while (start > 0 && is_name_char_or_past_end(line, start - 1)) {
             start--;
         }
 

@@ -49,3 +49,17 @@ export function is_name_letter_or_digit(char: string): boolean {
 export function is_name_char(char: string): boolean {
     return char === '_' || is_name_letter_or_digit(char);
 }
+
+/**
+ * Whether `line[index]` is a name character, or `index` is past the
+ * end of `line`: a backward scan for the word under a cursor past the
+ * end of its line walks back to the line's last word, as the regex
+ * test these scans replaced did (`/[a-zA-Z0-9_]/.test(undefined)`
+ * is true: it tests the string "undefined").
+ */
+export function is_name_char_or_past_end(
+    line: string,
+    index: number
+): boolean {
+    return index >= line.length || is_name_char(line[index]);
+}
