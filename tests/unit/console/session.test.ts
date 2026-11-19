@@ -326,6 +326,64 @@ describe('ConsoleSession', () => {
         expect(the_reports).toEqual([true]);
     });
 
+    it('enters a held send on its own line and keeps what the user typed', () => {
+        const { pty, session, at_prompt, screen } = setup();
+        const the_reports: boolean[] = [];
+        at_prompt('--more--');
+        session.send_line('do "file.do"', (sent) => the_reports.push(sent));
+        session.handle_input('q');
+        // Typed after answering the pager, before the next prompt.
+        session.handle_input('di 9');
+        at_prompt('\n. ');
+        expect(pty.written).toEqual(['q\r', 'do "file.do"\r']);
+        expect(the_reports).toEqual([true]);
+        expect(session.buffer).toBe('di 9');
+        // The unfinished line is drawn again after the send.
+        expect(strip_ansi(screen.join(''))).toMatch(/do "file\.do"\r*\n\r*di 9\r*$/);
+        session.handle_input('\r');
+        expect(pty.written).toEqual(['q\r', 'do "file.do"\r', 'di 9\r']);
+    });
+
+    it('keeps typed input and its cursor when a send is entered at a prompt', () => {
+        const { pty, session, at_prompt } = setup();
+        at_prompt();
+        session.handle_input('di 19');
+        session.handle_input('\x1b[D');
+        session.send_line('do "a.do"');
+        expect(pty.written).toEqual(['do "a.do"\r']);
+        expect(session.buffer).toBe('di 19');
+        at_prompt('\n. ');
+        session.handle_input('2\r');
+        expect(pty.written).toEqual(['do "a.do"\r', 'di 129\r']);
+    });
+
+    it('runs a line typed with Enter before sends still waiting', () => {
+        const { pty, session, at_prompt } = setup();
+        at_prompt('--more--');
+        session.send_line('do "held.do"');
+        session.handle_input('q');
+        // Typed ahead (no prompt yet): goes to Stata at once, as when
+        // typing ahead in console Stata, so Stata runs it first.
+        session.handle_input('di 9\r');
+        expect(pty.written).toEqual(['q\r', 'di 9\r']);
+        at_prompt('\n. ');
+        expect(pty.written).toEqual(['q\r', 'di 9\r', 'do "held.do"\r']);
+    });
+
+    it('still sends a typed answer to an unrecognized prompt while a send waits', () => {
+        const { pty, session, at_prompt } = setup();
+        at_prompt('--more--');
+        session.send_line('do "held.do"');
+        session.handle_input('q');
+        // `display _request(name)` asks with a prompt the console
+        // doesn't know; the answer must still reach Stata.
+        at_prompt('\nYour name? ');
+        session.handle_input('Ann\r');
+        expect(pty.written).toEqual(['q\r', 'Ann\r']);
+        at_prompt('\n. ');
+        expect(pty.written).toEqual(['q\r', 'Ann\r', 'do "held.do"\r']);
+    });
+
     it('sends exit on Ctrl+D only at the top-level prompt', () => {
         const { pty, session, at_prompt } = setup();
         at_prompt('  1. ');

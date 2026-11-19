@@ -83,6 +83,9 @@ import type {
     FileChangedMessage,
     RequestFullTextMessage,
     RowCellsMessage,
+    RequestCopyRowsMessage,
+    CopyRowsMessage,
+    CellValue,
 } from './types.js';
 import { EMPTY_SORT, EMPTY_FILTER } from './types.js';
 
@@ -158,6 +161,8 @@ export class DataBrowserPanel implements vscode.Disposable {
     private readonly filter_state_store: DataBrowserFilterStateStore;
     private disposed = false;
     private generation = 0;
+    /** Bumped by each copy; a slower, earlier copy then writes nothing. */
+    private copy_generation = 0;
     private sort: SortState = EMPTY_SORT;
     private permutation: Uint32Array | null = null;
     private sort_restored = false;
@@ -1236,7 +1241,15 @@ export class DataBrowserPanel implements vscode.Disposable {
             case 'requestFullText':
                 await this.handle_request_full_text(msg);
                 break;
+            case 'copyStarted':
+                this.copy_generation += 1;
+                break;
+            case 'requestCopyRows':
+                await this.handle_copy_rows(msg);
+                break;
             case 'copyText':
+                // The webview sends only its latest copy.
+                this.copy_generation += 1;
                 await this.handle_copy_text(msg.text, msg.is_whole);
                 break;
             case 'copyFailed':
@@ -2048,6 +2061,77 @@ export class DataBrowserPanel implements vscode.Disposable {
     }
 
     /**
+     * Rows a copy needs that the grid hasn't loaded, read as a page is
+     * (in the order shown) but whole: strL cells a page would send
+     * later are waited for. Null, with why, if they can't be read or
+     * the order shown changes meanwhile (the rows would be others).
+     */
+    private async handle_copy_rows(
+        msg: RequestCopyRowsMessage
+    ): Promise<void> {
+        const reply = (
+            rows: CellValue[][] | null,
+            message?: string
+        ): void => {
+            if (this.disposed) return;
+            const my_reply: CopyRowsMessage = {
+                type: 'copyRows',
+                request_id: msg.request_id,
+                rows,
+                ...(message !== undefined && { message }),
+            };
+            this.panel.webview.postMessage(my_reply);
+        };
+        const my_reader = this.page_reader();
+        if (!my_reader || this.file_changed) {
+            reply(null, 'the file can no longer be read');
+            return;
+        }
+        const my_generation = this.generation;
+        const my_start = Math.max(0, msg.start);
+        const my_rows: PageRows = this.effective_perm
+            ? {
+                rows: this.effective_perm.slice(
+                    my_start,
+                    Math.min(my_start + msg.count, this.effective_perm.length)
+                ),
+            }
+            : { start: my_start, count: msg.count };
+        let the_rows: CellValue[][];
+        try {
+            const my_read = await my_reader.read_page(
+                my_rows, msg.col_start, msg.col_end
+            );
+            the_rows = my_read.rows;
+            if (my_read.rest) {
+                const my_patch = await my_read.rest;
+                the_rows = the_rows.map((my_row, i) => {
+                    const my_cells = my_patch.rows[i];
+                    if (!my_cells) return my_row;
+                    const my_out = my_row.slice();
+                    my_patch.columns.forEach((my_col, j) => {
+                        my_out[my_col - msg.col_start] = my_cells[j];
+                    });
+                    return my_out;
+                });
+            }
+        } catch (my_err) {
+            if (my_err instanceof FileChangedError) {
+                this.mark_file_changed();
+            }
+            reply(null, my_err instanceof Error
+                ? my_err.message
+                : String(my_err));
+            return;
+        }
+        if (my_generation !== this.generation) {
+            reply(null, 'the rows shown changed (a sort or filter)');
+            return;
+        }
+        reply(the_rows);
+    }
+
+    /**
      * Tell the webview a page read was discarded because the order or
      * dataset changed while it ran, so it can ask again instead of
      * leaving the page pending until the next order change.
@@ -2118,6 +2202,8 @@ export class DataBrowserPanel implements vscode.Disposable {
         if (!this.dta_file.variables[col_index]) return;
 
         const my_file = this.dta_file;
+        this.copy_generation += 1;
+        const my_copy_generation = this.copy_generation;
         // Pin the order on screen when the user clicked: the job copies
         // in that order even if a sort or filter commits meanwhile.
         const my_order = this.effective_perm
@@ -2150,8 +2236,10 @@ export class DataBrowserPanel implements vscode.Disposable {
             );
             return;
         }
-        // A refresh to another dataset makes the copy moot.
+        // A refresh to another dataset makes the copy moot, and a copy
+        // made since is newer: the most recent copy wins.
         if (this.dta_file !== my_file || this.disposed) return;
+        if (my_copy_generation !== this.copy_generation) return;
         if (my_result.kind !== 'copy') return;
         await vscode.env.clipboard.writeText(my_result.text);
     }

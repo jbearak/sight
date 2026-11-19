@@ -152,6 +152,19 @@ Copying cells (**Ctrl+C**/**Cmd+C**) fetches and copies the whole value,
 and **Copy column** copies whole values too. Opening a cell's text shows
 only the preview. A binary strL shows as `binary, 1,204 bytes`.
 
+### Copying cells
+
+**Ctrl+C**/**Cmd+C** copies the selected cells, rows or columns as
+tab-separated text. Rows the grid hasn't loaded yet (out of view) are read
+first and copied with the rest. If they can't be read, or a sort or filter
+changes the rows shown while the copy runs, the copy fails with a message
+and the clipboard keeps what it held.
+
+- A copy takes at most 1,000,000 cells. A larger selection fails with a
+  message; for a whole column, use **Copy column**.
+- The most recent copy wins: a copy still fetching long strings or rows
+  when you copy something else puts nothing on the clipboard.
+
 ## Sorting Rows
 
 Right-click a column header to sort:
@@ -276,7 +289,8 @@ worker threads that share the panel's open file:
 - A sort or filter still running after 10 minutes is stopped, with a
   message.
 - **Copy column** copies the rows in the order shown when you clicked it,
-  even if a sort or filter finishes meanwhile.
+  even if a sort or filter finishes meanwhile. If you copy something else
+  before it finishes, it leaves the clipboard to that copy.
 - The threads read the file the panel opened. If a program replaces the
   dataset with a new file of the same name (writing a new file and renaming
   it over the old one), the panel keeps showing the version it opened until

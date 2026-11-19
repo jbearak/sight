@@ -121,10 +121,35 @@ export interface CopyFailedMessage {
     message: string;
 }
 
+/**
+ * The user copied something in the webview (any copy event). A copy
+ * the host is still making for an earlier request (Copy Column) must
+ * not overwrite it.
+ */
+export interface CopyStartedMessage {
+    type: 'copyStarted';
+}
+
+/**
+ * Rows a copy needs that the grid hasn't loaded: rows `[start, start +
+ * count)` in the order shown, columns `[col_start, col_end)`, with
+ * every strL read (none `pending`).
+ */
+export interface RequestCopyRowsMessage {
+    type: 'requestCopyRows';
+    request_id: string;
+    start: number;
+    count: number;
+    col_start: number;
+    col_end: number;
+}
+
 export type WebviewMessage =
     | RowRequest
     | CopyTextMessage
     | CopyFailedMessage
+    | CopyStartedMessage
+    | RequestCopyRowsMessage
     | ReadyMessage
     | ColumnWidthsChangedMessage
     | ColumnVisibilityChangedMessage
@@ -282,6 +307,18 @@ export interface FullTextMessage {
 }
 
 /**
+ * The reply to `requestCopyRows`: each row's cells from `col_start`
+ * (the request's columns only), or null with why, when they couldn't
+ * be read or the order shown changed meanwhile.
+ */
+export interface CopyRowsMessage {
+    type: 'copyRows';
+    request_id: string;
+    rows: CellValue[][] | null;
+    message?: string;
+}
+
+/**
  * The open file was rewritten in place; the host serves nothing more
  * from it, and the dataset must be reopened.
  */
@@ -303,6 +340,7 @@ export type ExtensionMessage =
     | RowsStaleMessage
     | RowCellsMessage
     | FullTextMessage
+    | CopyRowsMessage
     | FileChangedMessage;
 
 export interface VariableDescription {
