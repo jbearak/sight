@@ -125,7 +125,8 @@ export class AutomationBackend implements StataBackend {
     private held_lines: string[] = [];
     private held_start = 0;
     private partial = '';
-    private partial_emitted = false;
+    /** How much of `partial` is on screen already. */
+    private partial_emitted_length = 0;
     private last_growth_ms: number;
     private log_size: number;
     private log_lost = false;
@@ -311,10 +312,12 @@ export class AutomationBackend implements StataBackend {
             in_flight.echo_seen = true;
             this.mark_echoed(this.records.length - 1);
         }
+        // Stata has the line once DoCommandAsync returns; a failed or
+        // lost request means it never got it (its do-file can go).
         void this.bridge.request('do_async', { cmd: sent }).then((reply) => {
+            queued.on_sent?.(reply.ok);
             this.handle_failure(reply);
         });
-        queued.on_sent?.(true);
         this.schedule(BUSY_POLL_MS);
     }
 
@@ -523,7 +526,7 @@ export class AutomationBackend implements StataBackend {
     private async poll_idle(): Promise<void> {
         const now = this.clock.now();
         const quiet_ms = now - this.last_growth_ms;
-        if (this.partial.length > 0 && !this.partial_emitted && quiet_ms >= PARTIAL_LINE_QUIET_MS) {
+        if (this.partial.length > this.partial_emitted_length && quiet_ms >= PARTIAL_LINE_QUIET_MS) {
             this.flush_partial();
         }
         const due = this.foreign_activity || now - this.last_free_poll_ms >= IDLE_FREE_POLL_MS;
@@ -597,13 +600,14 @@ export class AutomationBackend implements StataBackend {
         const text = this.partial + result.text;
         const lines = text.split('\n');
         const tail = lines.pop() ?? '';
-        if (this.partial_emitted && lines.length > 0) {
-            // The start of this line is already on screen.
+        if (this.partial_emitted_length > 0 && lines.length > 0) {
+            // The start of this line is already on screen; text added
+            // to it since is not.
             const first = lines[0] ?? '';
-            lines[0] = first.slice(this.partial.length);
+            lines[0] = first.slice(this.partial_emitted_length);
             this.emit_raw(`${lines[0]}\r\n`);
             lines.shift();
-            this.partial_emitted = false;
+            this.partial_emitted_length = 0;
         }
         this.partial = tail;
         // Not push(...lines): spreading a large poll overflows the stack.
@@ -710,11 +714,11 @@ export class AutomationBackend implements StataBackend {
     }
 
     private flush_partial(): void {
-        if (this.partial.length === 0 || this.partial_emitted) {
+        if (this.partial.length <= this.partial_emitted_length) {
             return;
         }
-        this.emit_raw(this.partial);
-        this.partial_emitted = true;
+        this.emit_raw(this.partial.slice(this.partial_emitted_length));
+        this.partial_emitted_length = this.partial.length;
     }
 
     private mark_log_lost(): void {
