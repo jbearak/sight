@@ -538,12 +538,13 @@ export class ConsoleSession {
             this.editor.set_buffer(this.staged.shift() ?? '');
         }
         this.show_editor(true);
+        // The held send first: a send made from on_ready comes after it.
+        if (held) {
+            this.enter_sent_line(held.line, held.on_sent);
+        }
         if (kind === 'stata' && !this.reported_ready) {
             this.reported_ready = true;
             this.options.on_ready?.();
-        }
-        if (held) {
-            this.enter_sent_line(held.line, held.on_sent);
         }
     }
 

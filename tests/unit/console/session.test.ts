@@ -417,6 +417,19 @@ describe('ConsoleSession', () => {
         expect(the_reports).toEqual([true]);
     });
 
+    it('enters a send held before the first prompt ahead of one made when ready', () => {
+        let send_when_ready: () => void = () => undefined;
+        const { pty, session, at_prompt } = setup({
+            on_ready: () => send_when_ready(),
+        });
+        session.send_line('do "early.do"');
+        send_when_ready = () => session.send_line('do "ready.do"');
+        at_prompt();
+        expect(pty.written).toEqual(['do "early.do"\r']);
+        at_prompt('\n. ');
+        expect(pty.written).toEqual(['do "early.do"\r', 'do "ready.do"\r']);
+    });
+
     it('sends exit on Ctrl+D only at the top-level prompt', () => {
         const { pty, session, at_prompt } = setup();
         at_prompt('  1. ');
