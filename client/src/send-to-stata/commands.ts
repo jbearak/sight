@@ -11,11 +11,9 @@ import {
     STATA_APP_NOT_FOUND_MESSAGE
 } from './stata-detector.js';
 import { send_to_stata_app } from './applescript.js';
-import { send_to_terminal } from './terminal.js';
 import {
     is_console_session_override_set,
-    send_to_console_pane_terminal,
-    send_to_perch_terminal,
+    send_to_active_terminal,
     send_to_stata_terminal,
     SendCancelledError,
 } from './stata-terminal-manager.js';
@@ -284,21 +282,9 @@ async function handle_send_command(
                     );
                 }
             } else {
-                // The active terminal may be one of Sight's Perch
-                // sessions, which takes input only through Perch, or a
-                // Stata pane, which takes sends through its queue.
-                const active_terminal = vscode.window.activeTerminal;
-                const perch_queued = await send_to_perch_terminal(
-                    active_terminal, command, my_temp_file
+                is_queued = await send_to_active_terminal(
+                    command, my_temp_file
                 );
-                const pane_queued = perch_queued ?? send_to_console_pane_terminal(
-                    active_terminal, command, my_temp_file
-                );
-                if (pane_queued === null) {
-                    await send_to_terminal(command, my_temp_file);
-                } else {
-                    is_queued = pane_queued;
-                }
             }
         } finally {
             // All send targets enqueue execution asynchronously enough that
