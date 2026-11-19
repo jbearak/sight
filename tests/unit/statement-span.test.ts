@@ -265,7 +265,7 @@ describe('inline_embedded_statement_end', () => {
         expect(my_end.end_line).toBe(parser_inline_end_line(my_source));
     });
 
-    it('ends on the opener line for a cr /// continued inline (matches parser)', () => {
+    it('ends on the opener line for a cr /// continued inline', () => {
         const my_source = 'mata: st_local("b", ///\n"2")\ndisplay 1\n';
         const { tokens } = lexer.tokenize(my_source);
         const my_end = inline_embedded_statement_end(
@@ -273,7 +273,11 @@ describe('inline_embedded_statement_end', () => {
             opener_index(tokens)
         );
         expect(my_end.end_line).toBe(0);
-        expect(my_end.end_line).toBe(parser_inline_end_line(my_source));
+        // The parser's statement takes in the joined line, as StataMP 18
+        // does. The context range still stops at the opener line, so
+        // source-preserving formatting moves the joined line with its
+        // statement rather than leaving it as embedded code.
+        expect(parser_inline_end_line(my_source)).toBe(1);
     });
 
     it('spans a multi-line /* */ block comment inside a cr inline (matches parser)', () => {
