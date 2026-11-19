@@ -1311,8 +1311,9 @@ export function App(): ReactElement {
             }
             the_rows.forEach((my_cells, j) => {
                 // Index by variable, as the grid's rows are.
+                // (Not push(...): a wide row would overflow the stack.)
                 const my_full: CellValue[] = new Array(my_col_start);
-                my_full.push(...my_cells);
+                for (const my_cell of my_cells) my_full.push(my_cell);
                 the_loaded.set(my_start + j, my_full);
             });
             i += my_count;
