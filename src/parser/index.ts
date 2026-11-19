@@ -297,6 +297,21 @@ export interface ParserOptions {
   structured?: boolean;
 }
 
+/**
+ * The command that `input` data after `node` belongs to: `node` itself,
+ * or the command a one-line `if` or `else` ends with (`if 1 input x`).
+ */
+function input_data_command(node: StataNode | null): CommandNode | null {
+  if (node?.type === 'command') {
+    return node;
+  }
+  if ((node?.type === 'if' || node?.type === 'else') &&
+      node.is_single_statement === true) {
+    return input_data_command(node.body[node.body.length - 1] ?? null);
+  }
+  return null;
+}
+
 export class StataParser {
   private readonly structured: boolean;
   private tokens: Token[] = [];
@@ -569,8 +584,11 @@ export class StataParser {
     if (consume_terminator && this.check('STATEMENT_TERMINATOR')) {
       this.advance();
     }
-    if (node?.type === 'command' && this.check('INPUT_DATA')) {
-      this.read_input_data(node);
+    const input_node = input_data_command(node);
+    if (node !== null && input_node !== null && this.check('INPUT_DATA')) {
+      this.read_input_data(input_node);
+      // A one-line `if 1 input x` runs through its data's `end`.
+      node.range = this.makeRange(node.range.start, input_node.range.end);
     }
 
     return node;

@@ -66,6 +66,38 @@ export function strip_inline_block_comments(text: string): string {
 }
 
 /**
+ * The offset of the newline that ends the line from `start` in
+ * `source`, or -1 at the end of the source. A block comment still open
+ * at a newline carries the line past it, as in Stata 18: `program /*
+ * note` then `*\/ define foo` is `program define foo`. Nothing opens a
+ * block comment once a `//` comment has started (see
+ * LINE_COMMENT_START). One linear scan.
+ */
+function physical_line_end(source: string, start: number): number {
+    let my_depth = 0;
+    let i = start;
+    while (i < source.length) {
+        const my_char = source[i];
+        if (my_char === '\n' && my_depth === 0) {
+            return i;
+        }
+        if (my_char === '/' && source[i + 1] === '*') {
+            my_depth++;
+            i += 2;
+        } else if (my_depth > 0 && my_char === '*' && source[i + 1] === '/') {
+            my_depth--;
+            i += 2;
+        } else if (my_depth === 0 && my_char === '/' && source[i + 1] === '/' &&
+                (i === start || source[i - 1] === ' ' || source[i - 1] === '\t')) {
+            return source.indexOf('\n', i);
+        } else {
+            i++;
+        }
+    }
+    return -1;
+}
+
+/**
  * The text from `start` in `source` to the end of its logical line: the
  * rest of the physical line, and each following line that a `///`
  * joins to it, in place of the `///` and the note after it. A `///`
@@ -78,7 +110,7 @@ export function logical_line_text(source: string, start: number): string {
     const the_parts: string[] = [];
     let my_start = start;
     for (;;) {
-        const my_newline = source.indexOf('\n', my_start);
+        const my_newline = physical_line_end(source, my_start);
         const my_end = my_newline === -1 ? source.length : my_newline;
         const my_line = strip_inline_block_comments(
             source.slice(my_start, my_end).replace(/\r$/, ''));

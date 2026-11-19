@@ -399,8 +399,13 @@ unquoted paths all give the same object.
 (Ranges and some nested fields are omitted above.)
 
 An `input` statement outside a program reads the lines after it as data,
-up to a line whose first word is `end`. Its `range` and `text` run
-through that `end`, and the data lines are not statements.
+up to a line whose first word is `end` (under `#delimit ;`, the
+`;`-ended records up to one whose first word is `end`). Its `range` and
+`text` run through that `end`, and the data lines are not statements.
+When a program definition header comes before that `end`, the `end`
+belongs to the program: Stata has stopped reading data once the
+dataset's observations were filled, so the lines are read as
+statements.
 
 - `name` is the command as written. `canonical_name` is the full name of a
   built-in command that `name` abbreviates (`reg` is `regress`), or null for
