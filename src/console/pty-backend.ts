@@ -4,7 +4,9 @@
  * expects.
  */
 
-import type { BackendEvents, BackendHandle, ShutdownReason, StataBackend } from './backend';
+import type {
+    BackendEvents, BackendHandle, LineSentCallback, ShutdownReason, StataBackend,
+} from './backend';
 import { spawn_stata_pty, type StataPty, type StataPtyOptions } from './pty';
 
 /**
@@ -27,10 +29,13 @@ export class PtyBackend implements StataBackend {
         private readonly options: PtyBackendOptions,
     ) {}
 
-    submit_line(line: string): void {
+    submit_line(line: string, _drawn: boolean, on_sent?: LineSentCallback): void {
         // A real keyboard sends CR for Enter; the terminal turns it
         // into a newline in canonical mode, as when typing.
         this.pty.write(line + '\r');
+        // Stata reads it from the terminal's buffer; there is no later
+        // point to report.
+        on_sent?.(true);
     }
 
     answer_more(key: string): void {

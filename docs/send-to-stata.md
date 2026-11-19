@@ -12,7 +12,7 @@ The extension offers three ways to send code to Stata:
 
 - **Stata GUI Application** (`external`): Sends code to the standalone Stata application via AppleScript (macOS) or the send-to-stata helper, which pastes code into Stata's Command window (Windows).
 - **Integrated Stata Terminal** (`integrated`): Opens and sends code to a dedicated Stata terminal inside VS Code (the Stata pane), which runs [sight console](console.md): Stata with syntax highlighting, completion and colored output. On macOS and Linux, including remote sessions (SSH, WSL, Dev Containers, Tunnels), it runs console Stata (`stata-mp`, `stata-se`, `stata-ic`, `stata-be`, or `stata`); see [macOS and Linux: sight console](#macos-and-linux-sight-console). On native Windows, where Stata has no interactive CLI, it drives the Stata application; see [Windows: sight console](#windows-sight-console).
-- **Active Terminal** (the `Terminal` submenu commands): Sends code to whatever terminal is currently active in VS Code, regardless of type. This is useful for sending commands to Stata running inside `tmux`, a Docker container, or any other terminal session that isn't the extension's built-in Stata terminal.
+- **Active Terminal** (the `Terminal` submenu commands): Sends code to whatever terminal is currently active in VS Code, regardless of type. This is useful for sending commands to Stata running inside `tmux`, a Docker container, or any other terminal session that isn't the extension's built-in Stata terminal. When the active terminal is a Stata pane, these commands send through the pane's queue, like the integrated target, so a send made while the pane is starting waits for it.
 
 ### Target Setting
 
@@ -57,6 +57,8 @@ On macOS and Linux the Stata pane runs [sight console](console.md) inside the ex
 
 Code you send while Stata is starting waits in a queue, and the status bar shows how many sends are waiting. The queued sends are typed into the console, in order, once Stata shows its first prompt. Later sends are typed directly.
 
+A send that arrives while Stata shows `--more--` doesn't answer it: it waits, with a note under the prompt, until you answer `--more--` (or Ctrl+C, which drops it) and Stata's prompt returns. Keys you type still answer `--more--` as usual.
+
 Closing the pane ends Stata, as closing a terminal running console Stata does. When Stata ends normally (`exit`), the pane closes; after an error (for example, Stata couldn't start) it stays open until you press a key, so you can read why.
 
 The pane runs console Stata directly, as before sight console, when:
@@ -88,6 +90,8 @@ On native Windows (not in a remote session), the `integrated` target and the "St
 Each pane starts its own Stata, in a new window, so a second pane gets a second Stata window. Stata windows you already have open stay open and untouched; the console never takes one over (see [Which Stata it uses](console.md#which-stata-it-uses), including what that means for other Automation programs). To work in a Stata window that is already open, use the `external` target, which sends code to it.
 
 Code you send while the console is starting waits in a queue, and the status bar shows how many sends are waiting. The queued sends are typed into the console, in order, once it shows its first prompt.
+
+Stata runs one command at a time, so a send made while a long command runs waits in the console. Its temporary do-file is kept until the console gives the command to Stata, and deleted 30 seconds after that, or at once if the command never runs (Ctrl+C, or the pane closes first).
 
 The console doesn't get Stata when:
 

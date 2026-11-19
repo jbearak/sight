@@ -21,7 +21,7 @@ import { create_pty_handle } from './pty-backend';
 import { start_session_host, type SessionHost } from './session-host';
 
 /** Bumped when the contract below changes incompatibly. */
-export const EDITOR_CONSOLE_API_VERSION = 2;
+export const EDITOR_CONSOLE_API_VERSION = 3;
 
 /** macOS and Linux: how to run console Stata. */
 export interface EditorConsolePty {
@@ -64,6 +64,12 @@ export interface EditorConsoleEnd {
 
 export interface EditorConsole {
     handle_input(text: string): void;
+    /**
+     * A line sent from the editor: entered at the prompt, but never
+     * taken as a `--more--` answer. Resolves true once it is given to
+     * Stata, false if it never will be (dropped, or the console ended).
+     */
+    send_line(line: string): Promise<boolean>;
     handle_resize(): void;
     /** The pane was closed: end, which closes the console's Stata. */
     close(): void;
@@ -79,6 +85,16 @@ const CLOSE_KILL_MS = 15000;
 /** Turn bare newlines into the CR LF a terminal needs. */
 function as_terminal_text(text: string): string {
     return text.replace(/\r?\n/g, '\r\n');
+}
+
+/** Send a line through `session`, reporting whether it reached Stata. */
+function send_to(session: SessionHost | null, line: string): Promise<boolean> {
+    if (!session) {
+        return Promise.resolve(false);
+    }
+    return new Promise<boolean>((resolve) => {
+        session.send_line(line, resolve);
+    });
 }
 
 export function start_editor_console(host: EditorConsoleHost): EditorConsole {
@@ -139,6 +155,7 @@ export function start_editor_console(host: EditorConsoleHost): EditorConsole {
 
     return {
         handle_input: (text) => session?.handle_input(text),
+        send_line: (line) => send_to(session, line),
         handle_resize: () => session?.handle_resize(),
         close: () => {
             if (closed) {
@@ -171,6 +188,7 @@ function start_pty_console(host: EditorConsoleHost): EditorConsole {
         resolve_ready(false);
         return {
             handle_input: () => undefined,
+            send_line: () => Promise.resolve(false),
             handle_resize: () => undefined,
             close: () => undefined,
             ready,
@@ -232,6 +250,7 @@ function start_pty_console(host: EditorConsoleHost): EditorConsole {
     });
     return {
         handle_input: (text) => session?.handle_input(text),
+        send_line: (line) => send_to(session, line),
         handle_resize: () => session?.handle_resize(),
         close: () => {
             void session?.shutdown('user', 0);

@@ -29,7 +29,7 @@ import type {
 } from './editor-console';
 
 /** Mirrors editor-console.ts and the extension's console-pane.ts. */
-const EDITOR_CONSOLE_API_VERSION = 2;
+const EDITOR_CONSOLE_API_VERSION = 3;
 const DEFAULT_COLUMNS = 80;
 const DEFAULT_ROWS = 24;
 const PRESS_ANY_KEY = '\r\n[Press any key to close this pane.]';

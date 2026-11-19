@@ -18,7 +18,7 @@ const BUNDLE_PATH = join(BUNDLE_DIR, 'console.js');
 const BUNDLE_BUDGET_BYTES = 2 * 1024 * 1024;
 const BUILD_TIMEOUT_MS = 60000;
 // Mirrors client/src/send-to-stata/console-pane.ts.
-const EDITOR_CONSOLE_API_VERSION = 2;
+const EDITOR_CONSOLE_API_VERSION = 3;
 const IS_WINDOWS = process.platform === 'win32';
 
 /** Node is closest to VS Code's extension host; Bun if it's absent. */

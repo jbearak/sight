@@ -265,6 +265,67 @@ describe('ConsoleSession', () => {
         expect(pty.written).toEqual(['q\r', '\r', ' ']);
     });
 
+    it('holds an editor send at --more-- until the prompt returns', () => {
+        const { pty, session, at_prompt, screen } = setup();
+        const the_reports: boolean[] = [];
+        at_prompt('line\n--more--');
+        session.send_line('do "second.do"', (sent) => the_reports.push(sent));
+        expect(pty.written).toEqual([]);
+        expect(the_reports).toEqual([]);
+        expect(strip_ansi(screen.join(''))).toContain('1 send from the editor waits');
+
+        // Typed keys still answer the pager.
+        session.handle_input(' ');
+        expect(pty.written).toEqual([' \r']);
+        at_prompt('\nmore output\n--more--');
+        expect(pty.written).toEqual([' \r']);
+        session.handle_input('q');
+        expect(pty.written).toEqual([' \r', 'q\r']);
+
+        at_prompt('\n. ');
+        expect(pty.written).toEqual([' \r', 'q\r', 'do "second.do"\r']);
+        expect(the_reports).toEqual([true]);
+    });
+
+    it('sends held editor sends one per prompt, in order', () => {
+        const { pty, session, at_prompt } = setup();
+        at_prompt('--more--');
+        session.send_line('do "a.do"');
+        session.send_line('do "b.do"');
+        session.handle_input('q');
+        at_prompt('\n. ');
+        expect(pty.written).toEqual(['q\r', 'do "a.do"\r']);
+        at_prompt('\n. ');
+        expect(pty.written).toEqual(['q\r', 'do "a.do"\r', 'do "b.do"\r']);
+    });
+
+    it('drops held editor sends on Ctrl+C and at exit', () => {
+        const { pty, session, at_prompt } = setup();
+        const the_reports: string[] = [];
+        at_prompt('--more--');
+        session.send_line('do "a.do"', (sent) => the_reports.push(`a ${sent}`));
+        session.handle_input('\x03');
+        at_prompt('\n. ');
+        expect(pty.written).toEqual([]);
+        expect(the_reports).toEqual(['a false']);
+
+        at_prompt('\n--more--');
+        session.send_line('do "b.do"', (sent) => the_reports.push(`b ${sent}`));
+        session.handle_exit();
+        expect(the_reports).toEqual(['a false', 'b false']);
+        session.send_line('do "c.do"', (sent) => the_reports.push(`c ${sent}`));
+        expect(the_reports).toEqual(['a false', 'b false', 'c false']);
+    });
+
+    it('types an editor send at once when no pager shows', () => {
+        const { pty, session, at_prompt } = setup();
+        const the_reports: boolean[] = [];
+        at_prompt();
+        session.send_line('do "a.do"', (sent) => the_reports.push(sent));
+        expect(pty.written).toEqual(['do "a.do"\r']);
+        expect(the_reports).toEqual([true]);
+    });
+
     it('sends exit on Ctrl+D only at the top-level prompt', () => {
         const { pty, session, at_prompt } = setup();
         at_prompt('  1. ');

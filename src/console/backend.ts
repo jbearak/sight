@@ -11,13 +11,18 @@
  * through COM).
  */
 
+/** Whether a submitted line reached Stata (see `submit_line`). */
+export type LineSentCallback = (sent: boolean) => void;
+
 export interface StataBackend {
     /**
      * Send one entered line (no newline). `drawn` is the session's own
      * decision: true when it drew the highlighted line itself, false
      * when it left the line for Stata's echo (typeahead).
+     * `on_sent`, if given, is called once: true when the line is given
+     * to Stata, false if it is dropped first (Ctrl+C, the end).
      */
-    submit_line(line: string, drawn: boolean): void;
+    submit_line(line: string, drawn: boolean, on_sent?: LineSentCallback): void;
     /** Answer `--more--` with one key ('' for Enter). */
     answer_more(key: string): void;
     /** Ctrl+C. The backend decides what Stata needs. */
