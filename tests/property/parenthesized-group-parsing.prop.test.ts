@@ -38,6 +38,21 @@ function get_parenthesized_content(cmd: CommandNode): string | null {
     return paren_item?.name ?? null;
 }
 
+/**
+ * A name the parser reads as an ordinary command. A random short name
+ * is now and then one with its own syntax (`di` for display, `pr` for
+ * a program definition), whose arguments are not a varlist; these
+ * properties are about ordinary commands.
+ */
+function arbitrary_plain_command(): fc.Arbitrary<string> {
+    return arbitrary_non_reserved_identifier().filter((my_name) => {
+        const my_command = parse(`${my_name} (zzv)=zzw`);
+        return my_command !== null && my_command.name === my_name &&
+            get_parenthesized_content(my_command) === '(zzv)' &&
+            my_command.expression !== undefined;
+    });
+}
+
 describe('parenthesized group parsing property tests', () => {
     /**
      * Property 1: Nested Parenthesis Depth Tracking
@@ -49,7 +64,7 @@ describe('parenthesized group parsing property tests', () => {
     it('should track nested parenthesis depth correctly (Property 1)', () => {
         fc.assert(
             fc.property(
-                arbitrary_non_reserved_identifier(),
+                arbitrary_plain_command(),
                 fc.integer({ min: 1, max: 4 }),
                 arbitrary_non_reserved_identifier(),
                 (cmd_name, nesting_depth, var_name) => {
@@ -81,7 +96,7 @@ describe('parenthesized group parsing property tests', () => {
     it('should preserve spacing between word tokens (Property 2)', () => {
         fc.assert(
             fc.property(
-                arbitrary_non_reserved_identifier(),
+                arbitrary_plain_command(),
                 fc.array(arbitrary_non_reserved_identifier(), {
                     minLength: 2,
                     maxLength: 5
@@ -114,7 +129,7 @@ describe('parenthesized group parsing property tests', () => {
     it('should parse parenthesized groups with assignment (Property 3)', () => {
         fc.assert(
             fc.property(
-                arbitrary_non_reserved_identifier(),
+                arbitrary_plain_command(),
                 arbitrary_non_reserved_identifier(),
                 arbitrary_non_reserved_identifier(),
                 (cmd_name, var_name, expr_name) => {
@@ -146,7 +161,7 @@ describe('parenthesized group parsing property tests', () => {
         fc.assert(
             fc.property(
                 arbitrary_non_reserved_identifier(),
-                arbitrary_non_reserved_identifier(),
+                arbitrary_plain_command(),
                 arbitrary_non_reserved_identifier(),
                 (frame_name, cmd_name, var_name) => {
                     const direct_source = `${cmd_name} (${var_name})`;
