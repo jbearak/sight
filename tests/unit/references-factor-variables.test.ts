@@ -180,6 +180,8 @@ describe('References Provider - file names are not operator terms', () => {
         'regress y i.dta if L.dta',                      // 20
         'capt save old.dta',                             // 21
         'version 16, user: save old.dta',                // 22
+        'if 1 version 18: save l.dta',                   // 23
+        'if 1 capture version 18: save l.dta',           // 24
     ].join('\n'));
 
     it('finds operator terms but not extensions', async () => {

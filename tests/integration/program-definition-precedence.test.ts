@@ -145,6 +145,16 @@ const CASES: Case[] = [
         undefined: [],
     },
     {
+        name: 'the ado is loaded after clear all',
+        files: {
+            'main.do': 'run overrides.do\nclear all\n'
+                + 'setter result\ndisplay "`result\'"\n',
+            'overrides.do': ARG_DISPLAY_SETTER,
+            'setter.ado': ARG_SETTER,
+        },
+        undefined: [],
+    },
+    {
         name: 'two unloaded .do definitions and no ado credit nothing',
         files: {
             'main.do': 'setter\ndisplay "`result\'"\n',

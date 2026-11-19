@@ -17,12 +17,19 @@ import {
     is_command_position_by,
     is_single_line_prefix,
 } from './command-position';
-import { LanguageContext, MacroSymbol, Token, ContextRange } from '../types';
+import {
+    LanguageContext,
+    MacroSymbol,
+    Token,
+    ContextRange,
+    SymbolTable,
+} from '../types';
 import {
     all_credited_local_definitions,
     credited_local_at,
 } from './program-macro-credit';
 import { get_line_text } from '../utils/line-utils';
+import { is_name_char, is_name_char_or_past_end } from './cursor-word';
 import {
     classify_effective_local,
     is_cross_file_hidden_local,
@@ -181,6 +188,10 @@ function build_file_name_context(tokens: Token[]): FileNameContext {
     // The next word is a command: it follows the condition of a
     // one-line `if`, or a prefix in that position.
     let is_command_pending = false;
+    // The word that started the command after a one-line `if`
+    // condition, where a backward command-position walk stops as at
+    // a statement start (`if 1 version 18: save l.dta`).
+    let command_start = -1;
     for (let i = 0; i < tokens.length; i++) {
         const my_token = tokens[i];
         run_start[i] = i > 0 && touches(tokens[i - 1], my_token)
@@ -197,6 +208,7 @@ function build_file_name_context(tokens: Token[]): FileNameContext {
         if (STATEMENT_START_TYPES.has(my_token.type)) {
             condition = undefined;
             is_command_pending = false;
+            command_start = -1;
         }
         const is_word_or_macro = my_token.type === 'WORD'
             || MACRO_REF_TYPES.has(my_token.type);
@@ -220,6 +232,7 @@ function build_file_name_context(tokens: Token[]): FileNameContext {
             is_command_pending = my_token.type === 'COLON';
             starts_command = !is_command_pending;
         }
+        if (starts_command) command_start = i;
         if (!FILE_NAME_REGION_TYPES.has(my_token.type)) {
             is_after_file_command = false;
             is_after_using = false;
@@ -239,7 +252,8 @@ function build_file_name_context(tokens: Token[]): FileNameContext {
             }
             const is_command = (): boolean => starts_command
                 || (!condition && is_command_position_by(
-                    tokens, i, (j) => previous_significant[j]));
+                    tokens, i, (j) => j === command_start
+                        ? -1 : previous_significant[j]));
             if (value === 'if' && is_command()) {
                 condition = {
                     previous_operand: -1,
@@ -546,6 +560,7 @@ export class ReferencesProvider {
         target_local_macro?: MacroSymbol,
         exclude_same_file_local?: boolean,
         inherited_target?: MacroSymbol,
+        workspace_symbols?: SymbolTable,
     ): Location[] {
         const locations: Location[] = [];
         const seen = new Set<string>();
@@ -576,10 +591,15 @@ export class ReferencesProvider {
                         ? inherited_target
                         : symbols.localMacros.get(symbol_name));
                 // Calls that set the local through a program the
-                // scope reaches at the call.
-                for (const my_symbol of all_credited_local_definitions(
-                    document, resolved_scope, symbol_name
-                )) {
+                // scope reaches at the call, in the cursor's program
+                // frame (a local belongs to its program).
+                const the_credited = cursor_line === undefined
+                    ? []
+                    : all_credited_local_definitions(
+                        document, resolved_scope, symbol_name, cursor_line,
+                        workspace_symbols
+                    );
+                for (const my_symbol of the_credited) {
                     push({
                         uri: my_symbol.location.uri,
                         range: my_symbol.location.range,
@@ -833,13 +853,18 @@ export class ReferencesProvider {
             )
             : undefined;
 
+        // The programs a call may autoload, as Go to Definition sees
+        // them; built once, the credited writes are cached by it.
+        const workspace_symbols = workspace_indexer?.get_all_symbols();
+
         // The argument word or option argument at a call that sets a
         // caller local through a program the scope reaches is that
         // local's definition (`setter result`).
         const credited = found_symbol?.type === 'local_macro'
             || found_symbol?.type === 'global_macro'
             ? undefined
-            : credited_local_at(document, resolved_scope, position);
+            : credited_local_at(
+                document, resolved_scope, position, workspace_symbols);
         const identified_symbol: IdentifiedSymbol | null = credited
             ? {
                 name: credited.name,
@@ -869,6 +894,7 @@ export class ReferencesProvider {
             target.target_local_macro,
             target.exclude_same_file_local,
             target.inherited_target,
+            workspace_symbols,
         );
     }
 
@@ -1047,13 +1073,13 @@ export class ReferencesProvider {
 
         // Find the start of the word
         let start = character;
-        while (start > 0 && /[a-zA-Z0-9_]/.test(line[start - 1])) {
+        while (start > 0 && is_name_char_or_past_end(line, start - 1)) {
             start--;
         }
 
         // Find the end of the word
         let end = character;
-        while (end < line.length && /[a-zA-Z0-9_]/.test(line[end])) {
+        while (end < line.length && is_name_char(line[end])) {
             end++;
         }
 
@@ -1352,6 +1378,8 @@ export class ReferencesProvider {
             return [];
         }
 
+        const workspace_symbols = workspace_indexer?.get_all_symbols();
+
         // Resolve the scope once so find_definitions can apply the
         // call-site filter to non-variable declarations pooled from the
         // workspace indexer. See issue #129.
@@ -1383,6 +1411,7 @@ export class ReferencesProvider {
             target.target_local_macro,
             target.exclude_same_file_local,
             target.inherited_target,
+            workspace_symbols,
         );
     }
 
@@ -1402,6 +1431,7 @@ export class ReferencesProvider {
         target_local_macro?: MacroSymbol,
         exclude_same_file_local?: boolean,
         inherited_target?: MacroSymbol,
+        workspace_symbols?: SymbolTable,
     ): Promise<Location[]> {
         const search_context: ReferenceSearchContext = {
             symbol_name,
@@ -1420,6 +1450,7 @@ export class ReferencesProvider {
             target_local_macro,
             exclude_same_file_local,
             inherited_target,
+            workspace_symbols,
         );
 
         // Search workspace-indexed files (Req 13.3).

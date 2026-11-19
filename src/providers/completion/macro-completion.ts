@@ -12,8 +12,16 @@ import { Position, Range } from 'vscode-languageserver';
 import { DocumentState } from '../../document-store';
 import { get_line_text, get_char_at_position } from '../../utils/line-utils';
 import { is_cursor_in_comment } from '../../utils/comment-utils';
+import { NAME_PART_SOURCE } from '../../utils/stata-name';
 
-export const MACRO_IDENTIFIER_CHAR_REGEX = /[A-Za-z0-9_]/;
+/**
+ * One character of a macro name, as the lexer reads a name: ASCII or
+ * Unicode letters, digits and `_` (see stata-name.ts).
+ */
+export const MACRO_IDENTIFIER_CHAR_REGEX = new RegExp(NAME_PART_SOURCE, 'u');
+
+// An unbraced global name typed after `$`.
+const UNBRACED_GLOBAL_NAME_REGEX = new RegExp(`^${NAME_PART_SOURCE}+$`, 'u');
 
 export type MacroScope = 'local' | 'global';
 export type MacroForm = 'local' | 'global-braced' | 'global-unbraced';
@@ -249,7 +257,7 @@ export function detect_global_macro_context(text_before_cursor: string, line: nu
                 // $ at end of text
                 is_valid_unbraced = true;
             } else {
-                if (!/^[A-Za-z0-9_]+$/.test(after_dollar)) {
+                if (!UNBRACED_GLOBAL_NAME_REGEX.test(after_dollar)) {
                     is_valid_unbraced = false;
                 }
             }
