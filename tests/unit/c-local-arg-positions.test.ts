@@ -1,4 +1,7 @@
 import { describe, it, expect } from 'bun:test';
+import { Range } from 'vscode-languageserver-textdocument';
+import { readFileSync } from 'fs';
+import { join } from 'path';
 import {
     AnalysisResult,
     SemanticAnalyzer,
@@ -6,6 +9,7 @@ import {
 } from '../../src/analyzer';
 import { StataLexer } from '../../src/lexer';
 import { StataParser } from '../../src/parser';
+import { TOKENIZE_MIN_ABBREVIATION } from '../../src/analyzer/c-local-arg-positions';
 import { DiagnosticsProvider } from '../../src/providers/diagnostics';
 import {
     ResolvedScope,
@@ -372,17 +376,20 @@ describe('c_local argument positions: calls', () => {
 });
 
 describe('c_local argument positions: resolved-scope fallback', () => {
-    async function diagnose(content: string): Promise<string[]> {
+    async function diagnose(
+        content: string,
+        setter_range: Range = {
+            start: { line: 0, character: 0 },
+            end: { line: 3, character: 3 },
+        }
+    ): Promise<string[]> {
         const provider = new DiagnosticsProvider({ sendDiagnostics: () => {} });
         const symbols = create_empty_symbol_table();
         symbols.programs.set('setter', {
             name: 'setter',
             location: {
                 uri: 'file:///parent.do',
-                range: {
-                    start: { line: 0, character: 0 },
-                    end: { line: 3, character: 3 },
-                },
+                range: setter_range,
             },
             sourceUri: 'file:///parent.do',
             c_local_arg_positions: [1],
@@ -417,6 +424,22 @@ describe('c_local argument positions: resolved-scope fallback', () => {
         ].join('\n'))).toEqual([]);
     });
 
+    it('keeps the warning when this file defines the program after a call', async () => {
+        // The resolved scope holds this file's own later definition.
+        const code = [
+            'setter rhs',
+            'display "`rhs\'"',
+            'program define setter',
+            '    args where',
+            '    c_local `where\' 1',
+            'end',
+        ].join('\n');
+        expect(await diagnose(code, {
+            start: { line: 2, character: 0 },
+            end: { line: 5, character: 3 },
+        })).toEqual(['rhs']);
+    });
+
     it('keeps warnings the call does not cover', async () => {
         expect((await diagnose([
             'display "`early\'"',
@@ -428,5 +451,167 @@ describe('c_local argument positions: resolved-scope fallback', () => {
             'end',
             'display "`quoted\'"',
         ].join('\n'))).sort()).toEqual(['early', 'early', 'nm', 'quoted']);
+    });
+});
+
+describe('c_local argument positions: abbreviated tokenize', () => {
+    // StataMP 18: `token alpha beta` then `` c_local `1' 1 `` sets the
+    // caller's `alpha`, not the name the caller passed.
+    for (const my_spelling of ['token', 'tokeni', 'tokeniz', 'tokenize']) {
+        it(`treats ${my_spelling} as a change to numbered locals`, () => {
+            const code = [
+                'program define p',
+                `    ${my_spelling} alpha beta`,
+                '    c_local `1\' 1',
+                'end',
+                'p result',
+                'display "[`result\']"',
+            ].join('\n');
+            expect(positions_of(code, 'p')).toBeUndefined();
+            expect(undefined_macros(analyze(code))).toContain('result');
+        });
+    }
+
+    it('does not treat a shorter or differently cased word as tokenize', () => {
+        for (const my_spelling of ['toke', 'Token']) {
+            expect(positions_of([
+                'program define p',
+                `    ${my_spelling} alpha beta`,
+                '    c_local `1\' 1',
+                'end',
+            ].join('\n'), 'p')).toEqual([1]);
+        }
+    });
+
+    it('matches the command database minimum abbreviation', () => {
+        const cache = JSON.parse(readFileSync(join(
+            import.meta.dir, '../../src/command-database/caches/v18.json'
+        ), 'utf8')) as {
+            commands: Record<string, { min_abbreviation: number }>;
+        };
+        expect(cache.commands['tokenize']?.min_abbreviation)
+            .toBe(TOKENIZE_MIN_ABBREVIATION);
+    });
+});
+
+describe('c_local argument positions: which programs a call can reach', () => {
+    const SETTER = [
+        'program define review_setter',
+        '    args name',
+        '    c_local `name\' 1',
+        'end',
+    ].join('\n');
+
+    function workspace_from(code: string, uri: string): SymbolTable {
+        const setter = analyze(code, undefined, uri);
+        const workspace_symbols = create_empty_symbol_table();
+        for (const [my_name, my_program] of setter.symbols.programs) {
+            workspace_symbols.programs.set(my_name, my_program);
+        }
+        return workspace_symbols;
+    }
+
+    const CALL = [
+        'capture review_setter result',
+        'display "`result\'"',
+    ].join('\n');
+
+    it('ignores a program from an unrelated workspace .do file', () => {
+        const workspace_symbols = workspace_from(
+            SETTER, 'file:///work/library.do'
+        );
+        const result = analyze(CALL, workspace_symbols, 'file:///work/main.do');
+        expect(undefined_macros(result)).toEqual(['result']);
+    });
+
+    it('ignores a workspace .ado file named after another program', () => {
+        const workspace_symbols = workspace_from(
+            SETTER, 'file:///work/other.ado'
+        );
+        const result = analyze(CALL, workspace_symbols, 'file:///work/main.do');
+        expect(undefined_macros(result)).toEqual(['result']);
+    });
+
+    it('uses a workspace .ado file named after the program', () => {
+        const workspace_symbols = workspace_from(
+            SETTER, 'file:///work/review_setter.ado'
+        );
+        const result = analyze(CALL, workspace_symbols, 'file:///work/main.do');
+        expect(undefined_macros(result)).toEqual([]);
+    });
+
+    it('ignores a program defined later in the same file', () => {
+        const code = [CALL, SETTER].join('\n');
+        // The workspace index holds this file's own programs too.
+        const workspace_symbols = workspace_from(code, 'file:///work/main.do');
+        const result = analyze(code, workspace_symbols, 'file:///work/main.do');
+        expect(undefined_macros(result)).toEqual(['result']);
+    });
+
+    it('uses a program defined earlier in the same file', () => {
+        const code = [SETTER, CALL].join('\n');
+        expect(undefined_macros(analyze(code))).toEqual([]);
+    });
+
+    it('uses a later same-file program from inside a program body', () => {
+        // The body runs only when the program is called, after the
+        // whole file (an ado with helper subprograms) has loaded.
+        const code = [
+            'program define caller',
+            '    review_setter result',
+            '    display "`result\'"',
+            'end',
+            SETTER,
+        ].join('\n');
+        const workspace_symbols = workspace_from(code, 'file:///work/caller.ado');
+        const result = analyze(code, workspace_symbols, 'file:///work/caller.ado');
+        expect(undefined_macros(result)).toEqual([]);
+    });
+
+    for (const my_call of ['run library.do', 'run library', 'do "sub/library.do"', 'include library.do']) {
+        it(`uses a program from a file called earlier: ${my_call}`, () => {
+            const workspace_symbols = workspace_from(
+                SETTER, 'file:///work/sub/library.do'
+            );
+            const result = analyze(
+                [my_call, CALL].join('\n'),
+                workspace_symbols,
+                'file:///work/main.do'
+            );
+            expect(undefined_macros(result)).toEqual([]);
+        });
+    }
+
+    it('ignores a program from a file called only after the call', () => {
+        const workspace_symbols = workspace_from(
+            SETTER, 'file:///work/library.do'
+        );
+        for (const my_call of ['run other.do', 'run library.ado', 'run `lib\'']) {
+            const result = analyze(
+                [my_call, CALL].join('\n'),
+                workspace_symbols,
+                'file:///work/main.do'
+            );
+            expect(undefined_macros(result)).toContain('result');
+        }
+        const result = analyze(
+            [CALL, 'run library.do'].join('\n'),
+            workspace_symbols,
+            'file:///work/main.do'
+        );
+        expect(undefined_macros(result)).toEqual(['result']);
+    });
+
+    it('ignores another file\'s program from inside a program body', () => {
+        const workspace_symbols = workspace_from(
+            SETTER, 'file:///work/library.do'
+        );
+        const result = analyze([
+            'program define caller',
+            '    review_setter result',
+            '    display "`result\'"',
+            'end',
+        ].join('\n'), workspace_symbols, 'file:///work/caller.ado');
+        expect(undefined_macros(result)).toEqual(['result']);
     });
 });

@@ -21,10 +21,13 @@
  * (`` tempvar tv`i' ``) is known only at run time; a macro-creating
  * option whose argument is not a literal name sets `unknown_target`.
  */
+import * as node_path from 'path';
 import { Range } from 'vscode-languageserver-textdocument';
+import { URI } from 'vscode-uri';
 import {
     ArgumentSpec,
     CommandNode,
+    ForwardCall,
     IdentifierNode,
     OptionSpec,
     ProgramSignature,
@@ -79,8 +82,20 @@ export interface CommandMacroWrites {
 export interface MacroWriteContext {
     /** Programs defined in this file. */
     file_programs: ReadonlyMap<string, ProgramSymbol>;
-    /** Programs found in the workspace, used when the file lacks one. */
+    /**
+     * Programs defined in this file so far, in statement order, then
+     * programs found anywhere in the workspace. A call reaches a
+     * workspace program's `c_local` argument names only when Stata
+     * could load that program at the call (see
+     * `find_c_local_arg_program`).
+     */
     workspace_programs?: ReadonlyMap<string, ProgramSymbol>;
+    /** URI of the file being analyzed. */
+    uri?: string;
+    /** True when the statement is inside a program body. */
+    in_program_body?: boolean;
+    /** `do`/`run`/`include` calls this file has made so far. */
+    forward_calls?: readonly ForwardCall[];
     /**
      * The file's token stream. Without it, names that a call passes to
      * a `c_local` argument are not read.
@@ -168,6 +183,107 @@ function find_program(
 ): ProgramSymbol | undefined {
     return context.file_programs.get(name)
         ?? context.workspace_programs?.get(name);
+}
+
+/**
+ * True if `uri` names `<program_name>.ado`, the file Stata auto-loads
+ * from the adopath when `program_name` is called. The extension is
+ * matched without case (it is a filesystem name, not Stata syntax);
+ * the program name is matched exactly.
+ */
+function is_auto_loaded_ado(uri: string, program_name: string): boolean {
+    const base = uri_file_name(uri);
+    if (base === undefined) return false;
+    const extension = node_path.posix.extname(base);
+    return extension.toLowerCase() === '.ado'
+        && base.slice(0, -extension.length) === program_name;
+}
+
+/** The file name at the end of `uri`'s path. */
+function uri_file_name(uri: string): string | undefined {
+    try {
+        return node_path.posix.basename(URI.parse(uri).path);
+    } catch {
+        return undefined;
+    }
+}
+
+const PATH_SEPARATOR_RE = /[\\/]/;
+
+/**
+ * True if `uri` has the file name of a static `do`/`run`/`include`
+ * path that ends before `node` starts. `run lib` runs `lib.do`. The
+ * analyzer resolves no paths, so only the file name is compared,
+ * exactly except for the extension's case.
+ */
+function is_forward_called_before(
+    uri: string,
+    node: CommandNode,
+    the_calls: readonly ForwardCall[]
+): boolean {
+    const file_name = uri_file_name(uri);
+    if (file_name === undefined) return false;
+    const extension = node_path.posix.extname(file_name);
+    const stem = file_name.slice(0, file_name.length - extension.length);
+    const start = node.range.start;
+    for (const my_call of the_calls) {
+        const end = my_call.range.end;
+        if (!my_call.is_static
+            || end.line > start.line
+            || (end.line === start.line && end.character > start.character)) {
+            continue;
+        }
+        const called = my_call.raw_path.split(PATH_SEPARATOR_RE).pop() ?? '';
+        const called_extension = node_path.posix.extname(called);
+        const called_stem = called.slice(0, called.length - called_extension.length);
+        const effective_extension = called_extension === ''
+            ? '.do' : called_extension;
+        if (called_stem === stem
+            && effective_extension.toLowerCase() === extension.toLowerCase()) {
+            return true;
+        }
+    }
+    return false;
+}
+
+/**
+ * The program whose positional `c_local` names a call to `name`
+ * defines. The workspace index holds every program in the workspace,
+ * whether or not the caller ever runs the file that defines it, so a
+ * workspace program counts only when Stata could reach it at the call:
+ *
+ * - one this file defined before the call (`file_programs`);
+ * - an ado named after the program, which Stata loads from the
+ *   adopath on first call;
+ * - inside a program body, one defined anywhere in this file, since
+ *   the body runs only when called, after the file has loaded (an
+ *   ado's helper subprograms usually follow the main program);
+ * - one in a file this file ran or included earlier by a path with
+ *   that file name (`run library.do`).
+ *
+ * A program in an unrelated `.do` file is not reachable: workspace
+ * symbols alone do not define a caller's locals.
+ */
+function find_c_local_arg_program(
+    name: string,
+    node: CommandNode,
+    context: MacroWriteContext
+): ProgramSymbol | undefined {
+    const file_program = context.file_programs.get(name);
+    if (file_program) return file_program;
+    const workspace_program = context.workspace_programs?.get(name);
+    if (!workspace_program?.c_local_arg_positions) return undefined;
+    const source_uri = workspace_program.sourceUri;
+    if (is_auto_loaded_ado(source_uri, name)) return workspace_program;
+    if (context.in_program_body === true && source_uri === context.uri) {
+        return workspace_program;
+    }
+    if (source_uri !== context.uri && is_forward_called_before(
+        source_uri, node, context.forward_calls ?? []
+    )) {
+        return workspace_program;
+    }
+    return undefined;
 }
 
 /**
@@ -324,7 +440,8 @@ export function command_macro_writes(
     }
     // Names the caller passes for the program to c_local
     // (`_getrhs rhs`), defined at the argument word.
-    const the_positions = program?.c_local_arg_positions;
+    const the_positions = find_c_local_arg_program(node.fullName, node, context)
+        ?.c_local_arg_positions;
     if (the_positions && context.tokens) {
         for (const my_created of resolve_c_local_arg_names(
             node, context.tokens, the_positions
