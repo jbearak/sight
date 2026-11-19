@@ -1964,6 +1964,8 @@ interface FakePerch {
     attach_before_create: boolean;
     /** Sessions lack the send channel, as an older Sight made them. */
     old_sessions: boolean;
+    /** Sessions' consoles delete sends' files from here instead. */
+    other_send_dir?: string;
     fire_attach: (session: FakeSession, terminal: MockTerminal) => void;
     fire_end: (session: FakeSession) => void;
     make_session: (overrides?: Partial<FakeSession>) => FakeSession;
@@ -2056,8 +2058,12 @@ function create_fake_perch(vscode_state: VscodeMockState): FakePerch {
         createSession: async (options: FakePerchCreate) => {
             perch.the_creates.push(options);
             const annotations: Record<string, string> = { ...options.annotations };
+            if (perch.other_send_dir !== undefined) {
+                annotations['sight.sendDir'] = perch.other_send_dir;
+            }
             if (perch.old_sessions) {
                 delete annotations['sight.sendChannel'];
+                delete annotations['sight.sendDir'];
             }
             const session = make_session({
                 annotations,
@@ -2270,6 +2276,7 @@ describe.serial('Feature: Stata console in a Perch session (remote windows)', ()
         expect(created.env).toEqual({ ELECTRON_RUN_AS_NODE: '1' });
         expect(created.annotations).toEqual({
             'sight.console': 'editor', 'sight.sendChannel': '2',
+            'sight.sendDir': os.tmpdir(),
         });
         expect(created.show).toBe(false);
         expect(created.command).toEqual([
@@ -2831,6 +2838,24 @@ describe.serial('Feature: Stata console in a Perch session (remote windows)', ()
         expect(handed_files(harness)).toEqual([]);
     });
 
+    test('a session whose console deletes files elsewhere gets sends as keys', async () => {
+        const { harness, perch } = await create_perch_harness();
+        // Started from a window whose temp directory was another one.
+        perch!.other_send_dir = '/elsewhere';
+        await harness.terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('first')
+        );
+        const session = perch!.the_listed[0];
+        write_ready_file(session.dir);
+        await wait_until(() => harness.vscode_state.the_cleanups.length === 1, 'ready', 2000);
+        const second = await create_tracked_send_file('second');
+        expect(await harness.terminal_manager.send_to_stata_terminal('do', second)).toBe(false);
+        expect(perch!.the_sends).toEqual([
+            { id: session.id, text: `do ${wrap(second)}`, options: { submit: true } },
+        ]);
+        expect(handed_files(harness)).toEqual([]);
+    });
+
     test('the profile list\'s Stata terminal is a Perch session too', async () => {
         const { harness, perch } = await create_perch_harness();
         const provider = harness.vscode_state.the_profile_providers.get(
@@ -2998,6 +3023,7 @@ describe.serial('Feature: Perch\'s launcher, and Perch in local windows', () => 
             expect(created.show).toBe(false);
             expect(created.annotations).toEqual({
             'sight.console': 'editor', 'sight.sendChannel': '2',
+            'sight.sendDir': os.tmpdir(),
         });
             expect(created.command).toEqual([
                 process.execPath,

@@ -42,6 +42,13 @@ export type PerchConsoleMode =
  */
 export const PERCH_SEND_CHANNEL_ANNOTATION = 'sight.sendChannel';
 export const PERCH_SEND_CHANNEL_VERSION = '2';
+/**
+ * The directory the session's console deletes sends' do-files from
+ * (its --send-dir). A later window's temp directory may differ, and the
+ * console ignores a send naming a file elsewhere, so such a send is
+ * typed as keys instead.
+ */
+export const PERCH_SEND_DIR_ANNOTATION = 'sight.sendDir';
 /** Mirrors src/console/editor-send-channel.ts. */
 const EDITOR_SEND_START = '\x1b_sight-send;';
 const EDITOR_SEND_END = '\x1b\\';
@@ -54,6 +61,13 @@ const EDITOR_SEND_END = '\x1b\\';
 export function encode_editor_send(line: string, file: string): string {
     return EDITOR_SEND_START + JSON.stringify({ line, file })
         + EDITOR_SEND_END;
+}
+
+/** The session console's send directory, if it has the channel. */
+export function send_dir_of(session: PerchSessionInfo): string | undefined {
+    return has_send_channel(session)
+        ? session.annotations[PERCH_SEND_DIR_ANNOTATION]
+        : undefined;
 }
 
 export function has_send_channel(session: PerchSessionInfo): boolean {
@@ -178,6 +192,7 @@ export function build_perch_launch(
     options.annotations = {
         [PERCH_CONSOLE_ANNOTATION]: PERCH_CONSOLE_EDITOR,
         [PERCH_SEND_CHANNEL_ANNOTATION]: PERCH_SEND_CHANNEL_VERSION,
+        [PERCH_SEND_DIR_ANNOTATION]: editor.send_dir,
     };
     return options;
 }

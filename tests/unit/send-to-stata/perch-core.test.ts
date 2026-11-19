@@ -164,6 +164,7 @@ describe('build_perch_launch', () => {
             cwd: '/w{dir}',
             annotations: {
                 'sight.console': 'editor', 'sight.sendChannel': '2',
+                'sight.sendDir': '/t{mp}',
             },
             env: { ELECTRON_RUN_AS_NODE: '1' },
             command: [

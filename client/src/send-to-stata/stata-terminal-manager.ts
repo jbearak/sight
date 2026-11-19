@@ -35,7 +35,7 @@ import {
     candidate_sessions,
     console_mode_of,
     encode_editor_send,
-    has_send_channel,
+    send_dir_of,
     PERCH_CONSOLE_EDITOR,
     PERCH_CONSOLE_STATA,
     PERCH_END_FILE,
@@ -564,7 +564,7 @@ const PERCH_UNAVAILABLE_MESSAGE = 'Perch is not available here.';
  * when the session ends, or after this long, so it is never left
  * behind for good (a console still holding it then can't run it).
  */
-const PERCH_UNKNOWN_SEND_CLEANUP_MS = 60 * 60 * 1000;
+const PERCH_UNKNOWN_SEND_CLEANUP_MS = 24 * 60 * 60 * 1000;
 let perch_unknown_send_cleanup_ms = PERCH_UNKNOWN_SEND_CLEANUP_MS;
 
 interface PerchConsole {
@@ -573,9 +573,11 @@ interface PerchConsole {
     mode: PerchConsoleMode;
     /**
      * Its console reads editor sends apart from keys (see
-     * has_send_channel); otherwise sends are typed, as by a keyboard.
+     * has_send_channel), and deletes their do-files only from this
+     * directory; otherwise (or for a file elsewhere) sends are typed,
+     * as by a keyboard.
      */
-    has_send_channel: boolean;
+    send_dir: string | undefined;
     /** The session directory. */
     dir: string;
     /** Its Perch terminal in this window, if one is open. */
@@ -773,7 +775,7 @@ function track_perch_console(
         id: session.id,
         api,
         mode: console_mode_of(session),
-        has_send_channel: has_send_channel(session),
+        send_dir: send_dir_of(session),
         dir: session.dir,
         terminal: null,
         chain: Promise.resolve(),
@@ -1005,7 +1007,8 @@ function type_perch_send(id: string, send: PendingSend): boolean {
     }
     const line = `${send.command} `
         + wrap_path_for_stata_terminal(send.temp_file_path);
-    if (!record.has_send_channel) {
+    if (record.send_dir === undefined || path.dirname(send.temp_file_path)
+        !== path.resolve(record.send_dir)) {
         record.chain = record.chain.then(() => deliver_perch_send(
             record, line, { submit: true }
         ));
