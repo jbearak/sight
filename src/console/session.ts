@@ -195,9 +195,11 @@ export class ConsoleSession {
 
     /**
      * A line sent from the editor, entered as if typed at the prompt
-     * and then Enter. It never answers `--more--`, and `on_sent(true)`
-     * (see StataBackend.submit_line) means Stata is reading the line,
-     * not that a terminal buffered it.
+     * and then Enter. It never answers `--more--`. On the PTY backend
+     * `on_sent(true)` (see StataBackend.submit_line) means Stata is
+     * reading the line, not that a terminal buffered it. On Automation
+     * it means DoCommandAsync took it: Stata may still queue it behind
+     * a command typed into its own window.
      *
      * A backend that waits for Stata itself (waits_for_stata) gets it
      * at once. Otherwise it goes only at a recognized command prompt

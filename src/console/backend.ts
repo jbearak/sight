@@ -33,9 +33,10 @@ export interface StataBackend {
     /** Longest line in bytes the backend can send, or null. */
     max_line_bytes(): number | null;
     /**
-     * True if the backend itself keeps each line until Stata is free
-     * to read it, and reports `on_sent` only then (Automation): the
-     * session enters editor sends at once. False if a line written now
+     * True if the backend itself keeps each line until Stata reports
+     * itself free, and reports `on_sent` only once Stata takes it
+     * (Automation; Stata may still queue it behind a command typed
+     * into its own window): the session enters editor sends at once. False if a line written now
      * waits in a terminal buffer while Stata is busy (PTY): the session
      * holds editor sends until Stata's prompt shows.
      */

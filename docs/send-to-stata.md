@@ -101,6 +101,12 @@ Code you send while the console is starting waits in a queue, and the status bar
 
 Stata runs one command at a time, so a send made while a long command runs waits in the console until Stata is free. The console asks Stata whether it is free, rather than reading the screen. A send's temporary do-file is kept until Stata accepts the command, and deleted 30 seconds after that, or at once if the command never runs (Ctrl+C, or the pane closes first). If the console loses its connection to Stata just after handing over a command, it can't tell whether Stata took it, so the file is kept for the same 30 seconds.
 
+Known limits on Windows:
+
+- Sends that wait for Stata wait without a note under the prompt; while a command runs the pane shows "Still running" instead.
+- `--more--` shows only in Stata's window, and a key typed in the pane doesn't answer it: answer it in Stata's window. Put `set more off` in your `profile.do`.
+- "Stata accepts the command" means Stata's Automation took it, not that Stata is running it. If Stata is busy with a command typed into its own window, it takes the sent line at once and queues it, so the do-file can be deleted before Stata gets to it (Stata then reports `r(601)`, file not found). Wait for Stata's own command to finish before sending.
+
 The console doesn't get Stata when:
 
 - Stata's Automation isn't registered;
