@@ -1,5 +1,8 @@
 import { Token } from '../types';
-import { SINGLE_LINE_PREFIX_COMMANDS } from '../utils/stata-prefix-commands';
+import {
+    COLON_PREFIX_COMMANDS,
+    SINGLE_LINE_PREFIX_COMMANDS,
+} from '../utils/stata-prefix-commands';
 
 /**
  * Keywords that syntactically introduce a boolean condition wherever
@@ -77,6 +80,8 @@ export function is_bare_expression_command_at(
  * sit between it and the start of input or a statement boundary. This
  * is the backward version of the forward prefix-skipping grammar in
  * src/analyzer/loop-expander/name-expander.ts (parse_macro_def_head).
+ * A `version #:` prefix (`version 16:`, `vers 16.1:`) counts too; it
+ * is a prefix only with its colon.
  *
  * Same precondition as `is_bare_expression_command_at`: the tokens come
  * from `collect_significant_tokens`.
@@ -85,25 +90,69 @@ export function is_command_position(
     the_significant: Token[],
     index: number
 ): boolean {
-    let my_i = index - 1;
+    return is_command_position_by(the_significant, index, (i) => i - 1);
+}
+
+/**
+ * `is_command_position` over any token array: `previous(i)` gives the
+ * index of the significant token before `i`, or -1 at the start. Lets
+ * a raw lexer stream skip its own trivia (comments, `///` line ends).
+ */
+export function is_command_position_by(
+    the_tokens: Token[],
+    index: number,
+    previous: (index: number) => number
+): boolean {
+    let my_i = previous(index);
     while (my_i >= 0) {
-        let my_token = the_significant[my_i];
+        let my_token = the_tokens[my_i];
         // A prefix command's optional colon, e.g. `cap:` / `qui noi:`.
         if (my_token.type === 'COLON') {
-            my_i--;
+            my_i = previous(my_i);
             if (my_i < 0) {
                 return false;
             }
-            my_token = the_significant[my_i];
+            my_token = the_tokens[my_i];
+            const my_version_index = version_prefix_start(
+                the_tokens, my_i, previous
+            );
+            if (my_version_index !== undefined) {
+                my_i = previous(my_version_index);
+                continue;
+            }
         }
         if (
             my_token.type === 'WORD' &&
             SINGLE_LINE_PREFIX_COMMANDS.has(my_token.value)
         ) {
-            my_i--;
+            my_i = previous(my_i);
             continue;
         }
         return STATEMENT_BOUNDARY_TYPES.has(my_token.type);
     }
     return true;
+}
+
+/**
+ * When `the_tokens[index]` is the number of a `version #:` prefix,
+ * the index of its `version` word; otherwise undefined. Only the
+ * token before the colon is passed, so `16` in `version 16:`.
+ */
+function version_prefix_start(
+    the_tokens: Token[],
+    index: number,
+    previous: (index: number) => number
+): number | undefined {
+    if (the_tokens[index]?.type !== 'NUMBER') {
+        return undefined;
+    }
+    const my_word_index = previous(index);
+    const my_word = the_tokens[my_word_index];
+    if (
+        my_word?.type === 'WORD' &&
+        COLON_PREFIX_COMMANDS.get(my_word.value) === 'version'
+    ) {
+        return my_word_index;
+    }
+    return undefined;
 }

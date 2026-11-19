@@ -69,6 +69,23 @@ identify the recode chain, the user may still want the identically-named
 columns from sibling surveys. Results are sorted so dep-graph-reachable
 files appear first (see [sort order](#variable-result-ordering) below).
 
+## Variables in Operator Terms
+
+A variable used with a factor-variable or time-series operator counts
+as a use of the variable, at the name's own range: `i.foo`, `c.foo`,
+`ib3.foo`, `ibn.foo`, `ib(first).foo`, `L.foo`, `L2.foo`, `LD.foo`,
+`L(1/3).foo`, the terms of `i.foo#c.bar`, and `_b[2.foo]` /
+`_se[1.foo#c.bar]`. The operator must touch the dot.
+
+A word that names a file does not count, even when the part before the
+dot reads like an operator (`old` is `o`, `l`, `d`): `save old.dta`,
+`save dir/old.dta`, and `merge 1:1 id using old.dta` are not uses of a
+variable named `dta`. A file name is a word after `using`, or a word
+before the first comma of `save`, `saveold`, `use`, `do`, `run`,
+`include`, `erase`, `rm`, `type`, `copy`, `translate`, `cd`, `mkdir`,
+or `rmdir`. Neither is `r(N).foo`: a parenthesized operator argument
+counts only after an operator such as `ib` or `L`.
+
 ## Variable Result Ordering
 
 Variable references are sorted in two groups:

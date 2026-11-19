@@ -13,6 +13,7 @@ import {
     CancellationToken,
 } from 'vscode-languageserver';
 import { DocumentState } from '../document-store';
+import { is_command_position_by } from './command-position';
 import { LanguageContext, MacroSymbol, Token, ContextRange } from '../types';
 import { get_line_text } from '../utils/line-utils';
 import {
@@ -55,12 +56,15 @@ export function line_within_scan_range(
 
 /**
  * Factor-variable and time-series operator words that the lexer emits
- * directly before a `.name` WORD: `i`, `c`, `ib3`, `ibn`, `bn` (after
- * a level number such as `2bn.x`), `io2`, `L2`, `LD`. Time-series
- * operators may be typed in either case in Stata; factor operators are
- * lowercase only.
+ * directly before a `.name` WORD: `i`, `c`, `o`, `co`, `ib3`, `ibn`,
+ * `io2`, `bn` or `bo` (after a level number such as `2bn.x`), `L2`,
+ * `LD`, `L2D`.
+ * One optional factor operator, then any time-series operators, each
+ * with an optional number. Time-series operators may be typed in
+ * either case in Stata; factor operators are lowercase only.
  */
-const FACTOR_OPERATOR_PATTERN = /^[0-9icobnLFDSlfds]+$/;
+const FACTOR_OPERATOR_PATTERN =
+    /^(?:ib(?:n|\d+)?|io\d*|i\d*|co?|o\d*|b[no]|b\d*)?(?:[LFDSlfds]\d*)*$/;
 
 /**
  * `.a` through `.z` lex as NUMBER (extended missing values), so the
@@ -69,38 +73,167 @@ const FACTOR_OPERATOR_PATTERN = /^[0-9icobnLFDSlfds]+$/;
 const EXTENDED_MISSING_PATTERN = /^\.[a-z]$/;
 
 /**
- * Whether `tokens[index]` is the `.name` half of an operator-prefixed
- * variable. The lexer splits `i.foo` into WORD `i` and WORD `.foo`,
- * `ib(first).foo` into `ib ( first )` and `.foo`, and `_b[2.foo]` into
- * NUMBER `2` and `.foo`. Go-to-definition reads `foo` out of `.foo` by
- * identifier characters; find-references needs the same name. The
- * operator must touch the dot, so `save results.dta` does not count as
- * a use of a variable named `dta`.
+ * Commands whose words before the first comma are file names
+ * (`save old.dta`, `do child.do`), exact case. A `.name` there is a
+ * file extension even when the word before it reads like an operator
+ * (`old` is `o`, `l`, `d`). Commands that name their file after
+ * `using` are covered by the `using` check instead.
  */
-function is_operator_prefixed_name(tokens: Token[], index: number): boolean {
+const FILE_ARGUMENT_COMMANDS: ReadonlySet<string> = new Set([
+    'save', 'saveold', 'use', 'do', 'run', 'include', 'erase', 'rm',
+    'type', 'copy', 'translate', 'cd', 'mkdir', 'rmdir',
+]);
+
+/** Trivia between the significant tokens of one statement. */
+const TRIVIA_TYPES: ReadonlySet<string> = new Set([
+    'WHITESPACE', 'COMMENT_LINE', 'COMMENT_BLOCK', 'CONTINUATION',
+]);
+
+/**
+ * Index of the significant token before `index` in a raw lexer
+ * stream, or -1: skips comments and a `///` line end, which does not
+ * end the statement.
+ */
+function previous_significant_index(tokens: Token[], index: number): number {
+    let i = index - 1;
+    while (i >= 0) {
+        const my_token = tokens[i];
+        if (TRIVIA_TYPES.has(my_token.type)) {
+            i--;
+        } else if (
+            my_token.type === 'STATEMENT_TERMINATOR' &&
+            tokens[i - 1]?.type === 'CONTINUATION'
+        ) {
+            i -= 2;
+        } else {
+            return i;
+        }
+    }
+    return -1;
+}
+
+function touches(left: Token, right: Token): boolean {
+    return left.range.end.line === right.range.start.line &&
+        left.range.end.character === right.range.start.character;
+}
+
+/**
+ * Whether the word holding `tokens[index]` is a file name: the run of
+ * touching tokens around it (`dir/old.dta`, `../x/old.dta`) follows
+ * `using`, or follows a FILE_ARGUMENT_COMMANDS word in command
+ * position with no comma in between.
+ */
+function is_in_file_name(tokens: Token[], index: number): boolean {
+    let run_start = index;
+    while (run_start > 0 && touches(tokens[run_start - 1], tokens[run_start])) {
+        run_start--;
+    }
+    let my_i = previous_significant_index(tokens, run_start);
+    let saw_word = false;
+    while (my_i >= 0) {
+        const my_token = tokens[my_i];
+        if (my_token.type !== 'WORD') {
+            // Words before a comma, quoted names and macros may sit
+            // between the command and this word (`copy "a" b.dta`).
+            if (
+                my_token.type === 'STRING' ||
+                my_token.type === 'MACRO_REF_LOCAL' ||
+                my_token.type === 'MACRO_REF_GLOBAL' ||
+                my_token.type === 'NUMBER' ||
+                my_token.type === 'OPERATOR'
+            ) {
+                my_i = previous_significant_index(tokens, my_i);
+                saw_word = true;
+                continue;
+            }
+            return false;
+        }
+        if (my_token.value === 'using' && !saw_word) {
+            return true;
+        }
+        if (
+            FILE_ARGUMENT_COMMANDS.has(my_token.value) &&
+            is_command_position_by(tokens, my_i, (i) =>
+                previous_significant_index(tokens, i))
+        ) {
+            return true;
+        }
+        my_i = previous_significant_index(tokens, my_i);
+        saw_word = true;
+    }
+    return false;
+}
+
+/**
+ * Whether `tokens[index]`, a `)` touching a `.name`, closes the
+ * argument of an operator: `ib(first).foo`, `L(1/3).foo`,
+ * `i(2 3).foo`, but not `r(N).foo`.
+ */
+function closes_operator_argument(tokens: Token[], index: number): boolean {
+    let depth = 0;
+    for (let i = index; i >= 0; i--) {
+        const my_token = tokens[i];
+        if (my_token.type === 'RPAREN') {
+            depth++;
+        } else if (my_token.type === 'LPAREN') {
+            depth--;
+            if (depth === 0) {
+                const operator = tokens[i - 1];
+                return operator !== undefined &&
+                    operator.type === 'WORD' &&
+                    touches(operator, my_token) &&
+                    FACTOR_OPERATOR_PATTERN.test(operator.value);
+            }
+        } else if (my_token.type === 'STATEMENT_TERMINATOR') {
+            return false;
+        }
+    }
+    return false;
+}
+
+/**
+ * The name in `tokens[index]` when it is the `.name` half of an
+ * operator-prefixed variable, else null. The lexer splits `i.foo`
+ * into WORD `i` and WORD `.foo`, `ib(first).foo` into `ib ( first )`
+ * and `.foo`, and `_b[2.foo]` into NUMBER `2` and `.foo`.
+ * Go-to-definition reads `foo` out of `.foo` by identifier
+ * characters; find-references needs the same name.
+ */
+function dotted_name(tokens: Token[], index: number): string | null {
     const token = tokens[index];
     const is_dotted_name = token.type === 'WORD'
         ? token.value.length >= 2 && token.value[0] === '.'
         : token.type === 'NUMBER' &&
             EXTENDED_MISSING_PATTERN.test(token.value);
-    if (!is_dotted_name) return false;
+    return is_dotted_name ? token.value.slice(1) : null;
+}
+
+/**
+ * Whether `tokens[index]` is the `.name` half of an operator-prefixed
+ * variable (see `dotted_name`). The operator must touch the dot and
+ * the word must not be a file name, so neither `save results.dta` nor
+ * `save old.dta` counts as a use of a variable named `dta`.
+ */
+function is_operator_prefixed_name(tokens: Token[], index: number): boolean {
+    const token = tokens[index];
+    if (dotted_name(tokens, index) === null) return false;
     const previous = tokens[index - 1];
-    if (!previous) return false;
-    if (
-        previous.range.end.line !== token.range.start.line ||
-        previous.range.end.character !== token.range.start.character
-    ) {
-        return false;
-    }
+    if (!previous || !touches(previous, token)) return false;
+    let is_operator: boolean;
     switch (previous.type) {
         case 'NUMBER':
+            is_operator = true;
+            break;
         case 'RPAREN':
-            return true;
+            is_operator = closes_operator_argument(tokens, index - 1);
+            break;
         case 'WORD':
-            return FACTOR_OPERATOR_PATTERN.test(previous.value);
+            is_operator = FACTOR_OPERATOR_PATTERN.test(previous.value);
+            break;
         default:
-            return false;
+            is_operator = false;
     }
+    return is_operator && !is_in_file_name(tokens, index);
 }
 
 export interface TokenMatch {
@@ -212,7 +345,12 @@ export class ReferencesProvider {
                     }
                     break;
                 case 'variable':
-                    if (is_operator_prefixed_name(tokens, i)) {
+                    // Compare the name before the backward scans.
+                    if (
+                        dotted_name(tokens, i) ===
+                            search_context.symbol_name &&
+                        is_operator_prefixed_name(tokens, i)
+                    ) {
                         token_name = token.value.slice(1);
                         name_offset = 1;
                     } else if (token.type === 'WORD') {
