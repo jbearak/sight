@@ -1,0 +1,218 @@
+/**
+ * `sight check` gives a file the working directory of the callers that
+ * actually reach it, through any number of levels, and agrees with
+ * `sight graph` on which calls are missing.
+ *
+ * A file with no `sight: cd` of its own runs in its caller's directory.
+ * The caller's own calls resolve against the directory it inherited in
+ * turn, so a grandchild is only found once its parent's calls land in
+ * the inherited directory. `check` used to pass a directory down one
+ * level only and reported `c.do` missing below.
+ */
+
+import { describe, expect, it } from 'bun:test';
+import * as fs from 'fs';
+import * as os from 'os';
+import * as path from 'path';
+import { run_check_with_cwd } from '../../src/cli/check';
+import { run_graph_with_cwd } from '../../src/cli/graph';
+
+interface MissingCalls {
+    /** Calls in a file that `check` cannot find, as `path:line`. */
+    check: string[];
+    /** Calls `graph` lists as missing, as `path:line`. */
+    graph: string[];
+    /**
+     * Calls `check` cannot find in a file it reaches by walking forward
+     * from a caller, reported at the caller's call. `graph` keeps one
+     * directory per file, so it has no counterpart for these.
+     */
+    nested: string[];
+}
+
+/** Write `files` to a new workspace and return its root. */
+function write_workspace(files: Record<string, string>): string {
+    const root = fs.realpathSync(
+        fs.mkdtempSync(path.join(os.tmpdir(), 'sight-check-inherit-wd-')));
+    for (const [my_name, my_text] of Object.entries(files)) {
+        const my_path = path.join(root, my_name);
+        fs.mkdirSync(path.dirname(my_path), { recursive: true });
+        fs.writeFileSync(my_path, my_text);
+    }
+    return root;
+}
+
+/**
+ * The calls `check` reports missing and the calls `graph` lists as
+ * missing, each as sorted `path:line` strings.
+ */
+async function missing_calls(
+    files: Record<string, string>,
+): Promise<MissingCalls> {
+    const root = write_workspace(files);
+    try {
+        const check_stdout: string[] = [];
+        await run_check_with_cwd(
+            ['--no-config', '--format', 'json', '.'], root, {
+                stdout: (text) => check_stdout.push(text),
+                stderr: () => undefined,
+            });
+        const the_records: Array<{
+            path: string;
+            diagnostic: {
+                code: string;
+                message: string;
+                range: { start: { line: number } };
+            };
+        }> = JSON.parse(check_stdout.join(''));
+        const the_missing = the_records.filter((my_record) =>
+            my_record.diagnostic.code === 'CROSS_FILE_MISSING_FILE');
+        const location = (my_record: (typeof the_records)[number]) =>
+            `${my_record.path}:${my_record.diagnostic.range.start.line + 1}`;
+        const check = the_missing
+            .filter((my_record) =>
+                my_record.diagnostic.message.startsWith('Cannot read file:'))
+            .map(location)
+            .sort();
+        const nested = the_missing
+            .filter((my_record) =>
+                !my_record.diagnostic.message.startsWith('Cannot read file:'))
+            .map(location)
+            .sort();
+
+        const graph_stdout: string[] = [];
+        const graph_code = await run_graph_with_cwd(
+            ['--json', '--no-config', root], root, {
+                stdout: (text) => graph_stdout.push(text),
+                stderr: () => undefined,
+            });
+        expect(graph_code).toBe(0);
+        const the_edges: Array<{
+            caller: string;
+            resolution: string;
+            range: { start: { line: number } };
+        }> = JSON.parse(graph_stdout.join('')).edges;
+        const graph = the_edges
+            .filter((my_edge) => my_edge.resolution === 'missing')
+            .map((my_edge) =>
+                `${my_edge.caller}:${my_edge.range.start.line + 1}`)
+            .sort();
+        return { check, graph, nested };
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+}
+
+describe('sight check — working directory inherited through do-chains', () => {
+    it('passes the directory down three levels', async () => {
+        const result = await missing_calls({
+            'main.do': '// sight: cd "work"\ndo jobs/a.do\n',
+            'work/jobs/a.do': 'do jobs/b.do\n',
+            'work/jobs/b.do': 'do c.do\n',
+            'work/c.do': '',
+        });
+        expect(result).toEqual({ check: [], graph: [], nested: [] });
+    });
+
+    it('passes the directory down four levels', async () => {
+        const result = await missing_calls({
+            'main.do': '// sight: cd "work"\ndo jobs/a.do\n',
+            'work/jobs/a.do': 'do jobs/b.do\n',
+            'work/jobs/b.do': 'do jobs/c.do\n',
+            'work/jobs/c.do': 'do d.do\n',
+            'work/d.do': '',
+        });
+        expect(result).toEqual({ check: [], graph: [], nested: [] });
+    });
+
+    it('still reports a call that is missing', async () => {
+        const result = await missing_calls({
+            'main.do': '// sight: cd "work"\ndo jobs/a.do\n',
+            'work/jobs/a.do': 'do jobs/b.do\n',
+            // There is no c.do anywhere.
+            'work/jobs/b.do': 'do c.do\n',
+        });
+        // Walking forward, the callers above report it too.
+        expect(result).toEqual({
+            check: ['work/jobs/b.do:1'],
+            graph: ['work/jobs/b.do:1'],
+            nested: ['main.do:1', 'work/jobs/a.do:1'],
+        });
+    });
+
+    // Two callers run shared/x.do from different directories. The file
+    // takes the directory of the first caller, in path order, whose
+    // chain sets one: p1.do here. This is the rule an open document's
+    // walk uses, and `sight graph` uses the same one. Walking forward
+    // from each caller, `check` still runs x.do in that caller's own
+    // directory, so it reports the caller whose run would fail.
+    const TWO_CALLERS = {
+        'p1.do': '// sight: cd "w1"\ndo ../shared/x.do\n',
+        'p2.do': '// sight: cd "w2"\ndo ../shared/x.do\n',
+        'shared/x.do': 'do jobs/y.do\n',
+    };
+
+    it('gives a file reached by two callers the first caller\'s directory', async () => {
+        const result = await missing_calls({
+            ...TWO_CALLERS,
+            'w1/jobs/y.do': 'do z.do\n',
+            'w1/z.do': '',
+        });
+        expect(result).toEqual({
+            check: [],
+            graph: [],
+            nested: ['p2.do:1'],
+        });
+    });
+
+    it('does not use the second caller\'s directory', async () => {
+        const result = await missing_calls({
+            ...TWO_CALLERS,
+            'w2/jobs/y.do': 'do z.do\n',
+            'w2/z.do': '',
+        });
+        // x.do runs in w1, so jobs/y.do is missing there, and y.do,
+        // which nothing then reaches, looks for z.do next to itself.
+        expect(result).toEqual({
+            check: ['shared/x.do:1', 'w2/jobs/y.do:1'],
+            graph: ['shared/x.do:1', 'w2/jobs/y.do:1'],
+            nested: ['p1.do:1'],
+        });
+    });
+
+    it('terminates on a cycle and still resolves its calls', async () => {
+        const result = await missing_calls({
+            'main.do': '// sight: cd "work"\ndo jobs/a.do\n',
+            'work/jobs/a.do': 'do jobs/b.do\n',
+            'work/jobs/b.do': 'do jobs/a.do\ndo c.do\n',
+            'work/c.do': '',
+        });
+        expect(result).toEqual({ check: [], graph: [], nested: [] });
+    });
+
+    it('leaves a file nobody calls in its own directory', async () => {
+        const result = await missing_calls({
+            'main.do': '// sight: cd "work"\ndo jobs/a.do\n',
+            'work/jobs/a.do': 'do c.do\n',
+            'work/c.do': '',
+            // Not called: `c.do` is looked for next to it, not in work/.
+            'work/jobs/orphan.do': 'do c.do\n',
+        });
+        expect(result).toEqual({
+            check: ['work/jobs/orphan.do:1'],
+            graph: ['work/jobs/orphan.do:1'],
+            nested: [],
+        });
+    });
+
+    it('lets a mid-chain `sight: cd` override the inherited directory', async () => {
+        const result = await missing_calls({
+            'main.do': '// sight: cd "work"\ndo jobs/a.do\n',
+            'work/jobs/a.do': '// sight: cd "/other"\ndo sub/b.do\n',
+            'other/sub/b.do': 'do sub/c.do\n',
+            'other/sub/c.do': 'do d.do\n',
+            'other/d.do': '',
+        });
+        expect(result).toEqual({ check: [], graph: [], nested: [] });
+    });
+});

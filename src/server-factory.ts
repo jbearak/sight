@@ -277,6 +277,9 @@ export async function create_server(options: ServerOptions): Promise<void> {
 
     // Cancellation tokens for pending callee revalidations
     const pending_revalidations: Map<string, { cancelled: boolean }> = new Map();
+    // Each open document's working directory at its last validation, so a
+    // change to it can settle the directories closed files below inherit.
+    const open_document_working_directories = new Map<string, string | undefined>();
 
     // Track last changed URI for active-document prioritization
     let last_changed_uri: string | undefined = undefined;
@@ -1328,6 +1331,30 @@ export async function create_server(options: ServerOptions): Promise<void> {
                                 snapshot_uri,
                                 document_state.forward_calls
                             );
+                            // Closed files below this one inherit its
+                            // working directory through the calls the
+                            // index registered for them. When its calls
+                            // or directory change, settle theirs again;
+                            // the indexer reports what changed through
+                            // its graph-change callback.
+                            const previous_working_directory =
+                                open_document_working_directories.get(snapshot_uri);
+                            const working_directory_changed =
+                                open_document_working_directories.has(snapshot_uri) &&
+                                previous_working_directory !==
+                                    document_state.working_directory;
+                            open_document_working_directories.set(
+                                snapshot_uri,
+                                document_state.working_directory
+                            );
+                            if (
+                                workspace_indexer &&
+                                dependency_graph.is_scan_complete() &&
+                                (graph_result.changed_callees.size > 0 ||
+                                    working_directory_changed)
+                            ) {
+                                void workspace_indexer.settle_working_directories();
+                            }
                             // Invalidate scope caches for callees whose parent sets changed
                             if (graph_result.changed_callees.size > 0) {
                                 scope_resolver.cascade_invalidate(graph_result.changed_callees);
@@ -1555,6 +1582,11 @@ export async function create_server(options: ServerOptions): Promise<void> {
             definition_provider.set_workspace_roots(active_workspace_roots);
             workspace_indexer.set_dependency_graph(dependency_graph);
             workspace_indexer.set_on_graph_change(invalidate_and_revalidate_callees);
+            // Open buffers own their graph edges; settling inherited
+            // working directories must not replace them with disk ones.
+            workspace_indexer.set_open_document_predicate(
+                (uri) => documents.get(uri) !== undefined
+            );
             // Let the indexer resolve inherited working directories during the
             // workspace scan so its dependency-graph callee keys match the
             // open-document path for WD-dependent files (#218).
@@ -1761,6 +1793,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
         // be re-synced under the global mode).
         const closed_document_settings = document_settings.get(e.document.uri);
         document_settings.delete(e.document.uri);
+        open_document_working_directories.delete(e.document.uri);
         document_store.close(e.document.uri);
         debounce_manager.on_close(e.document.uri);
         workspace_indexer?.clear_buffer_directives(e.document.uri);

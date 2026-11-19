@@ -242,6 +242,14 @@ export class ScopeResolver {
     private reverse_deps: ReverseDependencyIndex;
     // Track backward directive dependencies: parent_uri → set of child_uris that depend on it via @lsp-done-by/@lsp-included-by
     private backward_directive_children: Map<string, Set<string>>;
+    // child_uri → the dependency-graph version its edges in
+    // backward_directive_children were last registered from, for a file
+    // whose parents all come from the graph. A file called by many files
+    // is re-registered on every cache hit; while the graph is unchanged
+    // the result is too, so the repeat (a case-aware path walk per
+    // parent) is skipped. Any other registration drops the entry, and
+    // reset_reverse_deps (paired with a graph reset) clears them all.
+    private auto_registration_keys = new Map<string, string>();
     private content_provider: ContentProvider;
     private workspace_roots: string[] = [];
     private dependency_graph?: import('../dependency-graph').DependencyGraph;
@@ -361,6 +369,8 @@ export class ScopeResolver {
      */
     set_dependency_graph(graph: import('../dependency-graph').DependencyGraph): void {
         this.dependency_graph = graph;
+        // Versions are per graph; keys from another graph mean nothing.
+        this.auto_registration_keys.clear();
     }
 
     /**
@@ -1641,7 +1651,10 @@ export class ScopeResolver {
      */
     async resolve_document_working_directory(
         file_uri: string,
-        directive_result: DirectiveParseResult,
+        directive_result: Pick<
+            DirectiveParseResult,
+            'directives' | 'standalone' | 'working_directory'
+        >,
         config: Partial<ScopeResolverConfig> = {},
         token?: CancellationToken,
     ): Promise<string | undefined> {
@@ -3621,6 +3634,7 @@ export class ScopeResolver {
         this.reverse_deps.interface_hashes.clear();
         this.reverse_deps.last_forward_calls.clear();
         this.backward_directive_children.clear();
+        this.auto_registration_keys.clear();
     }
 
     /**
@@ -3817,12 +3831,31 @@ export class ScopeResolver {
         is_standalone: boolean
     ): void {
         const my_config = { ...DEFAULT_CONFIG, ...config };
+        // A file with no directives of its own takes its parents in
+        // 'auto' mode from the dependency graph alone, so while the
+        // graph's version is unchanged so is the registration.
+        const registration_key =
+            !is_standalone &&
+            raw_directives.length === 0 &&
+            (my_config.backward_dependencies ?? 'auto') === 'auto' &&
+            this.dependency_graph
+                ? `auto\u0000${this.dependency_graph.get_version()}`
+                : undefined;
+        if (
+            registration_key !== undefined &&
+            this.auto_registration_keys.get(child_uri) === registration_key
+        ) {
+            return;
+        }
         const { directives: effective_directives } =
             this.get_effective_backward_directives(
                 child_uri, raw_directives, my_config, is_standalone
             );
         const normalized = this.normalize_directives(effective_directives, []);
         this.apply_normalized_backward_directives(child_uri, normalized);
+        if (registration_key !== undefined) {
+            this.auto_registration_keys.set(child_uri, registration_key);
+        }
     }
 
     /**
@@ -4000,6 +4033,7 @@ export class ScopeResolver {
      * @param child_uri - The URI of the child file
      */
     clear_backward_directive_dependencies(child_uri: string): void {
+        this.auto_registration_keys.delete(child_uri);
         // Remove this child from all parent entries
         for (const [parent_uri, children] of this.backward_directive_children) {
             if (children.has(child_uri)) {

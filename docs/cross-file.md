@@ -435,11 +435,17 @@ directive when the parent already establishes the working directory context.
 **Inheritance Rules:**
 
 - If a child file has a parent but **no own** working directory directive, it
-  inherits the working directory from its parent file
+  inherits the working directory from its parent file, which may itself have
+  inherited it: the directory passes down through any number of levels
+- A caller's own `do`/`run`/`include` calls resolve against the directory it
+  inherited, so a file counts as a parent only when one of those calls
+  actually reaches it. A file nobody calls keeps its own directory
 - If a child file has its **own** working directory directive, it takes
-  precedence over any inherited working directory
-- When multiple parent files have working directory directives, the **nearest
-  parent** (smallest depth in the directive chain) wins
+  precedence over any inherited working directory, for it and the files it
+  calls
+- When a file has several parents, they are tried in path order, and each
+  parent's chain upward before the next parent; the first working directory
+  directive found wins
 - The inherited working directory is resolved relative to the **parent file's**
   containing directory, not the child's
 

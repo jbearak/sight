@@ -180,6 +180,61 @@ function make_default_fs(): RichResolveFs {
     };
 }
 
+type CachedOutcome<T> = { ok: true; value: T } | { ok: false; error: unknown };
+
+/**
+ * A Node-backed `RichResolveFs` that answers each path once and then
+ * from memory, failures included. Only for a run that treats the disk
+ * as a fixed snapshot, such as `sight check`: every target re-resolves
+ * the calls of the files above it, and each case-aware resolution lists
+ * every directory on the path, so a large directory would otherwise be
+ * listed once per call per target.
+ */
+export function create_snapshot_resolve_fs(): RichResolveFs {
+    const base = make_default_fs();
+    const the_listings = new Map<
+        string,
+        CachedOutcome<ReturnType<RichResolveFs['readdirSync']>>
+    >();
+    const the_stats = new Map<
+        string,
+        CachedOutcome<ReturnType<RichResolveFs['statSync']>>
+    >();
+    const the_existence = new Map<string, boolean>();
+    const remember = <T>(
+        the_cache: Map<string, CachedOutcome<T>>,
+        key: string,
+        read: () => T,
+    ): T => {
+        let outcome = the_cache.get(key);
+        if (outcome === undefined) {
+            try {
+                outcome = { ok: true, value: read() };
+            } catch (error) {
+                outcome = { ok: false, error };
+            }
+            the_cache.set(key, outcome);
+        }
+        if (!outcome.ok) {
+            throw outcome.error;
+        }
+        return outcome.value;
+    };
+    return {
+        readdirSync: (p, opts) =>
+            remember(the_listings, p, () => base.readdirSync(p, opts)),
+        existsSync: (p) => {
+            let exists = the_existence.get(p);
+            if (exists === undefined) {
+                exists = base.existsSync(p);
+                the_existence.set(p, exists);
+            }
+            return exists;
+        },
+        statSync: (p) => remember(the_stats, p, () => base.statSync(p)),
+    };
+}
+
 // ─── Private helpers ──────────────────────────────────────────────────────────
 
 /**

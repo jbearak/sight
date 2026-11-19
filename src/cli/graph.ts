@@ -27,6 +27,10 @@ import {
     resolve_forward_call_rich,
 } from '../utils/file-path-utils';
 import { resolve_working_directory_directive } from '../utils/workspace-roots';
+import {
+    settle_inherited_working_directories,
+    type WorkingDirectoryFacts,
+} from '../indexer/settle-working-directories';
 import { load_check_config } from './check';
 import {
     canonicalize_existing_path,
@@ -453,20 +457,15 @@ export async function build_graph_document(options: {
 
     // Facts each file keeps for working-directory resolution and its
     // edges, so the graph holds no file's tokens or AST past its read.
-    const the_facts: Array<{
+    interface FileFacts extends WorkingDirectoryFacts {
         my_path: string;
         caller: string;
-        uri: string;
         command_calls: ForwardCall[];
         cd_commands: CdCommand[];
         directives: DirectiveParseResult;
         arguments_by_range: Map<string, string[]>;
-        own_working_directory: string | undefined;
-        /** Own or explicitly inherited; what forward directives use. */
-        directive_working_directory: string | undefined;
-        working_directory: string | undefined;
-    }> = [];
-    type FileFacts = (typeof the_facts)[number];
+    }
+    const the_facts: FileFacts[] = [];
 
     // Command calls resolve against the working directory the file runs
     // in. Forward directives resolve against the file's own directory,
@@ -527,6 +526,7 @@ export async function build_graph_document(options: {
             my_path,
             caller,
             uri,
+            header: directives,
             command_calls: source.analysis.forward_calls,
             cd_commands: source.analysis.cd_commands,
             directives,
@@ -539,34 +539,19 @@ export async function build_graph_document(options: {
         the_facts.push(facts);
     }
 
-    // As the workspace indexer does for `sight check`, the calls above
-    // used each file's own or explicitly inherited working directory.
-    // A file also inherits one from an auto-discovered caller, and that
-    // caller's calls may land elsewhere once it has its own inherited
-    // directory, so re-resolve every file against the graph of the last
-    // round and register its calls again until no directory changes
-    // (each round settles at least one more level of callers). The
-    // bound stops a pathological cycle from going on forever.
-    const max_rounds = (config.cross_file.max_backward_depth ?? 10) + 2;
-    for (let round = 0; round < max_rounds; round++) {
-        const the_changed: FileFacts[] = [];
-        for (const my_facts of the_facts) {
-            const working_directory = my_facts.own_working_directory ??
-                await scope_resolver.resolve_document_working_directory(
-                    my_facts.uri, my_facts.directives, scope_resolver_config);
-            if (working_directory !== my_facts.working_directory) {
-                my_facts.working_directory = working_directory;
-                the_changed.push(my_facts);
-            }
-        }
-        if (the_changed.length === 0) {
-            break;
-        }
-        for (const my_facts of the_changed) {
+    // The calls above used each file's own or explicitly inherited
+    // working directory. Settle the directories files inherit from the
+    // callers that reach them, by the same rule as the workspace index
+    // that `sight check` and the editor use.
+    await settle_inherited_working_directories({
+        the_facts,
+        scope_resolver,
+        config: scope_resolver_config,
+        register: (my_facts) => {
             dependency_graph.update_caller(
                 my_facts.uri, forward_calls_for(my_facts));
-        }
-    }
+        },
+    });
 
     for (const my_facts of the_facts) {
         const { my_path, caller, directives } = my_facts;

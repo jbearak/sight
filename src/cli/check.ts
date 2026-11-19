@@ -13,6 +13,7 @@ import { DependencyGraph } from '../dependency-graph';
 import { DocumentStore } from '../document-store';
 import { ForwardScopeResolver } from '../forward-scope-resolver';
 import { WorkspaceIndexer } from '../indexer';
+import { create_snapshot_resolve_fs } from '../utils/file-path-utils';
 import { DiagnosticsProvider } from '../providers/diagnostics';
 import { ScopeResolver, scope_resolver_config_for } from '../scope-resolver';
 import { DEFAULT_SETTINGS } from '../server-handlers';
@@ -420,6 +421,13 @@ export async function build_check_context(
     dependency_graph.set_workspace_roots([workspace_root]);
     scope_resolver.set_workspace_roots([workspace_root]);
     forward_scope_resolver.set_workspace_roots([workspace_root]);
+    // `check` reads the disk as it is when the run starts, so call paths
+    // can share one cache of directory listings rather than list the
+    // same directories again for every target.
+    const resolve_fs = create_snapshot_resolve_fs();
+    dependency_graph.set_resolve_fs(resolve_fs);
+    scope_resolver.set_resolve_fs(resolve_fs);
+    forward_scope_resolver.set_resolve_fs(resolve_fs);
 
     const scope_resolver_config = scope_resolver_config_for(config);
     // Builds a DocumentStore wired only to the shared, read-only check

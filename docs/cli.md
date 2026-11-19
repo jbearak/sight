@@ -698,14 +698,14 @@ a plain name. An `args` entry that is just a macro (`` `x' ``) has
     calls `jobs/child.do`, `do grand.do` in the child resolves to
     `work/grand.do`. A file is given the directory of the callers
     that actually reach it, so a file nobody calls keeps its own.
-    `sight check` sees a caller only when that call resolves without
-    a directory the caller itself inherits, so when `work/jobs/a.do`
-    in the example above runs `do jobs/b.do` and that runs `do c.do`,
-    `check` reports `c.do` missing where `graph` finds `work/c.do`. A
-    forward directive (`sight: do lib.do`) resolves from the file's
+    `sight check` and the editor give each file the same directory.
+    A forward directive (`sight: do lib.do`) resolves from the file's
     own directory, or one it sets with `sight: cd` or inherits through
     a `sight: done-by` or `included-by` directive, never one
     inherited from a caller that was found by its `do` command.
+    (`sight check` and the editor do not yet follow that last rule
+    when they report a missing file: they resolve the directive
+    against the directory the file inherits from its callers.)
   - `target`: the called file, relative to ROOT (absolute when outside
     ROOT), or null when unresolved.
   - `resolution`: `exact`, `case_only` (found, but the case differs from
