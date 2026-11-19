@@ -14,8 +14,8 @@ import {
     STATA_APP_NOT_FOUND_MESSAGE
 } from './stata-detector.js';
 import { send_to_stata_app } from './applescript.js';
-import { send_to_terminal } from './terminal.js';
 import {
+    send_to_active_terminal,
     send_to_stata_terminal,
     SendCancelledError,
 } from './stata-terminal-manager.js';
@@ -171,7 +171,7 @@ export async function execute_cd_command(
                 return;
             }
         } else {
-            await send_to_terminal('do', temp_file_path);
+            is_queued = await send_to_active_terminal('do', temp_file_path);
         }
     } catch (my_error) {
         if (!(my_error instanceof SendCancelledError)) {

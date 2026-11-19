@@ -47,6 +47,9 @@ const TERMINAL_MODULE_URL = pathToFileURL(
 const COMMANDS_MODULE_URL = pathToFileURL(
     path.join(SEND_TO_STATA_DIR, 'commands.ts')
 ).href;
+const CD_CONTEXT_MODULE_URL = pathToFileURL(
+    path.join(SEND_TO_STATA_DIR, 'cd-context.ts')
+).href;
 const TEMP_FILE_MODULE_URL = pathToFileURL(
     path.join(SEND_TO_STATA_DIR, 'temp-file.ts')
 ).href;
@@ -1084,6 +1087,11 @@ function wrap(file_path: string): string {
     return '`"' + file_path + `"'`;
 }
 
+/** A send as tty.js reads it apart from keys (editor-send-channel.ts). */
+function channel_send(line: string, file_path: string): string {
+    return `\x1b_sight-send;${JSON.stringify({ line, file: file_path })}\x1b\\`;
+}
+
 describe.serial('Feature: Stata pane running sight console on local Windows', () => {
     beforeAll(register_module_mocks);
 
@@ -1685,6 +1693,63 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
         // The pane is revealed, as for any terminal, keeping focus.
         expect(vscode_state.the_show_calls).toEqual([true]);
     });
+
+    test('the active-terminal CD commands go through the pane\'s queue', async () => {
+        const harness = await create_console_harness();
+        const { vscode_state, context } = harness;
+        const provider = vscode_state.the_profile_providers.get(
+            'sight.stataTerminal'
+        );
+        const profile = await provider!.provideTerminalProfile(NO_CANCEL) as {
+            options: CreateTerminalOptions;
+        };
+        const terminal = create_pane_terminal(
+            harness, vscode_state, profile.options
+        );
+        harness.the_terminals.push(terminal);
+        for (const my_listener of vscode_state.the_open_listeners) {
+            my_listener(terminal);
+        }
+        vscode_state.active_terminal = terminal;
+        vscode_state.active_text_editor = {
+            document: {
+                uri: {
+                    fsPath: '/tmp/example.do',
+                    toString: () => 'file:///tmp/example.do',
+                },
+                lineCount: 1,
+                save: async () => true,
+                getText: () => '',
+            },
+            selection: {
+                isEmpty: true,
+                active: { line: 0 },
+                start: { line: 0, character: 0 },
+            },
+            revealRange: () => {},
+        };
+        const cd_module = await import(CD_CONTEXT_MODULE_URL);
+        await cd_module.execute_cd_command('file', 'terminal', context);
+
+        expect(vscode_state.the_error_messages).toEqual([]);
+        // Not sendText, which a connecting pane drops.
+        expect(vscode_state.the_terminal_sends).toEqual([]);
+        expect(vscode_state.the_send_calls).toEqual([]);
+        // The queue owns the file: no cleanup timer meanwhile.
+        expect(vscode_state.the_cleanups).toEqual([]);
+        expect(vscode_state.status_item?.text).toContain('1 send');
+        expect(vscode_state.the_show_calls).toEqual([true]);
+
+        const fake = await console_started(harness);
+        fake.ready.resolve(true);
+        await wait_until(
+            () => fake.the_inputs.length === 1, 'the queued cd', 2000
+        );
+        const typed = fake.the_inputs[0];
+        const file_path = typed.slice('do `"'.length, -`"'\r`.length);
+        the_created_files.push(file_path);
+        expect(fs.readFileSync(file_path, 'utf8')).toBe('cd "/tmp"');
+    });
 });
 
 describe.serial('Feature: Stata pane running sight console on macOS and Linux', () => {
@@ -1875,6 +1940,8 @@ interface FakePerch {
     list_gate: Deferred<void> | null;
     /** Fire onDidAttach before createSession resolves, as Perch can. */
     attach_before_create: boolean;
+    /** Sessions lack the send channel, as an older Sight made them. */
+    old_sessions: boolean;
     fire_attach: (session: FakeSession, terminal: MockTerminal) => void;
     fire_end: (session: FakeSession) => void;
     make_session: (overrides?: Partial<FakeSession>) => FakeSession;
@@ -1932,6 +1999,7 @@ function create_fake_perch(vscode_state: VscodeMockState): FakePerch {
         the_listed: [],
         list_gate: null,
         attach_before_create: false,
+        old_sessions: false,
         fire_attach: (session, terminal) => {
             for (const my_listener of [...the_attach_listeners]) {
                 my_listener({ session, terminal });
@@ -1965,8 +2033,12 @@ function create_fake_perch(vscode_state: VscodeMockState): FakePerch {
         },
         createSession: async (options: FakePerchCreate) => {
             perch.the_creates.push(options);
+            const annotations: Record<string, string> = { ...options.annotations };
+            if (perch.old_sessions) {
+                delete annotations['sight.sendChannel'];
+            }
             const session = make_session({
-                annotations: { ...options.annotations },
+                annotations,
                 cwd: options.cwd ?? '',
             });
             const terminal = make_terminal(session);
@@ -2163,7 +2235,9 @@ describe.serial('Feature: Stata console in a Perch session (remote windows)', ()
         expect(created.name).toBe('Stata');
         expect(created.cwd).toBe('/work/project');
         expect(created.env).toEqual({ ELECTRON_RUN_AS_NODE: '1' });
-        expect(created.annotations).toEqual({ 'sight.console': 'editor' });
+        expect(created.annotations).toEqual({
+            'sight.console': 'editor', 'sight.sendChannel': '1',
+        });
         expect(created.show).toBe(false);
         expect(created.command).toEqual([
             process.execPath,
@@ -2191,17 +2265,29 @@ describe.serial('Feature: Stata console in a Perch session (remote windows)', ()
         const session = perch!.the_listed[0];
         write_ready_file(session.dir);
         await wait_until(() => perch!.the_sends.length === 2, 'the queued sends', 2000);
+        // Not typed as keys: the console enters each at a prompt.
         expect(perch!.the_sends).toEqual([
-            { id: session.id, text: `do ${wrap(second)}`, options: { submit: true } },
-            { id: session.id, text: `include ${wrap(third)}`, options: { submit: true } },
+            {
+                id: session.id,
+                text: channel_send(`do ${wrap(second)}`, second),
+                options: { submit: false },
+            },
+            {
+                id: session.id,
+                text: channel_send(`include ${wrap(third)}`, third),
+                options: { submit: false },
+            },
         ]);
-        // The first ran from the command line; all three are cleaned up.
+        // The first ran from the command line and is cleaned up as
+        // usual; the console deletes the others once Stata reads them,
+        // so the scheduled cleanups skip them.
         expect(harness.vscode_state.the_cleanups).toEqual([first, second, third]);
+        expect([...harness.vscode_state.the_held_files]).toEqual([second, third]);
 
         const fourth = await create_tracked_send_file('fourth');
         expect(await harness.terminal_manager.send_to_stata_terminal('do', fourth)).toBe(false);
         expect(perch!.the_sends).toHaveLength(3);
-        expect(perch!.the_sends[2].text).toBe(`do ${wrap(fourth)}`);
+        expect(perch!.the_sends[2].text).toBe(channel_send(`do ${wrap(fourth)}`, fourth));
         expect(perch!.the_creates).toHaveLength(1);
         expect(harness.vscode_state.the_send_calls).toEqual([]);
     });
@@ -2299,9 +2385,11 @@ describe.serial('Feature: Stata console in a Perch session (remote windows)', ()
         expect(perch_terminals(harness)).toEqual([]);
 
         expect(await harness.terminal_manager.send_to_stata_terminal('do', second)).toBe(false);
-        expect(perch!.the_sends).toEqual([
-            { id: session.id, text: `do ${wrap(second)}`, options: { submit: true } },
-        ]);
+        expect(perch!.the_sends).toEqual([{
+            id: session.id,
+            text: channel_send(`do ${wrap(second)}`, second),
+            options: { submit: false },
+        }]);
         expect(perch!.the_creates).toHaveLength(1);
         expect(harness.the_terminals).toEqual([]);
     });
@@ -2582,11 +2670,31 @@ describe.serial('Feature: Stata console in a Perch session (remote windows)', ()
         const second = await create_tracked_send_file('second');
         expect(await manager.send_to_perch_terminal(perch_terminals(harness)[0], 'do', second))
             .toBe(false);
-        expect(perch!.the_sends.map(my_send => my_send.text)).toEqual([`do ${wrap(second)}`]);
+        expect(perch!.the_sends.map(my_send => my_send.text))
+            .toEqual([channel_send(`do ${wrap(second)}`, second)]);
         expect(await manager.send_to_perch_terminal(harness.vscode_state.terminal, 'do', second))
             .toBeNull();
         expect(await manager.send_to_perch_terminal(undefined, 'do', second)).toBeNull();
         expect(harness.vscode_state.the_send_calls).toEqual([]);
+    });
+
+    test('a session started without the send channel gets sends as keys', async () => {
+        const { harness, perch } = await create_perch_harness();
+        // As started by an older Sight: its tty.js reads keys only.
+        perch!.old_sessions = true;
+        await harness.terminal_manager.send_to_stata_terminal(
+            'do', await create_tracked_send_file('first')
+        );
+        const session = perch!.the_listed[0];
+        expect(session.annotations).toEqual({ 'sight.console': 'editor' });
+        write_ready_file(session.dir);
+        await wait_until(() => harness.vscode_state.the_cleanups.length === 1, 'ready', 2000);
+        const second = await create_tracked_send_file('second');
+        expect(await harness.terminal_manager.send_to_stata_terminal('do', second)).toBe(false);
+        expect(perch!.the_sends).toEqual([
+            { id: session.id, text: `do ${wrap(second)}`, options: { submit: true } },
+        ]);
+        expect(harness.vscode_state.the_held_files.size).toBe(0);
     });
 
     test('the profile list\'s Stata terminal is a Perch session too', async () => {
@@ -2754,7 +2862,9 @@ describe.serial('Feature: Perch\'s launcher, and Perch in local windows', () => 
             expect(perch!.the_creates).toHaveLength(1);
             const created = perch!.the_creates[0];
             expect(created.show).toBe(false);
-            expect(created.annotations).toEqual({ 'sight.console': 'editor' });
+            expect(created.annotations).toEqual({
+            'sight.console': 'editor', 'sight.sendChannel': '1',
+        });
             expect(created.command).toEqual([
                 process.execPath,
                 path.join(EXTENSION_PATH, 'console-runtime', 'tty.js'),
@@ -2774,7 +2884,9 @@ describe.serial('Feature: Perch\'s launcher, and Perch in local windows', () => 
             await harness.terminal_manager.send_to_stata_terminal('do', first);
             await wait_until(() => perch!.the_sends.length === 1, 'the send', 2000);
             expect(perch!.the_sends[0]).toEqual({
-                id: session.id, text: `do ${wrap(first)}`, options: { submit: true },
+                id: session.id,
+                text: channel_send(`do ${wrap(first)}`, first),
+                options: { submit: false },
             });
             expect(perch!.the_creates).toHaveLength(1);
             expect(harness.the_terminals).toEqual([]);
