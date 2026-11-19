@@ -57,7 +57,11 @@ On macOS and Linux the Stata pane runs [sight console](console.md) inside the ex
 
 Code you send while Stata is starting waits in a queue, and the status bar shows how many sends are waiting. The queued sends are typed into the console, in order, once Stata shows its first prompt.
 
-The console enters a send only at Stata's prompt, when Stata reads it at once. A send that arrives while Stata runs a command or shows `--more--` waits, with a note under the prompt, until the prompt returns; sends that wait go one per prompt, in order. A send never answers `--more--`: keys you type answer it as usual. Ctrl+C drops the sends that wait. A send's temporary do-file is kept until Stata reads its line, and deleted 30 seconds after that, or at once if it never runs (Ctrl+C, or the pane closes first).
+The console enters a send only at a prompt where Stata reads a command at once: Stata's `. `, or a prompt inside a loop or program (`  1. `), Mata (`: `), Python (`>>> `, `... `), a continued line (`> `) or `pause` (`-> `). A send that arrives while Stata runs a command or shows `--more--` waits, with a note under the prompt, until such a prompt returns; sends that wait go one per prompt, in order. A send never answers `--more--`: keys you type answer it as usual. Ctrl+C drops the sends that wait, and so does closing the pane.
+
+The console knows a prompt only by its text, so it also holds sends when the last line on screen is something else, such as a question a command asks with `display _request()`, or output a command left without a newline. The note under the prompt says the sends wait; answer the question, or press Enter for a fresh prompt, and they go (Ctrl+C drops them instead). Console Stata starts a new line before each of its own prompts, so this needs unusual output.
+
+A send's temporary do-file is kept until Stata reads its line, and deleted 30 seconds after that, or at once if it never runs (Ctrl+C, or the pane closes first). A send too long for Stata's terminal (over 1000 bytes) isn't entered; the console says so and goes on to the next send.
 
 A send goes on its own line. If you have typed part of a command at the prompt, the console sets it aside, enters the send, and puts your text back to finish. A line you type and enter while sends wait goes to Stata at once, as typing ahead does in console Stata, so it runs before them (Stata may be asking for input, as `display _request()` does, that only you can give).
 
@@ -82,9 +86,10 @@ What differs from the pane described above:
 - Closing the Stata terminal detaches it; Stata keeps running. Sends still reach it, and the terminal reopens from Perch's Sessions view or when the window reloads. To end Stata, type `exit`, or end the session in Perch.
 - Code goes only to Stata sessions with a terminal in this window, or ones this window started. If Sight finds Stata sessions it started from other windows when it needs a new console, it asks whether to send code to one of them or start a new one.
 - A detached Stata waits at `--more--` until someone attaches and presses a key, since nothing answers it. Put `set more off` in your `profile.do`.
-- Sends reach the console as from the Stata pane: entered at Stata's prompt, never as an answer to `--more--`, and each temporary do-file is deleted once Stata has read its line. A Stata session started by an earlier version of Sight gets sends typed as keys, as before, until it ends.
+- Sends reach the console as from the Stata pane: entered at Stata's prompt, never as an answer to `--more--`, and each temporary do-file is deleted 30 seconds after Stata has read its line. Perch types each send into the session's input inside an escape sequence that no key produces. The console reads these only outside a bracketed paste, so pasted text never runs as a send, but it can't otherwise tell who wrote one: a program that types into the session can send a line, as if you typed it. So the console deletes only Sight's own temporary do-files, and ignores a send naming any other file.
+- When the session ends, including when its console is killed, Sight deletes the do-files of sends it still held. A Stata session started by an earlier version of Sight gets sends typed as keys, as before, until it ends.
 - A detached Stata may keep holding its license seat while it runs.
-- If Perch can't confirm that a send reached Stata (the connection ended mid-send), Sight says the code may not have run and doesn't send it again.
+- If Perch can't confirm that a send reached Stata (the connection ended mid-send), Sight says the code may not have run and doesn't send it again. Its do-file is deleted when the session ends, or after an hour, whichever comes first.
 
 ### Windows: sight console
 
@@ -94,7 +99,7 @@ Each pane starts its own Stata, in a new window, so a second pane gets a second 
 
 Code you send while the console is starting waits in a queue, and the status bar shows how many sends are waiting. The queued sends are typed into the console, in order, once it shows its first prompt.
 
-Stata runs one command at a time, so a send made while a long command runs waits in the console, until its prompt returns. Its temporary do-file is kept until Stata accepts the command, and deleted 30 seconds after that, or at once if the command never runs (Ctrl+C, the pane closes first, or the console loses Stata before Stata accepts it).
+Stata runs one command at a time, so a send made while a long command runs waits in the console until Stata is free. The console asks Stata whether it is free, rather than reading the screen. A send's temporary do-file is kept until Stata accepts the command, and deleted 30 seconds after that, or at once if the command never runs (Ctrl+C, or the pane closes first). If the console loses its connection to Stata just after handing over a command, it can't tell whether Stata took it, so the file is kept for the same 30 seconds.
 
 The console doesn't get Stata when:
 
