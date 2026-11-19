@@ -442,10 +442,15 @@ mock.module('vscode', () => ({
     },
     env: {
         clipboard: {
-            writeText: async () => undefined,
+            writeText: async (text: string) => {
+                the_clipboard_writes.push(text);
+            },
         },
     },
 }));
+
+/** What the panel put on the clipboard, in order. */
+const the_clipboard_writes: string[] = [];
 
 type PostedMessage = {
     type: string;
@@ -627,5 +632,118 @@ describe('DataBrowserPanel histogram requests', () => {
             col_index: 0,
             bins: [],
         }]);
+    });
+});
+
+type CopyRowsReply = {
+    type: string;
+    request_id?: string;
+    rows?: unknown[][] | null;
+    message?: string;
+};
+
+async function make_copy_panel(): Promise<{
+    panel_like: any;
+    posted: CopyRowsReply[];
+    the_reads: unknown[];
+}> {
+    const { DataBrowserPanel } = await import(
+        '../../../client/src/data-browser/browser-panel'
+    );
+    const posted: CopyRowsReply[] = [];
+    const the_reads: unknown[] = [];
+    const panel_like: any = Object.create(DataBrowserPanel.prototype);
+    panel_like.disposed = false;
+    panel_like.file_changed = false;
+    panel_like.generation = 3;
+    panel_like.copy_generation = 0;
+    panel_like.effective_perm = new Uint32Array([4, 3, 2, 1, 0]);
+    panel_like.panel = {
+        webview: {
+            postMessage: (message: CopyRowsReply) => {
+                posted.push(message);
+                return true;
+            },
+        },
+    };
+    // Columns [1, 3): column 2 is a strL whose cells come later.
+    panel_like.reader = {
+        read_page: async (rows: unknown, col_start: number, col_end: number) => {
+            the_reads.push({ rows, col_start, col_end });
+            return {
+                rows: [
+                    [{ raw: 'a' }, { raw: null, pending: true }],
+                    [{ raw: 'b' }, { raw: null, pending: true }],
+                ],
+                rest: Promise.resolve({
+                    columns: [2],
+                    rows: [[{ raw: 'long a' }], [{ raw: 'long b' }]],
+                }),
+            };
+        },
+    };
+    return { panel_like, posted, the_reads };
+}
+
+describe('DataBrowserPanel rows read for a copy', () => {
+    it('reads rows in the order shown, waiting for their strLs', async () => {
+        const { panel_like, posted, the_reads } = await make_copy_panel();
+        await panel_like.handle_copy_rows({
+            type: 'requestCopyRows', request_id: 'copy-0',
+            start: 1, count: 2, col_start: 1, col_end: 3,
+        });
+        expect(the_reads).toEqual([{
+            rows: { rows: new Uint32Array([3, 2]) }, col_start: 1, col_end: 3,
+        }]);
+        expect(posted).toEqual([{
+            type: 'copyRows',
+            request_id: 'copy-0',
+            rows: [
+                [{ raw: 'a' }, { raw: 'long a' }],
+                [{ raw: 'b' }, { raw: 'long b' }],
+            ],
+        }]);
+    });
+
+    it('reads nothing for a copy if the order changes meanwhile', async () => {
+        const { panel_like, posted } = await make_copy_panel();
+        const my_read = panel_like.reader.read_page;
+        panel_like.reader.read_page = async (...args: unknown[]) => {
+            panel_like.generation += 1;
+            return my_read(...args);
+        };
+        await panel_like.handle_copy_rows({
+            type: 'requestCopyRows', request_id: 'copy-1',
+            start: 0, count: 2, col_start: 1, col_end: 3,
+        });
+        expect(posted).toHaveLength(1);
+        expect(posted[0].rows).toBeNull();
+        expect(posted[0].message).toContain('changed');
+    });
+});
+
+describe('DataBrowserPanel Copy Column', () => {
+    it('writes nothing if a later copy came while it ran', async () => {
+        const { panel_like } = await make_copy_panel();
+        panel_like.dta_file = { variables: [{ name: 'make' }] };
+        let finish: () => void = () => undefined;
+        const my_gate = new Promise<void>(resolve => {
+            finish = resolve;
+        });
+        panel_like.run_job = async () => {
+            await my_gate;
+            return { kind: 'copy', text: 'whole column' };
+        };
+        the_clipboard_writes.length = 0;
+        const my_copy = panel_like.handle_copy_column(0, true, true);
+        // The user copies a cell meanwhile.
+        await panel_like.handle_message({ type: 'copyStarted' });
+        finish();
+        await my_copy;
+        expect(the_clipboard_writes).toEqual([]);
+
+        const my_second = panel_like.handle_copy_column(0, true, true);
+        await my_second;
+        expect(the_clipboard_writes).toEqual(['whole column']);
     });
 });
