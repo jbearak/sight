@@ -159,6 +159,10 @@ describe('EmptyForvaluesRangeAnalyzer Unit Tests', () => {
                 'qui: forvalues i = 3/1 {\n}\n',
                 'noisily forvalues i = 3/1 {\n}\n',
                 'capture quietly: forvalues i = 3/1 {\n}\n',
+                'version 16, user: forvalues i = 3/1 {\n}\n',
+                'capt version 16: forvalues i = 3/1 {\n}\n',
+                'n forvalues i = 3/1 {\n}\n',
+                'noisi quiet forvalues i = 3/1 {\n}\n',
             ];
             for (const my_source of the_sources) {
                 expect({ my_source, count: found(my_source).length })
@@ -175,6 +179,9 @@ describe('EmptyForvaluesRangeAnalyzer Unit Tests', () => {
         it('does not take a version argument without its colon as a prefix', () => {
             expect(found('version 16 forvalues i = 3/1 {\n}\n')).toHaveLength(0);
             expect(found('display 16: forvalues i = 3/1 {\n}\n')).toHaveLength(0);
+            expect(found('display 16, user: forvalues i = 3/1 {\n}\n'))
+                .toHaveLength(0);
+            expect(found('by g: forvalues i = 3/1 {\n}\n')).toHaveLength(0);
         });
 
         it('reports a range split by a /// continuation', () => {

@@ -446,7 +446,8 @@ project rather than just the open buffer.
 Sight recognizes a variable as defined when it sees one of:
 
 - `generate` (or any abbreviation down to `g`), `egen`, `input`
-  (down to `inp`) — explicit creation.
+  (down to `inp`) — explicit creation. A storage type before a name
+  (`input double wage`, `gen str5 s = ""`) names no variable.
 - `rename` (down to `ren`) — the new name is registered.
 - `confirm variable` (`confirm` down to `conf`, `variable` down to
   `v`, in lowercase as Stata requires) — treated as an assertion that

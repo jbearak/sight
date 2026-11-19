@@ -3,7 +3,7 @@ import * as fs from 'fs';
 import * as path from 'path';
 import { StataCommand, VALID_COMMANDS } from './index.js';
 import { detect_stata_cli, clear_stata_cli_cache } from './stata-cli-detector.js';
-import { wrap_path_for_stata_terminal } from './terminal.js';
+import { send_to_terminal, wrap_path_for_stata_terminal } from './terminal.js';
 import { schedule_temp_file_cleanup } from './temp-file.js';
 import { send_to_stata_windows } from './windows-sender.js';
 import {
@@ -1221,7 +1221,35 @@ export function send_to_console_pane_terminal(
     if (!terminal || !console_queue?.is_tracked(terminal)) {
         return null;
     }
+    // Reveal a hidden pane, as the sendText path does, keeping focus
+    // in the editor.
+    terminal.show(true);
     return console_queue.send(terminal, { command, temp_file_path });
+}
+
+/**
+ * The "active terminal" commands: send to whatever terminal is active.
+ * One of Sight's Perch sessions takes input only through Perch, and a
+ * Stata pane through its queue; any other terminal gets sendText.
+ * Returns true if the send was queued (the queue then owns
+ * `temp_file_path`).
+ */
+export async function send_to_active_terminal(
+    command: StataCommand,
+    temp_file_path: string
+): Promise<boolean> {
+    const active_terminal = vscode.window.activeTerminal;
+    const perch_queued = await send_to_perch_terminal(
+        active_terminal, command, temp_file_path
+    );
+    const pane_queued = perch_queued ?? send_to_console_pane_terminal(
+        active_terminal, command, temp_file_path
+    );
+    if (pane_queued !== null) {
+        return pane_queued;
+    }
+    await send_to_terminal(command, temp_file_path);
+    return false;
 }
 
 /**

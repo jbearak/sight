@@ -1,7 +1,7 @@
 import { Token } from '../types';
 import {
     COLON_PREFIX_COMMANDS,
-    SINGLE_LINE_PREFIX_COMMANDS,
+    PREFIX_COMMANDS,
 } from '../utils/stata-prefix-commands';
 
 /**
@@ -121,10 +121,7 @@ export function is_command_position_by(
                 continue;
             }
         }
-        if (
-            my_token.type === 'WORD' &&
-            SINGLE_LINE_PREFIX_COMMANDS.has(my_token.value)
-        ) {
+        if (my_token.type === 'WORD' && is_single_line_prefix(my_token.value)) {
             my_i = previous(my_i);
             continue;
         }
@@ -134,19 +131,41 @@ export function is_command_position_by(
 }
 
 /**
- * When `the_tokens[index]` is the number of a `version #:` prefix,
- * the index of its `version` word; otherwise undefined. Only the
- * token before the colon is passed, so `16` in `version 16:`.
+ * Whether `word` is a prefix command that takes no arguments, in any
+ * abbreviation Stata accepts (`capt`, `quie`, `n`, `noisi`), exact
+ * case. `by` and `bysort` take a varlist, so they are not.
+ */
+function is_single_line_prefix(word: string): boolean {
+    const canonical = PREFIX_COMMANDS.get(word);
+    return canonical !== undefined &&
+        canonical !== 'by' && canonical !== 'bysort';
+}
+
+/**
+ * When `the_tokens[index]`, the token before a colon, ends a
+ * `version #:` prefix, the index of its `version` word; otherwise
+ * undefined. The number may carry options: `16` in `version 16:`,
+ * `user` in `version 16, user:`.
  */
 function version_prefix_start(
     the_tokens: Token[],
     index: number,
     previous: (index: number) => number
 ): number | undefined {
-    if (the_tokens[index]?.type !== 'NUMBER') {
+    let my_i = index;
+    if (the_tokens[my_i]?.type === 'WORD') {
+        while (the_tokens[my_i]?.type === 'WORD') {
+            my_i = previous(my_i);
+        }
+        if (the_tokens[my_i]?.type !== 'COMMA') {
+            return undefined;
+        }
+        my_i = previous(my_i);
+    }
+    if (the_tokens[my_i]?.type !== 'NUMBER') {
         return undefined;
     }
-    const my_word_index = previous(index);
+    const my_word_index = previous(my_i);
     const my_word = the_tokens[my_word_index];
     if (
         my_word?.type === 'WORD' &&

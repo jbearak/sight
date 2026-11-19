@@ -623,13 +623,26 @@ a plain name. An `args` entry that is just a macro (`` `x' ``) has
   - `range`: the call site; for a backward directive, the directive in the
     child file.
   - `raw_path`: the path as written.
-  - `arguments`: the words after the path, in source order, or `[]`.
-    That is everything Stata passes to the do-file, so it includes
-    words such as `if`, `in`, `using`, a weight (`[aw=x]`), and a
-    `, options` tail: `do clean.do 2019 if x > 1` gives
-    `["2019", "if", "x", ">", "1"]`. Words are separated by spaces;
-    a quoted string, and text with no space in it (`a>b`,
-    `` `a'b ``), is one word.
+  - `arguments`: what a `do` or `run` passes to the do-file, as the
+    do-file's `args` reads it (checked in Stata 18), or `[]`:
+    - the words after the path and before the first comma, in source
+      order. Words such as `if`, `in`, `using` and a weight are
+      ordinary words: `do clean.do 2019 if x > 1` gives
+      `["2019", "if", "x", ">", "1"]`.
+    - The first comma ends them, even inside quotes or parentheses.
+      What follows is `do`'s own option `nostop`, so
+      `do clean.do x, nostop` gives `["x"]`; Stata rejects any other
+      option and does not run the file.
+    - Words are separated by spaces, a line comment, or a `///` line
+      break. A block comment is removed, so it separates words only
+      where it has a space beside it: `a /* c */b` is `a` and `b`,
+      `a/* c */b` is `ab`.
+    - A quoted (`"a b"`) or compound-quoted (`` `"a "b" c"' ``)
+      string is one word, kept with its quotes, even where it
+      touches other text: `a"b c"d` is `a`, `"b c"` and `d`. Other
+      text with no space in it (`a>b`, `` `a'b ``) is one word.
+    - `include` passes nothing; Stata rejects `include` with
+      arguments.
   - `static`: false when the path contains a macro reference.
   - `source`: `command` for `do`/`run`/`include` statements, `directive`
     for forward directives (`sight: do file.do`), or `backward_directive`
@@ -638,10 +651,20 @@ a plain name. An `args` entry that is just a macro (`` `x' ``) has
   - `working_directory`: the absolute directory the path is resolved
     against at the call site, after top-level literal `cd` commands and
     `sight: cd` directives; null when it is the caller's own directory.
-    A file with no `sight: cd` of its own inherits its parent's, as in
-    `sight check` (see [Working Directory](cross-file.md#working-directory)):
-    when `main.do` has `sight: cd "work"` and calls `jobs/child.do`,
-    `do grand.do` in the child resolves to `work/grand.do`.
+    A file with no `sight: cd` of its own inherits its caller's (see
+    [Working Directory](cross-file.md#working-directory)), through
+    any number of levels: when `main.do` has `sight: cd "work"` and
+    calls `jobs/child.do`, `do grand.do` in the child resolves to
+    `work/grand.do`. A file is given the directory of the callers
+    that actually reach it, so a file nobody calls keeps its own.
+    `sight check` sees a caller only when that call resolves without
+    a directory the caller itself inherits, so when `work/jobs/a.do`
+    in the example above runs `do jobs/b.do` and that runs `do c.do`,
+    `check` reports `c.do` missing where `graph` finds `work/c.do`. A
+    forward directive (`sight: do lib.do`) resolves from the file's
+    own directory, or one it sets with `sight: cd` or inherits through
+    a `sight: done-by` or `included-by` directive, never one
+    inherited from a caller that was found by its `do` command.
   - `target`: the called file, relative to ROOT (absolute when outside
     ROOT), or null when unresolved.
   - `resolution`: `exact`, `case_only` (found, but the case differs from

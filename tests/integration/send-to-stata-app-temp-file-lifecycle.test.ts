@@ -382,6 +382,10 @@ describe.serial('Feature: send-to-stata app temp file lifecycle', () => {
             LanguageClient: class LanguageClient {},
         }));
 
+        // Holds work as in the real module: Bun keeps module mocks for
+        // later test files, so temp-file.test.ts may get this mock in
+        // place of the real helpers.
+        const the_mock_held_files = new Set<string>();
         mock.module(TEMP_FILE_MODULE_URL, () => {
             return {
                 DEFAULT_TEMP_FILE_CLEANUP_DELAY_MS: 5000,
@@ -390,11 +394,21 @@ describe.serial('Feature: send-to-stata app temp file lifecycle', () => {
                     file_path: string,
                     delay_ms = 40
                 ) => {
+                    const was_held = the_mock_held_files.has(file_path);
                     const my_timeout = setTimeout(() => {
+                        if (was_held || the_mock_held_files.has(file_path)) {
+                            return;
+                        }
                         fs.unlink(file_path).catch(() => {});
                     }, delay_ms);
                     my_timeout.unref?.();
                     return my_timeout;
+                },
+                hold_temp_file: (file_path: string) => {
+                    the_mock_held_files.add(file_path);
+                },
+                release_temp_file: (file_path: string) => {
+                    the_mock_held_files.delete(file_path);
                 },
                 create_temp_file: async (content: string) => {
                     const random_hex = crypto
