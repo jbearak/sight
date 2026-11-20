@@ -7,6 +7,27 @@ import {
     schedule_temp_file_cleanup
 } from '../../../client/src/send-to-stata/temp-file';
 
+/**
+ * Wait for `file_path` to be removed. The removal follows a timer and
+ * an asynchronous unlink, and a loaded Windows host can take well over
+ * the timer's delay, so this polls instead of sleeping a fixed time.
+ */
+async function expect_removed(file_path: string): Promise<void> {
+    const deadline_ms = Date.now() + 5000;
+    for (;;) {
+        try {
+            await fs.readFile(file_path, 'utf8');
+        } catch (error) {
+            expect(error).toMatchObject({ code: 'ENOENT' });
+            return;
+        }
+        if (Date.now() > deadline_ms) {
+            throw new Error(`Still present after 5 s: ${file_path}`);
+        }
+        await new Promise(resolve => setTimeout(resolve, 10));
+    }
+}
+
 describe('Feature: send-to-stata temp file cleanup', () => {
     test('scheduled cleanup preserves the file until the delay elapses', async () => {
         const my_file_path = await create_temp_file('display "hello"');
@@ -16,11 +37,7 @@ describe('Feature: send-to-stata temp file cleanup', () => {
         const my_initial_content = await fs.readFile(my_file_path, 'utf8');
         expect(my_initial_content).toBe('display "hello"');
 
-        await new Promise(resolve => setTimeout(resolve, 60));
-
-        await expect(fs.readFile(my_file_path, 'utf8')).rejects.toMatchObject({
-            code: 'ENOENT'
-        });
+        await expect_removed(my_file_path);
     });
 
     test('a held file outlives cleanup scheduled before its release', async () => {
@@ -38,9 +55,6 @@ describe('Feature: send-to-stata temp file cleanup', () => {
         expect(await fs.readFile(my_file_path, 'utf8')).toBe('display "held"');
 
         schedule_temp_file_cleanup(my_file_path, 10);
-        await new Promise(resolve => setTimeout(resolve, 40));
-        await expect(fs.readFile(my_file_path, 'utf8')).rejects.toMatchObject({
-            code: 'ENOENT'
-        });
+        await expect_removed(my_file_path);
     });
 });
