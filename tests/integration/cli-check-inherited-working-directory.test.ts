@@ -345,7 +345,8 @@ async function check_diagnostics(
     try {
         const check_stdout: string[] = [];
         await run_check_with_cwd(
-            ['--no-config', '--format', 'json', '.'], root, {
+            [...('sight.toml' in files ? [] : ['--no-config']),
+                '--format', 'json', '.'], root, {
                 stdout: (text) => check_stdout.push(text),
                 stderr: () => undefined,
             });
@@ -563,6 +564,20 @@ describe('sight check — inherited directories, cases from review', () => {
             'jobs/tail.do': 'display 1\n',
         });
         expect(result).toEqual({ check: [], graph: [], nested: [] });
+    });
+
+    it('keeps the directory named parents give a file at the depth limit', async () => {
+        // The index's own walk of named parents reaches root.do; the
+        // document walk, one level shallower, does not. child.do keeps
+        // its call into `work`, so leaf.do keeps its caller.
+        expect(await check_diagnostics({
+            'sight.toml': '[crossFile]\nmaxBackwardDepth = 1\n',
+            'root.do': '// sight: cd work\nglobal FROMROOT 1\ndo ../mid.do\n',
+            'mid.do': '// sight: done-by root.do\ndo ../child.do\n',
+            'child.do': '// sight: done-by mid.do\n' +
+                'global FROMCHILD 1\ndo jobs/leaf.do\n',
+            'work/jobs/leaf.do': 'display "$FROMCHILD"\n',
+        })).not.toContain('work/jobs/leaf.do:1 UNDEFINED_MACRO');
     });
 
     it('reads the locals of the file a `sight: include` names', async () => {

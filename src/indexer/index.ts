@@ -394,7 +394,7 @@ export class WorkspaceIndexer {
             return;
         }
 
-        await this.settle_working_directories();
+        await this.settle_working_directories(generation);
         if (!this.is_active_generation(generation)) {
             return;
         }
@@ -419,7 +419,9 @@ export class WorkspaceIndexer {
      * callers that reach it, and register again the calls of each file
      * whose directory changed.
      */
-    private async settle_working_directories(): Promise<void> {
+    private async settle_working_directories(
+        generation: number,
+    ): Promise<void> {
         const dependency_graph = this.dependency_graph;
         const scope_resolver = this.scope_resolver;
         if (!this.working_directory_facts || !dependency_graph ||
@@ -443,6 +445,10 @@ export class WorkspaceIndexer {
                     MAX_WALK_STEPS,
                 ),
             register: (my_facts) => {
+                // A reset or a newer scan owns the graph now.
+                if (!this.is_active_generation(generation)) {
+                    return;
+                }
                 my_facts.first_calls = new Map();
                 const graph_result = dependency_graph.update_caller(
                     my_facts.uri,
@@ -454,7 +460,10 @@ export class WorkspaceIndexer {
                 }
             },
         });
-        if (the_changed_uris.size > 0 && this.on_graph_change_callback) {
+        if (
+            the_changed_uris.size > 0 && this.on_graph_change_callback &&
+            this.is_active_generation(generation)
+        ) {
             this.on_graph_change_callback(the_changed_uris);
         }
     }

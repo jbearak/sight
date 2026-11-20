@@ -205,6 +205,9 @@ function make_default_fs(): RichResolveFs {
 const DEFAULT_LISTING_SETTLE_MS = 2000;
 
 interface CachedListing {
+    /** The directory itself: a retargeted symlink is another one. */
+    dev: bigint;
+    ino: bigint;
     mtime_ns: bigint;
     ctime_ns: bigint;
     entries: ReturnType<RichResolveFs['readdirSync']>;
@@ -240,6 +243,8 @@ export function create_listing_cache_resolve_fs(
             const cached = the_listings.get(p);
             if (
                 cached !== undefined &&
+                cached.dev === stat.dev &&
+                cached.ino === stat.ino &&
                 cached.mtime_ns === stat.mtimeNs &&
                 cached.ctime_ns === stat.ctimeNs
             ) {
@@ -250,6 +255,8 @@ export function create_listing_cache_resolve_fs(
             if (read_ns - stat.mtimeNs >= settle_ns &&
                 read_ns - stat.ctimeNs >= settle_ns) {
                 the_listings.set(p, {
+                    dev: stat.dev,
+                    ino: stat.ino,
                     mtime_ns: stat.mtimeNs,
                     ctime_ns: stat.ctimeNs,
                     entries,

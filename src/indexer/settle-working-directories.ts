@@ -360,8 +360,11 @@ export async function settle_inherited_working_directories<
             const before = the_last_changes.get(facts.uri);
             set_directory(
                 facts,
-                outcome.kind === 'settled' ? outcome.directory
-                    : outcome.kind === 'none' ? undefined
+                // Anything but a settled directory leaves the file as
+                // it was registered before settling: for a file that
+                // names its parents, the directory they gave it.
+                outcome.kind === 'settled'
+                    ? outcome.directory
                     : the_unsettled.get(facts.uri),
                 round,
             );
