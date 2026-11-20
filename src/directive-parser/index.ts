@@ -7,7 +7,7 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { Range } from 'vscode-languageserver-textdocument';
-import { URI } from 'vscode-uri';
+import { uri_to_fs_path } from '../utils/fs-path';
 import {
     Directive,
     CallSite,
@@ -175,7 +175,7 @@ export class DirectiveParser {
         const line_count = get_line_count(doc);
         const the_directives: Directive[] = [];
         const the_diagnostics: DirectiveDiagnostic[] = [];
-        const containing_dir = path.dirname(URI.parse(file_uri).fsPath);
+        const containing_dir = path.dirname(uri_to_fs_path(file_uri));
 
         // Track working directory directives (last one wins)
         let working_directory: WorkingDirectoryDirective | undefined;

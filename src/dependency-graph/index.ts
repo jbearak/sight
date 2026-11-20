@@ -10,6 +10,10 @@ import * as node_path from 'path';
 import { ForwardCall, ForwardCallType } from '../types';
 import { logger } from '../utils/logger';
 import {
+    canonical_fs_path,
+    uri_to_fs_path as canonical_uri_to_fs_path,
+} from '../utils/fs-path';
+import {
     resolve_forward_call_rich,
     outcome_fs_path,
     is_resolvable_static_call,
@@ -65,7 +69,9 @@ export class DependencyGraph {
      * no case normalization.
      */
     set_workspace_roots(roots: string[]): void {
-        this.workspace_roots = roots.map(r => node_path.resolve(r));
+        this.workspace_roots = roots.map(
+            r => canonical_fs_path(node_path.resolve(r)),
+        );
     }
 
     get_workspace_roots(): string[] {
@@ -394,7 +400,6 @@ export class DependencyGraph {
      * Extract the filesystem path from a file URI string.
      */
     private uri_to_fs_path(uri: string): string {
-        const { URI } = require('vscode-uri');
-        return URI.parse(uri).fsPath;
+        return canonical_uri_to_fs_path(uri);
     }
 }
