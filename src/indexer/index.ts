@@ -516,6 +516,9 @@ export class WorkspaceIndexer {
         generation: number = this.scan_generation
     ): Promise<void> {
         if (!this.is_active_generation(generation) || !this.enabled) return;
+        // One spelling for the path-keyed maps: a scan gives the
+        // configured folder's drive letter, a watcher event the URI's.
+        file_path = canonical_fs_path(file_path);
         const file_uri = URI.file(file_path).toString();
         // Watcher, save, and close updates bypass scan_directory. Enforce
         // the same discovery boundary before any file IO or cap accounting.
@@ -751,6 +754,7 @@ export class WorkspaceIndexer {
         if (!this.enabled) {
             return;
         }
+        file_path = canonical_fs_path(file_path);
         // Cancel any pending update for this file
         const pending = this.pending_updates.get(file_path);
         if (pending) {
@@ -770,6 +774,7 @@ export class WorkspaceIndexer {
      */
     schedule_update(file_path: string): void {
         if (!this.enabled) return;
+        file_path = canonical_fs_path(file_path);
         // Ignore hidden-worktree event bursts before allocating timers.
         // Leave any explicitly opened document's dependency edges intact.
         if (is_hidden_source_path(file_path, this.scan_roots)) return;

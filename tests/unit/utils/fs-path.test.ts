@@ -366,4 +366,16 @@ describe('build_cd_timeline on win32', () => {
         expect(my_result.diagnostics.map(my_diag => my_diag.kind))
             .toEqual(['path_case_mismatch']);
     });
+
+    it('accepts a trailing separator on an existing directory', () => {
+        const my_result = build_cd_timeline({
+            starting_wd: undefined,
+            caller_dir: 'c:\\ws',
+            cd_commands: [cd('c:/ws/Raw/', 0)],
+            workspace_roots: ['C:\\ws'],
+            fs: make_fs(WINDOWS_TREE, '\\'),
+            platform: 'win32',
+        });
+        expect(my_result.diagnostics).toEqual([]);
+    });
 });

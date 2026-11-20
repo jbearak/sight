@@ -400,7 +400,13 @@ export function resolve_path_rich(
         // The path IS the workspace root; treat as exact if it exists
         return { kind: 'exact', path: finish(chosen_root) };
     }
-    const the_components = remainder.split(sep);
+    // A trailing or doubled separator (`cd "raw/"`) names no component.
+    const the_components = remainder
+        .split(sep)
+        .filter(my_component => my_component.length > 0);
+    if (the_components.length === 0) {
+        return { kind: 'exact', path: finish(chosen_root) };
+    }
 
     // ── Walk components ──────────────────────────────────────────────────────
     // Join a directory path and a single component, avoiding double separators
