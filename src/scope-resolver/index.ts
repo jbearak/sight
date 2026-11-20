@@ -222,6 +222,20 @@ interface ForwardScopeResolverInterface {
     clear_forward_closure_memo?(): void;
 }
 
+/** State of one bounded working-directory walk. */
+interface WorkingDirectoryProbe {
+    steps_left: number;
+    exhausted: boolean;
+    /** Parents on the path to the directory found, nearest first. */
+    chain: string[];
+}
+
+/** What `probe_document_working_directory` found. */
+export type WorkingDirectoryProbeResult =
+    | { kind: 'found'; directory: string; chain: string[] }
+    | { kind: 'none' }
+    | { kind: 'exhausted' };
+
 export class ScopeResolver {
     private directive_parser: DirectiveParser;
     // Cache key is "uri|working_directory" (or just "uri" if no working directory)
@@ -243,6 +257,18 @@ export class ScopeResolver {
     private reverse_deps: ReverseDependencyIndex;
     // Track backward directive dependencies: parent_uri → set of child_uris that depend on it via @lsp-done-by/@lsp-included-by
     private backward_directive_children: Map<string, Set<string>>;
+    // child_uri → the dependency-graph version its edges in
+    // backward_directive_children were last registered from, for a file
+    // whose parents all come from the graph. A file called by many files
+    // is re-registered on every cache hit; while the graph is unchanged
+    // the result is too, so the repeat (a case-aware path walk per
+    // parent) is skipped. Any other registration drops the entry, and
+    // reset_reverse_deps (paired with a graph reset) clears them all.
+    // Only `sight check` turns this on (enable_auto_registration_reuse):
+    // the walk also depends on the parents' spelling on disk, which a
+    // rename can change without a graph update until the language
+    // server's watcher reports it.
+    private auto_registration_keys?: Map<string, string>;
     private content_provider: ContentProvider;
     private workspace_roots: string[] = [];
     private dependency_graph?: import('../dependency-graph').DependencyGraph;
@@ -341,15 +367,28 @@ export class ScopeResolver {
         this.workspace_roots = workspace_roots.map(
             r => canonical_fs_path(path.resolve(r)),
         );
+        // Parent paths resolve against the roots.
+        this.auto_registration_keys?.clear();
     }
 
     /**
      * Inject a filesystem implementation for `resolve_path_rich`.
-     * For testing only — production code leaves this undefined so
-     * `resolve_path_rich` uses the real Node `fs`.
+     * Tests inject fakes; `sight check` injects a listing cache. The
+     * language server leaves it undefined so the real Node `fs` is used.
      */
     set_resolve_fs(injected_fs: RichResolveFs): void {
         this.resolve_fs = injected_fs;
+        // Parent paths resolve through it.
+        this.auto_registration_keys?.clear();
+    }
+
+    /**
+     * Skip re-registering a file whose parents all come from the
+     * dependency graph while the graph's version is unchanged. For
+     * `sight check`, which has no file watcher and reads each file once.
+     */
+    enable_auto_registration_reuse(): void {
+        this.auto_registration_keys ??= new Map();
     }
 
     /**
@@ -365,6 +404,8 @@ export class ScopeResolver {
      */
     set_dependency_graph(graph: import('../dependency-graph').DependencyGraph): void {
         this.dependency_graph = graph;
+        // Versions are per graph; keys from another graph mean nothing.
+        this.auto_registration_keys?.clear();
     }
 
     /**
@@ -1634,6 +1675,84 @@ export class ScopeResolver {
     }
 
     /**
+     * The files a header's `sight: done-by` / `included-by` directives
+     * name, in header order, as the working-directory walk resolves
+     * them: case-aware, with the `.do` fallback, leaving out a parent
+     * that is ambiguous or not on disk (the walk passes over both).
+     */
+    explicit_parent_uris(
+        directives: Directive[],
+        current_uri: string,
+    ): string[] {
+        const the_uris: string[] = [];
+        for (const my_directive of directives) {
+            if (my_directive.type !== 'done-by' &&
+                my_directive.type !== 'included-by') {
+                continue;
+            }
+            const my_rich = this.compute_directive_real_path(
+                my_directive, current_uri,
+            );
+            if (my_rich.outcome_kind === 'exact' ||
+                my_rich.outcome_kind === 'case_only') {
+                the_uris.push(URI.file(my_rich.real_path).toString());
+            }
+        }
+        return the_uris;
+    }
+
+    /**
+     * `resolve_document_working_directory`, also reporting the files the
+     * walk went through to find the directory (`chain`: nearest parent
+     * first, the file whose `sight: cd` it is last), and giving up after
+     * `max_steps` parents. A walk over a dense cycle of callers visits
+     * every path up to the depth limit before it reports no directory;
+     * `sight check` and `sight graph` use this to leave such a file as
+     * it is instead of waiting.
+     */
+    async probe_document_working_directory(
+        file_uri: string,
+        directive_result: Pick<
+            DirectiveParseResult,
+            'directives' | 'standalone' | 'working_directory'
+        >,
+        config: Partial<ScopeResolverConfig>,
+        max_steps: number,
+    ): Promise<WorkingDirectoryProbeResult> {
+        if (directive_result.working_directory) {
+            return { kind: 'none' };
+        }
+        const my_config = { ...DEFAULT_CONFIG, ...config };
+        const { directives: effective_directives } =
+            this.get_effective_backward_directives(
+                file_uri,
+                directive_result.directives,
+                my_config,
+                directive_result.standalone !== undefined,
+            );
+        const probe: WorkingDirectoryProbe = {
+            steps_left: max_steps, exhausted: false, chain: [],
+        };
+        const directory = await this.discover_working_directory(
+            this.normalize_directives(effective_directives, []),
+            new Set([file_uri]),
+            1,
+            my_config,
+            new Map(),
+            file_uri,
+            undefined,
+            /* skip_backward_registration */ true,
+            probe,
+        );
+        if (probe.exhausted) {
+            return { kind: 'exhausted' };
+        }
+        return directory === undefined
+            ? { kind: 'none' }
+            : { kind: 'found', directory, chain: probe.chain };
+    }
+
+    /**
      * Find an open document's inherited working directory from its parsed
      * header. Uses the same effective parents, ordering, and depth as resolve,
      * without resolving symbols or forward calls. Unlike the indexer's
@@ -1645,7 +1764,10 @@ export class ScopeResolver {
      */
     async resolve_document_working_directory(
         file_uri: string,
-        directive_result: DirectiveParseResult,
+        directive_result: Pick<
+            DirectiveParseResult,
+            'directives' | 'standalone' | 'working_directory'
+        >,
         config: Partial<ScopeResolverConfig> = {},
         token?: CancellationToken,
     ): Promise<string | undefined> {
@@ -1698,7 +1820,8 @@ export class ScopeResolver {
         request_cache: RequestCache,
         current_uri: string,
         token?: CancellationToken,
-        skip_backward_registration?: boolean
+        skip_backward_registration?: boolean,
+        probe?: WorkingDirectoryProbe,
     ): Promise<string | undefined> {
         // Check depth limit
         if (depth > config.max_backward_depth) {
@@ -1709,6 +1832,14 @@ export class ScopeResolver {
             // Check cancellation before processing each directive
             if (token?.isCancellationRequested) {
                 return undefined;
+            }
+            // A probe gives up after a fixed number of parents.
+            if (probe) {
+                if (probe.exhausted || probe.steps_left <= 0) {
+                    probe.exhausted = true;
+                    return undefined;
+                }
+                probe.steps_left--;
             }
 
             // Resolve the parent through the case-aware chokepoint so
@@ -1798,6 +1929,9 @@ export class ScopeResolver {
                     }
                 }
 
+                if (probe) {
+                    probe.chain = [my_parent_uri];
+                }
                 return resolved_path;
             }
 
@@ -1826,14 +1960,19 @@ export class ScopeResolver {
                     request_cache,
                     my_parent_uri,
                     token,
-                    skip_backward_registration
+                    skip_backward_registration,
+                    probe,
                 );
 
                 // Allow same file via different paths
                 visited.delete(my_parent_uri);
 
+                if (probe?.exhausted) {
+                    return undefined;
+                }
                 // Return the first working_directory found from deeper ancestors
                 if (my_deeper_wd) {
+                    probe?.chain.unshift(my_parent_uri);
                     return my_deeper_wd;
                 }
             }
@@ -2531,12 +2670,40 @@ export class ScopeResolver {
         const all_forward_calls = prepare_forward_calls({
             uri,
             command_calls: my_analysis.forward_calls,
-            directive_calls: my_directive_result.forward_calls ?? [],
+            directive_calls: [],
             cd_commands: my_analysis.cd_commands,
             working_directory: effective_working_directory,
             workspace_roots: this.workspace_roots,
             fs: this.resolve_fs,
         });
+        // Forward directives (`sight: do`) resolve against the file's own
+        // directory, or one it inherits through `sight: done-by` /
+        // `included-by`, never one inherited from a caller that runs it
+        // (docs/cross-file.md, Working Directory), as in `sight graph`.
+        // A file without backward directives can only inherit from a
+        // caller, so its directive calls carry only its own directory;
+        // with none they are looked up beside the file, and the callee
+        // inherits the directory this file runs in (ForwardScopeResolver).
+        const has_backward_directives =
+            my_directive_result.standalone === undefined &&
+            my_directive_result.directives.length > 0;
+        const directive_working_directory = has_backward_directives
+            ? effective_working_directory
+            : own_working_directory;
+        // One call per element: a spread would pass a very long
+        // directive list as that many arguments.
+        for (const my_call of prepare_forward_calls({
+            uri,
+            command_calls: [],
+            directive_calls: my_directive_result.forward_calls ?? [],
+            cd_commands: [],
+            working_directory: directive_working_directory,
+            directives_beside_caller: !has_backward_directives,
+            workspace_roots: this.workspace_roots,
+            fs: this.resolve_fs,
+        })) {
+            all_forward_calls.push(my_call);
+        }
 
         // Return effective working_directory (file's own or inherited)
         return {
@@ -3625,6 +3792,7 @@ export class ScopeResolver {
         this.reverse_deps.interface_hashes.clear();
         this.reverse_deps.last_forward_calls.clear();
         this.backward_directive_children.clear();
+        this.auto_registration_keys?.clear();
     }
 
     /**
@@ -3821,12 +3989,32 @@ export class ScopeResolver {
         is_standalone: boolean
     ): void {
         const my_config = { ...DEFAULT_CONFIG, ...config };
+        // A file with no directives of its own takes its parents in
+        // 'auto' mode from the dependency graph alone, so while the
+        // graph's version is unchanged so is the registration.
+        const registration_key =
+            this.auto_registration_keys !== undefined &&
+            !is_standalone &&
+            raw_directives.length === 0 &&
+            (my_config.backward_dependencies ?? 'auto') === 'auto' &&
+            this.dependency_graph
+                ? `auto\u0000${this.dependency_graph.get_version()}`
+                : undefined;
+        if (
+            registration_key !== undefined &&
+            this.auto_registration_keys?.get(child_uri) === registration_key
+        ) {
+            return;
+        }
         const { directives: effective_directives } =
             this.get_effective_backward_directives(
                 child_uri, raw_directives, my_config, is_standalone
             );
         const normalized = this.normalize_directives(effective_directives, []);
         this.apply_normalized_backward_directives(child_uri, normalized);
+        if (registration_key !== undefined) {
+            this.auto_registration_keys?.set(child_uri, registration_key);
+        }
     }
 
     /**
@@ -4004,6 +4192,7 @@ export class ScopeResolver {
      * @param child_uri - The URI of the child file
      */
     clear_backward_directive_dependencies(child_uri: string): void {
+        this.auto_registration_keys?.delete(child_uri);
         // Remove this child from all parent entries
         for (const [parent_uri, children] of this.backward_directive_children) {
             if (children.has(child_uri)) {

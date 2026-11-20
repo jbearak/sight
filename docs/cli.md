@@ -694,18 +694,19 @@ a plain name. An `args` entry that is just a macro (`` `x' ``) has
     `sight: cd` directives; null when it is the caller's own directory.
     A file with no `sight: cd` of its own inherits its caller's (see
     [Working Directory](cross-file.md#working-directory)), through
-    any number of levels: when `main.do` has `sight: cd "work"` and
-    calls `jobs/child.do`, `do grand.do` in the child resolves to
-    `work/grand.do`. A file is given the directory of the callers
-    that actually reach it, so a file nobody calls keeps its own.
-    `sight check` sees a caller only when that call resolves without
-    a directory the caller itself inherits, so when `work/jobs/a.do`
-    in the example above runs `do jobs/b.do` and that runs `do c.do`,
-    `check` reports `c.do` missing where `graph` finds `work/c.do`. A
+    as many levels as the backward depth limit allows: when `main.do`
+    has `sight: cd "work"` and calls `jobs/child.do`, `do grand.do` in
+    the child resolves to `work/grand.do`. A file is given the
+    directory of the callers that actually reach it, so a file nobody
+    calls keeps its own. `sight check` gives each file the same
+    directory, except that in `check` a call made after a literal `cd`
+    in its caller passes no directory on to the file it reaches or the
+    files below it. A
     forward directive (`sight: do lib.do`) resolves from the file's
     own directory, or one it sets with `sight: cd` or inherits through
     a `sight: done-by` or `included-by` directive, never one
-    inherited from a caller that was found by its `do` command.
+    inherited from a caller that was found by its `do` command;
+    `sight check` and the editor report it missing by the same rule.
   - `target`: the called file, relative to ROOT (absolute when outside
     ROOT), or null when unresolved.
   - `resolution`: `exact`, `case_only` (found, but the case differs from

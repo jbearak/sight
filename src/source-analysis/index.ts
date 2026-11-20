@@ -72,6 +72,12 @@ export interface ForwardCallPreparationOptions {
     working_directory?: string;
     workspace_roots: string[];
     fs?: RichResolveFs;
+    /**
+     * The file names no parents (`sight: done-by` / `included-by`), so
+     * its forward directives never use a directory inherited from a
+     * caller (`ForwardCall.lookup_beside_caller`).
+     */
+    directives_beside_caller?: boolean;
     /** Open-document parsing retains raw calls when projection fails. */
     recover_command_projection?: boolean;
 }
@@ -118,6 +124,9 @@ export function prepare_forward_calls(
             is_static: true,
             caller_uri: options.uri,
             working_directory: options.working_directory,
+            ...(options.directives_beside_caller
+                ? { lookup_beside_caller: true }
+                : {}),
         }),
     );
     return [...command_calls, ...directive_calls];

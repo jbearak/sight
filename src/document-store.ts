@@ -1049,12 +1049,38 @@ export class DocumentStore {
     const all_forward_calls = prepare_forward_calls({
       uri,
       command_calls: analyze_result.result!.forward_calls,
-      directive_calls: the_forward_directives,
+      directive_calls: [],
       cd_commands: analyze_result.result!.cd_commands,
       working_directory: resolved_working_directory,
       workspace_roots: this.workspace_roots,
       recover_command_projection: true,
     });
+    // Forward directives resolve against the file's own directory, or one
+    // it inherits through `sight: done-by` / `included-by`, never one
+    // inherited from a caller that runs it (docs/cross-file.md), as the
+    // workspace index and ScopeResolver register them.
+    const has_backward_directives =
+      parsed_directives !== undefined &&
+      parsed_directives.standalone === undefined &&
+      parsed_directives.directives.length > 0;
+    const directive_working_directory =
+      parsed_directives?.working_directory || has_backward_directives
+        ? resolved_working_directory
+        : undefined;
+    // One call per element: a spread would pass a very long directive
+    // list as that many arguments.
+    for (const my_call of prepare_forward_calls({
+      uri,
+      command_calls: [],
+      directive_calls: the_forward_directives,
+      cd_commands: [],
+      working_directory: directive_working_directory,
+      directives_beside_caller: !has_backward_directives,
+      workspace_roots: this.workspace_roots,
+      recover_command_projection: true,
+    })) {
+      all_forward_calls.push(my_call);
+    }
 
     return {
       state: {

@@ -435,11 +435,38 @@ directive when the parent already establishes the working directory context.
 **Inheritance Rules:**
 
 - If a child file has a parent but **no own** working directory directive, it
-  inherits the working directory from its parent file
+  inherits the working directory from its parent file, which may itself have
+  inherited it, up to `crossFile.maxBackwardDepth` callers above the file
+  (10 by default: in a chain of fifteen files under one `sight: cd`, the
+  eleventh file's call to the twelfth is the first that does not resolve)
+- A caller's own `do`/`run`/`include` calls resolve against the directory it
+  inherited, so a file counts as a parent only when one of those calls
+  actually reaches it. A file nobody calls keeps its own directory.
+  `sight check` and `sight graph` settle this for every level. The editor
+  gives an open file its parents' directory, but a closed file's calls
+  resolve only against its own or explicitly inherited directory, so in
+  the editor the third level and below can still miss a caller
+- In `sight check`, a call made after a literal `cd` in the caller passes
+  no directory on: the file it reaches, and the files below it, keep the
+  directory they would have without inheritance through that call
+  (`sight graph` passes the caller's `sight: cd` directory on all the
+  same). So does a file whose callers form a cycle too dense to search
+  (every path through it up to the depth limit would have to be tried).
+  Files elsewhere in the workspace are not affected
 - If a child file has its **own** working directory directive, it takes
-  precedence over any inherited working directory
-- When multiple parent files have working directory directives, the **nearest
-  parent** (smallest depth in the directive chain) wins
+  precedence over any inherited working directory, for it and the files it
+  calls
+- When a file has several parents, they are tried in order, and each
+  parent's chain upward before the next parent; the first working directory
+  directive found wins. Explicit `done-by`/`included-by` parents are tried
+  in header order; auto-discovered callers in path order
+- A forward directive (`sight: do`) resolves from the file's own directory,
+  or one it sets or inherits through `done-by`/`included-by`, never one
+  inherited from an auto-discovered caller. The file it names still runs
+  in the working directory of the file that holds the directive, like a
+  file reached by a `do` command
+- A `sight: cd` path names the same directory with or without a
+  separator at its end (`work/` and `work`)
 - The inherited working directory is resolved relative to the **parent file's**
   containing directory, not the child's
 

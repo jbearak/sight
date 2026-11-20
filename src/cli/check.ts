@@ -13,6 +13,7 @@ import { DependencyGraph } from '../dependency-graph';
 import { DocumentStore } from '../document-store';
 import { ForwardScopeResolver } from '../forward-scope-resolver';
 import { WorkspaceIndexer } from '../indexer';
+import { create_listing_cache_resolve_fs } from '../utils/file-path-utils';
 import { DiagnosticsProvider } from '../providers/diagnostics';
 import { ScopeResolver, scope_resolver_config_for } from '../scope-resolver';
 import { DEFAULT_SETTINGS } from '../server-handlers';
@@ -411,6 +412,10 @@ export async function build_check_context(
     // Let indexing resolve inherited working directories (#218) so closed
     // files get the same callee keys here as in the LSP server.
     workspace_indexer.set_scope_resolver(scope_resolver);
+    // `check` indexes a fixed disk once, so after the scan it settles
+    // the directory each closed file inherits from the callers that
+    // reach it (docs/cross-file.md, Working Directory).
+    workspace_indexer.enable_working_directory_settle();
     scope_resolver.set_dependency_graph(dependency_graph);
     // Supplies dep_graph_version + the scan_complete population gate for
     // the forward-closure memo (#234) — parity with the LSP server wiring.
@@ -420,6 +425,14 @@ export async function build_check_context(
     dependency_graph.set_workspace_roots([workspace_root]);
     scope_resolver.set_workspace_roots([workspace_root]);
     forward_scope_resolver.set_workspace_roots([workspace_root]);
+    // Every target resolves the calls of the files above it again, so
+    // reuse a directory's listing while the directory is unchanged, and
+    // a graph-only file's parent registration while the graph is.
+    const resolve_fs = create_listing_cache_resolve_fs();
+    dependency_graph.set_resolve_fs(resolve_fs);
+    scope_resolver.set_resolve_fs(resolve_fs);
+    forward_scope_resolver.set_resolve_fs(resolve_fs);
+    scope_resolver.enable_auto_registration_reuse();
 
     const scope_resolver_config = scope_resolver_config_for(config);
     // Builds a DocumentStore wired only to the shared, read-only check

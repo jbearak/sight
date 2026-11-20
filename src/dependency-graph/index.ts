@@ -91,10 +91,13 @@ export class DependencyGraph {
      * Update the graph with forward calls from a caller file.
      * Diffs against stored callees: removes stale edges, adds new ones.
      * Only static calls (no macro-interpolated paths) become edges.
+     * When `first_calls` is given, it receives each callee's edge call
+     * (the first call that resolves to it), keyed by callee URI.
      */
     update_caller(
         caller_uri: string,
-        forward_calls: ForwardCall[]
+        forward_calls: ForwardCall[],
+        first_calls?: Map<string, ForwardCall>,
     ): GraphUpdateResult {
         const my_caller_uri = this.normalize_uri(caller_uri);
         const my_changed_callees = new Set<string>();
@@ -132,6 +135,7 @@ export class DependencyGraph {
                     call_type: my_call.type,
                     call_site_line: my_call.call_site_line,
                 });
+                first_calls?.set(callee_uri, my_call);
             }
         }
 
