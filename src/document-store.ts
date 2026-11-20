@@ -34,6 +34,7 @@ import {
   resolve_working_directory_directive,
 } from './utils/workspace-roots';
 import { prepare_forward_calls } from './source-analysis';
+import { canonical_fs_path } from './utils/fs-path';
 import { polling_cancellation_token } from './utils/polling-cancellation-token';
 
 import * as fs from 'fs';
@@ -120,7 +121,9 @@ export class DocumentStore {
    * and for fallback path resolution in forward calls.
    */
   set_workspace_roots(workspace_roots: string[]): void {
-    this.workspace_roots = workspace_roots;
+    // Canonical form (upper-case drive letter on Windows) so roots and
+    // URI-derived file paths compare alike; see utils/fs-path.
+    this.workspace_roots = workspace_roots.map(r => canonical_fs_path(r));
   }
 
   /**

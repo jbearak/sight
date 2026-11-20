@@ -6,43 +6,55 @@
  */
 
 import * as path from 'path';
-import { URI } from 'vscode-uri';
 import type { WorkingDirectoryDirective } from '../types';
+import {
+    canonical_fs_path,
+    is_path_within_root,
+    path_module_for,
+    uri_to_fs_path,
+    type PathPlatform,
+} from './fs-path';
 
 /**
  * Find the deepest workspace root that contains the given filesystem path.
  * Falls back to workspace_roots[0] if no root matches.
  *
+ * Roots and the path are compared in canonical form (see `./fs-path`),
+ * so on Windows the drive letter's case does not matter; the returned
+ * root is in canonical form too.
+ *
  * @param workspace_roots - Array of absolute workspace root paths
  * @param fs_path - Absolute filesystem path to match
+ * @param platform - Path rules to apply (default: the host's)
  * @returns The deepest matching root, or workspace_roots[0], or undefined if empty
  */
 export function get_workspace_root_for_path(
     workspace_roots: string[],
-    fs_path: string
+    fs_path: string,
+    platform: PathPlatform = process.platform,
 ): string | undefined {
     if (workspace_roots.length === 0) {
         return undefined;
     }
 
-    const resolved = path.resolve(fs_path);
+    const the_path = path_module_for(platform);
+    const canonical_root = (root: string): string =>
+        canonical_fs_path(the_path.resolve(root), platform);
     let best_match: string | undefined;
     let best_length = -1;
 
     for (const my_root of workspace_roots) {
-        const resolved_root = path.resolve(my_root);
+        const resolved_root = canonical_root(my_root);
         if (
-            resolved.startsWith(resolved_root + path.sep) ||
-            resolved === resolved_root
+            is_path_within_root(fs_path, resolved_root, platform) &&
+            resolved_root.length > best_length
         ) {
-            if (resolved_root.length > best_length) {
-                best_match = resolved_root;
-                best_length = resolved_root.length;
-            }
+            best_match = resolved_root;
+            best_length = resolved_root.length;
         }
     }
 
-    return best_match ?? path.resolve(workspace_roots[0]);
+    return best_match ?? canonical_root(workspace_roots[0]);
 }
 
 /**
@@ -61,10 +73,10 @@ export function get_workspace_root_for_uri(
         return undefined;
     }
     try {
-        const fs_path = URI.parse(uri).fsPath;
+        const fs_path = uri_to_fs_path(uri);
         return get_workspace_root_for_path(workspace_roots, fs_path);
     } catch {
-        return path.resolve(workspace_roots[0]);
+        return canonical_fs_path(path.resolve(workspace_roots[0]));
     }
 }
 

@@ -16,6 +16,12 @@ import {
     StataDiagnosticCode,
 } from '../types';
 import { get_workspace_root_for_path } from './workspace-roots';
+import {
+    canonical_fs_path,
+    path_module_for,
+    slashed_comparison_path,
+    type PathPlatform,
+} from './fs-path';
 
 // Commands that accept file paths as their first argument
 export const FILE_COMMANDS = new Set([
@@ -160,6 +166,13 @@ export interface RichResolveOptions {
      * `{ withFileTypes: true }`.
      */
     fs?: RichResolveFs;
+    /**
+     * Path rules to apply (default: the host's). On `win32` the root
+     * containment check ignores the drive letter's case, and resolved
+     * paths come back in canonical form (`C:\dir\file.do`, see
+     * `./fs-path`). Elsewhere resolved paths use `/`.
+     */
+    platform?: PathPlatform;
 }
 
 /**
@@ -274,16 +287,24 @@ export function resolve_path_rich(
     const try_do_fallback =
         target_kind === 'directory' ? false : (options?.try_do_fallback ?? true);
     const the_roots = options?.workspace_roots ?? [];
+    const platform = options?.platform ?? process.platform;
 
-    // Normalise path separators (OS-agnostic; tests use '/' on all platforms)
+    // Walk in '/'-separated form on every platform (tests use '/' on all
+    // platforms). On Windows the drive letter is upper-cased on both the
+    // path and the roots, so `c:\proj\a.do` is inside the root `C:\proj`;
+    // the rest of the path keeps its case for the case-only walk below.
     const sep = '/';
-    const norm_path = resolved_fs_path.split('\\').join(sep);
+    const norm_path = slashed_comparison_path(resolved_fs_path, platform);
+    // Paths leaving this function are in canonical form: native
+    // separators and an upper-case drive letter on Windows, '/' elsewhere.
+    const finish = (fs_path: string): string =>
+        canonical_fs_path(fs_path, platform);
 
     // ── Find the best (longest) containing workspace root ────────────────────
     let chosen_root: string | null = null;
     let chosen_root_len = -1;
     for (const my_root of the_roots) {
-        const my_norm = my_root.split('\\').join(sep);
+        const my_norm = slashed_comparison_path(my_root, platform);
         // The path must start with the root followed by '/' (or equal it)
         const my_prefix = my_norm.endsWith(sep)
             ? my_norm
@@ -311,7 +332,7 @@ export function resolve_path_rich(
             if (the_fs.existsSync(norm_path)) {
                 try {
                     if (the_fs.statSync(norm_path).isDirectory()) {
-                        return { kind: 'exact', path: norm_path };
+                        return { kind: 'exact', path: finish(norm_path) };
                     }
                 } catch {
                     // Dangling/inaccessible → treat as missing.
@@ -321,7 +342,7 @@ export function resolve_path_rich(
         }
         // Try exact path first.
         if (the_fs.existsSync(norm_path)) {
-            return { kind: 'exact', path: norm_path };
+            return { kind: 'exact', path: finish(norm_path) };
         }
         // Apply .do fallback when the final component has no extension.
         if (try_do_fallback) {
@@ -329,7 +350,7 @@ export function resolve_path_rich(
             if (!has_extension(my_final)) {
                 const my_do_path = norm_path + '.do';
                 if (the_fs.existsSync(my_do_path)) {
-                    return { kind: 'exact', path: my_do_path };
+                    return { kind: 'exact', path: finish(my_do_path) };
                 }
             }
         }
@@ -350,7 +371,7 @@ export function resolve_path_rich(
     const remainder = norm_path.slice(root_prefix.length);
     if (remainder.length === 0) {
         // The path IS the workspace root; treat as exact if it exists
-        return { kind: 'exact', path: chosen_root };
+        return { kind: 'exact', path: finish(chosen_root) };
     }
     const the_components = remainder.split(sep);
 
@@ -558,7 +579,19 @@ export function resolve_path_rich(
         return { kind: 'missing', requested: resolved_fs_path };
     };
 
-    return walk(chosen_root, 0, false);
+    const my_outcome = walk(chosen_root, 0, false);
+    switch (my_outcome.kind) {
+        case 'exact':
+        case 'case_only':
+            return { ...my_outcome, path: finish(my_outcome.path) };
+        case 'ambiguous':
+            return {
+                ...my_outcome,
+                matches: my_outcome.matches.map(finish),
+            };
+        case 'missing':
+            return my_outcome;
+    }
 }
 
 // ─── Host filesystem case-sensitivity detection ──────────────────────────────
@@ -681,13 +714,15 @@ function check_case_sensitivity(
 function find_strict_containing_root(
     workspace_roots: string[],
     dir_path: string,
+    platform: PathPlatform,
 ): string | null {
-    // Normalise separators so POSIX paths match on all platforms.
-    const norm_dir = dir_path.replace(/\\/g, '/');
+    // Normalise separators so POSIX paths match on all platforms, and
+    // the drive letter's case on Windows.
+    const norm_dir = slashed_comparison_path(dir_path, platform);
     let best_root: string | null = null;
     let best_length = -1;
     for (const my_root of workspace_roots) {
-        const my_norm = my_root.replace(/\\/g, '/');
+        const my_norm = slashed_comparison_path(my_root, platform);
         const my_prefix = my_norm.endsWith('/') ? my_norm : my_norm + '/';
         if (
             (norm_dir === my_norm || norm_dir.startsWith(my_prefix)) &&
@@ -736,9 +771,11 @@ export function outcome_fs_path(outcome: PathCaseOutcome): string {
  */
 export function case_only_matched_directory(
     outcome: { path: string; requested: string },
+    platform: PathPlatform = process.platform,
 ): boolean {
+    // The drive letter's case is not a directory-casing mismatch.
     const dir_of = (fs_path: string): string =>
-        node_path.posix.dirname(fs_path.replace(/\\/g, '/'));
+        node_path.posix.dirname(slashed_comparison_path(fs_path, platform));
     return dir_of(outcome.path) !== dir_of(outcome.requested);
 }
 
@@ -755,19 +792,24 @@ export function case_mismatch_display_paths(
     raw_path: string,
     outcome: { path: string; requested: string },
     display_dir: string,
+    platform: PathPlatform = process.platform,
 ): { requested: string; on_disk: string } {
+    const the_path = path_module_for(platform);
     const my_normalized_raw = raw_path.replace(/\\/g, '/');
     const my_is_abs =
-        node_path.isAbsolute(my_normalized_raw) ||
+        the_path.isAbsolute(my_normalized_raw) ||
         /^[a-zA-Z]:\//.test(my_normalized_raw);
     const the_raw_parts = my_normalized_raw
         .split('/')
         .filter(my_part => my_part.length > 0);
     const my_count = the_raw_parts.length;
-    const the_requested_parts = outcome.requested
-        .replace(/\\/g, '/')
+    // Drive letters are compared without regard to case on Windows.
+    const the_requested_parts = slashed_comparison_path(
+        outcome.requested,
+        platform,
+    ).split('/');
+    const the_real_parts = slashed_comparison_path(outcome.path, platform)
         .split('/');
-    const the_real_parts = outcome.path.replace(/\\/g, '/').split('/');
     // `requested` is the base joined with the as-written path, so its
     // trailing components are exactly the as-written ones; check rather
     // than assume, and fall back if a caller passed something else. The
@@ -792,7 +834,7 @@ export function case_mismatch_display_paths(
         };
     }
     const relative_to_display_dir = (fs_path: string): string =>
-        node_path.relative(display_dir, fs_path).replace(/\\/g, '/') ||
+        the_path.relative(display_dir, fs_path).replace(/\\/g, '/') ||
         fs_path;
     return {
         requested: relative_to_display_dir(outcome.requested),
@@ -855,11 +897,15 @@ export function resolve_forward_call_rich(
         workspace_roots?: string[];
         fs?: RichResolveFs;
         missed_candidates?: string[];
+        /** Path rules to apply (default: the host's). */
+        platform?: PathPlatform;
     },
 ): PathCaseOutcome {
+    const platform = options?.platform ?? process.platform;
+    const the_path = path_module_for(platform);
     const my_normalized_raw = raw_path.replace(/\\/g, '/');
     const my_is_abs =
-        node_path.isAbsolute(my_normalized_raw) ||
+        the_path.isAbsolute(my_normalized_raw) ||
         /^[a-zA-Z]:\//.test(my_normalized_raw);
 
     // ── Build ordered candidate list (deduped) ────────────────────────────
@@ -867,14 +913,14 @@ export function resolve_forward_call_rich(
 
     // Tier 1: WD-join (relative paths only)
     if (working_directory && !my_is_abs) {
-        const my_wd_candidate = node_path.normalize(
-            node_path.join(working_directory, my_normalized_raw),
+        const my_wd_candidate = the_path.normalize(
+            the_path.join(working_directory, my_normalized_raw),
         );
         the_candidates.push(my_wd_candidate);
     }
 
     // Tier 2: script-relative (path.resolve handles absolute raw_path)
-    const my_script_relative = node_path.resolve(caller_dir, raw_path);
+    const my_script_relative = the_path.resolve(caller_dir, raw_path);
     if (!the_candidates.includes(my_script_relative)) {
         the_candidates.push(my_script_relative);
     }
@@ -890,10 +936,11 @@ export function resolve_forward_call_rich(
         const my_strict_root = find_strict_containing_root(
             options.workspace_roots,
             caller_dir,
+            platform,
         );
         if (my_strict_root !== null) {
-            const my_root_candidate = node_path.normalize(
-                node_path.join(my_strict_root, my_normalized_raw),
+            const my_root_candidate = the_path.normalize(
+                the_path.join(my_strict_root, my_normalized_raw),
             );
             if (!the_candidates.includes(my_root_candidate)) {
                 the_candidates.push(my_root_candidate);
@@ -905,6 +952,7 @@ export function resolve_forward_call_rich(
         try_do_fallback: true,
         workspace_roots: options?.workspace_roots,
         fs: options?.fs,
+        platform,
     };
 
     // Report every probe variant of `candidate` that the winning path did
@@ -922,14 +970,15 @@ export function resolve_forward_call_rich(
         }
         // The candidate won exactly as written: resolve_path_rich
         // short-circuits before probing the `.do` variant, so nothing
-        // about this candidate was missed. (On Windows a separator-
-        // normalization mismatch can skip this guard — that degrades to
-        // recording the variants, i.e. harmless over-invalidation.)
+        // about this candidate was missed. (A candidate that differs
+        // from the canonical winner only in drive-letter case or
+        // separators skips this guard — that degrades to recording the
+        // variants, i.e. harmless over-invalidation.)
         if (winning_path === candidate) {
             return;
         }
         const the_variants = [candidate];
-        if (!has_extension(node_path.basename(candidate))) {
+        if (!has_extension(the_path.basename(candidate))) {
             the_variants.push(candidate + '.do');
         }
         for (const my_variant of the_variants) {
@@ -1056,12 +1105,16 @@ export function build_cd_timeline(params: {
     cd_commands: CdCommand[];
     workspace_roots?: string[];
     fs?: RichResolveFs;
+    /** Path rules to apply (default: the host's). */
+    platform?: PathPlatform;
 }): {
     timeline: CdTimeline;
     diagnostics: DirectiveDiagnostic[];
     depends_on_directory_casing: boolean;
 } {
     const { starting_wd, caller_dir, cd_commands, workspace_roots, fs } = params;
+    const platform = params.platform ?? process.platform;
+    const the_path = path_module_for(platform);
     const the_diagnostics: DirectiveDiagnostic[] = [];
     const the_entries: CdTimelineEntry[] = [];
     let depends_on_directory_casing = false;
@@ -1084,17 +1137,18 @@ export function build_cd_timeline(params: {
         // of silently snapping to a same-named directory beside the script.
         const my_normalized_raw = my_cd.raw_path.replace(/\\/g, '/');
         const my_is_abs =
-            node_path.isAbsolute(my_normalized_raw) ||
+            the_path.isAbsolute(my_normalized_raw) ||
             /^[a-zA-Z]:\//.test(my_normalized_raw);
         const my_candidate = my_is_abs
-            ? node_path.normalize(my_normalized_raw)
+            ? the_path.normalize(my_normalized_raw)
             : current_wd
-                ? node_path.normalize(node_path.join(current_wd, my_normalized_raw))
-                : node_path.resolve(caller_dir, my_cd.raw_path);
+                ? the_path.normalize(the_path.join(current_wd, my_normalized_raw))
+                : the_path.resolve(caller_dir, my_cd.raw_path);
         const my_outcome = resolve_path_rich(my_candidate, {
             workspace_roots,
             fs,
             target_kind: 'directory',
+            platform,
         });
 
         if (my_outcome.kind === 'exact') {
@@ -1103,7 +1157,9 @@ export function build_cd_timeline(params: {
             current_wd = my_outcome.path;
             depends_on_directory_casing = true;
             the_diagnostics.push(
-                make_cd_case_mismatch_diagnostic(my_cd, my_outcome, caller_dir, workspace_roots),
+                make_cd_case_mismatch_diagnostic(
+                    my_cd, my_outcome, caller_dir, workspace_roots, platform,
+                ),
             );
         } else if (my_outcome.kind === 'missing') {
             // Preserve the author's intent: later relative calls resolve against
@@ -1150,17 +1206,21 @@ function make_cd_case_mismatch_diagnostic(
     cd: CdCommand,
     outcome: { kind: 'case_only'; path: string; requested: string },
     caller_dir: string,
-    workspace_roots?: string[],
+    workspace_roots: string[] | undefined,
+    platform: PathPlatform,
 ): DirectiveDiagnostic {
+    const the_path = path_module_for(platform);
     const my_display = case_mismatch_display_paths(
         cd.raw_path,
         outcome,
         caller_dir,
+        platform,
     );
     const my_seed = workspace_roots
-        ? (get_workspace_root_for_path(workspace_roots, outcome.path) ??
-           node_path.dirname(outcome.path))
-        : node_path.dirname(outcome.path);
+        ? (get_workspace_root_for_path(
+            workspace_roots, outcome.path, platform,
+        ) ?? the_path.dirname(outcome.path))
+        : the_path.dirname(outcome.path);
     return {
         message:
             `Path "${my_display.requested}" does not match the directory ` +

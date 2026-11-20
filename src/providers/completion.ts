@@ -36,6 +36,7 @@ import {
 } from '../types';
 import { credited_locals_at } from './program-macro-credit';
 import { program_body_start_line } from '../utils/scope-position';
+import { uri_to_fs_path } from '../utils/fs-path';
 import {
     collect_visible_local_macros,
     enumerate_scoped_local_macros,
@@ -1780,8 +1781,9 @@ export class CompletionProvider {
      */
     private get_workspace_root(document_uri: string): string | null {
         try {
-            // Convert file:// URI to local path
-            const file_path = document_uri.replace(/^file:\/\//, '');
+            // Convert file:// URI to local path (decoded, and a drive
+            // path rather than `/c%3A/...` on Windows)
+            const file_path = uri_to_fs_path(document_uri);
             
             // Find workspace root by looking for common markers
             let current_dir = path.dirname(file_path);
