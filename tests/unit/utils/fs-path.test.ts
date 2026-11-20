@@ -561,6 +561,14 @@ describe('without_trailing_separators', () => {
             .toBe('/ws/odd\\');
     });
 
+    it('keeps a drive root on posix, where directives may still name one', () => {
+        expect(without_trailing_separators('C:/', 'linux')).toBe('C:/');
+        expect(without_trailing_separators('C:/ws/', 'linux')).toBe('C:/ws');
+        expect(new DirectiveParser()
+            .parse('// sight: cd "C:/"\n', 'file:///ws/main.do')
+            .working_directory?.resolved_path).toBe('C:/');
+    });
+
     it('applies both separators and keeps a drive or UNC root on win32', () => {
         expect(without_trailing_separators('C:\\ws\\work\\', 'win32'))
             .toBe('C:\\ws\\work');

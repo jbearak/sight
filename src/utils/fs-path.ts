@@ -180,11 +180,14 @@ export function is_path_within_root(
     return my_path.startsWith(my_prefix);
 }
 
+const DRIVE_ROOT_PATTERN = /^[a-zA-Z]:[\\/]/;
+
 /**
  * `fs_path` without separators at its end, so one directory has one
  * spelling: `work/` and `work` name the same directory, but compare
- * unequal as strings. A filesystem or drive root keeps its separator,
- * and so does a path made only of separators.
+ * unequal as strings. A filesystem or drive root keeps its separator
+ * (a drive root on every platform), and so does a path made only of
+ * separators.
  */
 export function without_trailing_separators(
     fs_path: string,
@@ -192,7 +195,12 @@ export function without_trailing_separators(
 ): string {
     const is_separator = (character: string | undefined): boolean =>
         character === '/' || (platform === 'win32' && character === '\\');
-    const root_length = path_module_for(platform).parse(fs_path).root.length;
+    // A drive root (`C:/`) is a root under POSIX rules too: Sight
+    // reads Windows-style absolute paths in directives on any host.
+    const root_length = Math.max(
+        path_module_for(platform).parse(fs_path).root.length,
+        DRIVE_ROOT_PATTERN.test(fs_path) ? 3 : 0,
+    );
     let end = fs_path.length;
     while (end > root_length && is_separator(fs_path[end - 1])) {
         end--;
