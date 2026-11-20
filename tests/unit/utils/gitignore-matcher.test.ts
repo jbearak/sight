@@ -381,7 +381,8 @@ describe('workspace Gitignore matching', () => {
         expect(matcher.watch_directories).toHaveLength(3);
     });
 
-    it('ignores symlinked and non-file .gitignore entries', () => {
+    // Windows: creating a symlink needs a privilege test runs lack.
+    it.skipIf(process.platform === 'win32')('ignores symlinked and non-file .gitignore entries', () => {
         const target = write('ignore-rules', '*.do\n');
         fs.symlinkSync(target, path.join(workspace, '.gitignore'));
         fs.mkdirSync(path.join(workspace, 'nested', '.gitignore'), {

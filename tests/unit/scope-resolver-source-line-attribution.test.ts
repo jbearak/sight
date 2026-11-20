@@ -10,6 +10,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { ScopeResolver } from '../../src/scope-resolver';
 import { ForwardScopeResolver } from '../../src/forward-scope-resolver';
+import { URI } from 'vscode-uri';
 
 describe('Diagnostic Source Line Attribution', () => {
     let temp_dir: string;
@@ -38,7 +39,7 @@ describe('Diagnostic Source Line Attribution', () => {
     }
 
     function file_uri(file_path: string): string {
-        return `file://${file_path}`;
+        return URI.file(file_path).toString();
     }
 
     describe('Known call site includes line number', () => {

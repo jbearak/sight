@@ -6,6 +6,7 @@ import { describe, it, beforeEach } from 'bun:test';
 import * as fc from 'fast-check';
 import { HoverProvider } from '../../../src/providers/hover';
 import { CommandDatabase } from '../../../src/command-database';
+import { uri_to_fs_path } from '../../../src/utils/fs-path';
 
 describe('Hover Source Link Formatting Property Tests', () => {
   let hover_provider: HoverProvider;
@@ -131,8 +132,11 @@ describe('Hover Source Link Formatting Property Tests', () => {
               throw new Error(`Expected relative path for workspace file, got: ${display_path}`);
             }
           } else {
-            // Should be full path (starts with /)
-            if (!display_path.startsWith('/')) {
+            // Should be the full path as this host spells it (native
+            // separators on Windows), escaped as link text
+            const full_path = uri_to_fs_path(source_uri)
+              .replace(/[\\[\]()]/g, '\\$&');
+            if (display_path !== full_path) {
               throw new Error(`Expected full path for non-workspace file, got: ${display_path}`);
             }
           }

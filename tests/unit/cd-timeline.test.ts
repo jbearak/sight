@@ -1,11 +1,25 @@
 import { describe, it, expect } from 'bun:test';
 import {
-    resolve_path_rich,
-    build_cd_timeline,
+    resolve_path_rich as resolve_path_rich_for,
+    build_cd_timeline as build_cd_timeline_for,
     wd_for_position,
     apply_cd_timeline,
+    type RichResolveOptions,
 } from '../../src/utils/file-path-utils';
 import type { CdCommand, ForwardCall } from '../../src/types';
+
+// These units are about POSIX-style paths (`/ws/...`), so they apply
+// POSIX path rules (`'linux'`) on every host. The Windows rules are covered in
+// tests/unit/utils/fs-path.test.ts.
+const resolve_path_rich = (
+    resolved_fs_path: string,
+    options?: RichResolveOptions,
+): ReturnType<typeof resolve_path_rich_for> =>
+    resolve_path_rich_for(resolved_fs_path, { platform: 'linux', ...options });
+const build_cd_timeline = (
+    params: Parameters<typeof build_cd_timeline_for>[0],
+): ReturnType<typeof build_cd_timeline_for> =>
+    build_cd_timeline_for({ platform: 'linux', ...params });
 
 // ─── In-memory filesystem helper (mirrors path-resolve-rich.test.ts) ──────────
 

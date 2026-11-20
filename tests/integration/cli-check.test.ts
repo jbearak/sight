@@ -257,7 +257,8 @@ describe('sight check integration', () => {
         expect(result.stdout).toBe('');
     });
 
-    it('canonicalizes symlinked workspace and explicit target paths', async () => {
+    // Windows: creating a symlink needs a privilege test runs lack.
+    it.skipIf(process.platform === 'win32')('canonicalizes symlinked workspace and explicit target paths', async () => {
         const real_root = temp_dir();
         const link_root = `${real_root}-link`;
         fs.symlinkSync(real_root, link_root, 'dir');
@@ -303,7 +304,8 @@ describe('sight check integration', () => {
         expect(result.stderr).toContain('path does not exist');
     });
 
-    it('reports unreadable report directories as operator errors', async () => {
+    // Windows: chmod 0 does not make a directory unreadable.
+    it.skipIf(process.platform === 'win32')('reports unreadable report directories as operator errors', async () => {
         const root = temp_dir();
         const locked = path.join(root, 'locked');
         fs.mkdirSync(locked);

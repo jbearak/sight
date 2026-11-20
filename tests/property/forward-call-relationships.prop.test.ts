@@ -3,6 +3,7 @@ import fc from 'fast-check';
 import { ScopeResolver } from '../../src/scope-resolver';
 import { URI } from 'vscode-uri';
 import * as path from 'path';
+import { uri_to_fs_path } from '../../src/utils/fs-path';
 import type { SymbolTable, ForwardCall } from '../../src/types';
 import { Range } from 'vscode-languageserver';
 
@@ -11,7 +12,7 @@ import { Range } from 'vscode-languageserver';
 // fixtures use non-existent synthetic files with no working directory, so
 // resolve_forward_call_rich returns the script-relative candidate.
 function expected_callee_uri(caller_uri: string, raw_path: string): string {
-    const my_caller_dir = path.dirname(URI.parse(caller_uri).fsPath);
+    const my_caller_dir = path.dirname(uri_to_fs_path(caller_uri));
     return URI.file(path.resolve(my_caller_dir, raw_path)).toString();
 }
 
@@ -55,7 +56,9 @@ const create_mock_content_provider = () => ({
 // Generators
 const arbitrary_uri = () => fc.string({ minLength: 1, maxLength: 20 })
     .filter(name => /^[a-zA-Z0-9_]+$/.test(name))  // Only alphanumeric and underscore
-    .map(name => `file:///${name}.do`);
+    // A file at the filesystem root of this host (`C:\x.do` on Windows),
+    // so forward calls resolve back to the same URI.
+    .map(name => URI.file(path.resolve('/', `${name}.do`)).toString());
 
 const arbitrary_forward_call = () => fc.string({ minLength: 1, maxLength: 20 })
     .filter(name => /^[a-zA-Z0-9_]+$/.test(name))  // Only alphanumeric and underscore
@@ -187,7 +190,7 @@ describe('Feature: callee-change-caller-revalidation', () => {
                         // callee URI is now resolved from raw_path + caller
                         // dir, not from a pre-joined path field.
                         const my_callee_fs_path =
-                            URI.parse(callee_uri).fsPath;
+                            uri_to_fs_path(callee_uri);
                         const forward_calls = [make_forward_call(
                             my_callee_fs_path,
                             true,
@@ -249,7 +252,7 @@ describe('Feature: callee-change-caller-revalidation', () => {
                         // callee URI is now resolved from raw_path + caller
                         // dir, not from a pre-joined path field.
                         const my_callee_fs_path =
-                            URI.parse(callee_uri).fsPath;
+                            uri_to_fs_path(callee_uri);
                         const forward_calls = [make_forward_call(
                             my_callee_fs_path,
                             true,

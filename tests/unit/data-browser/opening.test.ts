@@ -1,3 +1,4 @@
+import * as os from 'os';
 import * as path from 'path';
 import { describe, expect, it } from 'bun:test';
 import {
@@ -21,7 +22,8 @@ describe('data browser direct-open helpers', () => {
 
     it('expands a leading home directory marker', () => {
         expect(expand_home_path('~/tmp/example.dta')).toBe(
-            path.join(process.env.HOME ?? '', 'tmp/example.dta')
+            // os.homedir(): $HOME is not set on Windows.
+            path.join(os.homedir(), 'tmp/example.dta')
         );
         expect(expand_home_path('/tmp/example.dta')).toBe(
             '/tmp/example.dta'

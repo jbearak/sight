@@ -22,7 +22,7 @@ import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
-import { pathToFileURL } from 'node:url';
+import { URI } from 'vscode-uri';
 import { ScopeResolver } from '../../src/scope-resolver';
 import { ForwardScopeResolver } from '../../src/forward-scope-resolver';
 import { DependencyGraph } from '../../src/dependency-graph';
@@ -51,8 +51,15 @@ describe('issue #234 — forward-closure memo store/serve', () => {
         fs.writeFileSync(file_path, content);
         return file_path;
     };
+    // URIs as VS Code sends them (`file:///c%3A/...` on Windows). A
+    // client that sends Node's `pathToFileURL` form (`file:///C:/...`)
+    // is not canonicalised: URI-keyed maps other than the dependency
+    // graph's would then miss these files on Windows (open issue).
     const to_uri = (file_path: string): string =>
-        pathToFileURL(file_path).toString();
+        URI.file(file_path).toString();
+    /** URI of a fixture path that exists only in a content provider. */
+    const virtual_uri = (posix_path: string): string =>
+        to_uri(path.resolve(posix_path));
     const read = (file_path: string): string =>
         fs.readFileSync(file_path, 'utf8');
 
@@ -684,9 +691,9 @@ describe('issue #234 — forward-closure memo store/serve', () => {
         scope.set_forward_scope_resolver(forward);
         forward.set_forward_closure_memo_enabled(true);
 
-        const x_uri = 'file:///ws/x.do';
-        const a_uri = 'file:///ws/a.do';
-        const root_uri = 'file:///ws/root.do';
+        const x_uri = virtual_uri('/ws/x.do');
+        const a_uri = virtual_uri('/ws/a.do');
+        const root_uri = virtual_uri('/ws/root.do');
         the_contents.set(a_uri, 'do "x.do"\nglobal a_g 1\n');
         const root_content = 'do "a.do"\ndisplay "${x_new}"\n';
         the_contents.set(root_uri, root_content);
@@ -747,10 +754,10 @@ describe('issue #234 — forward-closure memo store/serve', () => {
         scope.set_forward_scope_resolver(forward);
         forward.set_forward_closure_memo_enabled(true);
 
-        const x_uri = 'file:///ws/x.do';
-        const a_uri = 'file:///ws/a.do';
-        const root1_uri = 'file:///ws/root1.do';
-        const root2_uri = 'file:///ws/root2.do';
+        const x_uri = virtual_uri('/ws/x.do');
+        const a_uri = virtual_uri('/ws/a.do');
+        const root1_uri = virtual_uri('/ws/root1.do');
+        const root2_uri = virtual_uri('/ws/root2.do');
         the_contents.set(a_uri, 'do "x.do"\nglobal a_g 1\n');
         const root_content = 'do "a.do"\ndisplay "${x_v1}"\n';
         the_contents.set(root1_uri, root_content);

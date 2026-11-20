@@ -13,7 +13,10 @@ import * as fc from 'fast-check';
 import { StataParser } from '../../src/parser';
 import { StataLexer } from '../../src/lexer';
 import { CommandNode } from '../../src/types';
-import { arbitrary_non_reserved_identifier } from './generators';
+import {
+    arbitrary_non_reserved_identifier,
+    arbitrary_plain_command,
+} from './generators';
 
 /**
  * Parse source code and return the first command node.
@@ -53,7 +56,7 @@ describe('frame-prefixed parenthesized varlist property tests', () => {
         fc.assert(
             fc.property(
                 arbitrary_non_reserved_identifier(),
-                arbitrary_non_reserved_identifier(),
+                arbitrary_plain_command(),
                 arbitrary_non_reserved_identifier(),
                 (frame_name, cmd_name, var_name) => {
                     const source = `frame ${frame_name}: ${cmd_name} (${var_name})`;
@@ -78,7 +81,7 @@ describe('frame-prefixed parenthesized varlist property tests', () => {
         fc.assert(
             fc.property(
                 arbitrary_non_reserved_identifier(),
-                arbitrary_non_reserved_identifier(),
+                arbitrary_plain_command(),
                 fc.array(arbitrary_non_reserved_identifier(), { minLength: 2, maxLength: 4 }),
                 (frame_name, cmd_name, the_vars) => {
                     const source = `frame ${frame_name}: ${cmd_name} (${the_vars.join(' ')})`;
@@ -108,7 +111,7 @@ describe('frame-prefixed parenthesized varlist property tests', () => {
         fc.assert(
             fc.property(
                 arbitrary_non_reserved_identifier(),
-                arbitrary_non_reserved_identifier(),
+                arbitrary_plain_command(),
                 arbitrary_non_reserved_identifier(),
                 (frame_name, cmd_name, var_name) => {
                     // Parse direct command
@@ -149,7 +152,7 @@ describe('frame-prefixed parenthesized varlist property tests', () => {
         fc.assert(
             fc.property(
                 arbitrary_non_reserved_identifier(),
-                arbitrary_non_reserved_identifier(),
+                arbitrary_plain_command(),
                 arbitrary_non_reserved_identifier(),
                 arbitrary_non_reserved_identifier(),
                 (frame_name, cmd_name, var_name, expr_name) => {
@@ -177,7 +180,7 @@ describe('frame-prefixed parenthesized varlist property tests', () => {
         fc.assert(
             fc.property(
                 arbitrary_non_reserved_identifier(),
-                arbitrary_non_reserved_identifier(),
+                arbitrary_plain_command(),
                 arbitrary_non_reserved_identifier(),
                 arbitrary_non_reserved_identifier(),
                 (frame_name, cmd_name, var_name, expr_name) => {

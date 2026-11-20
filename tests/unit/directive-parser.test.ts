@@ -1,4 +1,5 @@
 import { describe, test, expect } from 'bun:test';
+import * as node_path from 'path';
 import { DirectiveParser } from '../../src/directive-parser';
 import { has_trailing_ignore_directive } from '../../src/utils/directives';
 
@@ -16,13 +17,18 @@ describe('has_trailing_ignore_directive', () => {
     });
 });
 
+// Directive paths resolve with the host's path rules (native separators
+// and, on Windows, a drive), so fixture directories are absolute on
+// this host.
+const abs = (posix_path: string): string => node_path.resolve(posix_path);
+
 describe('DirectiveParser', () => {
     test('resolve_path normalizes Windows-style separators for relative paths', () => {
         const parser = new DirectiveParser();
-        const containing_dir = '/Users/test/project/subdir';
+        const containing_dir = abs('/Users/test/project/subdir');
 
         const resolved = parser.resolve_path('..\\parent.do', containing_dir);
-        expect(resolved).toBe('/Users/test/project/parent.do');
+        expect(resolved).toBe(abs('/Users/test/project/parent.do'));
     });
 
     describe('Flexible Syntax Forms', () => {
@@ -271,28 +277,28 @@ gen x = 1`;
 
         test('prefers exact path when it exists', () => {
             const mock_file_exists = (path_to_check: string) => {
-                return path_to_check === '/Users/test/parent.do';
+                return path_to_check === abs('/Users/test/parent.do');
             };
 
             const resolved = parser.resolve_path_with_fallback(
                 'parent.do',
-                '/Users/test',
+                abs('/Users/test'),
                 mock_file_exists
             );
-            expect(resolved).toBe('/Users/test/parent.do');
+            expect(resolved).toBe(abs('/Users/test/parent.do'));
         });
 
         test('falls back to .do extension when exact path does not exist', () => {
             const mock_file_exists = (path_to_check: string) => {
-                return path_to_check === '/Users/test/parent.do';
+                return path_to_check === abs('/Users/test/parent.do');
             };
 
             const resolved = parser.resolve_path_with_fallback(
                 'parent',
-                '/Users/test',
+                abs('/Users/test'),
                 mock_file_exists
             );
-            expect(resolved).toBe('/Users/test/parent.do');
+            expect(resolved).toBe(abs('/Users/test/parent.do'));
         });
 
         test('returns original path when neither exists', () => {
@@ -300,36 +306,36 @@ gen x = 1`;
 
             const resolved = parser.resolve_path_with_fallback(
                 'parent',
-                '/Users/test',
+                abs('/Users/test'),
                 mock_file_exists
             );
-            expect(resolved).toBe('/Users/test/parent');
+            expect(resolved).toBe(abs('/Users/test/parent'));
         });
 
         test('does not append .do to paths that already end in .do', () => {
             const mock_file_exists = (path_to_check: string) => {
-                return path_to_check === '/Users/test/parent.do';
+                return path_to_check === abs('/Users/test/parent.do');
             };
 
             const resolved = parser.resolve_path_with_fallback(
                 'parent.do',
-                '/Users/test',
+                abs('/Users/test'),
                 mock_file_exists
             );
-            expect(resolved).toBe('/Users/test/parent.do');
+            expect(resolved).toBe(abs('/Users/test/parent.do'));
         });
 
         test('handles relative paths with .do fallback', () => {
             const mock_file_exists = (path_to_check: string) => {
-                return path_to_check === '/Users/test/project/utils.do';
+                return path_to_check === abs('/Users/test/project/utils.do');
             };
 
             const resolved = parser.resolve_path_with_fallback(
                 '../utils',
-                '/Users/test/project/subdir',
+                abs('/Users/test/project/subdir'),
                 mock_file_exists
             );
-            expect(resolved).toBe('/Users/test/project/utils.do');
+            expect(resolved).toBe(abs('/Users/test/project/utils.do'));
         });
     });
 

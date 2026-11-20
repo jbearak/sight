@@ -3,6 +3,14 @@ import { DependencyGraph } from '../../src/dependency-graph';
 import { ForwardCall } from '../../src/types';
 import { type RichResolveFs } from '../../src/utils/file-path-utils';
 import { URI } from 'vscode-uri';
+import * as path from 'path';
+
+// Fixture paths are absolute on this host (`C:\ws\...` on Windows), as
+// the server's own paths are; the injected fs is keyed by their
+// '/'-separated spelling (see make_mock_fs).
+const fixture = (posix_path: string): string => path.resolve(posix_path);
+const fs_key = (posix_path: string): string =>
+    fixture(posix_path).replace(/\\/g, '/');
 
 function make_forward_call(
     type: 'do' | 'run' | 'include',
@@ -132,9 +140,9 @@ function make_dynamic_call(
 
 describe('DependencyGraph', () => {
     let graph: DependencyGraph;
-    const parent_path = '/workspace/parent.do';
-    const child_path = '/workspace/child.do';
-    const other_path = '/workspace/other.do';
+    const parent_path = fixture('/workspace/parent.do');
+    const child_path = fixture('/workspace/child.do');
+    const other_path = fixture('/workspace/other.do');
     const parent_uri = URI.file(parent_path).toString();
     const child_uri = URI.file(child_path).toString();
     const other_uri = URI.file(other_path).toString();
@@ -419,16 +427,16 @@ describe('DependencyGraph', () => {
         //     workdir/
         //       Target.do     (resolved via working_directory)
         //
-        const ws_root = '/ws';
-        const ws_parent_path = '/ws/parent.do';
+        const ws_root = fixture('/ws');
+        const ws_parent_path = fixture('/ws/parent.do');
         const ws_parent_uri = URI.file(ws_parent_path).toString();
 
         // Real on-disk cased URIs
-        const real_clean_uri = URI.file('/ws/helpers/Clean.do').toString();
-        const real_target_uri = URI.file('/ws/workdir/Target.do').toString();
+        const real_clean_uri = URI.file(fixture('/ws/helpers/Clean.do')).toString();
+        const real_target_uri = URI.file(fixture('/ws/workdir/Target.do')).toString();
 
         // As-typed (wrong-cased) path the caller uses
-        const as_typed_path = '/ws/helpers/clean';     // no .do extension
+        const as_typed_path = fixture('/ws/helpers/clean');     // no .do extension
 
         let the_fs: RichResolveFs;
 
@@ -438,20 +446,20 @@ describe('DependencyGraph', () => {
 
             the_fs = make_mock_fs(
                 new Map([
-                    ['/ws', [
+                    [fs_key('/ws'), [
                         { name: 'parent.do', is_file: true },
                         { name: 'helpers',   is_file: false },
                         { name: 'ambig',     is_file: false },
                         { name: 'workdir',   is_file: false },
                     ]],
-                    ['/ws/helpers', [
+                    [fs_key('/ws/helpers'), [
                         { name: 'Clean.do', is_file: true },
                     ]],
-                    ['/ws/ambig', [
+                    [fs_key('/ws/ambig'), [
                         { name: 'Clean.do', is_file: true },
                         { name: 'clean.do', is_file: true },
                     ]],
-                    ['/ws/workdir', [
+                    [fs_key('/ws/workdir'), [
                         { name: 'Target.do', is_file: true },
                     ]],
                 ]),
@@ -498,7 +506,7 @@ describe('DependencyGraph', () => {
                 raw_path: 'target',
                 caller_uri: ws_parent_uri,
                 call_site_line: 10,
-                working_directory: '/ws/workdir',
+                working_directory: fixture('/ws/workdir'),
             });
 
             graph.update_caller(ws_parent_uri, [my_call]);
@@ -514,11 +522,11 @@ describe('DependencyGraph', () => {
             // an exact match → ambiguous.
             const ambig_fs = make_mock_fs(
                 new Map([
-                    ['/ws', [
+                    [fs_key('/ws'), [
                         { name: 'parent.do', is_file: true },
                         { name: 'ambig',     is_file: false },
                     ]],
-                    ['/ws/ambig', [
+                    [fs_key('/ws/ambig'), [
                         { name: 'CLEAN.do', is_file: true },
                         { name: 'Clean.do', is_file: true },
                     ]],
@@ -529,7 +537,7 @@ describe('DependencyGraph', () => {
             my_ambig_graph.set_workspace_roots([ws_root]);
             my_ambig_graph.set_resolve_fs(ambig_fs);
 
-            const as_typed_ambig = '/ws/ambig/clean.do';
+            const as_typed_ambig = fixture('/ws/ambig/clean.do');
             const my_call = make_forward_call_with_context({
                 type: 'do',
                 raw_path: 'ambig/clean.do',
@@ -545,9 +553,9 @@ describe('DependencyGraph', () => {
             // The edge is keyed by the as-typed path (today's behavior)
             const as_typed_ambig_uri = URI.file(as_typed_ambig).toString();
             const real_clean_do_uc_uri =
-                URI.file('/ws/ambig/CLEAN.do').toString();
+                URI.file(fixture('/ws/ambig/CLEAN.do')).toString();
             const real_clean_do_mc_uri =
-                URI.file('/ws/ambig/Clean.do').toString();
+                URI.file(fixture('/ws/ambig/Clean.do')).toString();
 
             expect(my_ambig_graph.get_parents(real_clean_do_uc_uri))
                 .toHaveLength(0);
@@ -574,7 +582,7 @@ describe('DependencyGraph', () => {
             expect(my_graph.get_edge_count()).toBe(1);
 
             // Edge is keyed by the as-typed path (no case normalization)
-            const as_typed_uri = URI.file('/ws/helpers/clean').toString();
+            const as_typed_uri = URI.file(fixture('/ws/helpers/clean')).toString();
             expect(my_graph.get_parents(as_typed_uri)).toHaveLength(1);
         });
     });
