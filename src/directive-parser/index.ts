@@ -12,6 +12,7 @@ import {
     drive_relative_rest,
     path_module_for,
     uri_to_fs_path,
+    without_trailing_separators,
     type PathPlatform,
 } from '../utils/fs-path';
 import {
@@ -300,6 +301,10 @@ export class DirectiveParser {
                 } else {
                     resolved_path = this.resolve_path(my_raw_path, containing_dir);
                 }
+
+                // One spelling per directory: `work/` and `work` must
+                // give equal strings (they are compared and keyed).
+                resolved_path = without_trailing_separators(resolved_path);
 
                 working_dir_count++;
                 working_directory = {

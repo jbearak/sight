@@ -13,6 +13,7 @@ import {
     is_path_within_root,
     slashed_comparison_path,
     uri_to_fs_path,
+    without_trailing_separators,
 } from '../../../src/utils/fs-path';
 import {
     build_cd_timeline,
@@ -539,5 +540,52 @@ describe('DirectiveParser.resolve_path on win32', () => {
     it('keeps the `/` form of a drive path on posix', () => {
         expect(parser.resolve_path('C:\\x\\..\\parent.do', '/ws', 'linux'))
             .toBe('C:/parent.do');
+    });
+});
+
+describe('without_trailing_separators', () => {
+    it('drops separators at the end of a directory path', () => {
+        expect(without_trailing_separators('/ws/work/', 'linux'))
+            .toBe('/ws/work');
+        expect(without_trailing_separators('/ws/work//', 'linux'))
+            .toBe('/ws/work');
+        expect(without_trailing_separators('work/', 'linux')).toBe('work');
+        expect(without_trailing_separators('/ws/work', 'linux'))
+            .toBe('/ws/work');
+    });
+
+    it('keeps a root, and a backslash that is part of a posix name', () => {
+        expect(without_trailing_separators('/', 'linux')).toBe('/');
+        expect(without_trailing_separators('', 'linux')).toBe('');
+        expect(without_trailing_separators('/ws/odd\\', 'linux'))
+            .toBe('/ws/odd\\');
+    });
+
+    it('applies both separators and keeps a drive or UNC root on win32', () => {
+        expect(without_trailing_separators('C:\\ws\\work\\', 'win32'))
+            .toBe('C:\\ws\\work');
+        expect(without_trailing_separators('C:/ws/work/', 'win32'))
+            .toBe('C:/ws/work');
+        expect(without_trailing_separators('C:\\', 'win32')).toBe('C:\\');
+        expect(without_trailing_separators('\\\\host\\share\\', 'win32'))
+            .toBe('\\\\host\\share\\');
+    });
+});
+
+describe('DirectiveParser: a `sight: cd` directory has one spelling', () => {
+    const parser = new DirectiveParser();
+    const resolved = (written: string): string | undefined =>
+        parser.parse(`// sight: cd ${written}\n`, 'file:///ws/main.do')
+            .working_directory?.resolved_path;
+
+    it('gives the same directory with or without a separator at the end', () => {
+        expect(resolved('"work/"')).toBe(resolved('"work"'));
+        expect(resolved('"work//"')).toBe(resolved('"work"'));
+        expect(resolved('"../"')).toBe(resolved('".."'));
+    });
+
+    it('does the same for a workspace-relative directory', () => {
+        expect(resolved('"/work/"')).toBe('work');
+        expect(resolved('"/work"')).toBe('work');
     });
 });
