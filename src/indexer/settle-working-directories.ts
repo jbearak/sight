@@ -162,6 +162,12 @@ export async function settle_inherited_working_directories<
     register: (facts: T) => void;
     workspace_roots: string[];
     fs?: RichResolveFs;
+    /**
+     * True once the facts no longer belong to the caller (an index
+     * reset, a newer scan). Read after every walk: the pass then stops
+     * without walking or registering anything more.
+     */
+    is_cancelled?: () => boolean;
 }): Promise<SettledWorkingDirectories> {
     const { the_facts, auto_parents, probe, register } = options;
     const settled: SettledWorkingDirectories = {
@@ -385,6 +391,9 @@ export async function settle_inherited_working_directories<
                 continue;
             }
             const my_probe = await probe(my_facts);
+            if (options.is_cancelled?.()) {
+                return settled;
+            }
             if (my_probe.kind === 'exhausted') {
                 the_pinned.add(my_uri);
                 apply(my_facts, { kind: 'unknown' });

@@ -131,6 +131,35 @@ describe('settle_inherited_working_directories', () => {
         expect(settled.walk_directories.get(grandchild.uri)).toBe(DIRECTORY);
     });
 
+    it('stops after a walk during which it was cancelled', async () => {
+        // An index reset while a walk awaits a file read: nothing more
+        // is walked, and the facts and graph are left alone.
+        const the_facts = owner_and_child();
+        const sibling = facts('file:///workspace/sibling.do', undefined);
+        the_facts[1]?.first_calls.set(
+            sibling.uri, call_from(OWNER_URI, DIRECTORY));
+        the_facts.push(sibling);
+        let cancelled = false;
+        const the_probed: string[] = [];
+        const the_registered: string[] = [];
+        await settle_inherited_working_directories({
+            the_facts,
+            auto_parents: true,
+            workspace_roots: ['/workspace'],
+            is_cancelled: () => cancelled,
+            probe: async (my_facts) => {
+                the_probed.push(my_facts.uri);
+                cancelled = true;
+                return FOUND;
+            },
+            register: (my_facts) => the_registered.push(my_facts.uri),
+        });
+        expect(the_probed).toHaveLength(1);
+        expect(the_registered).toEqual([]);
+        expect(the_facts[0]?.working_directory).toBeUndefined();
+        expect(sibling.working_directory).toBeUndefined();
+    });
+
     it('does not walk a file no `sight: cd` reaches', async () => {
         const the_facts = [
             ...owner_and_child(),

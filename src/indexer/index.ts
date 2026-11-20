@@ -437,6 +437,7 @@ export class WorkspaceIndexer {
                 (this.scope_resolver_config.backward_dependencies ?? 'auto')
                     === 'auto',
             workspace_roots: this.workspace_roots,
+            is_cancelled: () => !this.is_active_generation(generation),
             probe: (my_facts) =>
                 scope_resolver.probe_document_working_directory(
                     my_facts.uri,
