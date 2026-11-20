@@ -35,6 +35,7 @@ function facts(
         directive_working_directory: own_working_directory,
         is_standalone: false,
         has_backward_directives: false,
+        explicit_parents: [],
         working_directory: own_working_directory,
         first_calls: new Map(),
         cd_commands: [],
@@ -98,6 +99,11 @@ describe('settle_inherited_working_directories', () => {
         the_facts[0]?.first_calls.set(
             grandchild.uri, call_from(CHILD_URI, DIRECTORY));
         the_facts.push(grandchild);
+        // A sibling that settles, so there is a second round.
+        const sibling = facts('file:///workspace/sibling.do', undefined);
+        the_facts[1]?.first_calls.set(
+            sibling.uri, call_from(OWNER_URI, DIRECTORY));
+        the_facts.push(sibling);
         const the_probed: string[] = [];
         const settled = await settle_inherited_working_directories({
             the_facts,
@@ -105,15 +111,18 @@ describe('settle_inherited_working_directories', () => {
             workspace_roots: ['/workspace'],
             probe: async (my_facts) => {
                 the_probed.push(my_facts.uri);
-                return my_facts.uri === CHILD_URI
-                    ? { kind: 'exhausted' }
-                    : {
-                        kind: 'found', directory: DIRECTORY,
-                        chain: [CHILD_URI, OWNER_URI],
-                    };
+                if (my_facts.uri === CHILD_URI) {
+                    return { kind: 'exhausted' };
+                }
+                return my_facts.uri === sibling.uri ? FOUND : {
+                    kind: 'found', directory: DIRECTORY,
+                    chain: [CHILD_URI, OWNER_URI],
+                };
             },
             register: () => undefined,
         });
+        expect(the_probed.filter(my_uri => my_uri === sibling.uri))
+            .toHaveLength(2);
         expect(the_probed.filter(my_uri => my_uri === CHILD_URI))
             .toHaveLength(1);
         expect(settled.unknown).toEqual(new Set([CHILD_URI]));

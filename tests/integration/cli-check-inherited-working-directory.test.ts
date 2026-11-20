@@ -1,7 +1,9 @@
 /**
  * `sight check` gives a file the working directory of the callers that
  * actually reach it, through any number of levels, and agrees with
- * `sight graph` on which calls are missing.
+ * `sight graph` on which calls are missing, except below a call made
+ * after a literal `cd` (there `check` passes no directory on and
+ * `graph` does).
  *
  * A file with no `sight: cd` of its own runs in its caller's directory.
  * The caller's own calls resolve against the directory it inherited in
@@ -230,9 +232,11 @@ describe('sight check — working directory inherited through do-chains', () => 
             'bad/branch/b.do': 'do lost.do\n',
             'bad/lost.do': 'display 1\n',
         });
+        // `sight graph` passes a caller's `sight: cd` directory on
+        // whatever its literal `cd` commands do, so it finds lost.do.
         expect(result).toEqual({
             check: ['bad/branch/b.do:1'],
-            graph: ['bad/branch/b.do:1'],
+            graph: [],
             nested: [],
         });
     });
@@ -399,7 +403,8 @@ describe('sight check — inherited directories, cases from review', () => {
             'main.do': '// sight: cd work\ndo jobs/a.do\n',
             'work/jobs/a.do': 'do b.do\n',
             'work/jobs/b.do': '// sight: done-by a.do\ndo found.do\n',
-            'work/found.do': '\n',
+            'work/found.do': 'do deep.do\n',
+            'work/deep.do': '\n',
         });
         expect(result).toEqual({ check: [], graph: [], nested: [] });
     });
@@ -471,8 +476,9 @@ describe('sight check — inherited directories, cases from review', () => {
             'work/jobs/b.do': 'do end.do\n',
             'work/end.do': 'display 1\n',
         });
+        // `sight graph` ignores the literal `cd` here, as it always has.
         expect(result.check).toEqual(['work/jobs/b.do:1']);
-        expect(result.graph).toEqual(['work/jobs/b.do:1']);
+        expect(result.graph).toEqual([]);
     });
 
     it('treats `cd "./"` as no change of directory', async () => {
@@ -485,7 +491,7 @@ describe('sight check — inherited directories, cases from review', () => {
         expect(result).toEqual({ check: [], graph: [], nested: [] });
     });
 
-    it('ends with no depth limit on a cycle of callers', async () => {
+    it('settles a cycle of callers with no depth limit', async () => {
         const result = await missing_calls({
             'sight.toml': '[crossFile]\nmaxBackwardDepth = inf\n',
             'z.do': '// sight: cd work\ndo jobs/a.do\n',

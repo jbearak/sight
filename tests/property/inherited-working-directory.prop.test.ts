@@ -3,19 +3,20 @@
  * agree on which calls are missing.
  *
  * Both give a file the working directory it inherits from the callers
- * that reach it (docs/cross-file.md, Working Directory). `check` asks
- * the backward walk for each file it checks; `graph` reads the settled
- * directories. A file the two disagree on has a settled directory that
- * is not the walk's.
+ * that reach it (docs/cross-file.md, Working Directory). `graph` asks
+ * the backward walk for every file until nothing changes; `check`
+ * settles the directories in its index. A file the two disagree on has
+ * a settled directory that is not the walk's.
  *
- * The workspaces mix `sight: cd`, `sight: done-by`, literal `cd`,
+ * The workspaces mix `sight: cd`, `sight: done-by`,
  * `do`/`include` calls and `sight: do` directives over a few
  * directories, with paths written relative to the root, to `work`, and
  * to the calling file, so calls resolve under some directories and not
  * others. Half the calls go to the next file, so chains three or more
  * levels deep are common.
  *
- * Left out: a forward directive in a file that names a parent. There
+ * Left out: a literal `cd`, below which `check` passes no directory on
+ * and `graph` does; and a forward directive in a file that names a parent. There
  * `check` looks the directive up in a directory the named parent got
  * from a caller the graph found, and `graph` does not.
  */
@@ -43,7 +44,6 @@ interface GeneratedFile {
     directory: string;
     sight_cd: string | undefined;
     done_by: number | undefined;
-    literal_cd: { directory: string; position: number } | undefined;
     calls: GeneratedCall[];
 }
 
@@ -57,13 +57,6 @@ const arbitrary_file: fc.Arbitrary<GeneratedFile> = fc.record({
         { freq: 4, nil: undefined },
     ),
     done_by: fc.option(fc.nat(MAX_FILES - 1), { freq: 6, nil: undefined }),
-    literal_cd: fc.option(
-        fc.record({
-            directory: fc.constantFrom('.', '..', 'jobs', 'work'),
-            position: fc.nat(2),
-        }),
-        { freq: 8, nil: undefined },
-    ),
     calls: fc.array(
         fc.record({
             // Half the calls go to the next file, making chains.
@@ -116,11 +109,6 @@ function workspace_files(
             } else if (!names_parent) {
                 the_body.push(`// sight: do ${written}`);
             }
-        }
-        if (my_file.literal_cd !== undefined) {
-            the_body.splice(
-                Math.min(my_file.literal_cd.position, the_body.length), 0,
-                `cd "${my_file.literal_cd.directory}"`);
         }
         files[the_paths[i] ?? ''] =
             [...the_header, ...the_body, ''].join('\n');

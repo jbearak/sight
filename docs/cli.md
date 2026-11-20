@@ -699,8 +699,9 @@ a plain name. An `args` entry that is just a macro (`` `x' ``) has
     the child resolves to `work/grand.do`. A file is given the
     directory of the callers that actually reach it, so a file nobody
     calls keeps its own. `sight check` gives each file the same
-    directory. A call made after a literal `cd` in its caller passes
-    no directory on to the file it reaches or the files below it. A
+    directory, except that in `check` a call made after a literal `cd`
+    in its caller passes no directory on to the file it reaches or the
+    files below it. A
     forward directive (`sight: do lib.do`) resolves from the file's
     own directory, or one it sets with `sight: cd` or inherits through
     a `sight: done-by` or `included-by` directive, never one

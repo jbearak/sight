@@ -1675,6 +1675,33 @@ export class ScopeResolver {
     }
 
     /**
+     * The files a header's `sight: done-by` / `included-by` directives
+     * name, in header order, as the working-directory walk resolves
+     * them: case-aware, with the `.do` fallback, leaving out a parent
+     * that is ambiguous or not on disk (the walk passes over both).
+     */
+    explicit_parent_uris(
+        directives: Directive[],
+        current_uri: string,
+    ): string[] {
+        const the_uris: string[] = [];
+        for (const my_directive of directives) {
+            if (my_directive.type !== 'done-by' &&
+                my_directive.type !== 'included-by') {
+                continue;
+            }
+            const my_rich = this.compute_directive_real_path(
+                my_directive, current_uri,
+            );
+            if (my_rich.outcome_kind === 'exact' ||
+                my_rich.outcome_kind === 'case_only') {
+                the_uris.push(URI.file(my_rich.real_path).toString());
+            }
+        }
+        return the_uris;
+    }
+
+    /**
      * `resolve_document_working_directory`, also reporting the files the
      * walk went through to find the directory (`chain`: nearest parent
      * first, the file whose `sight: cd` it is last), and giving up after

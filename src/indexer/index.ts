@@ -24,7 +24,6 @@ import {
     WorkspaceSymbolMatch,
     ForwardCall,
     ForwardCallDirective,
-    CdCommand,
     DirectiveParseResult,
 } from '../types';
 import { DependencyGraph, type GraphUpdateResult } from '../dependency-graph';
@@ -793,6 +792,11 @@ export class WorkspaceIndexer {
                     directive_working_directory: effective_working_directory,
                     is_standalone,
                     has_backward_directives,
+                    explicit_parents: has_backward_directives &&
+                        this.scope_resolver
+                        ? this.scope_resolver.explicit_parent_uris(
+                            directive_result.directives, file_uri)
+                        : [],
                     header: {
                         directives: directive_result.directives,
                         standalone: directive_result.standalone,

@@ -446,12 +446,13 @@ directive when the parent already establishes the working directory context.
   gives an open file its parents' directory, but a closed file's calls
   resolve only against its own or explicitly inherited directory, so in
   the editor the third level and below can still miss a caller
-- A call made after a literal `cd` in the caller passes no directory on:
-  the file it reaches, and the files below it, keep the directory they
-  would have without inheritance through that call. So does a file
-  whose callers form a cycle too dense to search (every path through it
-  up to the depth limit would have to be tried). Files elsewhere in the
-  workspace are not affected
+- In `sight check`, a call made after a literal `cd` in the caller passes
+  no directory on: the file it reaches, and the files below it, keep the
+  directory they would have without inheritance through that call
+  (`sight graph` passes the caller's `sight: cd` directory on all the
+  same). So does a file whose callers form a cycle too dense to search
+  (every path through it up to the depth limit would have to be tried).
+  Files elsewhere in the workspace are not affected
 - If a child file has its **own** working directory directive, it takes
   precedence over any inherited working directory, for it and the files it
   calls
