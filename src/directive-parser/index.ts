@@ -7,7 +7,13 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { Range } from 'vscode-languageserver-textdocument';
-import { uri_to_fs_path } from '../utils/fs-path';
+import {
+    canonical_fs_path,
+    drive_relative_rest,
+    path_module_for,
+    uri_to_fs_path,
+    type PathPlatform,
+} from '../utils/fs-path';
 import {
     Directive,
     CallSite,
@@ -696,8 +702,17 @@ export class DirectiveParser {
      *   forward slashes first so "a\\b\\..\\c" behaves like "a/b/../c".
      * - If a directive provides a Windows absolute path (e.g., C:\\foo\\bar),
      *   treat it as absolute for normalization purposes.
+     * - On Windows the result is in canonical form (`C:\\foo\\bar`, see
+     *   utils/fs-path), like every other path the server holds. On other
+     *   platforms a Windows absolute path names no real file and keeps
+     *   its `/` form.
      */
-    resolve_path(raw_path: string, containing_dir: string): string {
+    resolve_path(
+        raw_path: string,
+        containing_dir: string,
+        platform: PathPlatform = process.platform,
+    ): string {
+        const the_path = path_module_for(platform);
         const normalized_separators = raw_path.replace(/\\/g, '/');
 
         // Treat Windows absolute paths as absolute (even on POSIX hosts).
@@ -705,14 +720,27 @@ export class DirectiveParser {
         // - C:/path/to/file
         // - //server/share/path (UNC-style)
         if (/^[a-zA-Z]:\//.test(normalized_separators) || normalized_separators.startsWith('//')) {
-            return path.posix.normalize(normalized_separators);
+            return canonical_fs_path(
+                the_path.normalize(normalized_separators), platform
+            );
         }
 
-        if (path.isAbsolute(normalized_separators)) {
-            return path.normalize(normalized_separators);
+        if (the_path.isAbsolute(normalized_separators)) {
+            return canonical_fs_path(
+                the_path.normalize(normalized_separators), platform
+            );
         }
 
-        return path.normalize(path.join(containing_dir, normalized_separators));
+        return canonical_fs_path(
+            the_path.normalize(the_path.join(
+                containing_dir,
+                // `C:parent.do` beside a file on drive C is `parent.do`.
+                drive_relative_rest(
+                    normalized_separators, containing_dir, platform
+                )
+            )),
+            platform
+        );
     }
 
     /**
