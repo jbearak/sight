@@ -103,7 +103,7 @@ Stata runs one command at a time, so a send made while a long command runs waits
 Known limits on Windows:
 
 - `--more--` shows only in Stata's window, and a key typed in the pane doesn't answer it: answer it in Stata's window. Put `set more off` in your `profile.do`.
-- "Stata's Automation accepts the command" means Automation took it, not that Stata is running it. If Stata is busy with a command typed into its own window, it takes the sent line at once and runs it when that command ends, so the send is reported delivered before it runs. With more than 20 sends waiting behind such a command, the oldest lose their do-files (Stata then reports `r(601)`, file not found).
+- "Stata's Automation accepts the command" means Automation took it, not that Stata is running it. If Stata is busy with a command typed into its own window, it takes the sent line at once and runs it when that command ends, so the send is reported delivered before it runs. Later sends wait in the console until that one has run.
 
 The console doesn't get Stata when:
 

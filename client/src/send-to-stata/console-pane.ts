@@ -133,8 +133,9 @@ export interface ConsolePane {
 }
 
 /**
- * How many delivered files a Windows pane keeps. Stata would need
- * more sends than this queued behind one command to miss a file.
+ * How many delivered files a Windows pane keeps. The console gives
+ * Stata one sent line at a time, so only the newest can still be
+ * waiting; the rest are a margin.
  */
 export const KEPT_FILE_LIMIT = 20;
 const PRESS_ANY_KEY = '\r\n[Press any key to close this pane.]';
