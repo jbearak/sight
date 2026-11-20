@@ -277,7 +277,9 @@ describe('sight console under Node', () => {
         fs.rmSync(bundle_dir, { recursive: true, force: true });
     });
 
-    it.skipIf(!node)('passes piped input straight to Stata', async () => {
+    // On Windows the console drives Stata's Automation and refuses
+    // --stata, so there is no Stata to pipe to.
+    it.skipIf(!node || process.platform === 'win32')('passes piped input straight to Stata', async () => {
         const proc = Bun.spawn([node ?? 'node', bundle_path, 'console', '--stata', FAKE_STATA], {
             stdin: new TextEncoder().encode('display "piped"\nexitcode 5\n'),
             stdout: 'pipe',

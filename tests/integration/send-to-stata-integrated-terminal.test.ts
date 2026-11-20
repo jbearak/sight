@@ -630,8 +630,16 @@ function register_module_mocks(): void {
 describe.serial('Feature: integrated terminal first-send reliability', () => {
     beforeAll(register_module_mocks);
 
+    // These cover the Stata CLI terminal. Local Windows opens the
+    // console pane instead (its own block below), so the platform is
+    // pinned for a Windows host.
     beforeEach(() => {
         current_vscode_state = null;
+        set_platform('linux');
+    });
+
+    afterEach(() => {
+        set_platform(REAL_PLATFORM);
     });
 
     afterAll(() => {
