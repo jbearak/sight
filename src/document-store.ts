@@ -1067,7 +1067,9 @@ export class DocumentStore {
       parsed_directives?.working_directory || has_backward_directives
         ? resolved_working_directory
         : undefined;
-    all_forward_calls.push(...prepare_forward_calls({
+    // One call per element: a spread would pass a very long directive
+    // list as that many arguments.
+    for (const my_call of prepare_forward_calls({
       uri,
       command_calls: [],
       directive_calls: the_forward_directives,
@@ -1076,7 +1078,9 @@ export class DocumentStore {
       directives_beside_caller: !has_backward_directives,
       workspace_roots: this.workspace_roots,
       recover_command_projection: true,
-    }));
+    })) {
+      all_forward_calls.push(my_call);
+    }
 
     return {
       state: {

@@ -222,6 +222,20 @@ interface ForwardScopeResolverInterface {
     clear_forward_closure_memo?(): void;
 }
 
+/** State of one bounded working-directory walk. */
+interface WorkingDirectoryProbe {
+    steps_left: number;
+    exhausted: boolean;
+    /** Parents on the path to the directory found, nearest first. */
+    chain: string[];
+}
+
+/** What `probe_document_working_directory` found. */
+export type WorkingDirectoryProbeResult =
+    | { kind: 'found'; directory: string; chain: string[] }
+    | { kind: 'none' }
+    | { kind: 'exhausted' };
+
 export class ScopeResolver {
     private directive_parser: DirectiveParser;
     // Cache key is "uri|working_directory" (or just "uri" if no working directory)
@@ -1661,30 +1675,54 @@ export class ScopeResolver {
     }
 
     /**
-     * The files a header's `sight: done-by` / `included-by` directives
-     * name, in header order, as the working-directory walk resolves
-     * them: case-aware, with the `.do` fallback, leaving out a parent
-     * that is ambiguous or not on disk (the walk passes over both).
+     * `resolve_document_working_directory`, also reporting the files the
+     * walk went through to find the directory (`chain`: nearest parent
+     * first, the file whose `sight: cd` it is last), and giving up after
+     * `max_steps` parents. A walk over a dense cycle of callers visits
+     * every path up to the depth limit before it reports no directory;
+     * `sight check` and `sight graph` use this to leave such a file as
+     * it is instead of waiting.
      */
-    explicit_parent_uris(
-        directives: Directive[],
-        current_uri: string,
-    ): string[] {
-        const the_uris: string[] = [];
-        for (const my_directive of directives) {
-            if (my_directive.type !== 'done-by' &&
-                my_directive.type !== 'included-by') {
-                continue;
-            }
-            const my_rich = this.compute_directive_real_path(
-                my_directive, current_uri,
-            );
-            if (my_rich.outcome_kind === 'exact' ||
-                my_rich.outcome_kind === 'case_only') {
-                the_uris.push(URI.file(my_rich.real_path).toString());
-            }
+    async probe_document_working_directory(
+        file_uri: string,
+        directive_result: Pick<
+            DirectiveParseResult,
+            'directives' | 'standalone' | 'working_directory'
+        >,
+        config: Partial<ScopeResolverConfig>,
+        max_steps: number,
+    ): Promise<WorkingDirectoryProbeResult> {
+        if (directive_result.working_directory) {
+            return { kind: 'none' };
         }
-        return the_uris;
+        const my_config = { ...DEFAULT_CONFIG, ...config };
+        const { directives: effective_directives } =
+            this.get_effective_backward_directives(
+                file_uri,
+                directive_result.directives,
+                my_config,
+                directive_result.standalone !== undefined,
+            );
+        const probe: WorkingDirectoryProbe = {
+            steps_left: max_steps, exhausted: false, chain: [],
+        };
+        const directory = await this.discover_working_directory(
+            this.normalize_directives(effective_directives, []),
+            new Set([file_uri]),
+            1,
+            my_config,
+            new Map(),
+            file_uri,
+            undefined,
+            /* skip_backward_registration */ true,
+            probe,
+        );
+        if (probe.exhausted) {
+            return { kind: 'exhausted' };
+        }
+        return directory === undefined
+            ? { kind: 'none' }
+            : { kind: 'found', directory, chain: probe.chain };
     }
 
     /**
@@ -1755,7 +1793,8 @@ export class ScopeResolver {
         request_cache: RequestCache,
         current_uri: string,
         token?: CancellationToken,
-        skip_backward_registration?: boolean
+        skip_backward_registration?: boolean,
+        probe?: WorkingDirectoryProbe,
     ): Promise<string | undefined> {
         // Check depth limit
         if (depth > config.max_backward_depth) {
@@ -1766,6 +1805,14 @@ export class ScopeResolver {
             // Check cancellation before processing each directive
             if (token?.isCancellationRequested) {
                 return undefined;
+            }
+            // A probe gives up after a fixed number of parents.
+            if (probe) {
+                if (probe.exhausted || probe.steps_left <= 0) {
+                    probe.exhausted = true;
+                    return undefined;
+                }
+                probe.steps_left--;
             }
 
             // Resolve the parent through the case-aware chokepoint so
@@ -1855,6 +1902,9 @@ export class ScopeResolver {
                     }
                 }
 
+                if (probe) {
+                    probe.chain = [my_parent_uri];
+                }
                 return resolved_path;
             }
 
@@ -1883,14 +1933,19 @@ export class ScopeResolver {
                     request_cache,
                     my_parent_uri,
                     token,
-                    skip_backward_registration
+                    skip_backward_registration,
+                    probe,
                 );
 
                 // Allow same file via different paths
                 visited.delete(my_parent_uri);
 
+                if (probe?.exhausted) {
+                    return undefined;
+                }
                 // Return the first working_directory found from deeper ancestors
                 if (my_deeper_wd) {
+                    probe?.chain.unshift(my_parent_uri);
                     return my_deeper_wd;
                 }
             }
@@ -2608,7 +2663,9 @@ export class ScopeResolver {
         const directive_working_directory = has_backward_directives
             ? effective_working_directory
             : own_working_directory;
-        all_forward_calls.push(...prepare_forward_calls({
+        // One call per element: a spread would pass a very long
+        // directive list as that many arguments.
+        for (const my_call of prepare_forward_calls({
             uri,
             command_calls: [],
             directive_calls: my_directive_result.forward_calls ?? [],
@@ -2617,7 +2674,9 @@ export class ScopeResolver {
             directives_beside_caller: !has_backward_directives,
             workspace_roots: this.workspace_roots,
             fs: this.resolve_fs,
-        }));
+        })) {
+            all_forward_calls.push(my_call);
+        }
 
         // Return effective working_directory (file's own or inherited)
         return {

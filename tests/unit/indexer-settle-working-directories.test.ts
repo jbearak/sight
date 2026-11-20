@@ -17,6 +17,7 @@ import { URI } from 'vscode-uri';
 import { WorkspaceIndexer } from '../../src/indexer';
 import { DependencyGraph } from '../../src/dependency-graph';
 import { ScopeResolver } from '../../src/scope-resolver';
+import { MAX_WALK_STEPS } from '../../src/indexer/settle-working-directories';
 
 let tmp_dir: string | undefined;
 
@@ -183,8 +184,9 @@ describe('WorkspaceIndexer working-directory settling', () => {
 
     it('costs a bounded number of parent lookups on a dense cycle', async () => {
         // Fourteen files that each call all fourteen, entered from a file
-        // with a directory: each round looks up each file's parents once,
-        // and the rounds are bounded by the depth limit.
+        // with a directory. A walk over them would visit every path up
+        // to the depth limit; each is given up after a fixed number of
+        // parents and the file is left as it was.
         const size = 14;
         const the_files: Record<string, string> = {
             'main.do': '// sight: cd "work"\ndo f0.do\n',
@@ -199,7 +201,8 @@ describe('WorkspaceIndexer working-directory settling', () => {
         const { graph, parent_lookups } = await index(root);
         const elapsed_ms = performance.now() - start_ms;
         expect(parent_lookups()).toBeGreaterThan(size);
-        expect(parent_lookups()).toBeLessThanOrEqual(size * (10 + 2));
+        expect(parent_lookups())
+            .toBeLessThanOrEqual((size + 2) * (MAX_WALK_STEPS + 1));
         expect(elapsed_ms).toBeLessThan(5000);
         expect(callers(graph, root, 'f0.do')).toHaveLength(size + 1);
     });

@@ -28,6 +28,7 @@ import {
 } from '../utils/file-path-utils';
 import { resolve_working_directory_directive } from '../utils/workspace-roots';
 import {
+    MAX_WALK_STEPS,
     merge_forward_calls,
     settle_inherited_working_directories,
     type WorkingDirectoryFacts,
@@ -462,7 +463,6 @@ export async function build_graph_document(options: {
         my_path: string;
         caller: string;
         command_calls: ForwardCall[];
-        cd_commands: CdCommand[];
         directives: DirectiveParseResult;
         arguments_by_range: Map<string, string[]>;
     }
@@ -552,16 +552,9 @@ export async function build_graph_document(options: {
             arguments_by_range,
             own_working_directory,
             directive_working_directory,
+            is_standalone,
             has_backward_directives:
                 !is_standalone && directives.directives.length > 0,
-            explicit_parents:
-                !is_standalone && directives.directives.length > 0
-                    ? scope_resolver.explicit_parent_uris(
-                        directives.directives, uri)
-                    : undefined,
-            inherits_from_callers: auto_parents &&
-                own_working_directory === undefined &&
-                !is_standalone && directives.directives.length === 0,
             working_directory: directive_working_directory,
             first_calls: new Map(),
         };
@@ -573,30 +566,40 @@ export async function build_graph_document(options: {
     // working directory. Settle the directories files inherit from the
     // callers that reach them, by the same rule as the workspace index
     // that `sight check` uses.
-    let the_blocked = new Map<string, string | undefined>();
-    if (auto_parents) {
-        the_blocked = settle_inherited_working_directories({
-            the_facts,
-            get_parents: (uri) => dependency_graph.get_parents(uri),
-            register,
-            max_backward_depth: scope_resolver_config.max_backward_depth,
-        });
-    }
+    const settled = await settle_inherited_working_directories({
+        the_facts,
+        auto_parents,
+        workspace_roots: [root],
+        probe: (my_facts) =>
+            scope_resolver.probe_document_working_directory(
+                my_facts.uri,
+                my_facts.directives,
+                scope_resolver_config,
+                MAX_WALK_STEPS,
+            ),
+        register,
+    });
 
     for (const my_facts of the_facts) {
         const { my_path, caller, directives } = my_facts;
         const caller_dir = path.dirname(my_path);
         const the_file_edges: GraphEdge[] = [];
 
-        // A file whose walk passes through a call made after a literal
-        // `cd` passes no directory on, but is itself shown with the one
-        // `sight check` and the editor give it, the walk's.
+        // Each file is shown with the directory `sight check` and the
+        // editor give it, the walk's, also when it passes none on (a
+        // call made after a literal `cd`) or was left without settling.
         let shown_facts = my_facts;
-        if (the_blocked.has(my_facts.uri)) {
-            const working_directory = the_blocked.get(my_facts.uri) ??
+        if (settled.unknown.has(my_facts.uri)) {
+            const working_directory =
                 await scope_resolver.resolve_document_working_directory(
                     my_facts.uri, directives, scope_resolver_config);
             shown_facts = { ...my_facts, working_directory };
+        } else if (settled.walk_directories.has(my_facts.uri)) {
+            shown_facts = {
+                ...my_facts,
+                working_directory:
+                    settled.walk_directories.get(my_facts.uri),
+            };
         }
 
         for (const my_call of forward_calls_for(shown_facts)) {

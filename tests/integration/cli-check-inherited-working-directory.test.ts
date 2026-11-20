@@ -52,8 +52,10 @@ async function missing_calls(
     const root = write_workspace(files);
     try {
         const check_stdout: string[] = [];
+        // A workspace with a `sight.toml` is checked with it.
+        const the_config_args = 'sight.toml' in files ? [] : ['--no-config'];
         await run_check_with_cwd(
-            ['--no-config', '--format', 'json', '.'], root, {
+            [...the_config_args, '--format', 'json', '.'], root, {
                 stdout: (text) => check_stdout.push(text),
                 stderr: () => undefined,
             });
@@ -82,7 +84,7 @@ async function missing_calls(
 
         const graph_stdout: string[] = [];
         const graph_code = await run_graph_with_cwd(
-            ['--json', '--no-config', root], root, {
+            ['--json', ...the_config_args, root], root, {
                 stdout: (text) => graph_stdout.push(text),
                 stderr: () => undefined,
             });
@@ -445,25 +447,107 @@ describe('sight check — inherited directories, cases from review', () => {
         });
     }
 
-    it('ends a cycle whose calls resolve only while it is settled', async () => {
+    it('settles a cycle whose calls resolve only with the inherited directory', async () => {
         // a.do reaches b.do only with the inherited directory, and b.do
-        // then calls a.do back, which makes a.do's walk run through
-        // itself; unsettled again, a.do no longer reaches b.do. The
-        // results would alternate for ever. The cycle is left as it is
-        // without settling; the chain under `ok` still settles.
+        // calls a.do back. The walk from a.do passes over b.do (its
+        // only way up is a.do itself) and finds z.do's directory.
         const result = await missing_calls({
             'z.do': '// sight: cd work\ndo jobs/a.do\n',
             'work/jobs/a.do': 'do jobs/b.do\n',
             'work/jobs/b.do': 'do jobs/a.do\ndo done.do\n',
             'work/done.do': '\n',
-            'other.do': '// sight: cd ok\ndo jobs/a.do\n',
-            'ok/jobs/a.do': 'do jobs/b.do\n',
-            'ok/jobs/b.do': 'do done.do\n',
-            'ok/done.do': '\n',
         });
-        expect(result.check)
-            .toEqual(['work/jobs/b.do:1', 'work/jobs/b.do:2']);
-        expect(result.graph).toEqual(result.check);
+        expect(result).toEqual({ check: [], graph: [], nested: [] });
+    });
+
+    it('passes no directory on through a forward directive after a literal `cd`', async () => {
+        // The directive is looked up in `work`, but main.do has moved
+        // on by then, so the files below a.do inherit nothing.
+        const result = await missing_calls({
+            'main.do': '// sight: cd work\ncd "moved"\n' +
+                '// sight: do jobs/a.do\n',
+            'work/moved/keep.do': '\n',
+            'work/jobs/a.do': 'do jobs/b.do\n',
+            'work/jobs/b.do': 'do end.do\n',
+            'work/end.do': 'display 1\n',
+        });
+        expect(result.check).toEqual(['work/jobs/b.do:1']);
+        expect(result.graph).toEqual(['work/jobs/b.do:1']);
+    });
+
+    it('treats `cd "./"` as no change of directory', async () => {
+        const result = await missing_calls({
+            'main.do': '// sight: cd work\ncd "./"\ndo jobs/a.do\n',
+            'work/jobs/a.do': 'do jobs/b.do\n',
+            'work/jobs/b.do': 'do done.do\n',
+            'work/done.do': '\n',
+        });
+        expect(result).toEqual({ check: [], graph: [], nested: [] });
+    });
+
+    it('ends with no depth limit on a cycle of callers', async () => {
+        const result = await missing_calls({
+            'sight.toml': '[crossFile]\nmaxBackwardDepth = inf\n',
+            'z.do': '// sight: cd work\ndo jobs/a.do\n',
+            'work/jobs/a.do': 'do jobs/b.do\n',
+            'work/jobs/b.do': 'do jobs/a.do\ndo done.do\n',
+            'work/done.do': '\n',
+            'unrelated.do': 'display 1\n',
+        });
+        expect(result).toEqual({ check: [], graph: [], nested: [] });
+    });
+
+    it('settles a long chain whose directories keep changing as it settles', async () => {
+        // Each file has a caller of its own with one of two directories,
+        // and the file before it becomes a nearer caller only once that
+        // file's call resolves, so a file late in the chain changes
+        // directory many times before it settles.
+        const files: Record<string, string> = {
+            'd0/end.do': 'display 1\n',
+            'd1/end.do': 'display 2\n',
+        };
+        for (let i = 0; i < 15; i++) {
+            const my_path = `d${1 - i % 2}/jobs/p${i}.do`;
+            files[`z${i}.do`] = `// sight: cd d${i % 2}\ndo ../${my_path}\n`;
+            files[my_path] = i < 14 ? `do jobs/p${i + 1}.do\n` : 'do end.do\n';
+        }
+        const result = await missing_calls(files);
+        // Every file in d0 is entered first from the file before it,
+        // in d1, where the next file is not.
+        const the_missing = [1, 11, 13, 3, 5, 7, 9]
+            .map(i => `d0/jobs/p${i}.do:1`);
+        expect(result.check).toEqual(the_missing);
+        expect(result.graph).toEqual(the_missing);
+    });
+
+    it('counts depth the same way when only named parents are followed', async () => {
+        const result = await missing_calls({
+            'sight.toml': '[crossFile]\nmaxBackwardDepth = 2\n' +
+                'backwardDependencies = "explicit"\n',
+            'root.do': '// sight: cd work\ndo ../a.do\n',
+            'a.do': '// sight: done-by root.do\ndo ../b.do\n',
+            'b.do': '// sight: done-by a.do\ndo ../c.do\n',
+            'c.do': '// sight: done-by b.do\ndo end.do\n',
+            'work/end.do': 'display 1\n',
+        });
+        expect(result.check).toEqual(['c.do:2']);
+        expect(result.graph).toEqual(['c.do:2']);
+    });
+
+    it('uses a second caller when the first is past the depth limit', async () => {
+        const result = await missing_calls({
+            'sight.toml': '[crossFile]\nmaxBackwardDepth = 2\n',
+            'a0.do': '// sight: cd d1\ndo a1.do\n',
+            'd1/dummy.do': '\n',
+            'a1.do': 'do a2.do\n',
+            'a2.do': 'do leaf.do\n',
+            'z.do': '// sight: cd work\ndo leaf.do\n',
+            'leaf.do': 'do jobs/c.do\n',
+            'work/jobs/c.do': 'do end.do\n',
+            'work/end.do': 'display 1\n',
+        });
+        expect(result.check).toEqual([]);
+        expect(result.graph).toEqual([]);
     });
 
     it('reads the locals of the file a `sight: include` names', async () => {

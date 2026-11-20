@@ -25,9 +25,11 @@ import {
     ForwardCall,
     ForwardCallDirective,
     CdCommand,
+    DirectiveParseResult,
 } from '../types';
 import { DependencyGraph, type GraphUpdateResult } from '../dependency-graph';
 import {
+    MAX_WALK_STEPS,
     merge_forward_calls,
     settle_inherited_working_directories,
     type WorkingDirectoryFacts,
@@ -67,7 +69,11 @@ const MAX_PARALLEL = 4;
 interface IndexedWorkingDirectoryFacts extends WorkingDirectoryFacts {
     command_calls: ForwardCall[];
     directive_calls: ForwardCallDirective[];
-    cd_commands: CdCommand[];
+    /** The header facts the backward walk starts from. */
+    header: Pick<
+        DirectiveParseResult,
+        'directives' | 'standalone' | 'working_directory'
+    >;
 }
 
 /**
@@ -389,7 +395,10 @@ export class WorkspaceIndexer {
             return;
         }
 
-        this.settle_working_directories();
+        await this.settle_working_directories();
+        if (!this.is_active_generation(generation)) {
+            return;
+        }
 
         const elapsed_ms = Date.now() - start_time;
         this.metrics.total_index_time_ms = elapsed_ms;
@@ -411,22 +420,29 @@ export class WorkspaceIndexer {
      * callers that reach it, and register again the calls of each file
      * whose directory changed.
      */
-    private settle_working_directories(): void {
+    private async settle_working_directories(): Promise<void> {
         const dependency_graph = this.dependency_graph;
-        if (!this.working_directory_facts || !dependency_graph) {
-            return;
-        }
-        if ((this.scope_resolver_config.backward_dependencies ?? 'auto')
-            !== 'auto') {
+        const scope_resolver = this.scope_resolver;
+        if (!this.working_directory_facts || !dependency_graph ||
+            !scope_resolver) {
             return;
         }
         const the_facts = [...this.working_directory_facts.values()]
             .sort((a, b) => a.uri < b.uri ? -1 : a.uri > b.uri ? 1 : 0);
         const the_changed_uris = new Set<string>();
-        settle_inherited_working_directories({
+        await settle_inherited_working_directories({
             the_facts,
-            get_parents: (uri) => dependency_graph.get_parents(uri),
-            max_backward_depth: this.scope_resolver_config.max_backward_depth,
+            auto_parents:
+                (this.scope_resolver_config.backward_dependencies ?? 'auto')
+                    === 'auto',
+            workspace_roots: this.workspace_roots,
+            probe: (my_facts) =>
+                scope_resolver.probe_document_working_directory(
+                    my_facts.uri,
+                    my_facts.header,
+                    this.scope_resolver_config,
+                    MAX_WALK_STEPS,
+                ),
             register: (my_facts) => {
                 my_facts.first_calls = new Map();
                 const graph_result = dependency_graph.update_caller(
@@ -775,14 +791,13 @@ export class WorkspaceIndexer {
                     uri: file_uri,
                     own_working_directory,
                     directive_working_directory: effective_working_directory,
+                    is_standalone,
                     has_backward_directives,
-                    explicit_parents: has_backward_directives &&
-                        this.scope_resolver
-                        ? this.scope_resolver.explicit_parent_uris(
-                            directive_result.directives, file_uri)
-                        : undefined,
-                    inherits_from_callers: own_working_directory === undefined &&
-                        !is_standalone && !has_backward_directives,
+                    header: {
+                        directives: directive_result.directives,
+                        standalone: directive_result.standalone,
+                        working_directory: directive_result.working_directory,
+                    },
                     working_directory: effective_working_directory,
                     first_calls,
                     command_calls: analyzeResult.forward_calls,
