@@ -94,6 +94,7 @@ function indexed_forward_calls(
             directive_calls: facts.directive_calls,
             cd_commands: [],
             working_directory: facts.directive_working_directory,
+            directives_beside_caller: !facts.has_backward_directives,
             workspace_roots,
         }),
     );
@@ -737,6 +738,9 @@ export class WorkspaceIndexer {
                 directive_calls: directive_result.forward_calls ?? [],
                 cd_commands: analyzeResult.cd_commands,
                 working_directory: effective_working_directory,
+                directives_beside_caller:
+                    directive_result.standalone !== undefined ||
+                    directive_result.directives.length === 0,
                 workspace_roots: this.workspace_roots,
             });
 
@@ -772,6 +776,11 @@ export class WorkspaceIndexer {
                     own_working_directory,
                     directive_working_directory: effective_working_directory,
                     has_backward_directives,
+                    explicit_parents: has_backward_directives &&
+                        this.scope_resolver
+                        ? this.scope_resolver.explicit_parent_uris(
+                            directive_result.directives, file_uri)
+                        : undefined,
                     inherits_from_callers: own_working_directory === undefined &&
                         !is_standalone && !has_backward_directives,
                     working_directory: effective_working_directory,

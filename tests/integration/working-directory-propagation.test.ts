@@ -138,8 +138,10 @@ include subdir/wm_vars
             // subdir => fixture_dir) as resolution context. Consumers join
             // raw_path against this WD, so the callee resolves relative to
             // fixture_dir/, not the script location fixture_dir/subdir/.
+            // The directory has no separator at its end, however the
+            // directive spells it.
             expect(wm_vars_call!.working_directory).toBe(
-                path.normalize(path.join(subdir, '../'))
+                path.dirname(subdir)
             );
         });
 

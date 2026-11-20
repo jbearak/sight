@@ -1073,6 +1073,7 @@ export class DocumentStore {
       directive_calls: the_forward_directives,
       cd_commands: [],
       working_directory: directive_working_directory,
+      directives_beside_caller: !has_backward_directives,
       workspace_roots: this.workspace_roots,
       recover_command_projection: true,
     }));

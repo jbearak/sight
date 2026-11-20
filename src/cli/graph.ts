@@ -487,6 +487,7 @@ export async function build_graph_document(options: {
             directive_calls: facts.directives.forward_calls ?? [],
             cd_commands: [],
             working_directory: facts.directive_working_directory,
+            directives_beside_caller: !facts.has_backward_directives,
             workspace_roots: [root],
         }),
     ];
@@ -553,6 +554,11 @@ export async function build_graph_document(options: {
             directive_working_directory,
             has_backward_directives:
                 !is_standalone && directives.directives.length > 0,
+            explicit_parents:
+                !is_standalone && directives.directives.length > 0
+                    ? scope_resolver.explicit_parent_uris(
+                        directives.directives, uri)
+                    : undefined,
             inherits_from_callers: auto_parents &&
                 own_working_directory === undefined &&
                 !is_standalone && directives.directives.length === 0,

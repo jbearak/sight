@@ -1661,6 +1661,33 @@ export class ScopeResolver {
     }
 
     /**
+     * The files a header's `sight: done-by` / `included-by` directives
+     * name, in header order, as the working-directory walk resolves
+     * them: case-aware, with the `.do` fallback, leaving out a parent
+     * that is ambiguous or not on disk (the walk passes over both).
+     */
+    explicit_parent_uris(
+        directives: Directive[],
+        current_uri: string,
+    ): string[] {
+        const the_uris: string[] = [];
+        for (const my_directive of directives) {
+            if (my_directive.type !== 'done-by' &&
+                my_directive.type !== 'included-by') {
+                continue;
+            }
+            const my_rich = this.compute_directive_real_path(
+                my_directive, current_uri,
+            );
+            if (my_rich.outcome_kind === 'exact' ||
+                my_rich.outcome_kind === 'case_only') {
+                the_uris.push(URI.file(my_rich.real_path).toString());
+            }
+        }
+        return the_uris;
+    }
+
+    /**
      * Find an open document's inherited working directory from its parsed
      * header. Uses the same effective parents, ordering, and depth as resolve,
      * without resolving symbols or forward calls. Unlike the indexer's
@@ -2572,21 +2599,22 @@ export class ScopeResolver {
         // `included-by`, never one inherited from a caller that runs it
         // (docs/cross-file.md, Working Directory), as in `sight graph`.
         // A file without backward directives can only inherit from a
-        // caller, so its directive calls carry its own directory: a call
-        // with none would fall back to the directory of the frame that
-        // resolves it.
+        // caller, so its directive calls carry only its own directory;
+        // with none they are looked up beside the file, and the callee
+        // inherits the directory this file runs in (ForwardScopeResolver).
         const has_backward_directives =
             my_directive_result.standalone === undefined &&
             my_directive_result.directives.length > 0;
         const directive_working_directory = has_backward_directives
             ? effective_working_directory
-            : own_working_directory ?? path.dirname(uri_to_fs_path(uri));
+            : own_working_directory;
         all_forward_calls.push(...prepare_forward_calls({
             uri,
             command_calls: [],
             directive_calls: my_directive_result.forward_calls ?? [],
             cd_commands: [],
             working_directory: directive_working_directory,
+            directives_beside_caller: !has_backward_directives,
             workspace_roots: this.workspace_roots,
             fs: this.resolve_fs,
         }));

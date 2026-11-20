@@ -805,6 +805,17 @@ export class ForwardScopeResolver {
                 my_call.source === 'command'
                     ? wd_for_position(cd_timeline, my_call.range.start)
                     : (my_call.working_directory ?? my_context.working_directory);
+            // Where the call's path is looked up. A forward directive
+            // (`sight: do`) in a file that names no parents resolves
+            // from the file's own `sight: cd` directory, or beside the
+            // file, never from a directory this frame inherited from a
+            // caller (docs/cross-file.md, Working Directory). The
+            // callee still inherits `effective_call_wd`, the directory
+            // this file runs in.
+            const call_lookup_wd: string | undefined =
+                my_call.source !== 'command' && my_call.lookup_beside_caller
+                    ? my_call.working_directory
+                    : effective_call_wd;
             // Check cancellation in loop
             if (token?.isCancellationRequested) {
                 my_stack.delete(file_uri);
@@ -890,7 +901,7 @@ export class ForwardScopeResolver {
             const my_path_result = this.resolve_call_path(
                 my_call.raw_path,
                 file_uri,
-                effective_call_wd,
+                call_lookup_wd,
                 my_casing_collector,
             );
             const resolved_path = my_path_result.resolved_path;
@@ -1786,10 +1797,22 @@ export class ForwardScopeResolver {
                     the_effective.set(my_event.name, my_event.symbol);
                 } else {
                     // WD active at this include's position (honors callee cd).
-                    const event_wd = wd_for_position(
-                        nested_cd_timeline,
-                        my_event.call.range.start,
-                    );
+                    // A directive include is looked up from its
+                    // stamped directory and passes on the directory
+                    // the callee runs in, as in `resolve`.
+                    const is_directive = my_event.call.source !== 'command';
+                    const lookup_wd = is_directive
+                        ? (my_event.call.lookup_beside_caller
+                            ? my_event.call.working_directory
+                            : my_event.call.working_directory ??
+                                nested_base_wd)
+                        : wd_for_position(
+                            nested_cd_timeline,
+                            my_event.call.range.start,
+                        );
+                    const event_wd = is_directive
+                        ? my_event.call.working_directory ?? nested_base_wd
+                        : lookup_wd;
                     // Use the simple resolver here: compute_effective_end_state_locals
                     // does not emit diagnostics, so the rich resolve_path_rich
                     // classification is unnecessary and its walk-from-root
@@ -1797,7 +1820,7 @@ export class ForwardScopeResolver {
                     const nested_resolved = this.resolve_call_path_simple(
                         my_event.call.raw_path,
                         callee_uri,
-                        event_wd,
+                        lookup_wd,
                         casing_collector,
                     );
                     // null → ambiguous or missing; the nested callee is

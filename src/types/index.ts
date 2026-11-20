@@ -1517,6 +1517,12 @@ export interface ForwardCall {
   working_directory?: string;  // Effective WD at the call site; undefined means
                                // script-relative (the raw_path join base is the
                                // caller file's own directory).
+  // Set on a forward directive (`sight: do`) in a file that names no
+  // parents (`sight: done-by`): with no `working_directory` on the call,
+  // its path is looked up beside the caller file, never in a directory
+  // the caller inherited from a file that runs it. The callee still
+  // inherits that directory (docs/cross-file.md, Working Directory).
+  lookup_beside_caller?: boolean;
 }
 
 /**

@@ -127,6 +127,64 @@ describe('Source-analysis consumers', () => {
         });
     }
 
+    it('keeps a forward directive beside a file that inherits from a caller the graph found', async () => {
+        // child.do runs in `data`, inherited from caller.do. Its
+        // command call resolves there; its `sight: do` resolves beside
+        // it, in every consumer (docs/cross-file.md, Working Directory).
+        write_file('caller.do', '* sight: cd "data"\ndo "../child.do"\n');
+        const content = '* sight: do "tail.do"\ndo "first.do"\n';
+        const child_path = write_file('child.do', content);
+        const child_uri = URI.file(child_path).toString();
+        write_file('tail.do', 'display 1\n');
+        write_file('data/first.do', 'display 1\n');
+        write_file('data/tail.do', 'display 2\n');
+
+        const resolver = new ScopeResolver();
+        resolver.set_workspace_roots([temp_dir]);
+        const indexer = new WorkspaceIndexer();
+        the_indexers.push(indexer);
+        const indexed_graph = new RecordingGraph();
+        indexed_graph.set_workspace_roots([temp_dir]);
+        resolver.set_dependency_graph(indexed_graph);
+        indexer.set_dependency_graph(indexed_graph);
+        indexer.set_scope_resolver(resolver);
+        await indexer.initialize([temp_dir]);
+
+        const store = new DocumentStore();
+        the_stores.push(store);
+        store.set_workspace_roots([temp_dir]);
+        store.set_scope_resolver(resolver);
+        await store.open(child_uri, content, 1);
+        const document = store.get(child_uri);
+        if (!document) throw new Error('Document failed to open');
+        const parsed = await resolver.get_parsed_file(
+            child_uri,
+            child_path,
+            { working_directory: document.working_directory },
+        );
+        if ('error' in parsed) throw new Error(parsed.error);
+
+        const data_dir = path.join(temp_dir, 'data');
+        expect(document.working_directory).toBe(data_dir);
+        for (const my_calls of [document.forward_calls, parsed.forward_calls]) {
+            expect(my_calls.map(call => [
+                call.raw_path,
+                call.working_directory,
+                call.lookup_beside_caller ?? false,
+            ])).toEqual([
+                ['first.do', data_dir, false],
+                ['tail.do', undefined, true],
+            ]);
+            const graph = new DependencyGraph();
+            graph.set_workspace_roots([temp_dir]);
+            graph.update_caller(child_uri, my_calls);
+            expect(graph.get_callees(child_uri)).toEqual(new Set([
+                URI.file(path.join(temp_dir, 'tail.do')).toString(),
+                URI.file(path.join(data_dir, 'first.do')).toString(),
+            ]));
+        }
+    });
+
     it('keeps the resolver filesystem adapter in directory projection', async () => {
         const child_path = write_file('child.do', 'cd "virtual"\ndo "child.do"\n');
         const child_uri = URI.file(child_path).toString();

@@ -17,11 +17,14 @@
  * This module gives each such file the directory that walk would give
  * it once the graph is complete, and registers the file's calls again
  * with it. It works from data already known, one hop at a time: each
- * round reads every caller's result from the round before and the
- * graph as the last round left it, and stops when no result changes.
- * A round costs time linear in the graph's edges times the depth limit,
- * and the number of rounds is bounded by the depth limit, so a dense
- * cycle costs no more than a chain.
+ * round reads a file's parents' results from the round before and the
+ * graph as the last round left it, for the files below a change only,
+ * and stops when no result changes. A file that keeps changing (in a
+ * cycle) is left unsettled after a bounded number of changes, so the
+ * cost is bounded by the graph's edges times the depth limit.
+ *
+ * A file whose header names its parents (`sight: done-by`) walks
+ * through those instead of the graph's callers, as the walk does.
  *
  * A file inherits through a call only when the caller makes that call
  * in the directory it starts in. Once a literal `cd` has moved the
@@ -59,6 +62,16 @@ export interface WorkingDirectoryFacts {
      * the walk follows (and is not standalone).
      */
     has_backward_directives: boolean;
+    /**
+     * For a file with `has_backward_directives`: the files its
+     * `done-by` / `included-by` directives name, in header order, as
+     * the walk resolves them (`ScopeResolver.explicit_parent_uris`).
+     * Settling then follows them as the walk does, through callers
+     * the graph finds above them too, and sets `working_directory`.
+     * `directive_working_directory` stays as given. Without this list
+     * such a file keeps the directory it was given.
+     */
+    explicit_parents?: string[];
     /**
      * The directory the file's command calls start in. Producers set it
      * to `directive_working_directory` before settling; settling sets it.
@@ -148,10 +161,19 @@ export function settle_inherited_working_directories<
         return the_blocked;
     }
 
-    // Files that do not inherit from callers have a fixed result: their
-    // own or explicitly inherited directory; unknown when explicit
-    // parents give none (the walk would go on through those parents'
-    // callers); none for a standalone file, whose walk stops there.
+    // A file walks when its directory comes from other files: from the
+    // callers the graph finds, or from the parents its header names.
+    const walks_explicit = (facts: T): boolean =>
+        facts.has_backward_directives &&
+        facts.own_working_directory === undefined &&
+        facts.explicit_parents !== undefined;
+    const walks = (facts: T): boolean =>
+        facts.inherits_from_callers || walks_explicit(facts);
+
+    // Every other file has a fixed result: its own or given directory;
+    // unknown when explicit parents not listed here give none (the walk
+    // would go on through those parents' callers); none for a
+    // standalone file, whose walk stops there.
     const fixed_result = (facts: T): WalkResult => {
         if (facts.directive_working_directory !== undefined) {
             return {
@@ -162,22 +184,41 @@ export function settle_inherited_working_directories<
         }
         return facts.has_backward_directives ? UNKNOWN : NONE;
     };
-    let the_results = new Map<string, WalkResult>();
-    const the_inheriting: T[] = [];
+    const the_results = new Map<string, WalkResult>();
+    const the_walking: T[] = [];
+    // What a walking file was registered with before settling.
+    const the_unsettled = new Map<string, string | undefined>();
+    // Explicit parent → the files that name it.
+    const the_explicit_children = new Map<string, string[]>();
     for (const my_facts of the_facts) {
-        if (my_facts.inherits_from_callers) {
-            the_inheriting.push(my_facts);
-            the_results.set(my_facts.uri, NONE);
-        } else {
+        if (!walks(my_facts)) {
             the_results.set(my_facts.uri, fixed_result(my_facts));
+            continue;
+        }
+        the_walking.push(my_facts);
+        the_results.set(my_facts.uri, NONE);
+        the_unsettled.set(
+            my_facts.uri, my_facts.directive_working_directory);
+        if (walks_explicit(my_facts)) {
+            for (const my_parent of my_facts.explicit_parents ?? []) {
+                const the_children = the_explicit_children.get(my_parent);
+                if (the_children) {
+                    the_children.push(my_facts.uri);
+                } else {
+                    the_explicit_children.set(my_parent, [my_facts.uri]);
+                }
+            }
         }
     }
 
-    // One step of the walk for `facts`, reading its callers' results
+    // One step of the walk for `facts`, reading its parents' results
     // from the previous round.
     const walk_one_step = (facts: T): WalkResult => {
-        for (const my_edge of get_parents(facts.uri)) {
-            const my_caller_uri = my_edge.caller_uri;
+        const is_explicit = walks_explicit(facts);
+        const the_parent_uris = is_explicit
+            ? facts.explicit_parents ?? []
+            : get_parents(facts.uri).map(my_edge => my_edge.caller_uri);
+        for (const my_caller_uri of the_parent_uris) {
             if (my_caller_uri === facts.uri) {
                 continue;
             }
@@ -203,14 +244,25 @@ export function settle_inherited_working_directories<
             }
             const directory = my_caller_result.directory;
             const chain = [my_caller_uri, ...my_caller_result.chain];
-            // Pass the directory on only when the call that reaches this
-            // file is made in the directory the caller starts in.
+            if (my_caller_result.kind === 'blocked') {
+                return { kind: 'blocked', directory, chain };
+            }
+            // A parent the header names passes its directory on whatever
+            // its calls do: the walk reads only its `sight: cd`.
+            if (is_explicit) {
+                return { kind: 'settled', directory, chain };
+            }
+            // A caller the graph found passes the directory on only when
+            // the call that reaches this file is made in the directory
+            // the caller starts in. A forward directive is looked up
+            // from another directory (`working_directory` on the call),
+            // but the file it names still runs where the caller does.
             const my_call = my_caller.first_calls.get(facts.uri);
             if (
-                my_caller_result.kind === 'blocked' ||
                 my_call === undefined ||
                 my_caller.working_directory !== directory ||
-                my_call.working_directory !== directory
+                (my_call.source === 'command' &&
+                    my_call.working_directory !== directory)
             ) {
                 return { kind: 'blocked', directory, chain };
             }
@@ -219,51 +271,73 @@ export function settle_inherited_working_directories<
         return NONE;
     };
 
-    // Each round settles at least one more level of callers; the bound
-    // ends a cycle whose results keep changing.
-    const max_rounds = max_depth + 2;
-    let converged = false;
-    for (let round = 0; round < max_rounds; round++) {
-        const the_next = new Map(the_results);
-        let changed = false;
-        for (const my_facts of the_inheriting) {
+    // Rounds: each computes the results of the files whose inputs
+    // changed in the round before, from that round's results and graph,
+    // then registers again the files whose directory changed. A file's
+    // inputs are its parents' results and registrations, so only the
+    // files below a change are computed again and a long chain costs
+    // time linear in its length.
+    //
+    // A file in a cycle can keep changing. One that changes more often
+    // than any file outside a cycle would is given the unknown result
+    // for good (it keeps its unsettled registration, and its directory
+    // is left to the walk), which ends the changes below it too. Files
+    // elsewhere are not affected.
+    const max_changes = max_depth + 2;
+    const the_change_counts = new Map<string, number>();
+    const the_pinned = new Set<string>();
+    let the_dirty = new Set<string>(the_walking.map(my_facts => my_facts.uri));
+    while (the_dirty.size > 0) {
+        const the_changed = new Map<string, WalkResult>();
+        for (const my_facts of the_walking) {
+            if (!the_dirty.has(my_facts.uri) || the_pinned.has(my_facts.uri)) {
+                continue;
+            }
             const my_result = walk_one_step(my_facts);
             if (!same_result(my_result, the_results.get(my_facts.uri) ?? NONE)) {
-                the_next.set(my_facts.uri, my_result);
-                changed = true;
+                the_changed.set(my_facts.uri, my_result);
             }
         }
-        the_results = the_next;
-        if (!changed) {
-            converged = true;
-            break;
+        const the_next_dirty = new Set<string>();
+        const mark_children = (facts: T): void => {
+            for (const my_callee of facts.first_calls.keys()) {
+                the_next_dirty.add(my_callee);
+            }
+            for (const my_child of the_explicit_children.get(facts.uri) ?? []) {
+                the_next_dirty.add(my_child);
+            }
+        };
+        for (const [my_uri, my_result] of the_changed) {
+            const my_count = (the_change_counts.get(my_uri) ?? 0) + 1;
+            the_change_counts.set(my_uri, my_count);
+            if (my_count > max_changes) {
+                the_pinned.add(my_uri);
+                the_results.set(my_uri, UNKNOWN);
+            } else {
+                the_results.set(my_uri, my_result);
+            }
         }
-        for (const my_facts of the_inheriting) {
-            const my_result = the_results.get(my_facts.uri) ?? NONE;
+        for (const my_uri of the_changed.keys()) {
+            const my_facts = facts_by_uri.get(my_uri);
+            if (my_facts === undefined) {
+                continue;
+            }
+            mark_children(my_facts);
+            const my_result = the_results.get(my_uri) ?? NONE;
             const working_directory = my_result.kind === 'settled'
                 ? my_result.directory
-                : my_facts.directive_working_directory;
+                : the_unsettled.get(my_uri);
             if (working_directory !== my_facts.working_directory) {
                 my_facts.working_directory = working_directory;
                 register(my_facts);
+                // The files it now reaches have a new parent, or the
+                // same parent with a new call.
+                mark_children(my_facts);
             }
         }
+        the_dirty = the_next_dirty;
     }
-    // Results still changing at the bound depend on where the rounds
-    // stopped, so give every such file the registration it had without
-    // settling, and leave its directory to the walk.
-    if (!converged) {
-        for (const my_facts of the_inheriting) {
-            the_results.set(my_facts.uri, UNKNOWN);
-            if (my_facts.working_directory !==
-                my_facts.directive_working_directory) {
-                my_facts.working_directory =
-                    my_facts.directive_working_directory;
-                register(my_facts);
-            }
-        }
-    }
-    for (const my_facts of the_inheriting) {
+    for (const my_facts of the_walking) {
         const my_result = the_results.get(my_facts.uri) ?? NONE;
         if (my_result.kind === 'blocked') {
             the_blocked.set(my_facts.uri, my_result.directory);

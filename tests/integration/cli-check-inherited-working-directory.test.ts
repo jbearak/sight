@@ -331,6 +331,156 @@ describe('sight check — working directory inherited through do-chains', () => 
     });
 });
 
+/** Every diagnostic `check` gives, as sorted `path:line code` strings. */
+async function check_diagnostics(
+    files: Record<string, string>,
+): Promise<string[]> {
+    const root = write_workspace(files);
+    try {
+        const check_stdout: string[] = [];
+        await run_check_with_cwd(
+            ['--no-config', '--format', 'json', '.'], root, {
+                stdout: (text) => check_stdout.push(text),
+                stderr: () => undefined,
+            });
+        const the_records: Array<{
+            path: string;
+            diagnostic: { code: string; range: { start: { line: number } } };
+        }> = JSON.parse(check_stdout.join(''));
+        return the_records
+            .map((my_record) =>
+                `${my_record.path}:` +
+                `${my_record.diagnostic.range.start.line + 1} ` +
+                my_record.diagnostic.code)
+            .sort();
+    } finally {
+        fs.rmSync(root, { recursive: true, force: true });
+    }
+}
+
+describe('sight check — inherited directories, cases from review', () => {
+    it('keeps a settled chain beside a chain longer than the depth limit', async () => {
+        // The long chain runs past the depth limit; the short one under
+        // `ok` is a separate part of the workspace and still settles.
+        const files: Record<string, string> = {
+            'other.do': '// sight: cd ok\ndo jobs/a.do\n',
+            'ok/jobs/a.do': 'do jobs/b.do\n',
+            'ok/jobs/b.do': 'do done.do\n',
+            'ok/done.do': '\n',
+            'elsewhere/dummy.do': '\n',
+            'long0.do': '// sight: cd elsewhere\ndo long1.do\n',
+            'long12.do': '\n',
+        };
+        for (let i = 1; i < 12; i++) {
+            files[`long${i}.do`] = `do long${i + 1}.do\n`;
+        }
+        const result = await missing_calls(files);
+        expect(result.check.filter(my_call => my_call.startsWith('ok/')))
+            .toEqual([]);
+        expect(result.graph.filter(my_call => my_call.startsWith('ok/')))
+            .toEqual([]);
+    });
+
+    it('passes no directory to a forward directive\'s target without a `sight: cd`', async () => {
+        // b.do runs where a.do runs, which is nowhere in particular, so
+        // its call resolves beside b.do, not beside a.do.
+        expect(await check_diagnostics({
+            'sub/a.do': '// sight: do ../jobs/b.do\ndisplay "$RIGHT"\n',
+            'jobs/b.do': 'do lib.do\n',
+            'jobs/lib.do': 'global RIGHT 1\n',
+            'sub/lib.do': 'global WRONG 1\n',
+        })).toEqual([]);
+    });
+
+    it('settles below a file whose named parent has a caller the graph finds', async () => {
+        const result = await missing_calls({
+            'main.do': '// sight: cd work\ndo jobs/a.do\n',
+            'work/jobs/a.do': 'do b.do\n',
+            'work/jobs/b.do': '// sight: done-by a.do\ndo found.do\n',
+            'work/found.do': '\n',
+        });
+        expect(result).toEqual({ check: [], graph: [], nested: [] });
+    });
+
+    it('counts a named parent toward the depth limit', async () => {
+        // a11.do is eleven callers below the `sight: cd`, one more
+        // than the limit, whether a caller is named or found.
+        const files: Record<string, string> = {
+            'main.do': '// sight: cd work\ndo jobs/a1.do\n',
+            'work/jobs/a1.do':
+                '// sight: done-by ../../main.do\ndo jobs/a2.do\n',
+            'work/jobs/a11.do': 'do end.do\n',
+            'work/end.do': '\n',
+        };
+        for (let i = 2; i < 11; i++) {
+            files[`work/jobs/a${i}.do`] = `do jobs/a${i + 1}.do\n`;
+        }
+        const result = await missing_calls(files);
+        expect(result.check).toEqual(['work/jobs/a11.do:1']);
+        expect(result.graph).toEqual(['work/jobs/a11.do:1']);
+    });
+
+    it('passes the directory on through a forward directive', async () => {
+        // b.do is found beside a.do, and runs where a.do runs.
+        const result = await missing_calls({
+            'main.do': '// sight: cd work\ndo jobs/a.do\n',
+            'work/jobs/a.do': '// sight: do b.do\n',
+            'work/jobs/b.do': 'do jobs/c.do\n',
+            'work/jobs/c.do': 'do done.do\n',
+            'work/done.do': '\n',
+        });
+        expect(result).toEqual({ check: [], graph: [], nested: [] });
+    });
+
+    for (const my_spelling of ['work', 'work/']) {
+        it(`treats \`cd "."\` as no change under \`sight: cd ${my_spelling}\``, async () => {
+            const result = await missing_calls({
+                'main.do':
+                    `// sight: cd ${my_spelling}\ncd "."\ndo jobs/a.do\n`,
+                'work/jobs/a.do': 'do jobs/b.do\n',
+                'work/jobs/b.do': 'do done.do\n',
+                'work/done.do': '\n',
+            });
+            expect(result).toEqual({ check: [], graph: [], nested: [] });
+        });
+    }
+
+    it('ends a cycle whose calls resolve only while it is settled', async () => {
+        // a.do reaches b.do only with the inherited directory, and b.do
+        // then calls a.do back, which makes a.do's walk run through
+        // itself; unsettled again, a.do no longer reaches b.do. The
+        // results would alternate for ever. The cycle is left as it is
+        // without settling; the chain under `ok` still settles.
+        const result = await missing_calls({
+            'z.do': '// sight: cd work\ndo jobs/a.do\n',
+            'work/jobs/a.do': 'do jobs/b.do\n',
+            'work/jobs/b.do': 'do jobs/a.do\ndo done.do\n',
+            'work/done.do': '\n',
+            'other.do': '// sight: cd ok\ndo jobs/a.do\n',
+            'ok/jobs/a.do': 'do jobs/b.do\n',
+            'ok/jobs/b.do': 'do done.do\n',
+            'ok/done.do': '\n',
+        });
+        expect(result.check)
+            .toEqual(['work/jobs/b.do:1', 'work/jobs/b.do:2']);
+        expect(result.graph).toEqual(result.check);
+    });
+
+    it('reads the locals of the file a `sight: include` names', async () => {
+        // The include resolves beside a.do, not in `work`.
+        expect(await check_diagnostics({
+            'main.do': '// sight: cd work\ndo jobs/a.do\n' +
+                'display `wrong\'\ndisplay `right\'\n',
+            'work/jobs/a.do': '// sight: include lib.do\n',
+            'work/jobs/lib.do': 'local right 1\n',
+            'work/lib.do': 'local wrong 1\n',
+        })).toEqual([
+            'main.do:3 UNDEFINED_MACRO',
+            'main.do:4 OUT_OF_SCOPE_SYMBOL',
+        ]);
+    });
+});
+
 describe('sight check — cost of settling inherited directories', () => {
     it('checks one file beside a dense cycle quickly', async () => {
         // Each of twelve files calls all twelve; one unrelated file has

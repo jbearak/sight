@@ -449,7 +449,8 @@ directive when the parent already establishes the working directory context.
 - A call made after a literal `cd` in the caller passes no directory on:
   the file it reaches, and the files below it, keep the directory they
   would have without inheritance through that call. So does a file in a
-  cycle of callers whose chain upward runs back through the file itself
+  cycle of callers whose chain upward runs back through the file itself.
+  Files elsewhere in the workspace are not affected
 - If a child file has its **own** working directory directive, it takes
   precedence over any inherited working directory, for it and the files it
   calls
@@ -459,7 +460,11 @@ directive when the parent already establishes the working directory context.
   in header order; auto-discovered callers in path order
 - A forward directive (`sight: do`) resolves from the file's own directory,
   or one it sets or inherits through `done-by`/`included-by`, never one
-  inherited from an auto-discovered caller
+  inherited from an auto-discovered caller. The file it names still runs
+  in the working directory of the file that holds the directive, like a
+  file reached by a `do` command
+- A `sight: cd` path names the same directory with or without a
+  separator at its end (`work/` and `work`)
 - The inherited working directory is resolved relative to the **parent file's**
   containing directory, not the child's
 
