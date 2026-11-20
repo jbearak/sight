@@ -121,10 +121,23 @@ export interface ConsolePane {
      * reports it never gave the line to Stata. A line the console
      * hasn't answered for when the pane ends may already be Stata's,
      * so its file is kept for the usual delay too.
+     *
+     * A pane without `pty` (Windows) can't tell when Stata reads the
+     * file: Stata's Automation takes a line at once and queues it
+     * while Stata is busy with a command typed into its own window.
+     * So that pane keeps its last KEPT_FILE_LIMIT delivered files
+     * until it ends, and the usual delay starts then; an older one
+     * is deleted when a newer send is delivered.
      */
     type_line(text: string, temp_file_path?: string): void;
 }
 
+/**
+ * How many delivered files a Windows pane keeps. The console gives
+ * Stata one sent line at a time, so only the newest can still be
+ * waiting; the rest are a margin.
+ */
+export const KEPT_FILE_LIMIT = 20;
 const PRESS_ANY_KEY = '\r\n[Press any key to close this pane.]';
 const DEFAULT_COLUMNS = 80;
 const DEFAULT_ROWS = 24;
@@ -142,6 +155,9 @@ export function create_console_pane(
     let user_closed = false;
     /** Temp files of typed lines the console hasn't answered for. */
     const the_held_files = new Set<string>();
+    /** Windows: the last delivered files, oldest first. */
+    const the_kept_files: string[] = [];
+    const keeps_delivered_files = options.pty === undefined;
     /** Cleanups end_held_files scheduled, by file. */
     const the_end_cleanups = new Map<string, NodeJS.Timeout>();
 
@@ -160,7 +176,17 @@ export function create_console_pane(
             }
             fs.promises.unlink(file_path).catch(() => {});
         } else if (!ended) {
-            schedule_temp_file_cleanup(file_path);
+            if (!keeps_delivered_files) {
+                schedule_temp_file_cleanup(file_path);
+                return;
+            }
+            the_kept_files.push(file_path);
+            while (the_kept_files.length > KEPT_FILE_LIMIT) {
+                const oldest = the_kept_files.shift();
+                if (oldest !== undefined) {
+                    fs.promises.unlink(oldest).catch(() => {});
+                }
+            }
         }
         // Ended: its cleanup was scheduled then (end_held_files).
     };
@@ -176,6 +202,9 @@ export function create_console_pane(
             the_end_cleanups.set(
                 my_file, schedule_temp_file_cleanup(my_file)
             );
+        }
+        for (const my_file of the_kept_files.splice(0)) {
+            schedule_temp_file_cleanup(my_file);
         }
     };
 

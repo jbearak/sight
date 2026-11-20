@@ -1572,7 +1572,7 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
             .toBe('display "queued"');
     });
 
-    test('a ready pane keeps a send\'s temp file until its console gives it to Stata', async () => {
+    test('a ready pane keeps a send\'s temp file until it ends', async () => {
         const harness = await create_console_harness();
         const { vscode_state, terminal_manager } = harness;
         const first = await create_tracked_send_file('first.do');
@@ -1590,7 +1590,9 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
         expect(fake.the_inputs.at(-1)).toBe(`do ${wrap(second)}\r`);
         expect(vscode_state.the_held_files).toEqual(new Set([first, second]));
 
-        // The console gave the first to Stata: the usual delay starts.
+        // Stata's Automation took the first. Stata may be busy with
+        // a command typed into its own window and only have queued
+        // it, so no delay starts while the pane is open.
         const cleanups_before = vscode_state.the_cleanups.length;
         fake.the_line_reports[0].resolve(true);
         await wait_until(
@@ -1599,20 +1601,20 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
             2000
         );
         expect(vscode_state.the_cleanups.slice(cleanups_before))
-            .toEqual([first]);
+            .toEqual([]);
         expect(fs.existsSync(first)).toBe(true);
 
         // The pane closes before the console answers for the second and
         // a third. Either may be Stata's already (a Windows send whose
         // reply is due), so neither goes at once: each gets the usual
-        // delay.
+        // delay. So does the first, now that the pane has ended.
         const third = await create_tracked_send_file('third.do');
         await terminal_manager.send_to_stata_terminal('do', third);
         const cleanups_at_close = vscode_state.the_cleanups.length;
         harness.the_terminals[0].creationOptions?.pty?.close();
         expect(vscode_state.the_held_files.size).toBe(0);
         expect(vscode_state.the_cleanups.slice(cleanups_at_close))
-            .toEqual([second, third]);
+            .toEqual([second, third, first]);
         expect(fs.existsSync(second)).toBe(true);
         expect(fs.existsSync(third)).toBe(true);
 
@@ -1628,7 +1630,65 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
         await new Promise(resolve => setTimeout(resolve, 20));
         expect(fs.existsSync(third)).toBe(true);
         expect(vscode_state.the_cleanups.slice(cleanups_at_close))
-            .toEqual([second, third]);
+            .toEqual([second, third, first]);
+    });
+
+    test('a pane keeps its last 20 delivered files, and deletes an older one at once', async () => {
+        const harness = await create_console_harness();
+        const { vscode_state, terminal_manager } = harness;
+        const the_files: string[] = [];
+        const first = await create_tracked_send_file('kept-0.do');
+        the_files.push(first);
+        await terminal_manager.send_to_stata_terminal('do', first);
+        const fake = await console_started(harness);
+        fake.ready.resolve(true);
+        await wait_until(
+            () => fake.the_line_reports.length === 1, 'the send', 2000
+        );
+        for (let i = 1; i <= 21; i++) {
+            const my_file = await create_tracked_send_file(`kept-${i}.do`);
+            the_files.push(my_file);
+            await terminal_manager.send_to_stata_terminal('do', my_file);
+        }
+        await wait_until(
+            () => fake.the_line_reports.length === 22, 'the sends', 2000
+        );
+        // (The queue's own cleanup of the first, scheduled while the
+        // file was held, never deletes it.)
+        const cleanups_before = vscode_state.the_cleanups.length;
+
+        // Twenty delivered: all kept, with no delay started.
+        for (let i = 0; i < 20; i++) {
+            fake.the_line_reports[i].resolve(true);
+        }
+        await wait_until(
+            () => vscode_state.the_held_files.size === 2,
+            'twenty files to be released',
+            2000
+        );
+        expect(the_files.slice(0, 20).every(
+            my_file => fs.existsSync(my_file)
+        )).toBe(true);
+
+        // Two more: the two oldest go, and only they.
+        fake.the_line_reports[20].resolve(true);
+        fake.the_line_reports[21].resolve(true);
+        await wait_until(
+            () => !fs.existsSync(the_files[0])
+                && !fs.existsSync(the_files[1]),
+            'the two oldest files to go',
+            2000
+        );
+        expect(the_files.slice(2).every(
+            my_file => fs.existsSync(my_file)
+        )).toBe(true);
+        expect(vscode_state.the_cleanups.slice(cleanups_before))
+            .toEqual([]);
+
+        // The pane ends: the twenty left get the usual delay.
+        harness.the_terminals[0].creationOptions?.pty?.close();
+        expect(vscode_state.the_cleanups.slice(cleanups_before))
+            .toEqual(the_files.slice(2));
     });
 
     test('a held file the console drops after the pane closed is deleted once', async () => {
