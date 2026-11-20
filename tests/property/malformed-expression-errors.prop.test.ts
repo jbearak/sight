@@ -149,6 +149,9 @@ describe('Malformed Expression Error Handling Property Tests', () => {
             (command, varname, expression) => {
                 // Skip empty expressions as they should trigger missing expression error
                 fc.pre(expression.trim().length > 0);
+                // `= in+` or `= if x` is a qualifier with no expression
+                // before it, which is a missing expression.
+                fc.pre(!/^\s*(if|in)(?![a-zA-Z0-9_])/.test(expression));
                 
                 const code = `${command} ${varname} = ${expression}`;
                 

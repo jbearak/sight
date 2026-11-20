@@ -10,6 +10,12 @@ import {
     DidChangeConfigurationNotification,
     DidChangeWatchedFilesNotification,
     Connection,
+    type ConnectionOptions,
+    type MessageWriter,
+    IPCMessageReader,
+    IPCMessageWriter,
+    StreamMessageReader,
+    StreamMessageWriter,
     WatchKind,
     type Disposable,
     type FileSystemWatcher,
@@ -42,6 +48,7 @@ import { DocumentDebounceManager } from './utils/debounce-manager';
 import { validate_comment_formatting_config } from './utils/config-validator';
 import { error_message } from './utils/error-message';
 import { RenameHandler } from './utils/file-rename-handler';
+import { ClientUriSpelling } from './utils/client-uri-spelling';
 import { Logger } from './utils/logger';
 import { is_resolvable_static_call } from './utils/file-path-utils';
 import { DependencyGraph } from './dependency-graph';
@@ -116,16 +123,74 @@ export interface ServerOptions {
 }
 
 /**
- * Create an LSP connection based on transport type.
+ * Create an LSP connection based on transport type. Incoming `file:`
+ * URIs are put in one spelling before any handler runs, and outgoing
+ * ones go back in the client's own spelling for a document it opened
+ * (see utils/client-uri-spelling).
  */
 function create_transport_connection(transport: TransportType): Connection {
-    if (transport === 'stdio') {
-        // Use stdio transport for standalone usage
-        return createConnection(process.stdin, process.stdout);
-    } else {
-        // Use Node IPC transport for VS Code
-        return createConnection(ProposedFeatures.all);
+    const client_uri_spelling = new ClientUriSpelling();
+    let shutdown_received = false;
+    const connection_options: ConnectionOptions = {
+        messageStrategy: {
+            handleMessage: (message, next) => {
+                if (
+                    'method' in message && message.method === 'shutdown'
+                    // A request; a notification is not a shutdown.
+                    && 'id' in message
+                ) {
+                    shutdown_received = true;
+                }
+                client_uri_spelling.handle_incoming(message);
+                next(message);
+            },
+        },
+    };
+    const restore_spellings = <T extends MessageWriter>(writer: T): T => {
+        const write = writer.write.bind(writer);
+        writer.write = (message) =>
+            write(client_uri_spelling.handle_outgoing(message));
+        return writer;
+    };
+    // The Node IPC entry point (server.ts) lets the command line pick
+    // another transport, as the library does: `--stdio`, a socket or
+    // a pipe.
+    const has_ipc_flag = process.argv.includes('--node-ipc');
+    const use_stdio = transport === 'stdio'
+        || (!has_ipc_flag && process.argv.includes('--stdio'));
+    if (use_stdio) {
+        // Given a reader and a writer, the library no longer exits
+        // when the client closes the input, as it does for a bare
+        // stream; do that here.
+        const exit_with_input = (): void => {
+            process.exit(shutdown_received ? 0 : 1);
+        };
+        process.stdin.on('end', exit_with_input);
+        process.stdin.on('close', exit_with_input);
+        const reader = new StreamMessageReader(process.stdin);
+        const writer = restore_spellings(
+            new StreamMessageWriter(process.stdout)
+        );
+        return transport === 'stdio'
+            // Standalone usage
+            ? createConnection(reader, writer, connection_options)
+            : createConnection(
+                ProposedFeatures.all, reader, writer, connection_options
+            );
     }
+    if (!has_ipc_flag) {
+        // A socket or a pipe named on the command line (or nothing,
+        // which the library reports). Replies there keep the
+        // server's spelling.
+        return createConnection(ProposedFeatures.all, connection_options);
+    }
+    // Node IPC transport for VS Code
+    return createConnection(
+        ProposedFeatures.all,
+        new IPCMessageReader(process),
+        restore_spellings(new IPCMessageWriter(process)),
+        connection_options
+    );
 }
 
 export interface NonCapabilitySettingsSources {
