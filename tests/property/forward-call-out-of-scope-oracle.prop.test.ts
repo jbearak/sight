@@ -215,6 +215,10 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — oracle properties', () => {
 // the default 1-4-file generator under-exercises. Chain depth scales with
 // the DAG size (file i can only call j > i), so pinning the minimum file
 // count above 3 forces chains of length 3-6.
+// Each run writes a chain of files to disk, which a Windows CI runner
+// does far more slowly than Linux (5 s against 0.2 s for 200 runs).
+const DEEP_TIMEOUT_MS = 30000;
+
 describe('Forward-call OUT_OF_SCOPE_SYMBOL — oracle properties (deep graphs, depth 3-6)', () => {
     const deep_graph = () =>
         arbitrary_forward_call_graph({
@@ -239,7 +243,7 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — oracle properties (deep graphs, d
             }),
             { numRuns: 200 },
         );
-    });
+    }, DEEP_TIMEOUT_MS);
 
     test('2. Rewrite attribution (deep): blocked references name the blame file', async () => {
         await fc.assert(
@@ -262,7 +266,7 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — oracle properties (deep graphs, d
             }),
             { numRuns: 200 },
         );
-    });
+    }, DEEP_TIMEOUT_MS);
 
     test('3. Generic-warning completeness (deep): unreachable names emit UNDEFINED only', async () => {
         await fc.assert(
@@ -282,7 +286,7 @@ describe('Forward-call OUT_OF_SCOPE_SYMBOL — oracle properties (deep graphs, d
             }),
             { numRuns: 200 },
         );
-    });
+    }, DEEP_TIMEOUT_MS);
 });
 
 describe('Forward-call OUT_OF_SCOPE_SYMBOL — regression: pinned scenarios from code review', () => {

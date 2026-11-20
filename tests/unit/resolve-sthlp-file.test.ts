@@ -410,7 +410,9 @@ describe('resolveSthlpFile - help_file redirects', () => {
         // indexer calls again.
         await handler({ topic: my_first_topic });
         expect(call_count_for_first).toBeGreaterThan(calls_after_seed);
-    });
+        // A thousand missed lookups probe the disk several thousand
+        // times: about 1 s on Linux, over 5 s on a Windows runner.
+    }, 30000);
 
     it('clear_negative_cache allows re-probing previously negative topics', async () => {
         indexer.set_help_search_paths([path.join(temp_dir, 'ado')]);
