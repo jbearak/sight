@@ -10,6 +10,7 @@ import {
     DidChangeConfigurationNotification,
     DidChangeWatchedFilesNotification,
     Connection,
+    type ConnectionOptions,
     WatchKind,
     type Disposable,
     type FileSystemWatcher,
@@ -42,6 +43,7 @@ import { DocumentDebounceManager } from './utils/debounce-manager';
 import { validate_comment_formatting_config } from './utils/config-validator';
 import { error_message } from './utils/error-message';
 import { RenameHandler } from './utils/file-rename-handler';
+import { ClientUriSpelling } from './utils/client-uri-spelling';
 import { Logger } from './utils/logger';
 import { is_resolvable_static_call } from './utils/file-path-utils';
 import { DependencyGraph } from './dependency-graph';
@@ -116,16 +118,34 @@ export interface ServerOptions {
 }
 
 /**
- * Create an LSP connection based on transport type.
+ * Create an LSP connection based on transport type. Incoming `file:`
+ * URIs are put in one spelling before any handler runs, and
+ * diagnostics for an open document go out under the client's own
+ * spelling (see utils/client-uri-spelling).
  */
 function create_transport_connection(transport: TransportType): Connection {
-    if (transport === 'stdio') {
+    const client_uri_spelling = new ClientUriSpelling();
+    const connection_options: ConnectionOptions = {
+        messageStrategy: {
+            handleMessage: (message, next) => {
+                client_uri_spelling.handle_incoming(message);
+                next(message);
+            },
+        },
+    };
+    const connection = transport === 'stdio'
         // Use stdio transport for standalone usage
-        return createConnection(process.stdin, process.stdout);
-    } else {
+        ? createConnection(
+            process.stdin, process.stdout, connection_options
+        )
         // Use Node IPC transport for VS Code
-        return createConnection(ProposedFeatures.all);
-    }
+        : createConnection(ProposedFeatures.all, connection_options);
+    const send_diagnostics = connection.sendDiagnostics.bind(connection);
+    connection.sendDiagnostics = (params) => send_diagnostics({
+        ...params,
+        uri: client_uri_spelling.for_client(params.uri),
+    });
+    return connection;
 }
 
 export interface NonCapabilitySettingsSources {

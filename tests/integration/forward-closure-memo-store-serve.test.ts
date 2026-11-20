@@ -51,10 +51,9 @@ describe('issue #234 — forward-closure memo store/serve', () => {
         fs.writeFileSync(file_path, content);
         return file_path;
     };
-    // URIs as VS Code sends them (`file:///c%3A/...` on Windows). A
-    // client that sends Node's `pathToFileURL` form (`file:///C:/...`)
-    // is not canonicalised: URI-keyed maps other than the dependency
-    // graph's would then miss these files on Windows (open issue).
+    // URIs as the server holds them (`file:///c%3A/...` on Windows):
+    // the transport rewrites any other spelling a client sends before
+    // these components see it (utils/client-uri-spelling).
     const to_uri = (file_path: string): string =>
         URI.file(file_path).toString();
     /** URI of a fixture path that exists only in a content provider. */
