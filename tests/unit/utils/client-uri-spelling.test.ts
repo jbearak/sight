@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'bun:test';
 import { URI } from 'vscode-uri';
 import {
+    CLOSED_SPELLING_LIMIT,
     ClientUriSpelling,
     canonical_file_uri,
     canonicalise_params_uris,
@@ -33,6 +34,17 @@ describe('canonical_file_uri', () => {
     it('is idempotent', () => {
         const once = canonical_file_uri('file:///C:/a+b/x%20y.do');
         expect(canonical_file_uri(once)).toBe(once);
+    });
+
+    it('treats FILE: and a localhost authority as the local file', () => {
+        expect(canonical_file_uri('FILE:///tmp/a.do'))
+            .toBe('file:///tmp/a.do');
+        expect(canonical_file_uri('file://localhost/tmp/a.do'))
+            .toBe('file:///tmp/a.do');
+        expect(canonical_file_uri('file://LocalHost/tmp/a.do'))
+            .toBe('file:///tmp/a.do');
+        expect(canonical_file_uri('file://server/share/a.do'))
+            .toBe('file://server/share/a.do');
     });
 
     it('leaves other schemes and non-URIs alone', () => {
@@ -110,11 +122,25 @@ describe('ClientUriSpelling', () => {
         expect(spelling.for_client(WANT)).toBe(SENT);
     });
 
-    it('forgets the spelling when the document closes', () => {
+    it('keeps the spelling after the close, for the clearing publish', () => {
         const spelling = new ClientUriSpelling();
         spelling.handle_incoming(notify('textDocument/didOpen', SENT));
         spelling.handle_incoming(notify('textDocument/didClose', SENT));
-        expect(spelling.for_client(WANT)).toBe(WANT);
+        expect(spelling.for_client(WANT)).toBe(SENT);
+    });
+
+    it('keeps a bounded number of closed spellings', () => {
+        const spelling = new ClientUriSpelling();
+        const sent = (i: number) => `file:///C:/proj/f${i}.do`;
+        const want = (i: number) => `file:///c%3A/proj/f${i}.do`;
+        for (let i = 0; i <= CLOSED_SPELLING_LIMIT; i++) {
+            spelling.handle_incoming(notify('textDocument/didOpen', sent(i)));
+            spelling.handle_incoming(notify('textDocument/didClose', sent(i)));
+        }
+        expect(spelling.for_client(want(0))).toBe(want(0));
+        expect(spelling.for_client(want(1))).toBe(sent(1));
+        expect(spelling.for_client(want(CLOSED_SPELLING_LIMIT)))
+            .toBe(sent(CLOSED_SPELLING_LIMIT));
     });
 
     it('uses the newest spelling when a document is opened again', () => {
@@ -130,10 +156,54 @@ describe('ClientUriSpelling', () => {
         expect(spelling.for_client(WANT)).toBe(WANT);
     });
 
-    it('leaves a response alone', () => {
+    it('leaves an incoming response alone', () => {
         const spelling = new ClientUriSpelling();
         const response = { jsonrpc: '2.0', id: 1, result: { uri: SENT } };
         spelling.handle_incoming(response);
         expect(response.result.uri).toBe(SENT);
+    });
+
+    it('puts the spelling back in outgoing params and results', () => {
+        const spelling = new ClientUriSpelling();
+        spelling.handle_incoming(notify('textDocument/didOpen', SENT));
+        const other = 'file:///c%3A/proj/other.do';
+        expect(spelling.handle_outgoing({
+            jsonrpc: '2.0',
+            method: 'textDocument/publishDiagnostics',
+            params: { uri: WANT, diagnostics: [] },
+        }).params.uri).toBe(SENT);
+        expect(spelling.handle_outgoing({
+            jsonrpc: '2.0',
+            id: 3,
+            method: 'workspace/configuration',
+            params: { items: [{ scopeUri: WANT, section: 'sight' }] },
+        }).params.items[0]?.scopeUri).toBe(SENT);
+        expect(spelling.handle_outgoing({
+            jsonrpc: '2.0',
+            id: 4,
+            result: [
+                { uri: WANT, range: {} },
+                { uri: other, range: {} },
+                { targetUri: WANT, message: WANT },
+            ],
+        }).result).toEqual([
+            { uri: SENT, range: {} },
+            { uri: other, range: {} },
+            { targetUri: SENT, message: WANT },
+        ]);
+    });
+
+    it('never changes the outgoing message it was given', () => {
+        const spelling = new ClientUriSpelling();
+        spelling.handle_incoming(notify('textDocument/didOpen', SENT));
+        const location = { uri: WANT, range: {} };
+        const message = { jsonrpc: '2.0', id: 4, result: [location] };
+        const sent = spelling.handle_outgoing(message);
+        expect(sent).not.toBe(message);
+        expect(location.uri).toBe(WANT);
+        expect(message.result[0]).toBe(location);
+        // Nothing to restore: the same object goes out.
+        const plain = { jsonrpc: '2.0', id: 5, result: { contents: WANT } };
+        expect(spelling.handle_outgoing(plain)).toBe(plain);
     });
 });

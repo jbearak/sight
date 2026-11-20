@@ -10,27 +10,39 @@
  * diagnostics in files that depend on the one being edited.
  *
  * Every incoming message is rewritten here, before any handler sees
- * it, so the server only ever holds VS Code's spelling. Diagnostics
- * for a document the client has open are published under the spelling
- * the client opened it with, for clients that match that notification
- * to a buffer by string. Every other reply carries the server's
- * spelling, as replies about files the client never named always did.
+ * it, so the server only ever holds VS Code's spelling. Every outgoing
+ * message is rewritten too: a URI the client spelled its own way when
+ * it opened the document goes back in that spelling (diagnostics, a
+ * definition in the open file, a configuration scope), for clients
+ * that match URIs to buffers by string. A URI the client never named
+ * keeps the server's spelling.
  *
- * Only the fields listed below are rewritten, never a string that
- * merely looks like a URI: document text and settings pass through.
+ * Incoming, only the fields listed below are rewritten, never a string
+ * that merely looks like a URI: document text and settings pass
+ * through.
  */
 
 import { URI } from 'vscode-uri';
 
-const FILE_SCHEME_PREFIX = 'file:';
+const FILE_SCHEME_PATTERN = /^file:/i;
+const LOCAL_HOST = 'localhost';
 
-/** `uri` in the spelling `URI.file(path).toString()` gives. */
+/**
+ * `uri` in the spelling `URI.file(path).toString()` gives. `FILE:` and
+ * a `localhost` authority name the same local file (RFC 8089).
+ */
 export function canonical_file_uri(uri: string): string {
-    if (!uri.startsWith(FILE_SCHEME_PREFIX)) {
+    if (!FILE_SCHEME_PATTERN.test(uri)) {
         return uri;
     }
     try {
-        return URI.parse(uri).toString();
+        const my_uri = URI.parse(uri);
+        return my_uri.with({
+            scheme: 'file',
+            authority: my_uri.authority.toLowerCase() === LOCAL_HOST
+                ? ''
+                : my_uri.authority,
+        }).toString();
     } catch {
         return uri;
     }
@@ -115,14 +127,24 @@ export function canonicalise_params_uris(params: unknown): void {
 
 const DID_OPEN_METHOD = 'textDocument/didOpen';
 const DID_CLOSE_METHOD = 'textDocument/didClose';
+/** Outgoing fields that hold a URI, at any depth. */
+const OUTGOING_URI_KEYS = new Set(['uri', 'targetUri', 'scopeUri']);
+/**
+ * How many closed documents' spellings are kept. A document's last
+ * diagnostics are cleared after it closes, so its spelling must
+ * outlive the close.
+ */
+export const CLOSED_SPELLING_LIMIT = 1000;
 
 /**
- * Rewrites incoming messages and remembers, for each open document,
- * the spelling the client opened it with when that differs.
+ * Rewrites incoming and outgoing messages and remembers the spelling
+ * the client opened each document with, when that differs.
  */
 export class ClientUriSpelling {
-    /** Canonical URI -> the client's spelling, open documents only. */
-    private readonly the_client_spellings = new Map<string, string>();
+    /** Canonical URI -> the client's spelling, open documents. */
+    private readonly the_open_spellings = new Map<string, string>();
+    /** The same for closed documents, oldest close first. */
+    private readonly the_closed_spellings = new Map<string, string>();
 
     /** Rewrite one incoming JSON-RPC message in place. */
     handle_incoming(message: unknown): void {
@@ -142,18 +164,101 @@ export class ClientUriSpelling {
             return;
         }
         if (my_method === DID_OPEN_METHOD) {
+            this.the_closed_spellings.delete(my_uri);
             if (my_sent_uri === my_uri) {
-                this.the_client_spellings.delete(my_uri);
+                this.the_open_spellings.delete(my_uri);
             } else {
-                this.the_client_spellings.set(my_uri, my_sent_uri);
+                this.the_open_spellings.set(my_uri, my_sent_uri);
             }
         } else if (my_method === DID_CLOSE_METHOD) {
-            this.the_client_spellings.delete(my_uri);
+            const my_spelling = this.the_open_spellings.get(my_uri);
+            if (my_spelling === undefined) {
+                return;
+            }
+            this.the_open_spellings.delete(my_uri);
+            this.the_closed_spellings.set(my_uri, my_spelling);
+            if (this.the_closed_spellings.size > CLOSED_SPELLING_LIMIT) {
+                for (const my_oldest of this.the_closed_spellings.keys()) {
+                    this.the_closed_spellings.delete(my_oldest);
+                    break;
+                }
+            }
         }
     }
 
-    /** The spelling to publish `uri` under. */
+    /**
+     * An outgoing JSON-RPC message with the client's spellings put
+     * back, in the params of a request or notification or the result
+     * of a response. The message is the server's own data (a cached
+     * location, say), so it is never changed: what differs is copied.
+     */
+    handle_outgoing<T>(message: T): T {
+        if (
+            this.the_open_spellings.size === 0
+            && this.the_closed_spellings.size === 0
+        ) {
+            return message;
+        }
+        const my_message = as_record(message);
+        if (!my_message) {
+            return message;
+        }
+        const my_params = this.restored(my_message['params']);
+        const my_result = this.restored(my_message['result']);
+        if (
+            my_params === my_message['params']
+            && my_result === my_message['result']
+        ) {
+            return message;
+        }
+        const my_copy: T = { ...message };
+        const my_copy_record = as_record(my_copy);
+        if (my_copy_record && 'params' in my_message) {
+            my_copy_record['params'] = my_params;
+        }
+        if (my_copy_record && 'result' in my_message) {
+            my_copy_record['result'] = my_result;
+        }
+        return my_copy;
+    }
+
+    /** The spelling the client used for `uri`, or `uri` itself. */
     for_client(uri: string): string {
-        return this.the_client_spellings.get(uri) ?? uri;
+        return this.the_open_spellings.get(uri)
+            ?? this.the_closed_spellings.get(uri)
+            ?? uri;
+    }
+
+    /** `value`, or a copy where a URI field's spelling differs. */
+    private restored(value: unknown): unknown {
+        if (Array.isArray(value)) {
+            let my_copy: unknown[] | undefined;
+            for (let i = 0; i < value.length; i++) {
+                const my_item: unknown = value[i];
+                const my_restored = this.restored(my_item);
+                if (my_restored !== my_item) {
+                    my_copy ??= [...value];
+                    my_copy[i] = my_restored;
+                }
+            }
+            return my_copy ?? value;
+        }
+        const my_record = as_record(value);
+        if (!my_record) {
+            return value;
+        }
+        let my_copy: JsonRecord | undefined;
+        for (const [my_key, my_value] of Object.entries(my_record)) {
+            const my_restored = typeof my_value === 'string'
+                ? (OUTGOING_URI_KEYS.has(my_key)
+                    ? this.for_client(my_value)
+                    : my_value)
+                : this.restored(my_value);
+            if (my_restored !== my_value) {
+                my_copy ??= { ...my_record };
+                my_copy[my_key] = my_restored;
+            }
+        }
+        return my_copy ?? value;
     }
 }

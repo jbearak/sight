@@ -11,6 +11,11 @@ import {
     DidChangeWatchedFilesNotification,
     Connection,
     type ConnectionOptions,
+    type MessageWriter,
+    IPCMessageReader,
+    IPCMessageWriter,
+    StreamMessageReader,
+    StreamMessageWriter,
     WatchKind,
     type Disposable,
     type FileSystemWatcher,
@@ -119,33 +124,52 @@ export interface ServerOptions {
 
 /**
  * Create an LSP connection based on transport type. Incoming `file:`
- * URIs are put in one spelling before any handler runs, and
- * diagnostics for an open document go out under the client's own
- * spelling (see utils/client-uri-spelling).
+ * URIs are put in one spelling before any handler runs, and outgoing
+ * ones go back in the client's own spelling for a document it opened
+ * (see utils/client-uri-spelling).
  */
 function create_transport_connection(transport: TransportType): Connection {
     const client_uri_spelling = new ClientUriSpelling();
+    let shutdown_received = false;
     const connection_options: ConnectionOptions = {
         messageStrategy: {
             handleMessage: (message, next) => {
+                if ('method' in message && message.method === 'shutdown') {
+                    shutdown_received = true;
+                }
                 client_uri_spelling.handle_incoming(message);
                 next(message);
             },
         },
     };
-    const connection = transport === 'stdio'
-        // Use stdio transport for standalone usage
-        ? createConnection(
-            process.stdin, process.stdout, connection_options
-        )
-        // Use Node IPC transport for VS Code
-        : createConnection(ProposedFeatures.all, connection_options);
-    const send_diagnostics = connection.sendDiagnostics.bind(connection);
-    connection.sendDiagnostics = (params) => send_diagnostics({
-        ...params,
-        uri: client_uri_spelling.for_client(params.uri),
-    });
-    return connection;
+    const restore_spellings = <T extends MessageWriter>(writer: T): T => {
+        const write = writer.write.bind(writer);
+        writer.write = (message) =>
+            write(client_uri_spelling.handle_outgoing(message));
+        return writer;
+    };
+    if (transport === 'stdio') {
+        // Use stdio transport for standalone usage. Given a reader and
+        // a writer, the library no longer exits when the client closes
+        // the input, as it does for a bare stream; do that here.
+        const exit_with_input = (): void => {
+            process.exit(shutdown_received ? 0 : 1);
+        };
+        process.stdin.on('end', exit_with_input);
+        process.stdin.on('close', exit_with_input);
+        return createConnection(
+            new StreamMessageReader(process.stdin),
+            restore_spellings(new StreamMessageWriter(process.stdout)),
+            connection_options
+        );
+    }
+    // Use Node IPC transport for VS Code
+    return createConnection(
+        ProposedFeatures.all,
+        new IPCMessageReader(process),
+        restore_spellings(new IPCMessageWriter(process)),
+        connection_options
+    );
 }
 
 export interface NonCapabilitySettingsSources {

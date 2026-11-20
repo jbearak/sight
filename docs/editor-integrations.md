@@ -18,10 +18,11 @@ sight --stdio
 Configure your editor's LSP client to run this command for `.do`, `.ado`, and `.mata` files.
 
 The server accepts any valid spelling of a `file:` URI, such as
-`file:///C:/proj/main.do` or `file:///c%3A/proj/main.do`. Diagnostics for
-a document the client has open are published under the URI the client
-opened it with. Other replies, such as a definition in another file, use
-the percent-encoded form with a lower-case drive letter.
+`file:///C:/proj/main.do` or `file:///c%3A/proj/main.do`. For a document
+the client has opened, every message from the server (diagnostics, a
+definition, a configuration scope) uses the URI the client opened it
+with. A file the client has not opened is named in the percent-encoded
+form with a lower-case drive letter.
 
 See [Standalone Installation](standalone-installation.md) for installation
 options.

@@ -38,6 +38,9 @@ interface Client {
     wait_for(
         from: number, matches: (my_published: Published) => boolean
     ): Promise<Published>;
+    /** Send a request and wait for its result. */
+    request(method: string, params?: unknown): Promise<unknown>;
+    exit_code: Promise<number | null>;
 }
 
 function start_client(): Client {
@@ -47,6 +50,8 @@ function start_client(): Client {
     });
     const published: Published[] = [];
     const the_waiters: Array<() => void> = [];
+    const the_pending = new Map<number, (result: unknown) => void>();
+    let next_id = 1;
     let buffer: Buffer = Buffer.alloc(0);
 
     const send = (message: unknown): void => {
@@ -78,6 +83,9 @@ function start_client(): Client {
                 id: message['id'],
                 result: Array.isArray(items) ? items.map(() => null) : null,
             });
+        } else if (typeof message['id'] === 'number') {
+            the_pending.get(message['id'])?.(message['result']);
+            the_pending.delete(message['id']);
         }
     };
     proc.stdout.on('data', (chunk: Buffer) => {
@@ -125,7 +133,23 @@ function start_client(): Client {
             });
         }
     };
-    return { proc, published, send, wait_for };
+    const request = (method: string, params?: unknown): Promise<unknown> => {
+        const id = next_id++;
+        return new Promise<unknown>((resolve, reject) => {
+            const timer = setTimeout(
+                () => reject(new Error(`No reply to ${method}`)), WAIT_MS
+            );
+            the_pending.set(id, result => {
+                clearTimeout(timer);
+                resolve(result);
+            });
+            send({ jsonrpc: '2.0', id, method, params });
+        });
+    };
+    const exit_code = new Promise<number | null>(resolve => {
+        proc.on('exit', code => resolve(code));
+    });
+    return { proc, published, send, wait_for, request, exit_code };
 }
 
 describe('stdio server: a client\'s own file URI spelling', () => {
@@ -149,7 +173,7 @@ describe('stdio server: a client\'s own file URI spelling', () => {
     ];
 
     for (const [my_name, to_uri] of SPELLINGS) {
-        it(`refreshes a caller's callee and echoes the spelling (${my_name})`, async () => {
+        it(`refreshes a caller's callee and answers in the client's spelling (${my_name})`, async () => {
             const main_path = path.join(temp_dir, 'main.do');
             const child_path = path.join(temp_dir, 'child.do');
             const main_text = 'do child.do\n';
@@ -162,14 +186,11 @@ describe('stdio server: a client\'s own file URI spelling', () => {
 
             client = start_client();
             const my_client = client;
-            my_client.send({
-                jsonrpc: '2.0', id: 1, method: 'initialize',
-                params: {
-                    processId: process.pid,
-                    rootUri: root_uri,
-                    workspaceFolders: [{ uri: root_uri, name: 'p' }],
-                    capabilities: {},
-                },
+            await my_client.request('initialize', {
+                processId: process.pid,
+                rootUri: root_uri,
+                workspaceFolders: [{ uri: root_uri, name: 'p' }],
+                capabilities: {},
             });
             my_client.send({
                 jsonrpc: '2.0', method: 'initialized', params: {},
@@ -213,10 +234,49 @@ describe('stdio server: a client\'s own file URI spelling', () => {
                     && !my_published.messages.includes(STALE_MESSAGE)
             );
             expect(refreshed.messages).not.toContain(STALE_MESSAGE);
+
+            // A definition in a document the client has open comes
+            // back under the client's spelling of it.
+            const definition = await my_client.request(
+                'textDocument/definition',
+                {
+                    textDocument: { uri: main_uri },
+                    position: { line: 1, character: 5 },
+                }
+            );
+            expect(JSON.stringify(definition))
+                .toContain(JSON.stringify(child_uri));
+
+            // The publish that clears a closed document's diagnostics
+            // uses the spelling it was opened with.
+            const before_close = my_client.published.length;
+            my_client.send({
+                jsonrpc: '2.0', method: 'textDocument/didClose',
+                params: { textDocument: { uri: main_uri } },
+            });
+            const cleared = await my_client.wait_for(
+                before_close,
+                my_published => my_published.uri === main_uri
+            );
+            expect(cleared.messages).toEqual([]);
+
             // Every publication used a spelling the client sent.
             for (const my_published of my_client.published) {
                 expect([main_uri, child_uri]).toContain(my_published.uri);
             }
+
+            // Closing the input after a shutdown ends the server cleanly.
+            await my_client.request('shutdown');
+            my_client.proc.stdin.end();
+            expect(await my_client.exit_code).toBe(0);
         }, TEST_TIMEOUT_MS);
     }
+    it('exits with status 1 when the input closes without a shutdown', async () => {
+        client = start_client();
+        await client.request('initialize', {
+            processId: process.pid, rootUri: null, capabilities: {},
+        });
+        client.proc.stdin.end();
+        expect(await client.exit_code).toBe(1);
+    }, TEST_TIMEOUT_MS);
 });
