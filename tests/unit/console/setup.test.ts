@@ -13,6 +13,8 @@ import { History, default_history_path } from '../../../src/console/history';
 import { SessionCompleter, to_candidates } from '../../../src/console/completer';
 import { run_console } from '../../../src/console/index';
 
+const IS_WINDOWS_HOST = process.platform === 'win32';
+
 let tmp_dir: string;
 beforeEach(() => {
     tmp_dir = fs.mkdtempSync(path.join(os.tmpdir(), 'sight-console-'));
@@ -79,7 +81,9 @@ describe('locate_stata', () => {
         expect(result).toEqual({ found: true, path: mp });
     });
 
-    it('skips a dangling symlink', () => {
+    // Creating a symlink on Windows needs administrator rights or
+    // Developer Mode.
+    it.skipIf(IS_WINDOWS_HOST)('skips a dangling symlink', () => {
         const bin = path.join(tmp_dir, 'bin');
         fs.mkdirSync(bin);
         fs.symlinkSync(path.join(tmp_dir, 'gone'), path.join(bin, 'stata-mp'));
@@ -108,8 +112,12 @@ describe('History', () => {
         history.add('');
         expect(history.all()).toEqual(['display 1']);
         expect(new History(file_path).all()).toEqual(['display 1']);
-        expect(fs.statSync(file_path).mode & 0o777).toBe(0o600);
-        expect(fs.statSync(path.dirname(file_path)).mode & 0o777).toBe(0o700);
+        // Windows has no POSIX mode bits: it reports 0o666.
+        if (!IS_WINDOWS_HOST) {
+            expect(fs.statSync(file_path).mode & 0o777).toBe(0o600);
+            expect(fs.statSync(path.dirname(file_path)).mode & 0o777)
+                .toBe(0o700);
+        }
     });
 
     it('honors the override and XDG locations', () => {
@@ -176,7 +184,8 @@ describe('run_console', () => {
             .toBe(2);
     });
 
-    it('runs Stata directly when not attached to a terminal', async () => {
+    // The stand-in Stata is a shell script, which Windows can't run.
+    it.skipIf(IS_WINDOWS_HOST)('runs Stata directly when not attached to a terminal', async () => {
         const script = path.join(tmp_dir, 'stata-mp');
         fs.writeFileSync(script, '#!/bin/sh\nexit 7\n', { mode: 0o755 });
         expect(await run_console(['--stata', script], { is_tty: false, platform: 'linux' }))
