@@ -196,6 +196,111 @@ function make_default_fs(): RichResolveFs {
 }
 
 /**
+ * How long after a directory last changed its listing may be cached.
+ * A change within the same timestamp tick as an earlier read would not
+ * move the directory's timestamps, so a listing read this soon after a
+ * change is read again next time (as git treats "racily clean" files).
+ * Two seconds covers the coarsest common timestamp (FAT).
+ */
+const DEFAULT_LISTING_SETTLE_MS = 2000;
+
+/** What tells one state of a directory from another. */
+export interface ListingStat {
+    dev: bigint;
+    ino: bigint;
+    mtimeNs: bigint;
+    ctimeNs: bigint;
+}
+
+interface CachedListing {
+    mtime_ns: bigint;
+    ctime_ns: bigint;
+    entries: ReturnType<RichResolveFs['readdirSync']>;
+}
+
+/**
+ * A Node-backed `RichResolveFs` that reuses a directory's listing while
+ * the directory is unchanged, for `sight check`: every target resolves
+ * the calls of the files above it again, and each case-aware resolution
+ * lists every directory on its path, so a large directory would
+ * otherwise be listed once per call per target.
+ *
+ * Each reuse first reads the directory's identity and timestamps, so a
+ * file created, removed or renamed in it since the last listing is seen
+ * at once, as with the plain Node `fs`. Listings are kept per directory
+ * (device and inode), not per path, so several paths to one directory
+ * share one. Existence and stat checks are not cached.
+ *
+ * Not cached at all: a directory with no inode number, and the root of
+ * a volume (its device differs from its parent's), whose timestamps
+ * some filesystems (FAT) never move. The cache relies on the
+ * filesystem moving a directory's timestamps when its entries change.
+ */
+export function create_listing_cache_resolve_fs(
+    options: {
+        settle_ms?: number;
+        /** Reads a directory's identity and timestamps (for tests). */
+        stat?: (dir_path: string) => ListingStat;
+    } = {},
+): RichResolveFs {
+    const settle_ns = BigInt(
+        options.settle_ms ?? DEFAULT_LISTING_SETTLE_MS) * 1_000_000n;
+    const base = make_default_fs();
+    const the_listings = new Map<string, CachedListing>();
+    const read_stat = options.stat ??
+        ((dir_path: string) => node_fs.statSync(dir_path, { bigint: true }));
+    const is_volume_root = (dir_path: string, stat: ListingStat): boolean => {
+        const parent = node_path.dirname(dir_path);
+        if (parent === dir_path) {
+            return true;
+        }
+        try {
+            return read_stat(parent).dev !== stat.dev;
+        } catch {
+            return true;
+        }
+    };
+    return {
+        readdirSync: (p, opts) => {
+            let stat: ListingStat;
+            try {
+                stat = read_stat(p);
+            } catch {
+                return base.readdirSync(p, opts);
+            }
+            if (stat.ino === 0n) {
+                return base.readdirSync(p, opts);
+            }
+            const key = `${stat.dev}:${stat.ino}`;
+            const cached = the_listings.get(key);
+            if (
+                cached !== undefined &&
+                cached.mtime_ns === stat.mtimeNs &&
+                cached.ctime_ns === stat.ctimeNs
+            ) {
+                return cached.entries;
+            }
+            const entries = base.readdirSync(p, opts);
+            const read_ns = BigInt(Date.now()) * 1_000_000n;
+            if (read_ns - stat.mtimeNs >= settle_ns &&
+                read_ns - stat.ctimeNs >= settle_ns &&
+                !is_volume_root(p, stat)) {
+                the_listings.set(key, {
+                    mtime_ns: stat.mtimeNs,
+                    ctime_ns: stat.ctimeNs,
+                    entries,
+                });
+            } else {
+                the_listings.delete(key);
+            }
+            return entries;
+        },
+        existsSync: base.existsSync,
+        statSync: base.statSync,
+    };
+}
+
+/**
  * View `fs` so every path it receives is in canonical form for
  * `platform` (see `./fs-path`). `resolve_path_rich` walks in
  * '/'-separated form; on Windows this hands the filesystem the same
