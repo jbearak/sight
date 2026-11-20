@@ -252,8 +252,10 @@ describe('Working Directory Directive Property Tests', () => {
 
                         expect(result.working_directory).toBeDefined();
                         expect(result.working_directory!.is_workspace_relative).toBe(true);
-                        // The resolved_path should have the leading / stripped
-                        expect(result.working_directory!.resolved_path).toBe(my_path);
+                        // The resolved_path has the leading / stripped, and
+                        // no separator at its end (one spelling per directory)
+                        expect(result.working_directory!.resolved_path)
+                            .toBe(my_path.replace(/\/+$/, ''));
                     }
                 ),
                 { numRuns: 100 }
