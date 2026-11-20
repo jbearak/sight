@@ -1296,7 +1296,11 @@ describe('binary command name', () => {
             join(__dirname, '../../.github/workflows', name), 'utf8');
         const test_runs = (content: string) =>
             content.match(/run: bun test.*|run: bun run test\S*/g) ?? [];
-        expect(test_runs(read('ci.yml'))).toEqual(['run: bun run test:ci']);
+        // Once on Ubuntu and once on Windows.
+        expect(test_runs(read('ci.yml'))).toEqual([
+            'run: bun run test:ci',
+            'run: bun run test:ci',
+        ]);
         expect(test_runs(read('release-build.yml')))
             .toEqual(['run: bun run test:ci']);
         // helper-pty.test.ts runs in its own process, after the rest.
