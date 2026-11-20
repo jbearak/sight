@@ -566,7 +566,8 @@ describe('without_trailing_separators', () => {
         expect(without_trailing_separators('C:/ws/', 'linux')).toBe('C:/ws');
         expect(new DirectiveParser()
             .parse('// sight: cd "C:/"\n', 'file:///ws/main.do')
-            .working_directory?.resolved_path).toBe('C:/');
+            // `C:/` here, `C:\\` where the host's form is the native one.
+            .working_directory?.resolved_path).toMatch(/^C:[\\/]$/);
     });
 
     it('applies both separators and keeps a drive or UNC root on win32', () => {
