@@ -339,7 +339,7 @@ export class AutomationBackend implements StataBackend {
         // the request, so a failure reply (RPC_E_SERVER_DIED: the call
         // may have executed) or a reply lost after the request reached
         // the helper is an outcome Stata may have acted on, also
-        // reported sent (its do-file stays for the usual delay). Only
+        // reported sent (its do-file stays). Only
         // a request the helper never got is reported dropped (its
         // do-file can go now).
         void this.bridge.request('do_async', { cmd: sent }).then((reply) => {

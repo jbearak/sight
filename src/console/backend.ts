@@ -23,7 +23,7 @@ export interface StataBackend {
      * to Stata, false if it is dropped first (Ctrl+C, the end). On
      * Automation, a line Stata may have acted on (the helper answered,
      * even with a failure, or ended after taking it) also reports
-     * true, so its do-file is kept for the usual delay; false means
+     * true, so its do-file is kept; false means
      * Stata surely never got it.
      */
     submit_line(line: string, drawn: boolean, on_sent?: LineSentCallback): void;
