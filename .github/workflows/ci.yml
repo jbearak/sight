@@ -138,6 +138,8 @@ jobs:
         uses: ./.github/actions/setup
         with:
           node-version: "24"
+          # The pinned 1.3.13 hangs on Windows at
+          # send-to-stata-app-temp-file-lifecycle.test.ts.
           bun-version: "1.4.4"
       - name: Tests
         shell: bash
