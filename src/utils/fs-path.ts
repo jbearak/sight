@@ -31,6 +31,7 @@ export type PathPlatform = NodeJS.Platform;
 const LOWER_DRIVE_LETTER_PATTERN = /^([a-z]):/;
 const FORWARD_SLASH_PATTERN = /\//g;
 const BACKSLASH_PATTERN = /\\/g;
+const URI_DRIVE_PATH_PATTERN = /^\/[a-zA-Z]:/;
 
 /** The Node `path` implementation for `platform`. */
 export function path_module_for(
@@ -69,13 +70,33 @@ export function canonical_fs_path(
 /**
  * Convert a URI (string or parsed) to a filesystem path in canonical
  * form. Use this instead of a bare `URI.parse(uri).fsPath`.
+ *
+ * This is `vscode-uri`'s `fsPath` rule with the platform as a
+ * parameter (`fsPath` reads the host's): a `file:` URI with an
+ * authority is a UNC path, `/c:/...` is a drive path, and anything else
+ * is the decoded URI path. The result is then put in canonical form.
  */
 export function uri_to_fs_path(
     uri: string | URI,
     platform: PathPlatform = process.platform,
 ): string {
     const my_uri = typeof uri === 'string' ? URI.parse(uri) : uri;
-    return canonical_fs_path(my_uri.fsPath, platform);
+    const my_path = my_uri.path;
+    let my_fs_path: string;
+    if (
+        my_uri.authority &&
+        my_path.length > 1 &&
+        my_uri.scheme === 'file'
+    ) {
+        my_fs_path = `//${my_uri.authority}${my_path}`;
+    } else if (URI_DRIVE_PATH_PATTERN.test(my_path)) {
+        // `fsPath` lower-cases the drive letter; canonical_fs_path
+        // upper-cases it again on Windows.
+        my_fs_path = my_path[1]!.toLowerCase() + my_path.slice(2);
+    } else {
+        my_fs_path = my_path;
+    }
+    return canonical_fs_path(my_fs_path, platform);
 }
 
 /**

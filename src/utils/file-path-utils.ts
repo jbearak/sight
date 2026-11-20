@@ -168,9 +168,10 @@ export interface RichResolveOptions {
     fs?: RichResolveFs;
     /**
      * Path rules to apply (default: the host's). On `win32` the root
-     * containment check ignores the drive letter's case, and resolved
-     * paths come back in canonical form (`C:\dir\file.do`, see
-     * `./fs-path`). Elsewhere resolved paths use `/`.
+     * containment check ignores the drive letter's case, and both the
+     * paths given to `fs` and the resolved paths returned are in
+     * canonical form (`C:\dir\file.do`, see `./fs-path`). Elsewhere
+     * paths use `/`.
      */
     platform?: PathPlatform;
 }
@@ -190,6 +191,29 @@ function make_default_fs(): RichResolveFs {
             }>,
         existsSync: (p: string) => node_fs.existsSync(p),
         statSync: (p: string) => node_fs.statSync(p),
+    };
+}
+
+/**
+ * View `fs` so every path it receives is in canonical form for
+ * `platform` (see `./fs-path`). `resolve_path_rich` walks in
+ * '/'-separated form; on Windows this hands the filesystem the same
+ * `C:\dir\file.do` form as every other filesystem call in Sight.
+ * Elsewhere `fs` is returned unchanged.
+ */
+function with_canonical_paths(
+    fs: RichResolveFs,
+    platform: PathPlatform,
+): RichResolveFs {
+    if (platform !== 'win32') {
+        return fs;
+    }
+    const to_native = (fs_path: string): string =>
+        canonical_fs_path(fs_path, platform);
+    return {
+        readdirSync: (p, opts) => fs.readdirSync(to_native(p), opts),
+        existsSync: p => fs.existsSync(to_native(p)),
+        statSync: p => fs.statSync(to_native(p)),
     };
 }
 
@@ -281,13 +305,16 @@ export function resolve_path_rich(
     // Tests inject `options.fs`; otherwise fall back to the Node `fs`
     // default. The default reads the real filesystem, so it only runs in
     // production / integration paths, never in the injected-fs unit tests.
-    const the_fs: RichResolveFs = options?.fs ?? make_default_fs();
+    const platform = options?.platform ?? process.platform;
+    const the_fs: RichResolveFs = with_canonical_paths(
+        options?.fs ?? make_default_fs(),
+        platform,
+    );
     const target_kind = options?.target_kind ?? 'file';
     // Directory targets (cd) never get a `.do` extension fallback.
     const try_do_fallback =
         target_kind === 'directory' ? false : (options?.try_do_fallback ?? true);
     const the_roots = options?.workspace_roots ?? [];
-    const platform = options?.platform ?? process.platform;
 
     // Walk in '/'-separated form on every platform (tests use '/' on all
     // platforms). On Windows the drive letter is upper-cased on both the

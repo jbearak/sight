@@ -25,19 +25,34 @@ import { get_workspace_root_for_path } from '../../../src/utils/workspace-roots'
 import type { CdCommand } from '../../../src/types';
 
 /**
- * In-memory filesystem keyed by '/'-separated paths, the form the
- * case-only walk probes on every platform. Map keys are directories;
- * entries are `[name, is_file]`.
+ * In-memory filesystem. Map keys are directories, spelled with `sep`
+ * (the case-only walk hands the filesystem native paths: `\` on
+ * win32, `/` elsewhere); entries are `[name, is_file]`. `probed`
+ * records every path the filesystem was asked about.
  */
 function make_fs(
     tree: Record<string, Array<[string, boolean]>>,
+    sep: '/' | '\\' = '/',
+    probed: string[] = [],
 ): RichResolveFs {
     const the_kinds = new Map<string, boolean>();
     for (const [my_dir, my_entries] of Object.entries(tree)) {
         for (const [my_name, my_is_file] of my_entries) {
-            the_kinds.set(`${my_dir}/${my_name}`, my_is_file);
+            the_kinds.set(`${my_dir}${sep}${my_name}`, my_is_file);
         }
     }
+    const fs = make_tree_fs(tree, the_kinds);
+    return {
+        existsSync: p => (probed.push(p), fs.existsSync(p)),
+        readdirSync: (p, opts) => (probed.push(p), fs.readdirSync(p, opts)),
+        statSync: p => (probed.push(p), fs.statSync(p)),
+    };
+}
+
+function make_tree_fs(
+    tree: Record<string, Array<[string, boolean]>>,
+    the_kinds: Map<string, boolean>,
+): RichResolveFs {
     return {
         existsSync: (p: string) => p in tree || the_kinds.get(p) === true,
         readdirSync: (p: string) =>
@@ -61,9 +76,9 @@ function make_fs(
 }
 
 const WINDOWS_TREE = {
-    'C:/ws': [['helpers', false], ['Raw', false], ['main.do', true]],
-    'C:/ws/helpers': [['Clean.do', true]],
-    'C:/ws/Raw': [],
+    'C:\\ws': [['helpers', false], ['Raw', false], ['main.do', true]],
+    'C:\\ws\\helpers': [['Clean.do', true]],
+    'C:\\ws\\Raw': [],
 } satisfies Record<string, Array<[string, boolean]>>;
 
 describe('canonical_fs_path', () => {
@@ -172,7 +187,7 @@ describe('get_workspace_root_for_path on win32', () => {
 });
 
 describe('resolve_path_rich on win32', () => {
-    const fs = make_fs(WINDOWS_TREE);
+    const fs = make_fs(WINDOWS_TREE, '\\');
 
     it('finds a lower-case-drive path inside an upper-case-drive root', () => {
         const my_outcome = resolve_path_rich('c:\\ws\\helpers\\Clean.do', {
@@ -221,6 +236,19 @@ describe('resolve_path_rich on win32', () => {
         expect(my_outcome).toEqual({ kind: 'exact', path: 'C:\\ws\\main.do' });
     });
 
+    it('hands the filesystem canonical native paths', () => {
+        const the_probed: string[] = [];
+        resolve_path_rich('c:/ws/helpers/clean', {
+            workspace_roots: ['c:\\ws'],
+            fs: make_fs(WINDOWS_TREE, '\\', the_probed),
+            platform: 'win32',
+        });
+        expect(the_probed.length).toBeGreaterThan(0);
+        expect(the_probed.filter(my_path =>
+            !my_path.startsWith('C:\\') || my_path.includes('/'),
+        )).toEqual([]);
+    });
+
     it('keeps "/" in resolved paths on posix', () => {
         const my_posix_fs = make_fs({
             '/ws': [['helpers', false]],
@@ -239,7 +267,7 @@ describe('resolve_path_rich on win32', () => {
 });
 
 describe('resolve_forward_call_rich on win32', () => {
-    const fs = make_fs(WINDOWS_TREE);
+    const fs = make_fs(WINDOWS_TREE, '\\');
 
     it('resolves a case-only relative call from a URI-derived caller dir', () => {
         // Before canonical paths, the caller directory came from
@@ -273,9 +301,9 @@ describe('resolve_forward_call_rich on win32', () => {
     it('uses the workspace-root tier for a caller below the root', () => {
         const my_nested_fs = make_fs({
             ...WINDOWS_TREE,
-            'C:/ws': [...WINDOWS_TREE['C:/ws'], ['sub', false]],
-            'C:/ws/sub': [['a.do', true]],
-        });
+            'C:\\ws': [...WINDOWS_TREE['C:\\ws'], ['sub', false]],
+            'C:\\ws\\sub': [['a.do', true]],
+        }, '\\');
         const my_outcome = resolve_forward_call_rich(
             'helpers/clean',
             'c:\\ws\\sub',
@@ -330,7 +358,7 @@ describe('build_cd_timeline on win32', () => {
             caller_dir: 'c:\\ws',
             cd_commands: [cd('raw', 0)],
             workspace_roots: ['C:\\ws'],
-            fs: make_fs(WINDOWS_TREE),
+            fs: make_fs(WINDOWS_TREE, '\\'),
             platform: 'win32',
         });
         expect(my_result.timeline.entries.map(my_entry => my_entry.wd))
