@@ -350,10 +350,12 @@ describe('Directive Parser Property Tests', () => {
         test('absolute paths are preserved', () => {
             fc.assert(
                 fc.property(
-                    fc.constant(node_path.resolve('/absolute/path/file.do')),
+                    fc.constant('/absolute/path/file.do'),
                     (absolute_path) => {
+                        // Preserved up to the host's normalisation
+                        // (`\absolute\path\file.do` on Windows).
                         const resolved = parser.resolve_path(absolute_path, node_path.resolve('/any/dir'));
-                        expect(resolved).toBe(absolute_path);
+                        expect(resolved).toBe(node_path.normalize(absolute_path));
                     }
                 ),
                 { numRuns: 10 }

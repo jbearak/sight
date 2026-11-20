@@ -198,15 +198,18 @@ describe('Callee Change Caller Revalidation Integration', () => {
         });
 
         it('transitive callers are discovered via BFS', async () => {
-            // Setup relationships manually to test BFS traversal
-            const a_uri = 'file:///A.do';
-            const b_uri = 'file:///B.do';
-            const c_uri = 'file:///C.do';
+            // Setup relationships manually to test BFS traversal. Files
+            // at the filesystem root of this host (`C:\A.do` on Windows),
+            // so the absolute calls resolve back to these URIs.
+            const at_root = (name: string): string => path.resolve('/', name);
+            const a_uri = URI.file(at_root('A.do')).toString();
+            const b_uri = URI.file(at_root('B.do')).toString();
+            const c_uri = URI.file(at_root('C.do')).toString();
             const symbols = create_empty_symbol_table();
 
             // Register B -> C relationship
             (scope_resolver as any).register_forward_call_relationships_from_cache(b_uri, [make_forward_call(
-                '/C.do',
+                at_root('C.do'),
                 true,
                 'include',
                 0,
@@ -215,7 +218,7 @@ describe('Callee Change Caller Revalidation Integration', () => {
 
             // Register A -> B relationship
             (scope_resolver as any).register_forward_call_relationships_from_cache(a_uri, [make_forward_call(
-                '/B.do',
+                at_root('B.do'),
                 true,
                 'include',
                 0,
