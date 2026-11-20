@@ -7,6 +7,9 @@ import {
     schedule_temp_file_cleanup
 } from '../../../client/src/send-to-stata/temp-file';
 
+/** Longer than the 5 s that `expect_removed` may poll for. */
+const TEST_TIMEOUT_MS = 10000;
+
 /**
  * Wait for `file_path` to be removed. The removal follows a timer and
  * an asynchronous unlink, and a loaded Windows host can take well over
@@ -38,7 +41,7 @@ describe('Feature: send-to-stata temp file cleanup', () => {
         expect(my_initial_content).toBe('display "hello"');
 
         await expect_removed(my_file_path);
-    });
+    }, TEST_TIMEOUT_MS);
 
     test('a held file outlives cleanup scheduled before its release', async () => {
         const my_file_path = await create_temp_file('display "held"');
@@ -56,5 +59,5 @@ describe('Feature: send-to-stata temp file cleanup', () => {
 
         schedule_temp_file_cleanup(my_file_path, 10);
         await expect_removed(my_file_path);
-    });
+    }, TEST_TIMEOUT_MS);
 });
