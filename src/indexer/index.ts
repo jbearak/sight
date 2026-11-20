@@ -7,6 +7,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { URI } from 'vscode-uri';
+import { canonical_fs_path, uri_to_fs_path } from '../utils/fs-path';
 import {
     SymbolTable,
     ProgramSymbol,
@@ -356,7 +357,9 @@ export class WorkspaceIndexer {
         this.cancelled = false;
 
         this.ado_paths = ado_paths;
-        this.workspace_roots = workspace_folders.map(f => path.resolve(f));
+        this.workspace_roots = workspace_folders.map(
+            f => canonical_fs_path(path.resolve(f)),
+        );
         this.scan_roots = [
             ...this.workspace_roots,
             ...ado_paths.map(my_path => path.resolve(my_path)),
@@ -616,6 +619,9 @@ export class WorkspaceIndexer {
         generation: number = this.scan_generation
     ): Promise<void> {
         if (!this.is_active_generation(generation) || !this.enabled) return;
+        // One spelling for the path-keyed maps: a scan gives the
+        // configured folder's drive letter, a watcher event the URI's.
+        file_path = canonical_fs_path(file_path);
         const file_uri = URI.file(file_path).toString();
         // Watcher, save, and close updates bypass scan_directory. Enforce
         // the same discovery boundary before any file IO or cap accounting.
@@ -874,6 +880,7 @@ export class WorkspaceIndexer {
         if (!this.enabled) {
             return;
         }
+        file_path = canonical_fs_path(file_path);
         // Cancel any pending update for this file
         const pending = this.pending_updates.get(file_path);
         if (pending) {
@@ -893,6 +900,7 @@ export class WorkspaceIndexer {
      */
     schedule_update(file_path: string): void {
         if (!this.enabled) return;
+        file_path = canonical_fs_path(file_path);
         // Ignore hidden-worktree event bursts before allocating timers.
         // Leave any explicitly opened document's dependency edges intact.
         if (is_hidden_source_path(file_path, this.scan_roots)) return;
@@ -1602,7 +1610,7 @@ export class WorkspaceIndexer {
 
     resolve_program(name: string, referring_uri: string): ProgramSymbol | undefined {
         // 1. Check same directory as referring file
-        const referring_path = URI.parse(referring_uri).fsPath;
+        const referring_path = uri_to_fs_path(referring_uri);
         const current_dir = path.dirname(referring_path);
         const local_ado = path.join(current_dir, `${name}.ado`);
 
@@ -1639,7 +1647,7 @@ export class WorkspaceIndexer {
 
         // Use scope resolver to build complete scope chain
         try {
-            const file_path = URI.parse(file_uri).fsPath;
+            const file_path = uri_to_fs_path(file_uri);
             const content = await fs.promises.readFile(file_path, 'utf8');
             const resolve_config = build_scope_resolver_config(cross_file_config);
             const resolved_scope = await scope_resolver.resolve(

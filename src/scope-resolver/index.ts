@@ -7,6 +7,7 @@
 import * as fs from 'fs';
 import * as path from 'path';
 import { URI } from 'vscode-uri';
+import { canonical_fs_path, uri_to_fs_path } from '../utils/fs-path';
 import { CancellationToken } from 'vscode-languageserver';
 import {
     Directive,
@@ -318,11 +319,11 @@ export class ScopeResolver {
         // Default content provider uses fs
         this.content_provider = content_provider || {
             read_file: async (uri: string) => {
-                const fs_path = URI.parse(uri).fsPath;
+                const fs_path = uri_to_fs_path(uri);
                 return fs.promises.readFile(fs_path, 'utf8');
             },
             exists: async (uri: string) => {
-                const fs_path = URI.parse(uri).fsPath;
+                const fs_path = uri_to_fs_path(uri);
                 try {
                     await fs.promises.access(fs_path);
                     return true;
@@ -331,7 +332,7 @@ export class ScopeResolver {
                 }
             },
             stat: async (uri: string) => {
-                const fs_path = URI.parse(uri).fsPath;
+                const fs_path = uri_to_fs_path(uri);
                 try {
                     const stats = await fs.promises.stat(fs_path);
                     return { mtimeMs: stats.mtimeMs, size: stats.size };
@@ -346,9 +347,12 @@ export class ScopeResolver {
      * Set the workspace roots for resolving workspace-relative working directory paths.
      */
     set_workspace_roots(workspace_roots: string[]): void {
-        // Normalize (resolve) roots for consistent containment checks,
-        // matching how DependencyGraph and ForwardScopeResolver store them.
-        this.workspace_roots = workspace_roots.map(r => path.resolve(r));
+        // Normalize (resolve, canonical form) roots for consistent
+        // containment checks, matching how DependencyGraph and
+        // ForwardScopeResolver store them.
+        this.workspace_roots = workspace_roots.map(
+            r => canonical_fs_path(path.resolve(r)),
+        );
         // Parent paths resolve against the roots.
         this.auto_registration_keys?.clear();
     }
@@ -444,8 +448,8 @@ export class ScopeResolver {
                 type: (my_edge.call_type === 'include'
                     ? 'included-by'
                     : 'done-by') as 'done-by' | 'included-by',
-                path: URI.parse(my_edge.caller_uri).fsPath,
-                raw_path: URI.parse(my_edge.caller_uri).fsPath,
+                path: uri_to_fs_path(my_edge.caller_uri),
+                raw_path: uri_to_fs_path(my_edge.caller_uri),
                 call_site: {
                     type: 'line' as const,
                     value: my_edge.call_site_line + 1,
@@ -832,7 +836,7 @@ export class ScopeResolver {
         requested_path?: string;
         seed_dir?: string;
     } {
-        const child_fs_path = URI.parse(child_uri).fsPath;
+        const child_fs_path = uri_to_fs_path(child_uri);
         const containing_dir = path.dirname(child_fs_path);
         // Join raw_path without .do fallback; rich resolver owns that.
         const joined = this.directive_parser.resolve_path(
@@ -897,7 +901,7 @@ export class ScopeResolver {
             return;
         }
         // Compute display paths relative to the child's directory.
-        const child_dir = path.dirname(URI.parse(child_uri).fsPath);
+        const child_dir = path.dirname(uri_to_fs_path(child_uri));
         const my_req_disp = path.relative(child_dir, raw_path)
             .replace(/\\/g, '/') || raw_path;
         const my_real_disp = path.relative(child_dir, real_path)
@@ -920,7 +924,7 @@ export class ScopeResolver {
             code: StataDiagnosticCode.PATH_CASE_MISMATCH,
             case_mismatch_seed_dir: seed_dir,
             source: {
-                source_file: path.basename(URI.parse(child_uri).fsPath),
+                source_file: path.basename(uri_to_fs_path(child_uri)),
                 original_range: directive.range,
             },
         });
@@ -1072,7 +1076,7 @@ export class ScopeResolver {
      * Extract the filename from a file URI.
      */
     private extract_filename(uri: string): string {
-        const fs_path = URI.parse(uri).fsPath;
+        const fs_path = uri_to_fs_path(uri);
         // Handle both forward slashes and backslashes
         const last_slash_index = Math.max(
             fs_path.lastIndexOf('/'),
@@ -1484,7 +1488,7 @@ export class ScopeResolver {
                 end: { line: chain_line, character: 0 },
             };
             const parent_basename =
-                path.basename(URI.parse(parent_uri).fsPath);
+                path.basename(uri_to_fs_path(parent_uri));
             return {
                 symbols: create_empty_symbol_table(),
                 diagnostics: [{
@@ -1886,7 +1890,7 @@ export class ScopeResolver {
         token?: CancellationToken
     ): Promise<{ working_directory?: string }> {
         if (depth > config.max_backward_depth) {
-            const source_filename = path.basename(URI.parse(current_uri).fsPath);
+            const source_filename = path.basename(uri_to_fs_path(current_uri));
             const default_range = { start: { line: 0, character: 0 }, end: { line: 0, character: 0 } };
             this.warn(`ScopeResolver: Maximum backward depth (${config.max_backward_depth}) exceeded at ${current_uri}`);
 
@@ -1946,7 +1950,7 @@ export class ScopeResolver {
             if (my_rich.outcome_kind === 'case_only') {
                 const my_raw_joined = this.directive_parser.resolve_path(
                     my_directive.raw_path,
-                    path.dirname(URI.parse(current_uri).fsPath),
+                    path.dirname(uri_to_fs_path(current_uri)),
                 );
                 this.emit_backward_case_mismatch(
                     my_raw_joined,
@@ -3164,7 +3168,7 @@ export class ScopeResolver {
             return diagnostics;
         }
 
-        const active_file_basename = path.basename(URI.parse(active_file_uri).fsPath);
+        const active_file_basename = path.basename(uri_to_fs_path(active_file_uri));
 
         // Build a set of directive ranges for quick lookup (to detect if diagnostic is already at a directive)
         const directive_ranges = new Set(
@@ -3432,7 +3436,7 @@ export class ScopeResolver {
         const my_effective_caller_uri =
             caller_uri_override ?? my_call.caller_uri;
         const my_caller_dir = my_effective_caller_uri
-            ? path.dirname(URI.parse(my_effective_caller_uri).fsPath)
+            ? path.dirname(uri_to_fs_path(my_effective_caller_uri))
             : '';
         const my_outcome = resolve_forward_call_rich(
             my_call.raw_path,

@@ -59,8 +59,13 @@ export function start_powershell_bridge(script_path: string): ProcessTransport {
     child.stdin.on('error', () => undefined);
 
     return {
-        send: (line) => {
-            child.stdin.write(`${line}\n`);
+        send: (line, on_written) => {
+            if (!child.stdin.writable) {
+                throw new Error('The helper\'s input is closed.');
+            }
+            child.stdin.write(`${line}\n`, (error) => {
+                on_written(!error);
+            });
         },
         on_line: (callback) => {
             listeners.push(callback);

@@ -285,7 +285,8 @@ describe('check-vsix-release', () => {
             return vsix_path;
         }
 
-        it('passes a matching VSIX and fails a mismatched one', () => {
+        // Windows: builds the VSIX with an external `zip`, not shipped there.
+        it.skipIf(process.platform === 'win32')('passes a matching VSIX and fails a mismatched one', () => {
             const vsix_path = make_vsix('pre.vsix', PRE_RELEASE_MANIFEST);
             expect(run_script('check-vsix-release.ts', [vsix_path, 'v0.17.0'])
                 .status).toBe(0);

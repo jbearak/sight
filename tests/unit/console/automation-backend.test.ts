@@ -20,6 +20,7 @@ import { BROWSE_IN_STATA_NOTE, browse_to_vview, is_browse_command } from '../../
 import type { Bridge, BridgeReply, RequestOptions } from '../../../src/console/automation/bridge';
 import type { LogPoll, LogSource } from '../../../src/console/automation/log-tail';
 import { ModeTracker, brace_balance } from '../../../src/console/automation/mode-tracker';
+import { ConsoleSession } from '../../../src/console/session';
 
 class ManualClock implements AutomationClock {
     now_ms = 0;
@@ -80,6 +81,8 @@ class FakeBridge implements Bridge {
     breaks = 0;
     timeouts = false;
     gone_hresult: string | null = null;
+    /** If set, `do_async` waits for this reply. */
+    do_async_reply: Promise<BridgeReply> | null = null;
     closed = false;
     private end_bridge: (text: string) => void = () => undefined;
     readonly ended = new Promise<string>((resolve) => {
@@ -100,7 +103,7 @@ class FakeBridge implements Bridge {
                 return Promise.resolve({ ok: true, value: { free: this.free } });
             case 'do_async':
                 this.commands.push(String(params.cmd));
-                return Promise.resolve({ ok: true, value: {} });
+                return this.do_async_reply ?? Promise.resolve({ ok: true, value: {} });
             case 'break':
                 this.breaks++;
                 return Promise.resolve({ ok: true, value: {} });
@@ -221,6 +224,67 @@ describe('AutomationBackend', () => {
         expect(the_reports).toEqual(['sent']);
     });
 
+    it('reports a line sent only once Stata accepts it', async () => {
+        const { backend, bridge, advance } = setup();
+        const the_reports: string[] = [];
+        let reply: (value: BridgeReply) => void = () => undefined;
+        bridge.do_async_reply = new Promise<BridgeReply>((resolve) => {
+            reply = resolve;
+        });
+        backend.submit_line('do "a.do"', true, (sent) => {
+            the_reports.push(sent ? 'sent' : 'dropped');
+        });
+        await advance(10);
+        expect(bridge.commands).toEqual(['do "a.do"']);
+        // The helper is blocked: Stata may not have the line yet.
+        expect(the_reports).toEqual([]);
+        reply({ ok: true, value: {} });
+        await advance(10);
+        expect(the_reports).toEqual(['sent']);
+    });
+
+    // The helper calls DoCommandAsync before it replies, so any reply,
+    // or a reply lost after the request reached the helper, is an
+    // outcome Stata may have acted on: a failed call (the server died
+    // during it) may have executed, and its do-file must stay for the
+    // usual cleanup delay. Only a line the helper never got is
+    // reported dropped (its do-file goes at once).
+    for (const [name, the_reply, expected] of [
+        ['a reply lost after the request was written',
+            { ok: false, bridge_gone: true, request_written: true }, 'sent'],
+        ['a request never written',
+            { ok: false, bridge_gone: true }, 'dropped'],
+        ['a failure reply from DoCommandAsync (RPC_E_SERVER_DIED)',
+            { ok: false, failure: { error: 'error', hresult: '0x80010007', detail: {} } },
+            'sent'],
+    ] as const) {
+        it(`reports ${expected} for ${name}`, async () => {
+            const { backend, bridge, advance } = setup();
+            const the_reports: string[] = [];
+            bridge.do_async_reply = Promise.resolve(the_reply);
+            backend.submit_line('do "a.do"', true, (sent) => {
+                the_reports.push(sent ? 'sent' : 'dropped');
+            });
+            bridge.die();
+            await advance(10);
+            expect(the_reports).toEqual([expected]);
+        });
+    }
+
+    it('shows a partial line that grows across polls whole', async () => {
+        const { backend, bridge, log, advance, screen } = setup();
+        bridge.free = false;
+        backend.submit_line('display 1', true);
+        log.append('. display 1\nA');
+        await advance(400);
+        expect(screen().endsWith('A')).toBe(true);
+        log.append('B');
+        await advance(100);
+        log.append('C\n');
+        await advance(100);
+        expect(screen()).toContain('ABC\r\n');
+    });
+
     it('reports queued lines dropped by Ctrl+C or the end of the session', async () => {
         const { backend, bridge, advance } = setup();
         const the_reports: string[] = [];
@@ -232,14 +296,15 @@ describe('AutomationBackend', () => {
         backend.submit_line('display 2', false, report('second'));
         backend.interrupt();
         await advance(100);
-        expect(the_reports).toEqual(['first sent', 'second dropped']);
+        // The drop is at once; `first` is reported when Stata accepts it.
+        expect(the_reports).toEqual(['second dropped', 'first sent']);
         backend.submit_line('display 3', false, report('third'));
         const shutdown = backend.handle().lifecycle.shutdown('user');
         bridge.die();
         await shutdown;
         backend.submit_line('display 4', false, report('fourth'));
         expect(the_reports).toEqual([
-            'first sent', 'second dropped', 'third dropped', 'fourth dropped',
+            'second dropped', 'first sent', 'third dropped', 'fourth dropped',
         ]);
     });
 
@@ -486,6 +551,27 @@ describe('AutomationBackend', () => {
         expect(await backend.exit_status).toBe(1);
     });
 
+    // A send made once the console knows Stata or the helper is gone
+    // never reaches Stata: its do-file can go at once.
+    it('reports a line dropped once COM has reported Stata gone', async () => {
+        const { backend, bridge, advance } = setup();
+        bridge.gone_hresult = '0x800706BA';
+        await advance(1000);
+        const the_reports: boolean[] = [];
+        backend.submit_line('do "a.do"', true, (sent) => the_reports.push(sent));
+        expect(the_reports).toEqual([false]);
+    });
+
+    it('reports a line dropped once the bridge has died', async () => {
+        const { backend, bridge, advance } = setup();
+        bridge.die();
+        await advance(10);
+        const the_reports: boolean[] = [];
+        backend.submit_line('do "a.do"', true, (sent) => the_reports.push(sent));
+        expect(the_reports).toEqual([false]);
+        expect(bridge.commands).toEqual([]);
+    });
+
     it('keeps waiting when Stata stops responding, until Ctrl+C twice', async () => {
         const { backend, bridge, advance, notices } = setup();
         bridge.timeouts = true;
@@ -536,11 +622,146 @@ describe('AutomationBackend', () => {
         expect(sight).toEqual([BROWSE_IN_STATA_NOTE]);
     });
 
-    it('refuses a line with a NUL character', () => {
-        const { backend, bridge, notices } = setup();
+    it('refuses a line with a NUL character, with a fresh prompt', () => {
+        const { backend, bridge, notices, output } = setup();
+        expect(output).toEqual(['. ']);
         backend.submit_line('display "a\0b"', true);
         expect(bridge.commands).toEqual([]);
         expect(notices.length).toBe(1);
+        // The session gave up its prompt with the line: draw another,
+        // or a held send would wait for one forever.
+        expect(output).toEqual(['. ', '. ']);
+    });
+
+    it('draws no second prompt for a refused line that was not drawn', () => {
+        const { backend, notices, output } = setup();
+        expect(output).toEqual(['. ']);
+        // The prompt already given is still on screen.
+        backend.submit_line('display "a\0b"', false);
+        expect(notices.length).toBe(1);
+        expect(output).toEqual(['. ']);
+    });
+
+    it('draws no prompt for a NUL line typed ahead while Stata runs', async () => {
+        const { backend, bridge, notices, output, advance } = setup();
+        bridge.free = false;
+        backend.submit_line('sleep 60000', true);
+        await advance(100);
+        const count = output.length;
+        backend.submit_line('display "a\0b"', false);
+        expect(notices.length).toBe(1);
+        expect(output.length).toBe(count);
+    });
+
+    it('starts its prompt on a new line after output without a newline', async () => {
+        const { backend, bridge, log, advance, screen } = setup();
+        bridge.free = false;
+        backend.submit_line('display _continue "A"', true);
+        log.append('. display _continue "A"\nA');
+        await advance(400);
+        expect(screen().endsWith('A')).toBe(true);
+        bridge.free = true;
+        await advance(300);
+        expect(screen().endsWith('A\r\n. ')).toBe(true);
+    });
+
+    it('shows a quick command\'s last partial line before its prompt', async () => {
+        // Stata is free again before the partial line has been quiet
+        // long enough to show: the prompt must not go first, to be
+        // erased by that line later.
+        const { backend, log, advance, screen } = setup();
+        backend.submit_line('display _continue "A"', true);
+        log.append('. display _continue "A"\nA');
+        await advance(200);
+        expect(screen().endsWith('A\r\n. ')).toBe(true);
+        await advance(2000);
+        expect(screen().endsWith('A\r\n. ')).toBe(true);
+    });
+
+    it('draws the prompt again on its own line after a partial line from the Stata window', async () => {
+        const { log, advance, screen } = setup();
+        await advance(200);
+        log.append('B');
+        await advance(1500);
+        expect(screen()).toBe('. \r\x1b[KB\r\n. ');
+    });
+});
+
+/** The backend under a real session, as the Windows pane runs it. */
+function setup_with_session() {
+    const clock = new ManualClock();
+    const log = new FakeLog();
+    const bridge = new FakeBridge();
+    let session: ConsoleSession | null = null;
+    const backend = new AutomationBackend({
+        bridge,
+        log,
+        clock,
+        start_size: 0,
+        has_vview: true,
+        events: {
+            on_output: (text) => session?.handle_output(text),
+            on_notice: (text) => session?.show_notice(text),
+            on_sight_text: (text) => session?.write_sight_text(text),
+            on_stata_error: () => undefined,
+        },
+    });
+    const the_session = new ConsoleSession({
+        backend,
+        write: () => undefined,
+        columns: () => 80,
+        clock,
+        history: { all: () => [], add: () => undefined },
+        completer: null,
+        color_mode: 'off',
+    });
+    session = the_session;
+    backend.start();
+    const advance = async (ms: number): Promise<void> => {
+        const target_ms = clock.now_ms + ms;
+        for (;;) {
+            const next = clock.next_due(target_ms);
+            if (!next) {
+                break;
+            }
+            clock.take(next[0]);
+            clock.now_ms = next[1].at_ms;
+            next[1].callback();
+            await flush();
+        }
+        clock.now_ms = target_ms;
+        await flush();
+    };
+    return { log, bridge, session: the_session, advance };
+}
+
+describe('AutomationBackend under a session', () => {
+    it('gives a held send to Stata once it is free after output without a newline', async () => {
+        const { log, bridge, session, advance } = setup_with_session();
+        await advance(60);
+        bridge.free = false;
+        const the_reports: boolean[] = [];
+        session.handle_input('display _continue "A"\r');
+        session.send_line('do "editor.do"', (sent) => the_reports.push(sent));
+        log.append('. display _continue "A"\nA');
+        await advance(500);
+        expect(bridge.commands).toEqual(['display _continue "A"']);
+        bridge.free = true;
+        await advance(65000);
+        expect(bridge.commands)
+            .toEqual(['display _continue "A"', 'do "editor.do"']);
+        expect(the_reports).toEqual([true]);
+    });
+
+    it('gives a held send to Stata after it refuses a pasted line with a NUL', async () => {
+        const { bridge, session, advance } = setup_with_session();
+        await advance(60);
+        const the_reports: boolean[] = [];
+        session.handle_input('\x1b[200~display "a\0b"\x1b[201~\r');
+        session.send_line('do "editor.do"', (sent) => the_reports.push(sent));
+        await advance(1000);
+        expect(bridge.commands).toEqual(['do "editor.do"']);
+        expect(the_reports).toEqual([true]);
     });
 });
 

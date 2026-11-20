@@ -53,6 +53,13 @@ describe('issue #294 — bounded cross-file caches', () => {
     };
     const to_uri = (file_path: string): string =>
         URI.file(file_path).toString();
+    /**
+     * URI of a fixture path that exists only in a content provider,
+     * absolute on this host (`C:\ws\...` on Windows) so calls between
+     * fixtures resolve back to the same URIs.
+     */
+    const virtual_uri = (posix_path: string): string =>
+        to_uri(path.resolve(posix_path));
 
     /** Do any of the file's own forward-call sites carry this global? */
     const site_has_global = (r: ResolvedScope, name: string): boolean =>
@@ -480,10 +487,10 @@ describe('issue #294 — bounded cross-file caches', () => {
             const forward = new ForwardScopeResolver(scope);
             scope.set_forward_scope_resolver(forward);
 
-            const x_uri = 'file:///ws/x.do';
-            const a_uri = 'file:///ws/a.do';
-            const root1_uri = 'file:///ws/root1.do';
-            const root2_uri = 'file:///ws/root2.do';
+            const x_uri = virtual_uri('/ws/x.do');
+            const a_uri = virtual_uri('/ws/a.do');
+            const root1_uri = virtual_uri('/ws/root1.do');
+            const root2_uri = virtual_uri('/ws/root2.do');
             the_contents.set(a_uri, 'do "x.do"\nglobal a_g 1\n');
             const root_content = 'do "a.do"\ndisplay "x"\n';
             the_contents.set(root1_uri, root_content);
@@ -550,10 +557,10 @@ describe('issue #294 — bounded cross-file caches', () => {
             const forward = new ForwardScopeResolver(scope);
             scope.set_forward_scope_resolver(forward);
 
-            const leaf_uri = 'file:///ws/leaf.do';
-            const mid_uri = 'file:///ws/mid.do';
-            const root_uri = 'file:///ws/root.do';
-            const unrelated_uri = 'file:///ws/unrelated.do';
+            const leaf_uri = virtual_uri('/ws/leaf.do');
+            const mid_uri = virtual_uri('/ws/mid.do');
+            const root_uri = virtual_uri('/ws/root.do');
+            const unrelated_uri = virtual_uri('/ws/unrelated.do');
             the_contents.set(leaf_uri, 'global g_leaf 1\n');
             the_contents.set(mid_uri, 'do "leaf.do"\nglobal g_mid 1\n');
             the_contents.set(root_uri, 'do "mid.do"\n');

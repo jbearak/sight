@@ -16,6 +16,7 @@ import {
 import { send_to_stata_app } from './applescript.js';
 import { send_to_terminal } from './terminal.js';
 import {
+    send_to_console_pane_terminal,
     send_to_stata_terminal,
     SendCancelledError,
 } from './stata-terminal-manager.js';
@@ -171,7 +172,16 @@ export async function execute_cd_command(
                 return;
             }
         } else {
-            await send_to_terminal('do', temp_file_path);
+            // A Stata pane takes it through its queue; any other
+            // terminal, a Perch session's too, gets it typed.
+            const pane_queued = send_to_console_pane_terminal(
+                vscode.window.activeTerminal, 'do', temp_file_path
+            );
+            if (pane_queued === null) {
+                await send_to_terminal('do', temp_file_path);
+            } else {
+                is_queued = pane_queued;
+            }
         }
     } catch (my_error) {
         if (!(my_error instanceof SendCancelledError)) {

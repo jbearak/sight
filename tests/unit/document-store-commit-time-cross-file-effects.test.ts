@@ -19,7 +19,12 @@ import { ScopeResolver } from '../../src/scope-resolver';
 import { StataParser } from '../../src/parser';
 import type { ContentProvider } from '../../src/types';
 import { URI } from 'vscode-uri';
+import * as path from 'path';
 import { wait_until } from '../wait-until';
+
+// Fixture paths are absolute on this host (`C:\tmp\...` on Windows), as
+// the server's own paths are.
+const fixture = (posix_path: string): string => path.resolve(posix_path);
 
 function make_content_provider(
     content_by_uri: Map<string, string>
@@ -78,9 +83,9 @@ function make_harness(content_by_uri: Map<string, string>) {
 
 describe('DocumentStore commit-time cross-file effects (issue #184)', () => {
     it('close racing a directive-adding reparse leaves no stale edge or overlay entry', async () => {
-        const parent_path = '/tmp/sight-184-stale-parent.do';
+        const parent_path = fixture('/tmp/sight-184-stale-parent.do');
         const parent_uri = URI.file(parent_path).toString();
-        const child_uri = URI.file('/tmp/sight-184-stale-child.do').toString();
+        const child_uri = URI.file(fixture('/tmp/sight-184-stale-child.do')).toString();
         const content_by_uri = new Map<string, string>([
             [parent_uri, 'display 0\n'],
         ]);
@@ -111,9 +116,9 @@ describe('DocumentStore commit-time cross-file effects (issue #184)', () => {
     });
 
     it('close racing a directive-removing reparse preserves committed edges (A -> B -> C)', async () => {
-        const c_path = '/tmp/sight-184-chain-c.do';
-        const b_path = '/tmp/sight-184-chain-b.do';
-        const a_path = '/tmp/sight-184-chain-a.do';
+        const c_path = fixture('/tmp/sight-184-chain-c.do');
+        const b_path = fixture('/tmp/sight-184-chain-b.do');
+        const a_path = fixture('/tmp/sight-184-chain-a.do');
         const c_uri = URI.file(c_path).toString();
         const b_uri = URI.file(b_path).toString();
         const a_uri = URI.file(a_path).toString();
@@ -171,8 +176,8 @@ describe('DocumentStore commit-time cross-file effects (issue #184)', () => {
     });
 
     it('registers auto-discovered parents at commit (no explicit directives)', async () => {
-        const parent_uri = URI.file('/tmp/sight-184-auto-parent.do').toString();
-        const child_path = '/tmp/sight-184-auto-child.do';
+        const parent_uri = URI.file(fixture('/tmp/sight-184-auto-parent.do')).toString();
+        const child_path = fixture('/tmp/sight-184-auto-child.do');
         const child_uri = URI.file(child_path).toString();
         const content_by_uri = new Map<string, string>([
             [parent_uri, 'do sight-184-auto-child.do\n'],
@@ -203,9 +208,9 @@ describe('DocumentStore commit-time cross-file effects (issue #184)', () => {
 
     it('a standalone commit registers no backward edges; removing the marker restores them (issue #208)', async () => {
         const parent_uri =
-            URI.file('/tmp/sight-208-auto-parent.do').toString();
+            URI.file(fixture('/tmp/sight-208-auto-parent.do')).toString();
         const child_uri =
-            URI.file('/tmp/sight-208-auto-child.do').toString();
+            URI.file(fixture('/tmp/sight-208-auto-child.do')).toString();
         const content_by_uri = new Map<string, string>([
             [parent_uri, 'do sight-208-auto-child.do\n'],
         ]);
@@ -248,10 +253,10 @@ describe('DocumentStore commit-time cross-file effects (issue #184)', () => {
         'parser-failed commits still recover standalone auto-edge toggles',
         async () => {
             const parent_uri =
-                URI.file('/tmp/sight-208-failed-auto-parent.do').toString();
+                URI.file(fixture('/tmp/sight-208-failed-auto-parent.do')).toString();
             const child_raw_path = 'sight-208-failed-auto-child.do';
             const child_uri =
-                URI.file(`/tmp/${child_raw_path}`).toString();
+                URI.file(fixture(`/tmp/${child_raw_path}`)).toString();
             const content_by_uri = new Map<string, string>([
                 [parent_uri, `do ${child_raw_path}\n`],
             ]);
@@ -296,8 +301,8 @@ describe('DocumentStore commit-time cross-file effects (issue #184)', () => {
         // A file with its own @lsp-cd never runs the WD probe, so before the
         // fix only the RAW parse-time sync ran and auto-discovered parents
         // were never registered from the document-store path.
-        const parent_uri = URI.file('/tmp/sight-184-owncd-parent.do').toString();
-        const child_path = '/tmp/sight-184-owncd-child.do';
+        const parent_uri = URI.file(fixture('/tmp/sight-184-owncd-parent.do')).toString();
+        const child_path = fixture('/tmp/sight-184-owncd-child.do');
         const child_uri = URI.file(child_path).toString();
         const content_by_uri = new Map<string, string>([
             [parent_uri, 'do sight-184-owncd-child.do\n'],
@@ -330,9 +335,9 @@ describe('DocumentStore commit-time cross-file effects (issue #184)', () => {
     });
 
     it('the first full resolution after a directory probe preserves committed edges', async () => {
-        const parent_path = '/tmp/sight-184-probe-parent.do';
+        const parent_path = fixture('/tmp/sight-184-probe-parent.do');
         const parent_uri = URI.file(parent_path).toString();
-        const child_uri = URI.file('/tmp/sight-184-probe-child.do').toString();
+        const child_uri = URI.file(fixture('/tmp/sight-184-probe-child.do')).toString();
         const child_content =
             `// @lsp-done-by: "${parent_path}"\ndisplay 1\n`;
         const content_by_uri = new Map<string, string>([
@@ -363,9 +368,9 @@ describe('DocumentStore commit-time cross-file effects (issue #184)', () => {
     });
 
     it('interface-change invalidation followed by a default resolve restores edges', async () => {
-        const parent_path = '/tmp/sight-184-inval-parent.do';
+        const parent_path = fixture('/tmp/sight-184-inval-parent.do');
         const parent_uri = URI.file(parent_path).toString();
-        const child_uri = URI.file('/tmp/sight-184-inval-child.do').toString();
+        const child_uri = URI.file(fixture('/tmp/sight-184-inval-child.do')).toString();
         const child_content =
             `// @lsp-done-by: "${parent_path}"\ndisplay 1\n`;
         const content_by_uri = new Map<string, string>([
@@ -400,9 +405,9 @@ describe('DocumentStore commit-time cross-file effects (issue #184)', () => {
     });
 
     it('dispose blocks staged effect application from an in-flight parse', async () => {
-        const parent_path = '/tmp/sight-184-dispose-parent.do';
+        const parent_path = fixture('/tmp/sight-184-dispose-parent.do');
         const parent_uri = URI.file(parent_path).toString();
-        const child_uri = URI.file('/tmp/sight-184-dispose-child.do').toString();
+        const child_uri = URI.file(fixture('/tmp/sight-184-dispose-child.do')).toString();
         const content_by_uri = new Map<string, string>([
             [parent_uri, 'display 0\n'],
         ]);
@@ -433,11 +438,11 @@ describe('DocumentStore commit-time cross-file effects (issue #184)', () => {
 
 describe('ScopeResolver non-registering probe mode (issue #184)', () => {
     it('register_dependencies: false skips only the top-level registration', async () => {
-        const grandparent_path = '/tmp/sight-184-flag-grandparent.do';
-        const parent_path = '/tmp/sight-184-flag-parent.do';
+        const grandparent_path = fixture('/tmp/sight-184-flag-grandparent.do');
+        const parent_path = fixture('/tmp/sight-184-flag-parent.do');
         const grandparent_uri = URI.file(grandparent_path).toString();
         const parent_uri = URI.file(parent_path).toString();
-        const child_uri = URI.file('/tmp/sight-184-flag-child.do').toString();
+        const child_uri = URI.file(fixture('/tmp/sight-184-flag-child.do')).toString();
         const child_content =
             `// @lsp-done-by: "${parent_path}"\ndisplay 1\n`;
         const content_by_uri = new Map<string, string>([
@@ -482,11 +487,11 @@ describe('ScopeResolver non-registering probe mode (issue #184)', () => {
 
 describe('ScopeResolver disk re-sync on close (issue #184)', () => {
     it('converges edges to disk state after a discarded save-then-close reparse', async () => {
-        const old_parent_path = '/tmp/sight-184-resync-old.do';
-        const new_parent_path = '/tmp/sight-184-resync-new.do';
+        const old_parent_path = fixture('/tmp/sight-184-resync-old.do');
+        const new_parent_path = fixture('/tmp/sight-184-resync-new.do');
         const old_parent_uri = URI.file(old_parent_path).toString();
         const new_parent_uri = URI.file(new_parent_path).toString();
-        const child_uri = URI.file('/tmp/sight-184-resync-child.do').toString();
+        const child_uri = URI.file(fixture('/tmp/sight-184-resync-child.do')).toString();
         const content_by_uri = new Map<string, string>([
             [old_parent_uri, 'display 0\n'],
             [new_parent_uri, 'display 0\n'],
@@ -530,10 +535,10 @@ describe('ScopeResolver disk re-sync on close (issue #184)', () => {
     });
 
     it('clears edges when the file no longer exists on disk', async () => {
-        const parent_path = '/tmp/sight-184-resync-gone-parent.do';
+        const parent_path = fixture('/tmp/sight-184-resync-gone-parent.do');
         const parent_uri = URI.file(parent_path).toString();
         const child_uri =
-            URI.file('/tmp/sight-184-resync-gone-child.do').toString();
+            URI.file(fixture('/tmp/sight-184-resync-gone-child.do')).toString();
         const content_by_uri = new Map<string, string>([
             [parent_uri, 'display 0\n'],
         ]);
@@ -572,10 +577,10 @@ describe('ScopeResolver disk re-sync on close (issue #184)', () => {
         // miss a reopen that lands while the read is in flight and
         // clobber the reopened buffer's registration (#287 round-3
         // review). Pin the ordering with a read the test releases.
-        const disk_parent_path = '/tmp/sight-184-resync-order-disk.do';
+        const disk_parent_path = fixture('/tmp/sight-184-resync-order-disk.do');
         const disk_parent_uri = URI.file(disk_parent_path).toString();
         const child_uri =
-            URI.file('/tmp/sight-184-resync-order-child.do').toString();
+            URI.file(fixture('/tmp/sight-184-resync-order-child.do')).toString();
         const child_disk_content =
             `// @lsp-done-by: "${disk_parent_path}"\ndisplay 1\n`;
         let release_read: ((content: string) => void) | undefined;
@@ -621,12 +626,12 @@ describe('ScopeResolver disk re-sync on close (issue #184)', () => {
     });
 
     it('skips applying when should_apply reports a reopen', async () => {
-        const disk_parent_path = '/tmp/sight-184-resync-guard-disk.do';
-        const buffer_parent_path = '/tmp/sight-184-resync-guard-buf.do';
+        const disk_parent_path = fixture('/tmp/sight-184-resync-guard-disk.do');
+        const buffer_parent_path = fixture('/tmp/sight-184-resync-guard-buf.do');
         const disk_parent_uri = URI.file(disk_parent_path).toString();
         const buffer_parent_uri = URI.file(buffer_parent_path).toString();
         const child_uri =
-            URI.file('/tmp/sight-184-resync-guard-child.do').toString();
+            URI.file(fixture('/tmp/sight-184-resync-guard-child.do')).toString();
         const content_by_uri = new Map<string, string>([
             [disk_parent_uri, 'display 0\n'],
             [buffer_parent_uri, 'display 0\n'],

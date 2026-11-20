@@ -121,6 +121,30 @@ jobs:
       - name: Tests
         run: bun run test:ci
 
+  verify-windows:
+    # The same tests on a Windows host. Path handling differs there
+    # (drive letters, separators, no symlinks without privilege), and
+    # nothing else in CI runs the suite on Windows.
+    name: Tests on Windows
+    needs: changes
+    if: >-
+      needs.changes.outputs.server == 'true' ||
+      needs.changes.outputs.client == 'true'
+    runs-on: windows-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
+      - name: Setup
+        uses: ./.github/actions/setup
+        with:
+          node-version: "24"
+          # The pinned 1.3.13 hangs on Windows at
+          # send-to-stata-app-temp-file-lifecycle.test.ts.
+          bun-version: "1.4.4"
+      - name: Tests
+        shell: bash
+        run: bun run test:ci
+
   data-browser-bench:
     # Report-only: numbers go to the job summary and never fail CI. Runs
     # the data-browser benchmark at 10% of the full fixture sizes with

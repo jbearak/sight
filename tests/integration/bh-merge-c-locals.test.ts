@@ -22,6 +22,7 @@ import { DiagnosticsProvider } from '../../src/providers/diagnostics';
 import { DocumentDebounceManager } from '../../src/utils/debounce-manager';
 import * as path from 'path';
 import * as fs from 'fs';
+import { URI } from 'vscode-uri';
 
 function create_test_config() {
     return {
@@ -40,7 +41,7 @@ function create_test_config() {
 describe('bh_merge c_locals integration test', () => {
     const fixture_root = path.join(process.cwd(), 'tests/fixtures/c-locals');
     const survey_path = path.join(fixture_root, 'subdir', 'survey.do');
-    const survey_uri = `file://${survey_path}`;
+    const survey_uri = URI.file(survey_path).toString();
     
     let indexer: WorkspaceIndexer;
     let document_store: DocumentStore;

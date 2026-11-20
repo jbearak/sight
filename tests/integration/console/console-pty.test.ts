@@ -90,7 +90,9 @@ async function at_prompt(driven: Driven, prompt = /(?:^|\n)\.$/): Promise<void> 
     await sleep(120);
 }
 
-const available = pty_available();
+// The pseudo-terminal console is the macOS and Linux backend; on
+// Windows the console drives Stata's Automation and refuses --stata.
+const available = process.platform !== 'win32' && pty_available();
 
 describe.skipIf(!available)('sight console in a pseudo-terminal', () => {
     it('runs commands, colors errors, and passes the exit code through', async () => {
@@ -277,7 +279,9 @@ describe('sight console under Node', () => {
         fs.rmSync(bundle_dir, { recursive: true, force: true });
     });
 
-    it.skipIf(!node)('passes piped input straight to Stata', async () => {
+    // On Windows the console drives Stata's Automation and refuses
+    // --stata, so there is no Stata to pipe to.
+    it.skipIf(!node || process.platform === 'win32')('passes piped input straight to Stata', async () => {
         const proc = Bun.spawn([node ?? 'node', bundle_path, 'console', '--stata', FAKE_STATA], {
             stdin: new TextEncoder().encode('display "piped"\nexitcode 5\n'),
             stdout: 'pipe',

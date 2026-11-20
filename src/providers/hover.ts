@@ -22,6 +22,7 @@ import {
     CancellationToken,
 } from 'vscode-languageserver';
 import { URI } from 'vscode-uri';
+import { uri_to_fs_path } from '../utils/fs-path';
 import * as path from 'path';
 import { DocumentState } from '../document-store';
 import { CommandDatabase } from '../command-database';
@@ -2611,7 +2612,7 @@ export class HoverProvider {
      */
     private normalize_file_path(uri_or_path: string): string | null {
         if (uri_or_path.startsWith('file://')) {
-            return URI.parse(uri_or_path).fsPath;
+            return uri_to_fs_path(uri_or_path);
         }
         if (this.looks_like_uri_scheme(uri_or_path)) {
             return null;

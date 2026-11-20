@@ -10,6 +10,12 @@ import {
     DidChangeConfigurationNotification,
     DidChangeWatchedFilesNotification,
     Connection,
+    type ConnectionOptions,
+    type MessageWriter,
+    IPCMessageReader,
+    IPCMessageWriter,
+    StreamMessageReader,
+    StreamMessageWriter,
     WatchKind,
     type Disposable,
     type FileSystemWatcher,
@@ -42,10 +48,12 @@ import { DocumentDebounceManager } from './utils/debounce-manager';
 import { validate_comment_formatting_config } from './utils/config-validator';
 import { error_message } from './utils/error-message';
 import { RenameHandler } from './utils/file-rename-handler';
+import { ClientUriSpelling } from './utils/client-uri-spelling';
 import { Logger } from './utils/logger';
 import { is_resolvable_static_call } from './utils/file-path-utils';
 import { DependencyGraph } from './dependency-graph';
 import { URI } from 'vscode-uri';
+import { canonical_fs_path, uri_to_fs_path } from './utils/fs-path';
 import * as fs from 'fs';
 import * as path from 'path';
 import {
@@ -115,16 +123,74 @@ export interface ServerOptions {
 }
 
 /**
- * Create an LSP connection based on transport type.
+ * Create an LSP connection based on transport type. Incoming `file:`
+ * URIs are put in one spelling before any handler runs, and outgoing
+ * ones go back in the client's own spelling for a document it opened
+ * (see utils/client-uri-spelling).
  */
 function create_transport_connection(transport: TransportType): Connection {
-    if (transport === 'stdio') {
-        // Use stdio transport for standalone usage
-        return createConnection(process.stdin, process.stdout);
-    } else {
-        // Use Node IPC transport for VS Code
-        return createConnection(ProposedFeatures.all);
+    const client_uri_spelling = new ClientUriSpelling();
+    let shutdown_received = false;
+    const connection_options: ConnectionOptions = {
+        messageStrategy: {
+            handleMessage: (message, next) => {
+                if (
+                    'method' in message && message.method === 'shutdown'
+                    // A request; a notification is not a shutdown.
+                    && 'id' in message
+                ) {
+                    shutdown_received = true;
+                }
+                client_uri_spelling.handle_incoming(message);
+                next(message);
+            },
+        },
+    };
+    const restore_spellings = <T extends MessageWriter>(writer: T): T => {
+        const write = writer.write.bind(writer);
+        writer.write = (message) =>
+            write(client_uri_spelling.handle_outgoing(message));
+        return writer;
+    };
+    // The Node IPC entry point (server.ts) lets the command line pick
+    // another transport, as the library does: `--stdio`, a socket or
+    // a pipe.
+    const has_ipc_flag = process.argv.includes('--node-ipc');
+    const use_stdio = transport === 'stdio'
+        || (!has_ipc_flag && process.argv.includes('--stdio'));
+    if (use_stdio) {
+        // Given a reader and a writer, the library no longer exits
+        // when the client closes the input, as it does for a bare
+        // stream; do that here.
+        const exit_with_input = (): void => {
+            process.exit(shutdown_received ? 0 : 1);
+        };
+        process.stdin.on('end', exit_with_input);
+        process.stdin.on('close', exit_with_input);
+        const reader = new StreamMessageReader(process.stdin);
+        const writer = restore_spellings(
+            new StreamMessageWriter(process.stdout)
+        );
+        return transport === 'stdio'
+            // Standalone usage
+            ? createConnection(reader, writer, connection_options)
+            : createConnection(
+                ProposedFeatures.all, reader, writer, connection_options
+            );
     }
+    if (!has_ipc_flag) {
+        // A socket or a pipe named on the command line (or nothing,
+        // which the library reports). Replies there keep the
+        // server's spelling.
+        return createConnection(ProposedFeatures.all, connection_options);
+    }
+    // Node IPC transport for VS Code
+    return createConnection(
+        ProposedFeatures.all,
+        new IPCMessageReader(process),
+        restore_spellings(new IPCMessageWriter(process)),
+        connection_options
+    );
 }
 
 export interface NonCapabilitySettingsSources {
@@ -522,7 +588,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
 
     /** Match workspace descendants and the exact ancestor watch locations. */
     function is_relevant_gitignore(uri: string): boolean {
-        const directory = path.dirname(URI.parse(uri).fsPath);
+        const directory = path.dirname(uri_to_fs_path(uri));
         return gitignore_watch_directories.some((watch) => {
             const relative = path.relative(watch.directory, directory);
             return relative === '' || (watch.recursive &&
@@ -1521,13 +1587,13 @@ export async function create_server(options: ServerOptions): Promise<void> {
                         return open_doc.getText();
                     }
                     // Fall back to disk for closed files (Req 11.2)
-                    const fs_path = URI.parse(uri).fsPath;
+                    const fs_path = uri_to_fs_path(uri);
                     return fs.promises.readFile(fs_path, 'utf8');
                 },
                 exists: async (uri: string) => {
                     // Prefer TextDocuments for open files (Req 11.1)
                     if (documents.get(uri)) return true;
-                    const fs_path = URI.parse(uri).fsPath;
+                    const fs_path = uri_to_fs_path(uri);
                     try {
                         await fs.promises.access(fs_path);
                         return true;
@@ -1612,7 +1678,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
                 async (folders) => {
                     let folder_paths = (folders ?? [])
                         .map((my_folder) =>
-                            URI.parse(my_folder.uri).fsPath
+                            uri_to_fs_path(my_folder.uri)
                         )
                         .filter(
                             (my_path): my_path is string =>
@@ -1623,8 +1689,8 @@ export async function create_server(options: ServerOptions): Promise<void> {
                     // is empty (common with minimal CLI-based LSP clients)
                     if (folder_paths.length === 0 && init_root_uri) {
                         const root_path = init_root_uri.startsWith('file://')
-                            ? URI.parse(init_root_uri).fsPath
-                            : init_root_uri;
+                            ? uri_to_fs_path(init_root_uri)
+                            : canonical_fs_path(init_root_uri);
                         if (root_path) {
                             folder_paths = [root_path];
                             connection.console.log(
@@ -1659,7 +1725,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
                             .getWorkspaceFolders();
                         const folder_paths = (folders ?? [])
                             .map((my_folder) =>
-                                URI.parse(my_folder.uri).fsPath
+                                uri_to_fs_path(my_folder.uri)
                             )
                             .filter(
                                 (my_path): my_path is string =>
@@ -1880,7 +1946,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
             // closed buffer's caller edges. Remove them synchronously, before
             // any reopen can install the new buffer's relationships.
             if (workspace_indexer?.is_gitignored(
-                URI.parse(e.document.uri).fsPath
+                uri_to_fs_path(e.document.uri)
             )) {
                 dependency_graph.remove_caller(e.document.uri);
             }
@@ -1893,7 +1959,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
         // revalidation via on_graph_change if the edge set actually changed).
         if (dependency_graph && workspace_indexer) {
             workspace_indexer.schedule_update(
-                URI.parse(e.document.uri).fsPath
+                uri_to_fs_path(e.document.uri)
             );
         }
     });
@@ -1912,7 +1978,7 @@ export async function create_server(options: ServerOptions): Promise<void> {
     connection.onDidChangeWatchedFiles(
         create_did_change_watched_files_handler(
             handler_deps,
-            (uri: string) => URI.parse(uri).fsPath,
+            (uri: string) => uri_to_fs_path(uri),
             async (uri: string) => {
                 // Trigger caller revalidation when a file changes on disk
                 if (scope_resolver) {

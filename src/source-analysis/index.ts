@@ -1,5 +1,5 @@
 import * as path from 'path';
-import { URI } from 'vscode-uri';
+import { uri_to_fs_path } from '../utils/fs-path';
 import { SemanticAnalyzer, type AnalysisResult } from '../analyzer';
 import { DirectiveParser } from '../directive-parser';
 import { StataLexer } from '../lexer';
@@ -93,7 +93,7 @@ export function prepare_forward_calls(
 ): ForwardCall[] {
     let command_calls = options.command_calls;
     try {
-        const caller_dir = path.dirname(URI.parse(options.uri).fsPath);
+        const caller_dir = path.dirname(uri_to_fs_path(options.uri));
         const { timeline } = build_cd_timeline({
             starting_wd: options.working_directory,
             caller_dir,

@@ -15,6 +15,7 @@ import { ContextTracker } from '../../src/context-tracker';
 import * as fs from 'fs';
 import * as path from 'path';
 import * as os from 'os';
+import { URI } from 'vscode-uri';
 
 /**
  * Helper to create a minimal document state for testing.
@@ -33,7 +34,7 @@ function create_test_document(
     }
 
     return {
-        uri: uri || `file://${process.cwd()}/test.do`,
+        uri: uri || URI.file(path.join(process.cwd(), 'test.do')).toString(),
         version: 1,
         content,
         tokens: [],
@@ -305,7 +306,7 @@ describe('Definition Provider - Backward Compatibility', () => {
             const my_doc = create_test_document(
                 my_content, 
                 undefined, 
-                `file://${path.join(temp_dir, 'test.do')}`
+                URI.file(path.join(temp_dir, 'test.do')).toString()
             );
             
             const my_definition = await definition_provider.get_definition(
@@ -325,7 +326,7 @@ describe('Definition Provider - Backward Compatibility', () => {
             const my_doc = create_test_document(
                 my_content, 
                 undefined, 
-                `file://${path.join(temp_dir, 'test.do')}`
+                URI.file(path.join(temp_dir, 'test.do')).toString()
             );
             
             const my_definition = await definition_provider.get_definition(
@@ -345,7 +346,7 @@ describe('Definition Provider - Backward Compatibility', () => {
             const my_doc = create_test_document(
                 my_content, 
                 undefined, 
-                `file://${path.join(temp_dir, 'test.do')}`
+                URI.file(path.join(temp_dir, 'test.do')).toString()
             );
             
             const my_definition = await definition_provider.get_definition(

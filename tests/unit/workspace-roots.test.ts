@@ -28,7 +28,7 @@ describe('get_workspace_root_for_path', () => {
     test('falls back to first root when file is outside all roots', () => {
         const roots = ['/workspace/a', '/workspace/b'];
         expect(get_workspace_root_for_path(roots, '/other/path/file.do'))
-            .toBe('/workspace/a');
+            .toBe(path.resolve('/workspace/a'));
     });
 
     test('selects the correct root in a two-root workspace', () => {
@@ -77,7 +77,7 @@ describe('get_workspace_root_for_uri', () => {
     test('falls back to first root for invalid URI', () => {
         const roots = ['/workspace/a'];
         expect(get_workspace_root_for_uri(roots, 'not-a-valid-uri'))
-            .toBe('/workspace/a');
+            .toBe(path.resolve('/workspace/a'));
     });
 });
 

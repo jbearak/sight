@@ -62,8 +62,26 @@ class FakeTransport implements BridgeTransport {
     readonly ended = new Promise<string>((resolve) => {
         this.finish = resolve;
     });
-    send(line: string): void {
+    /** Whether the next write fails; null leaves it unsettled. */
+    write_result: boolean | null = true;
+    is_closed = false;
+    private the_unsettled: Array<(written: boolean) => void> = [];
+    send(line: string, on_written: (written: boolean) => void): void {
+        if (this.is_closed) {
+            throw new Error('closed');
+        }
         this.sent.push(JSON.parse(line) as Record<string, unknown>);
+        if (this.write_result === null) {
+            this.the_unsettled.push(on_written);
+        } else {
+            on_written(this.write_result);
+        }
+    }
+    /** Settle the writes left unsettled, as the stream would later. */
+    settle_writes(written: boolean): void {
+        for (const my_settle of this.the_unsettled.splice(0)) {
+            my_settle(written);
+        }
     }
     on_line(callback: (line: string) => void): void {
         this.listener = callback;
@@ -117,7 +135,70 @@ describe('BridgeClient', () => {
         const client = new BridgeClient(transport);
         const pending = client.request('connect');
         transport.kill();
+        // It was written: the helper may have acted on it.
+        expect(await pending).toEqual({
+            ok: false, bridge_gone: true, request_written: true,
+        });
+    });
+
+    it('says a request made after the helper ended was never written', async () => {
+        const transport = new FakeTransport();
+        const client = new BridgeClient(transport);
+        transport.kill();
+        await client.ended;
+        expect(await client.request('do_async', { cmd: 'x' }))
+            .toEqual({ ok: false, bridge_gone: true });
+        expect(transport.sent).toEqual([]);
+    });
+
+    it('says a request was never written when its input is closed', async () => {
+        const transport = new FakeTransport();
+        const client = new BridgeClient(transport);
+        transport.is_closed = true;
+        const pending = client.request('do_async', { cmd: 'x' });
+        transport.kill();
         expect(await pending).toEqual({ ok: false, bridge_gone: true });
+    });
+
+    it('waits for a write to fail before answering at the helper\'s end', async () => {
+        // A write to a helper just killed fails after the helper is
+        // seen to end: the request never reached it.
+        const transport = new FakeTransport();
+        const client = new BridgeClient(transport);
+        transport.write_result = null;
+        const pending = client.request('do_async', { cmd: 'x' });
+        transport.kill();
+        await client.ended;
+        transport.settle_writes(false);
+        expect(await pending).toEqual({ ok: false, bridge_gone: true });
+    });
+
+    it('answers a failed write as never written at once, with the helper alive', async () => {
+        const transport = new FakeTransport();
+        const client = new BridgeClient(transport);
+        transport.write_result = null;
+        let reply: unknown = 'pending';
+        void client.request('do_async', { cmd: 'x' }).then((value) => {
+            reply = value;
+        });
+        transport.settle_writes(false);
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        expect(reply).toEqual({ ok: false, bridge_gone: true });
+        // A late reply to it finds nothing.
+        transport.reply({ id: 1, ok: true });
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        expect(reply).toEqual({ ok: false, bridge_gone: true });
+    });
+
+    it('counts a write that never settles as written at the helper\'s end', async () => {
+        const transport = new FakeTransport();
+        const client = new BridgeClient(transport);
+        transport.write_result = null;
+        const pending = client.request('do_async', { cmd: 'x' });
+        transport.kill();
+        expect(await pending).toEqual({
+            ok: false, bridge_gone: true, request_written: true,
+        });
     });
 
     it('carries an error reply\'s other fields in detail', async () => {

@@ -125,7 +125,8 @@ export class AutomationBackend implements StataBackend {
     private held_lines: string[] = [];
     private held_start = 0;
     private partial = '';
-    private partial_emitted = false;
+    /** How much of `partial` is on screen already. */
+    private partial_emitted_length = 0;
     private last_growth_ms: number;
     private log_size: number;
     private log_lost = false;
@@ -134,6 +135,12 @@ export class AutomationBackend implements StataBackend {
     private last_free: { at_ms: number; size: number } | null = null;
     private last_free_poll_ms = 0;
     private prompt_on_screen = false;
+    /**
+     * Whether the screen's last line has text other than our prompt
+     * (output without a newline): a prompt then starts a new line, so
+     * the session sees it alone and knows it for a prompt.
+     */
+    private line_open = false;
     private foreign_activity = false;
 
     private consecutive_timeouts = 0;
@@ -179,6 +186,18 @@ export class AutomationBackend implements StataBackend {
             return;
         }
         if (line.includes('\0')) {
+            if (!this.in_flight && this.fifo.length === 0) {
+                // The session gave up its prompt with the line: draw a
+                // fresh one, or a held send would wait for it forever.
+                // Not drawn: the session still has the prompt it was
+                // given, and a second one beside it would not be known.
+                if (drawn) {
+                    this.line_open = false;
+                    this.emit_prompt();
+                } else if (!this.prompt_on_screen) {
+                    this.emit_prompt();
+                }
+            }
             this.events.on_notice('Line contains a NUL character and was not sent.');
             on_sent?.(false);
             return;
@@ -305,16 +324,29 @@ export class AutomationBackend implements StataBackend {
         this.in_flight = in_flight;
         this.last_free = null;
         this.prompt_on_screen = false;
+        if (drawn) {
+            // The session ended the line it drew.
+            this.line_open = false;
+        }
         this.push_record({ trimmed, blank: in_flight.blank, echoed: false, finished_ms: null });
         if (this.log_lost && !drawn) {
             this.emit(`${line}\r\n`);
             in_flight.echo_seen = true;
             this.mark_echoed(this.records.length - 1);
         }
+        // Reported sent once the helper answers. It calls DoCommandAsync
+        // before replying, and checks nothing first that could refuse
+        // the request, so a failure reply (RPC_E_SERVER_DIED: the call
+        // may have executed) or a reply lost after the request reached
+        // the helper is an outcome Stata may have acted on, also
+        // reported sent (its do-file stays). Only
+        // a request the helper never got is reported dropped (its
+        // do-file can go now).
         void this.bridge.request('do_async', { cmd: sent }).then((reply) => {
+            queued.on_sent?.(!('bridge_gone' in reply)
+                || reply.request_written === true);
             this.handle_failure(reply);
         });
-        queued.on_sent?.(true);
         this.schedule(BUSY_POLL_MS);
     }
 
@@ -523,7 +555,7 @@ export class AutomationBackend implements StataBackend {
     private async poll_idle(): Promise<void> {
         const now = this.clock.now();
         const quiet_ms = now - this.last_growth_ms;
-        if (this.partial.length > 0 && !this.partial_emitted && quiet_ms >= PARTIAL_LINE_QUIET_MS) {
+        if (this.partial.length > this.partial_emitted_length && quiet_ms >= PARTIAL_LINE_QUIET_MS) {
             this.flush_partial();
         }
         const due = this.foreign_activity || now - this.last_free_poll_ms >= IDLE_FREE_POLL_MS;
@@ -597,13 +629,14 @@ export class AutomationBackend implements StataBackend {
         const text = this.partial + result.text;
         const lines = text.split('\n');
         const tail = lines.pop() ?? '';
-        if (this.partial_emitted && lines.length > 0) {
-            // The start of this line is already on screen.
+        if (this.partial_emitted_length > 0 && lines.length > 0) {
+            // The start of this line is already on screen; text added
+            // to it since is not.
             const first = lines[0] ?? '';
-            lines[0] = first.slice(this.partial.length);
+            lines[0] = first.slice(this.partial_emitted_length);
             this.emit_raw(`${lines[0]}\r\n`);
             lines.shift();
-            this.partial_emitted = false;
+            this.partial_emitted_length = 0;
         }
         this.partial = tail;
         // Not push(...lines): spreading a large poll overflows the stack.
@@ -710,11 +743,11 @@ export class AutomationBackend implements StataBackend {
     }
 
     private flush_partial(): void {
-        if (this.partial.length === 0 || this.partial_emitted) {
+        if (this.partial.length <= this.partial_emitted_length) {
             return;
         }
-        this.emit_raw(this.partial);
-        this.partial_emitted = true;
+        this.emit_raw(this.partial.slice(this.partial_emitted_length));
+        this.partial_emitted_length = this.partial.length;
     }
 
     private mark_log_lost(): void {
@@ -744,7 +777,12 @@ export class AutomationBackend implements StataBackend {
     // ---- Output ----
 
     private emit_prompt(): void {
-        this.events.on_output(this.tracker.prompt());
+        // Output's last line, if it has no newline, goes first: shown
+        // later, it would erase the prompt.
+        this.flush_partial();
+        const prefix = this.line_open ? '\r\n' : '';
+        this.events.on_output(`${prefix}${this.tracker.prompt()}`);
+        this.line_open = false;
         this.prompt_on_screen = true;
     }
 
@@ -760,10 +798,12 @@ export class AutomationBackend implements StataBackend {
             // Output from the Stata window after our prompt: start at
             // the beginning of that line.
             this.prompt_on_screen = false;
+            this.line_open = !text.endsWith('\n');
             this.events.on_output(`\r\x1b[K${text}`);
             return;
         }
         this.prompt_on_screen = false;
+        this.line_open = !text.endsWith('\n');
         this.events.on_output(text);
     }
 }

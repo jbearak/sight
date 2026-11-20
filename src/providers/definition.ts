@@ -41,6 +41,7 @@ import * as path from 'path';
 // vscode-uri is a small standalone library for parsing file:// URIs.
 // It does not require VS Code at runtime; it is safe for running the LSP standalone.
 import { URI } from 'vscode-uri';
+import { canonical_fs_path, uri_to_fs_path } from '../utils/fs-path';
 import { resolve_path_rich, resolve_forward_call_rich } from '../utils/file-path-utils';
 import { get_line_text } from '../utils/line-utils';
 import { is_name_char, is_name_char_or_past_end } from './cursor-word';
@@ -87,7 +88,7 @@ export class DefinitionProvider {
      * current document's directory are still case-only resolved correctly.
      */
     set_workspace_roots(roots: string[]): void {
-        this.workspace_roots = roots;
+        this.workspace_roots = roots.map(r => canonical_fs_path(r));
     }
 
     /**
@@ -1823,7 +1824,7 @@ export class DefinitionProvider {
         if (!the_call) {
             return { matched: false, path: null };
         }
-        const current_dir = path.dirname(URI.parse(document.uri).fsPath);
+        const current_dir = path.dirname(uri_to_fs_path(document.uri));
         const my_outcome = resolve_forward_call_rich(
             file_path,
             current_dir,
@@ -1854,7 +1855,7 @@ export class DefinitionProvider {
      * workspace root takes precedence when it genuinely contains the target.
      */
     private resolve_file_path(current_uri: string, file_path: string): string | null {
-        const current_path = URI.parse(current_uri).fsPath;
+        const current_path = uri_to_fs_path(current_uri);
         const current_dir = path.dirname(current_path);
         const resolved_path = path.resolve(current_dir, file_path);
 

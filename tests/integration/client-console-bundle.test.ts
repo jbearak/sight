@@ -26,10 +26,37 @@ function get_js_runtime(): string {
     return Bun.which('node') ?? process.execPath;
 }
 
+/**
+ * The probe's environment. On Windows the console reaches Stata
+ * through a bridge it runs in powershell.exe, found on PATH; with
+ * PowerShell's directories left off PATH the bridge cannot start, so
+ * the console ends with 85 instead of starting a registered Stata.
+ */
+function probe_env(): NodeJS.ProcessEnv {
+    if (!IS_WINDOWS) {
+        return process.env;
+    }
+    const the_env: NodeJS.ProcessEnv = {};
+    let path_value = '';
+    for (const [my_key, my_value] of Object.entries(process.env)) {
+        // Windows spells it `Path`; a copied env is case-sensitive.
+        if (my_key.toUpperCase() === 'PATH') {
+            path_value = my_value ?? '';
+        } else {
+            the_env[my_key] = my_value;
+        }
+    }
+    the_env.PATH = path_value
+        .split(';')
+        .filter(my_dir => !/powershell/i.test(my_dir))
+        .join(';');
+    return the_env;
+}
+
 // Starts a console with a fake host. On Windows, without PowerShell
-// (or without Stata registered), it must end cleanly, inside this
-// process, with 85 (helper couldn't run) or 84 (Automation not
-// registered). Elsewhere it's given a sight-pty helper that doesn't
+// (see probe_env) or without Stata registered, it must end cleanly,
+// inside this process, with 85 (helper couldn't run) or 84 (Automation
+// not registered). Elsewhere it's given a sight-pty helper that doesn't
 // exist, and must end cleanly reporting a helper failure.
 const PROBE = `
 const { pathToFileURL } = require('url');
@@ -87,7 +114,7 @@ describe('client console runtime bundle (copy-console)', () => {
         const result = spawnSync(
             get_js_runtime(),
             ['-e', PROBE, BUNDLE_PATH],
-            { encoding: 'utf8', timeout: 30000 }
+            { encoding: 'utf8', timeout: 30000, env: probe_env() }
         );
         expect(result.status).toBe(0);
         const report = JSON.parse(result.stdout.trim().split('\n').at(-1) ?? '{}');

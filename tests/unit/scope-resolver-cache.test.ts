@@ -37,7 +37,7 @@ describe('Scope Cache Optimization Unit Tests', () => {
         it('should not increment metrics when no entries depend on the URI', async () => {
             // Resolve a file to populate scope cache
             const file_path = create_file('test.do', 'local x = 1');
-            const file_uri = `file://${file_path}`;
+            const file_uri = URI.file(file_path).toString();
 
             await resolver.resolve(file_uri, 'local x = 1');
             resolver.reset_cache_metrics();
@@ -62,7 +62,7 @@ describe('Scope Cache Optimization Unit Tests', () => {
 local x = 1
 `;
             const parent_path = create_file('parent.do', parent_content);
-            const parent_uri = `file://${parent_path}`;
+            const parent_uri = URI.file(parent_path).toString();
 
             // Resolve should handle the missing file gracefully
             const result = await silent_resolver.resolve(parent_uri, parent_content);
@@ -90,7 +90,7 @@ local x = 1
 
         it('should have top-level aliases that match scope counters', async () => {
             const file_path = create_file('test.do', 'local x = 1');
-            const file_uri = `file://${file_path}`;
+            const file_uri = URI.file(file_path).toString();
 
             // Generate some activity
             await resolver.resolve(file_uri, 'local x = 1');
@@ -107,7 +107,7 @@ local x = 1
     describe('10.7: FileCacheEntry stores content_hash, not raw content', () => {
         it('should use hash-based comparison for cache hits', async () => {
             const file_path = create_file('test.do', 'local x = 1');
-            const file_uri = `file://${file_path}`;
+            const file_uri = URI.file(file_path).toString();
 
             // First resolve - cache miss
             await resolver.resolve(file_uri, 'local x = 1');
@@ -131,7 +131,7 @@ local x = 1
             const parent_path = create_file('parent.do', 'global parent_var = 1');
             const child_content = `// @lsp-done-by: ${parent_path}\nlocal x = 1`;
             const child_path = create_file('child.do', child_content);
-            const child_uri = `file://${child_path}`;
+            const child_uri = URI.file(child_path).toString();
 
             // Resolve to populate both caches
             await resolver.resolve(child_uri, child_content);
@@ -150,10 +150,10 @@ local x = 1
 
         it('invalidate_file_cache should cascade to scope_cache', async () => {
             const parent_path = create_file('parent.do', 'global parent_var = 1');
-            const parent_uri = `file://${parent_path}`;
+            const parent_uri = URI.file(parent_path).toString();
             const child_content = `// @lsp-done-by: ${parent_path}\nlocal x = 1`;
             const child_path = create_file('child.do', child_content);
-            const child_uri = `file://${child_path}`;
+            const child_uri = URI.file(child_path).toString();
 
             // Resolve to populate caches
             await resolver.resolve(child_uri, child_content);
@@ -174,7 +174,7 @@ local x = 1
             const parent_path = create_file('parent.do', 'global parent_var = 1');
             const child_content = `// @lsp-done-by: ${parent_path}\nlocal x = 1`;
             const child_path = create_file('child.do', child_content);
-            const child_uri = `file://${child_path}`;
+            const child_uri = URI.file(child_path).toString();
 
             // Resolve to populate caches
             await resolver.resolve(child_uri, child_content);
@@ -193,7 +193,7 @@ local x = 1
     describe('reset_cache_metrics', () => {
         it('should reset all counters without clearing caches', async () => {
             const file_path = create_file('test.do', 'local x = 1');
-            const file_uri = `file://${file_path}`;
+            const file_uri = URI.file(file_path).toString();
 
             // Generate some activity
             await resolver.resolve(file_uri, 'local x = 1');

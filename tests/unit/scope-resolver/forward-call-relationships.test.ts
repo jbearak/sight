@@ -1,8 +1,15 @@
 import { describe, it, expect, beforeEach } from 'bun:test';
 import { ScopeResolver } from '../../../src/scope-resolver';
+import * as path from 'path';
 import { URI } from 'vscode-uri';
+import { uri_to_fs_path } from '../../../src/utils/fs-path';
 import type { SymbolTable, ForwardCall } from '../../../src/types';
 import { Range } from 'vscode-languageserver';
+
+// A file at the filesystem root of this host (`C:\x.do` on Windows),
+// so forward calls resolve back to the same URI.
+const file_uri = (name: string): string =>
+    URI.file(path.resolve('/', name)).toString();
 
 // Helper to create a ForwardCall object with all required properties.
 // The first argument is retained for call-site compatibility but no
@@ -83,10 +90,10 @@ describe('Forward Call Relationship Tracking', () => {
 
     describe('register_forward_call_relationships_from_cache', () => {
         it('should register single forward call', () => {
-            const caller_uri = 'file:///caller.do';
-            const callee_uri = 'file:///callee.do';
+            const caller_uri = file_uri('caller.do');
+            const callee_uri = file_uri('callee.do');
             const forward_calls = [make_forward_call(
-                URI.parse(callee_uri).fsPath,
+                uri_to_fs_path(callee_uri),
                 true,
                 'do',
                 1,
@@ -103,19 +110,19 @@ describe('Forward Call Relationship Tracking', () => {
         });
 
         it('should register multiple forward calls', () => {
-            const caller_uri = 'file:///caller.do';
-            const callee1_uri = 'file:///callee1.do';
-            const callee2_uri = 'file:///callee2.do';
+            const caller_uri = file_uri('caller.do');
+            const callee1_uri = file_uri('callee1.do');
+            const callee2_uri = file_uri('callee2.do');
             const forward_calls = [
                 make_forward_call(
-                    URI.parse(callee1_uri).fsPath,
+                    uri_to_fs_path(callee1_uri),
                     true,
                     'do',
                     1,
                     'callee1.do'
                 ),
                 make_forward_call(
-                    URI.parse(callee2_uri).fsPath,
+                    uri_to_fs_path(callee2_uri),
                     true,
                     'run',
                     2,
@@ -133,7 +140,7 @@ describe('Forward Call Relationship Tracking', () => {
         });
 
         it('should skip dynamic paths (is_static=false)', () => {
-            const caller_uri = 'file:///caller.do';
+            const caller_uri = file_uri('caller.do');
             const forward_calls = [make_forward_call(
                 '/some/path.do',
                 false,
@@ -150,14 +157,14 @@ describe('Forward Call Relationship Tracking', () => {
         });
 
         it('should clear existing relationships before registration', () => {
-            const caller_uri = 'file:///caller.do';
-            const old_callee_uri = 'file:///old_callee.do';
-            const new_callee_uri = 'file:///new_callee.do';
+            const caller_uri = file_uri('caller.do');
+            const old_callee_uri = file_uri('old_callee.do');
+            const new_callee_uri = file_uri('new_callee.do');
             const symbols = create_empty_symbol_table();
 
             // Register initial relationship
             const old_calls = [make_forward_call(
-                URI.parse(old_callee_uri).fsPath,
+                uri_to_fs_path(old_callee_uri),
                 true,
                 'do',
                 1,
@@ -167,7 +174,7 @@ describe('Forward Call Relationship Tracking', () => {
 
             // Register new relationship (should clear old one)
             const new_calls = [make_forward_call(
-                URI.parse(new_callee_uri).fsPath,
+                uri_to_fs_path(new_callee_uri),
                 true,
                 'do',
                 1,
@@ -183,10 +190,10 @@ describe('Forward Call Relationship Tracking', () => {
         });
 
         it('should update both callee_to_callers and caller_to_callees', () => {
-            const caller_uri = 'file:///caller.do';
-            const callee_uri = 'file:///callee.do';
+            const caller_uri = file_uri('caller.do');
+            const callee_uri = file_uri('callee.do');
             const forward_calls = [make_forward_call(
-                URI.parse(callee_uri).fsPath,
+                uri_to_fs_path(callee_uri),
                 true,
                 'do',
                 1,
@@ -205,19 +212,19 @@ describe('Forward Call Relationship Tracking', () => {
 
     describe('clear_forward_call_relationships', () => {
         it('should clear relationships for caller with multiple callees', () => {
-            const caller_uri = 'file:///caller.do';
-            const callee1_uri = 'file:///callee1.do';
-            const callee2_uri = 'file:///callee2.do';
+            const caller_uri = file_uri('caller.do');
+            const callee1_uri = file_uri('callee1.do');
+            const callee2_uri = file_uri('callee2.do');
             const forward_calls = [
                 make_forward_call(
-                    URI.parse(callee1_uri).fsPath,
+                    uri_to_fs_path(callee1_uri),
                     true,
                     'do',
                     1,
                     'callee1.do'
                 ),
                 make_forward_call(
-                    URI.parse(callee2_uri).fsPath,
+                    uri_to_fs_path(callee2_uri),
                     true,
                     'run',
                     2,
@@ -239,7 +246,7 @@ describe('Forward Call Relationship Tracking', () => {
         });
 
         it('should be no-op when caller has no relationships', () => {
-            const caller_uri = 'file:///caller.do';
+            const caller_uri = file_uri('caller.do');
             const reverse_deps = (resolver as any).reverse_deps;
             const initial_size = reverse_deps.callee_to_callers.size;
 
@@ -249,11 +256,11 @@ describe('Forward Call Relationship Tracking', () => {
         });
 
         it('should preserve other callers relationships', () => {
-            const caller1_uri = 'file:///caller1.do';
-            const caller2_uri = 'file:///caller2.do';
-            const callee_uri = 'file:///callee.do';
+            const caller1_uri = file_uri('caller1.do');
+            const caller2_uri = file_uri('caller2.do');
+            const callee_uri = file_uri('callee.do');
             const forward_calls = [make_forward_call(
-                URI.parse(callee_uri).fsPath,
+                uri_to_fs_path(callee_uri),
                 true,
                 'do',
                 1,
@@ -274,10 +281,10 @@ describe('Forward Call Relationship Tracking', () => {
         });
 
         it('should clear interface_hashes entry', () => {
-            const caller_uri = 'file:///caller.do';
-            const callee_uri = 'file:///callee.do';
+            const caller_uri = file_uri('caller.do');
+            const callee_uri = file_uri('callee.do');
             const forward_calls = [make_forward_call(
-                URI.parse(callee_uri).fsPath,
+                uri_to_fs_path(callee_uri),
                 true,
                 'do',
                 1,
@@ -295,7 +302,7 @@ describe('Forward Call Relationship Tracking', () => {
 
     describe('scope cache secondary index', () => {
         it('should update uri_to_cache_keys on cache add via resolve', async () => {
-            const uri = 'file:///test.do';
+            const uri = file_uri('test.do');
             await resolver.resolve(uri, 'local x = 1');
 
             const uri_to_cache_keys = (resolver as any).uri_to_cache_keys;
@@ -303,7 +310,7 @@ describe('Forward Call Relationship Tracking', () => {
         });
 
         it('should use O(1) lookup in invalidate_scope_cache_for_uri', () => {
-            const uri = 'file:///test.do';
+            const uri = file_uri('test.do');
             const uri_to_cache_keys = (resolver as any).uri_to_cache_keys;
             const scope_cache = (resolver as any).scope_cache;
 
@@ -322,8 +329,8 @@ describe('Forward Call Relationship Tracking', () => {
 
     describe('cache invalidation cascade', () => {
         it('should invalidate caller scope caches when callee file cache changes', () => {
-            const caller_uri = 'file:///caller.do';
-            const callee_uri = 'file:///callee.do';
+            const caller_uri = file_uri('caller.do');
+            const callee_uri = file_uri('callee.do');
             
             // Setup relationship
             const reverse_deps = (resolver as any).reverse_deps;
@@ -343,9 +350,9 @@ describe('Forward Call Relationship Tracking', () => {
         });
 
         it('should handle multiple callers of same callee', () => {
-            const caller1_uri = 'file:///caller1.do';
-            const caller2_uri = 'file:///caller2.do';
-            const callee_uri = 'file:///callee.do';
+            const caller1_uri = file_uri('caller1.do');
+            const caller2_uri = file_uri('caller2.do');
+            const callee_uri = file_uri('callee.do');
             
             // Setup relationships
             const reverse_deps = (resolver as any).reverse_deps;
@@ -370,9 +377,9 @@ describe('Forward Call Relationship Tracking', () => {
         });
 
         it('should not affect callers not in callee_to_callers', () => {
-            const caller_uri = 'file:///caller.do';
-            const unrelated_uri = 'file:///unrelated.do';
-            const callee_uri = 'file:///callee.do';
+            const caller_uri = file_uri('caller.do');
+            const unrelated_uri = file_uri('unrelated.do');
+            const callee_uri = file_uri('callee.do');
             
             // Setup only caller relationship
             const reverse_deps = (resolver as any).reverse_deps;
@@ -428,52 +435,52 @@ describe('Forward Call Relationship Tracking', () => {
 
         it('should find A→B→C chain: changing C finds both A and B', () => {
             const callee_to_callers = new Map<string, Set<string>>();
-            callee_to_callers.set('file:///C.do', new Set(['file:///B.do']));
-            callee_to_callers.set('file:///B.do', new Set(['file:///A.do']));
+            callee_to_callers.set(file_uri('C.do'), new Set([file_uri('B.do')]));
+            callee_to_callers.set(file_uri('B.do'), new Set([file_uri('A.do')]));
 
-            const result = get_transitive_callers('file:///C.do', callee_to_callers, 10);
+            const result = get_transitive_callers(file_uri('C.do'), callee_to_callers, 10);
 
-            expect(result.has('file:///A.do')).toBe(true);
-            expect(result.has('file:///B.do')).toBe(true);
+            expect(result.has(file_uri('A.do'))).toBe(true);
+            expect(result.has(file_uri('B.do'))).toBe(true);
             expect(result.size).toBe(2);
         });
 
         it('should handle diamond pattern: A→B, A→C, B→D, C→D', () => {
             const callee_to_callers = new Map<string, Set<string>>();
-            callee_to_callers.set('file:///D.do', new Set(['file:///B.do', 'file:///C.do']));
-            callee_to_callers.set('file:///B.do', new Set(['file:///A.do']));
-            callee_to_callers.set('file:///C.do', new Set(['file:///A.do']));
+            callee_to_callers.set(file_uri('D.do'), new Set([file_uri('B.do'), file_uri('C.do')]));
+            callee_to_callers.set(file_uri('B.do'), new Set([file_uri('A.do')]));
+            callee_to_callers.set(file_uri('C.do'), new Set([file_uri('A.do')]));
 
-            const result = get_transitive_callers('file:///D.do', callee_to_callers, 10);
+            const result = get_transitive_callers(file_uri('D.do'), callee_to_callers, 10);
 
-            expect(result.has('file:///A.do')).toBe(true);
-            expect(result.has('file:///B.do')).toBe(true);
-            expect(result.has('file:///C.do')).toBe(true);
+            expect(result.has(file_uri('A.do'))).toBe(true);
+            expect(result.has(file_uri('B.do'))).toBe(true);
+            expect(result.has(file_uri('C.do'))).toBe(true);
             expect(result.size).toBe(3);
         });
 
         it('should handle cycles: A→B→A', () => {
             const callee_to_callers = new Map<string, Set<string>>();
-            callee_to_callers.set('file:///A.do', new Set(['file:///B.do']));
-            callee_to_callers.set('file:///B.do', new Set(['file:///A.do']));
+            callee_to_callers.set(file_uri('A.do'), new Set([file_uri('B.do')]));
+            callee_to_callers.set(file_uri('B.do'), new Set([file_uri('A.do')]));
 
-            const result = get_transitive_callers('file:///A.do', callee_to_callers, 10);
+            const result = get_transitive_callers(file_uri('A.do'), callee_to_callers, 10);
 
-            expect(result.has('file:///B.do')).toBe(true);
+            expect(result.has(file_uri('B.do'))).toBe(true);
             expect(result.size).toBe(1);
         });
 
         it('should respect max_chain_depth limiting', () => {
             const callee_to_callers = new Map<string, Set<string>>();
-            callee_to_callers.set('file:///D.do', new Set(['file:///C.do']));
-            callee_to_callers.set('file:///C.do', new Set(['file:///B.do']));
-            callee_to_callers.set('file:///B.do', new Set(['file:///A.do']));
+            callee_to_callers.set(file_uri('D.do'), new Set([file_uri('C.do')]));
+            callee_to_callers.set(file_uri('C.do'), new Set([file_uri('B.do')]));
+            callee_to_callers.set(file_uri('B.do'), new Set([file_uri('A.do')]));
 
-            const result = get_transitive_callers('file:///D.do', callee_to_callers, 2);
+            const result = get_transitive_callers(file_uri('D.do'), callee_to_callers, 2);
 
-            expect(result.has('file:///C.do')).toBe(true);
-            expect(result.has('file:///B.do')).toBe(true);
-            expect(result.has('file:///A.do')).toBe(false); // Beyond max depth
+            expect(result.has(file_uri('C.do'))).toBe(true);
+            expect(result.has(file_uri('B.do'))).toBe(true);
+            expect(result.has(file_uri('A.do'))).toBe(false); // Beyond max depth
             expect(result.size).toBe(2);
         });
     });
@@ -481,17 +488,17 @@ describe('Forward Call Relationship Tracking', () => {
     describe('issue #217: live-edit then delete leaves no stale callee', () => {
         it('removes all references to a callee dropped via live edit '
             + 'then deleted', () => {
-            const caller_uri = 'file:///caller.do';
-            const a_uri = 'file:///a.do';
-            const b_uri = 'file:///b.do';
+            const caller_uri = file_uri('caller.do');
+            const a_uri = file_uri('a.do');
+            const b_uri = file_uri('b.do');
             const symbols = create_empty_symbol_table();
 
             // 1. Register caller -> {a, b} via the cache path.
             const both_calls = [
                 make_forward_call(
-                    URI.parse(a_uri).fsPath, true, 'do', 1, 'a.do'),
+                    uri_to_fs_path(a_uri), true, 'do', 1, 'a.do'),
                 make_forward_call(
-                    URI.parse(b_uri).fsPath, true, 'do', 2, 'b.do'),
+                    uri_to_fs_path(b_uri), true, 'do', 2, 'b.do'),
             ];
             (resolver as any)
                 .register_forward_call_relationships_from_cache(
@@ -505,7 +512,7 @@ describe('Forward Call Relationship Tracking', () => {
             // 2. Live edit deletes `do b` -> only `do a` remains.
             const a_only = [
                 make_forward_call(
-                    URI.parse(a_uri).fsPath, true, 'do', 1, 'a.do'),
+                    uri_to_fs_path(a_uri), true, 'do', 1, 'a.do'),
             ];
             (resolver as any).update_reverse_dependencies(
                 caller_uri, a_only, symbols);

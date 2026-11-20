@@ -7,6 +7,11 @@
 import * as path from 'path';
 import * as fs from 'fs';
 import { URI } from 'vscode-uri';
+import {
+    canonical_fs_path,
+    is_path_within_root,
+    uri_to_fs_path,
+} from '../utils/fs-path';
 import { CancellationToken } from 'vscode-languageserver/node';
 import {
     SymbolTable,
@@ -493,7 +498,9 @@ export class ForwardScopeResolver {
      * built under the old roots must not survive (#234).
      */
     set_workspace_roots(roots: string[]): void {
-        this.workspace_roots = roots.map(r => path.resolve(r));
+        this.workspace_roots = roots.map(
+            r => canonical_fs_path(path.resolve(r)),
+        );
         this.clear_forward_closure_memo();
     }
 
@@ -516,8 +523,9 @@ export class ForwardScopeResolver {
         if (this.workspace_roots.length === 0) {
             return false;
         }
-        const resolved = path.resolve(fs_path);
-        return this.workspace_roots.some(root => resolved.startsWith(root + path.sep) || resolved === root);
+        return this.workspace_roots.some(
+            root => is_path_within_root(fs_path, root),
+        );
     }
 
     /**
@@ -550,7 +558,7 @@ export class ForwardScopeResolver {
         requested_path?: string;
         seed_dir?: string;
     } {
-        const my_caller_dir = path.dirname(URI.parse(caller_uri).fsPath);
+        const my_caller_dir = path.dirname(uri_to_fs_path(caller_uri));
         // Collect probed-and-missing higher-priority candidates only when a
         // standalone memo build is in flight (live walks don't cache, so
         // they have nothing to invalidate).
@@ -636,7 +644,7 @@ export class ForwardScopeResolver {
         working_directory?: string,
         casing_collector?: ForwardClosureProbeCollector,
     ): string | null {
-        const my_caller_dir = path.dirname(URI.parse(caller_uri).fsPath);
+        const my_caller_dir = path.dirname(uri_to_fs_path(caller_uri));
         const my_outcome = resolve_forward_call_rich(
             raw_path,
             my_caller_dir,
@@ -736,7 +744,7 @@ export class ForwardScopeResolver {
         // callee resolution correct: a callee reached via a parent's `cd A; do
         // child` resolves child's relative paths from A even though parse-time
         // stamping could not know the call-site WD.
-        const my_caller_dir = path.dirname(URI.parse(file_uri).fsPath);
+        const my_caller_dir = path.dirname(uri_to_fs_path(file_uri));
         const my_casing_collector =
             this.collector_by_visited.get(my_context.visited);
         const {
@@ -766,7 +774,7 @@ export class ForwardScopeResolver {
             my_context.depth === 0
         ) {
             const my_source_filename = path.basename(
-                URI.parse(file_uri).fsPath,
+                uri_to_fs_path(file_uri),
             );
             for (const my_cd_diag of cd_diagnostics) {
                 my_context.diagnostics.push({
@@ -860,7 +868,7 @@ export class ForwardScopeResolver {
                         range: anchor_range,
                         source: {
                             source_file: path.basename(
-                                URI.parse(anchor_uri).fsPath),
+                                uri_to_fs_path(anchor_uri)),
                             source_line: anchor_range.start.line,
                             original_range: anchor_range,
                         },
@@ -905,7 +913,7 @@ export class ForwardScopeResolver {
                         requested: my_path_result.requested_path ??
                             my_call.raw_path,
                     },
-                    path.dirname(URI.parse(file_uri).fsPath),
+                    path.dirname(uri_to_fs_path(file_uri)),
                 );
                 my_context.diagnostics.push({
                     message:
@@ -921,7 +929,7 @@ export class ForwardScopeResolver {
                     case_mismatch_seed_dir: my_path_result.seed_dir,
                     source: {
                         source_file: path.basename(
-                            URI.parse(file_uri).fsPath,
+                            uri_to_fs_path(file_uri),
                         ),
                         source_line: my_call.call_site_line,
                         original_range: my_call.range,
@@ -935,7 +943,7 @@ export class ForwardScopeResolver {
             // ci matches and succeed, masking the ambiguity.
             if (my_path_result.outcome_kind === 'ambiguous') {
                 const my_source_filename = path.basename(
-                    URI.parse(file_uri).fsPath,
+                    uri_to_fs_path(file_uri),
                 );
                 my_context.diagnostics.push({
                     message:
@@ -1039,7 +1047,7 @@ export class ForwardScopeResolver {
                     : '';
                 
                 // Extract source filename from URI for source attribution
-                const source_filename = path.basename(URI.parse(file_uri).fsPath);
+                const source_filename = path.basename(uri_to_fs_path(file_uri));
                 
                 my_context.diagnostics.push({
                     message: `${source_prefix}Cannot read file: ${my_call.raw_path}${error_suffix}`,
@@ -1762,7 +1770,7 @@ export class ForwardScopeResolver {
                 depends_on_directory_casing: nested_depends_on_casing,
             } = build_cd_timeline({
                 starting_wd: nested_base_wd,
-                caller_dir: path.dirname(URI.parse(callee_uri).fsPath),
+                caller_dir: path.dirname(uri_to_fs_path(callee_uri)),
                 cd_commands: callee_result.cd_commands,
                 workspace_roots: this.workspace_roots.length > 0
                     ? this.workspace_roots

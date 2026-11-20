@@ -1,4 +1,5 @@
 import { describe, expect, it, spyOn } from 'bun:test';
+import * as path from 'path';
 import { StataLexer } from '../../src/lexer';
 import {
     analyze_source,
@@ -88,6 +89,10 @@ describe('source analysis', () => {
 
 describe('forward call preparation', () => {
     const uri = 'file:///workspace/main.do';
+    // Working directories as the server spells them on this host
+    // (`C:\initial` on Windows).
+    const INITIAL = path.resolve('/initial');
+    const INITIAL_NEXT = path.join(INITIAL, 'next');
     const source = [
         '// sight: do "declared.do"',
         'do "before.do"',
@@ -112,7 +117,7 @@ describe('forward call preparation', () => {
             command_calls: result.analysis.forward_calls,
             directive_calls: result.directives.forward_calls ?? [],
             cd_commands: result.analysis.cd_commands,
-            working_directory: '/initial',
+            working_directory: INITIAL,
             workspace_roots: [],
             fs: {
                 ...missing_fs,
@@ -123,21 +128,21 @@ describe('forward call preparation', () => {
             },
         });
 
-        expect(visited_paths).toContain('/initial/next');
+        expect(visited_paths).toContain(INITIAL_NEXT);
         expect(calls.map(call => ({
             path: call.raw_path,
             wd: call.working_directory,
             line: call.call_site_line,
             source: call.source,
         }))).toEqual([
-            { path: 'before.do', wd: '/initial', line: 1, source: 'command' },
+            { path: 'before.do', wd: INITIAL, line: 1, source: 'command' },
             {
                 path: 'after.do',
-                wd: '/initial/next',
+                wd: INITIAL_NEXT,
                 line: 3,
                 source: 'command',
             },
-            { path: 'declared.do', wd: '/initial', line: 0, source: 'directive' },
+            { path: 'declared.do', wd: INITIAL, line: 0, source: 'directive' },
         ]);
         expect(calls.every(call => call.caller_uri === uri)).toBe(true);
         expect(calls[2].is_static).toBe(true);
@@ -171,7 +176,7 @@ describe('forward call preparation', () => {
             command_calls: result.analysis.forward_calls,
             directive_calls: result.directives.forward_calls ?? [],
             cd_commands: result.analysis.cd_commands,
-            working_directory: '/initial',
+            working_directory: INITIAL,
             workspace_roots: [],
             fs: {
                 ...missing_fs,
@@ -185,7 +190,7 @@ describe('forward call preparation', () => {
         expect(calls[1]).toBe(result.analysis.forward_calls[1]);
         expect(calls[0].working_directory).toBeUndefined();
         expect(calls[2].source).toBe('directive');
-        expect(calls[2].working_directory).toBe('/initial');
+        expect(calls[2].working_directory).toBe(INITIAL);
         expect(calls[2].caller_uri).toBe(uri);
     });
 });

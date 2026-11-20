@@ -131,7 +131,7 @@ export function start_session_host(options: SessionHostOptions): SessionHost {
             }
         },
         send_line: (line, on_sent) => {
-            if (ending || !session) {
+            if (ending || shutting_down || !session) {
                 on_sent?.(false);
                 return;
             }
@@ -149,6 +149,9 @@ export function start_session_host(options: SessionHostOptions): SessionHost {
                 return;
             }
             shutting_down = true;
+            // Closing: a held send must not reach Stata now, even if a
+            // prompt shows while the backend shuts down.
+            session?.close_sends();
             await handle.lifecycle.shutdown(reason);
             end(status);
         },

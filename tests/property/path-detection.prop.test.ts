@@ -16,6 +16,8 @@
 import { describe, it, expect, beforeEach, afterEach } from 'bun:test';
 import * as fc from 'fast-check';
 import { homedir } from 'os';
+// PATH entries are separated by `;` on Windows and `:` elsewhere.
+import { delimiter } from 'path';
 import { is_path_in_env } from '../../scripts/install';
 
 // Store original PATH
@@ -46,7 +48,7 @@ describe('PATH Detection Property Tests', () => {
                 fc.array(fc.stringMatching(/^\/[a-z0-9_/]+$/), { minLength: 0, maxLength: 5 }),
                 (other_paths) => {
                     // Include target in PATH
-                    const path_with_target = [...other_paths, target].join(':');
+                    const path_with_target = [...other_paths, target].join(delimiter);
                     process.env.PATH = path_with_target;
                     
                     expect(is_path_in_env(target)).toBe(true);
@@ -73,7 +75,7 @@ describe('PATH Detection Property Tests', () => {
                 ),
                 (other_paths) => {
                     // Exclude target from PATH
-                    const path_without_target = other_paths.join(':');
+                    const path_without_target = other_paths.join(delimiter);
                     process.env.PATH = path_without_target;
                     
                     expect(is_path_in_env(target)).toBe(false);
@@ -93,12 +95,24 @@ describe('PATH Detection Property Tests', () => {
         const target = `${home}/bin`;
         
         // Target with trailing slash in PATH
-        process.env.PATH = `/usr/bin:${target}/:${home}/local`;
+        process.env.PATH = ['/usr/bin', `${target}/`, `${home}/local`].join(delimiter);
         expect(is_path_in_env(target)).toBe(true);
         
         // Target without trailing slash, query with trailing slash
-        process.env.PATH = `/usr/bin:${target}:${home}/local`;
+        process.env.PATH = ['/usr/bin', target, `${home}/local`].join(delimiter);
         expect(is_path_in_env(`${target}/`)).toBe(true);
+    });
+
+    /**
+     * Windows compares paths without regard to case; elsewhere a
+     * PATH entry that differs only by case is another directory.
+     */
+    it('should ignore case on Windows only', () => {
+        const home = homedir();
+        const target = `${home}/SightBin`;
+
+        process.env.PATH = ['/usr/bin', `${home}/sightbin`].join(delimiter);
+        expect(is_path_in_env(target)).toBe(process.platform === 'win32');
     });
 
     /**
@@ -111,7 +125,7 @@ describe('PATH Detection Property Tests', () => {
         const target = `${home}/bin`;
         
         // PATH uses ~ notation
-        process.env.PATH = `/usr/bin:~/bin:/usr/local/bin`;
+        process.env.PATH = ['/usr/bin', '~/bin', '/usr/local/bin'].join(delimiter);
         expect(is_path_in_env(target)).toBe(true);
     });
 
@@ -125,7 +139,7 @@ describe('PATH Detection Property Tests', () => {
         const target = `${home}/bin`;
         
         // PATH uses $HOME notation
-        process.env.PATH = `/usr/bin:$HOME/bin:/usr/local/bin`;
+        process.env.PATH = ['/usr/bin', '$HOME/bin', '/usr/local/bin'].join(delimiter);
         expect(is_path_in_env(target)).toBe(true);
     });
 
@@ -152,7 +166,7 @@ describe('PATH Detection Property Tests', () => {
         const target = `${home}/bin`;
         
         // PATH has similar but different paths
-        process.env.PATH = `/usr/bin:${home}/bin2:${home}/mybin`;
+        process.env.PATH = ['/usr/bin', `${home}/bin2`, `${home}/mybin`].join(delimiter);
         expect(is_path_in_env(target)).toBe(false);
     });
 });

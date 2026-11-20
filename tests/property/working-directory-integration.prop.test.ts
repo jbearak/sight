@@ -11,6 +11,8 @@ import { ForwardScopeResolver } from '../../src/forward-scope-resolver';
 import { ScopeResolver } from '../../src/scope-resolver';
 import { DirectiveParser } from '../../src/directive-parser';
 import { ForwardCall } from '../../src/types';
+import { URI } from 'vscode-uri';
+import * as path from 'path';
 
 describe('Working Directory Integration Property Tests', () => {
     /**
@@ -103,8 +105,9 @@ describe('Working Directory Integration Property Tests', () => {
                             `// @lsp-done-by: "${parent_file}"\n` +
                             'gen x = 1';
                         
-                        const script_dir = '/project/scripts';
-                        const uri = `file://${script_dir}/test.do`;
+                        // Absolute on this host (`C:\project\...` on Windows).
+                        const script_dir = path.resolve('/project/scripts');
+                        const uri = URI.file(path.join(script_dir, 'test.do')).toString();
                         
                         const result = parser.parse(content, uri);
 
@@ -147,8 +150,9 @@ describe('Working Directory Integration Property Tests', () => {
                             `// @lsp-do: "${callee_file}"\n` +
                             'gen x = 1';
                         
-                        const script_dir = '/project/scripts';
-                        const uri = `file://${script_dir}/test.do`;
+                        // Absolute on this host (`C:\project\...` on Windows).
+                        const script_dir = path.resolve('/project/scripts');
+                        const uri = URI.file(path.join(script_dir, 'test.do')).toString();
                         
                         const result = parser.parse(content, uri);
 
@@ -193,8 +197,9 @@ describe('Working Directory Integration Property Tests', () => {
                             `// @lsp-included-by: "${parent_file}"\n` +
                             'gen x = 1';
                         
-                        const script_dir = '/project/scripts';
-                        const uri = `file://${script_dir}/test.do`;
+                        // Absolute on this host (`C:\project\...` on Windows).
+                        const script_dir = path.resolve('/project/scripts');
+                        const uri = URI.file(path.join(script_dir, 'test.do')).toString();
                         
                         const result = parser.parse(content, uri);
 
