@@ -550,6 +550,15 @@ describe('sight check — inherited directories, cases from review', () => {
         expect(result.graph).toEqual([]);
     });
 
+    it('finds a forward directive\'s backslash path beside the file', async () => {
+        const result = await missing_calls({
+            'caller.do': '// sight: cd "jobs"\ndo child.do\n',
+            'jobs/child.do': '// sight: do ".\\tail.do"\n',
+            'jobs/tail.do': 'display 1\n',
+        });
+        expect(result).toEqual({ check: [], graph: [], nested: [] });
+    });
+
     it('reads the locals of the file a `sight: include` names', async () => {
         // The include resolves beside a.do, not in `work`.
         expect(await check_diagnostics({

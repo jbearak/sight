@@ -1029,7 +1029,10 @@ export function resolve_forward_call_rich(
     }
 
     // Tier 2: script-relative (path.resolve handles absolute raw_path)
-    const my_script_relative = the_path.resolve(caller_dir, raw_path);
+    // The separator-normalized path, as the working-directory candidate
+    // above uses: on POSIX a backslash would otherwise stay in the name.
+    const my_script_relative = the_path.resolve(
+        caller_dir, my_normalized_raw);
     if (!the_candidates.includes(my_script_relative)) {
         the_candidates.push(my_script_relative);
     }
