@@ -14,7 +14,10 @@ import * as fc from 'fast-check';
 import { StataParser } from '../../src/parser';
 import { StataLexer } from '../../src/lexer';
 import { CommandNode } from '../../src/types';
-import { arbitrary_non_reserved_identifier } from './generators';
+import {
+    arbitrary_non_reserved_identifier,
+    arbitrary_plain_command,
+} from './generators';
 
 /**
  * Parse source code and return the first command node.
@@ -36,21 +39,6 @@ function get_parenthesized_content(cmd: CommandNode): string | null {
         v => v.name.startsWith('(') && v.name.endsWith(')')
     );
     return paren_item?.name ?? null;
-}
-
-/**
- * A name the parser reads as an ordinary command. A random short name
- * is now and then one with its own syntax (`di` for display, `pr` for
- * a program definition), whose arguments are not a varlist; these
- * properties are about ordinary commands.
- */
-function arbitrary_plain_command(): fc.Arbitrary<string> {
-    return arbitrary_non_reserved_identifier().filter((my_name) => {
-        const my_command = parse(`${my_name} (zzv)=zzw`);
-        return my_command !== null && my_command.name === my_name &&
-            get_parenthesized_content(my_command) === '(zzv)' &&
-            my_command.expression !== undefined;
-    });
 }
 
 describe('parenthesized group parsing property tests', () => {

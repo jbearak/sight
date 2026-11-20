@@ -1,10 +1,34 @@
 import { describe, it, expect } from 'bun:test';
 import {
     MAX_CASE_VARIANT_BACKTRACK_READS,
-    case_mismatch_display_paths,
-    resolve_path_rich,
-    resolve_forward_call_rich,
+    case_mismatch_display_paths as case_mismatch_display_paths_for,
+    resolve_path_rich as resolve_path_rich_for,
+    resolve_forward_call_rich as resolve_forward_call_rich_for,
+    type RichResolveOptions,
 } from '../../src/utils/file-path-utils';
+
+// These units are about POSIX-style paths (`/ws/...`), so they apply
+// POSIX path rules (`'linux'`) on every host. The Windows rules are covered in
+// tests/unit/utils/fs-path.test.ts.
+const resolve_path_rich = (
+    resolved_fs_path: string,
+    options?: RichResolveOptions,
+): ReturnType<typeof resolve_path_rich_for> =>
+    resolve_path_rich_for(resolved_fs_path, { platform: 'linux', ...options });
+const resolve_forward_call_rich = (
+    ...[raw_path, caller_dir, working_directory, options]:
+        Parameters<typeof resolve_forward_call_rich_for>
+): ReturnType<typeof resolve_forward_call_rich_for> =>
+    resolve_forward_call_rich_for(raw_path, caller_dir, working_directory, {
+        platform: 'linux',
+        ...options,
+    });
+const case_mismatch_display_paths = (
+    raw_path: string,
+    outcome: { path: string; requested: string },
+    display_dir: string,
+): ReturnType<typeof case_mismatch_display_paths_for> =>
+    case_mismatch_display_paths_for(raw_path, outcome, display_dir, 'linux');
 
 // ─── In-memory filesystem helpers ────────────────────────────────────────────
 

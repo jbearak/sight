@@ -1,16 +1,19 @@
 import { afterEach, describe, expect, it, spyOn } from 'bun:test';
 import { CancellationTokenSource } from 'vscode-languageserver';
+import * as path from 'path';
 import { URI } from 'vscode-uri';
+import { uri_to_fs_path } from '../../src/utils/fs-path';
 import { ScopeResolver } from '../../src/scope-resolver';
 import { DirectiveParser } from '../../src/directive-parser';
 import { DependencyGraph } from '../../src/dependency-graph';
 import { DocumentStore } from '../../src/document-store';
 import type { ScopeResolverConfig } from '../../src/types';
 
-const ROOT = '/tmp/sight-working-directory-probe';
-const child_uri = URI.file(`${ROOT}/child.do`).toString();
-const parent_uri = URI.file(`${ROOT}/parent.do`).toString();
-const grandparent_uri = URI.file(`${ROOT}/grandparent.do`).toString();
+// Absolute on this host (`C:\tmp\...` on Windows), as server paths are.
+const ROOT = path.resolve('/tmp/sight-working-directory-probe');
+const child_uri = URI.file(path.join(ROOT, 'child.do')).toString();
+const parent_uri = URI.file(path.join(ROOT, 'parent.do')).toString();
+const grandparent_uri = URI.file(path.join(ROOT, 'grandparent.do')).toString();
 
 function create_resolver(
     files: Map<string, string>,
@@ -30,7 +33,7 @@ function create_resolver(
     for (const [caller_uri, callee_uri] of auto_edges) {
         graph.update_caller(caller_uri, [{
             type: 'do',
-            raw_path: URI.parse(callee_uri).fsPath,
+            raw_path: uri_to_fs_path(callee_uri),
             is_static: true,
             call_site_line: 0,
             range: {
@@ -63,14 +66,14 @@ describe('Document working-directory probe', () => {
             name: 'explicit parent',
             content: '* sight: done-by "parent.do"\n',
             parent: '* sight: cd "data"\n',
-            expected: `${ROOT}/data`,
+            expected: path.join(ROOT, 'data'),
         },
         {
             name: 'auto-discovered parent',
             content: 'display 1\n',
             parent: '* sight: cd "data"\n',
             auto_edges: [[parent_uri, child_uri]],
-            expected: `${ROOT}/data`,
+            expected: path.join(ROOT, 'data'),
         },
         {
             name: 'auto-discovered grandparent',
@@ -81,7 +84,7 @@ describe('Document working-directory probe', () => {
                 [parent_uri, child_uri],
                 [grandparent_uri, parent_uri],
             ],
-            expected: `${ROOT}/data`,
+            expected: path.join(ROOT, 'data'),
         },
         {
             name: 'explicit mode ignores auto parents',
@@ -100,7 +103,7 @@ describe('Document working-directory probe', () => {
             name: 'standalone parent lends its own directory',
             content: '* sight: done-by "parent.do"\n',
             parent: '* sight: standalone\n* sight: cd "data"\n',
-            expected: `${ROOT}/data`,
+            expected: path.join(ROOT, 'data'),
         },
         {
             name: 'standalone parent blocks its ancestors',
@@ -116,7 +119,7 @@ describe('Document working-directory probe', () => {
                 '* sight: included-by "parent.do"\n',
             parent: '* sight: cd "first"\n',
             grandparent: '* sight: cd "second"\n',
-            expected: `${ROOT}/first`,
+            expected: path.join(ROOT, 'first'),
         },
         ...[0, 1, 2].map(max_backward_depth => ({
             name: `grandparent depth limit ${max_backward_depth}`,
@@ -124,7 +127,7 @@ describe('Document working-directory probe', () => {
             parent: '* sight: done-by "grandparent.do"\n',
             grandparent: '* sight: cd "data"\n',
             config: { max_backward_depth },
-            expected: max_backward_depth >= 2 ? `${ROOT}/data` : undefined,
+            expected: max_backward_depth >= 2 ? path.join(ROOT, 'data') : undefined,
         })),
     ];
 
@@ -159,7 +162,7 @@ describe('Document working-directory probe', () => {
         const directives = new DirectiveParser().parse(content, child_uri);
         expect(await resolver.resolve_document_working_directory(
             child_uri, directives,
-        )).toBe(`${ROOT}/data`);
+        )).toBe(path.join(ROOT, 'data'));
         expect(resolver.get_backward_directive_children(parent_uri).size).toBe(0);
         expect(resolver.get_backward_directive_children(grandparent_uri).size)
             .toBe(0);

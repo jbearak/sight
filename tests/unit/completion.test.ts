@@ -19,6 +19,7 @@ import { SymbolTable, MacroSymbol, ProgramSymbol, VariableSymbol, ScalarSymbol, 
 import { ContextTracker } from '../../src/context-tracker';
 import { LanguageContext } from '../../src/context-tracker/types';
 import { StataLexer } from '../../src/lexer';
+import { URI } from 'vscode-uri';
 
 /**
  * Helper to create a minimal document state for testing.
@@ -2161,7 +2162,7 @@ describe('Path completion preserves on-disk casing', () => {
      * Build a minimal DocumentState whose URI lives inside the temp workspace.
      */
     function make_doc(content: string): DocumentState {
-        const file_uri = `file://${path.join(temp_dir, 'main.do')}`;
+        const file_uri = URI.file(path.join(temp_dir, 'main.do')).toString();
         return {
             uri: file_uri,
             version: 1,
@@ -2256,7 +2257,7 @@ describe('Completion inert inside block comments', () => {
     function make_lexed_doc(content: string): DocumentState {
         const tokens = new StataLexer().tokenize(content).tokens;
         return {
-            uri: `file://${path.join(temp_dir, 'main.do')}`,
+            uri: URI.file(path.join(temp_dir, 'main.do')).toString(),
             version: 1,
             content,
             tokens,

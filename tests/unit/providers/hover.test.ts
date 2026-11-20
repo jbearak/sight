@@ -4,6 +4,22 @@ import { CommandDatabase } from '../../../src/command-database';
 import { SymbolTable, ProgramSymbol, ProgramSignature, LocalMacro, GlobalMacro, ResolvedScope } from '../../../src/types';
 import { DocumentState } from '../../../src/document-store';
 import { Position } from 'vscode-languageserver';
+import * as path from 'path';
+import { URI } from 'vscode-uri';
+import { uri_to_fs_path } from '../../../src/utils/fs-path';
+
+// Fixture paths are built the way the server builds them, so these
+// tests run on every host: an absolute path from path.resolve (on
+// Windows `C:\Users\...`) and its URI from URI.file. Hover link text
+// keeps native separators, so expected display paths use path.join.
+const abs = (...the_parts: string[]): string =>
+    path.resolve('/', ...the_parts);
+const uri_of = (...the_parts: string[]): string =>
+    URI.file(abs(...the_parts)).toString();
+/** Link text as hover escapes it (`\`, brackets and parentheses). */
+const link_text = (text: string): string =>
+    text.replace(/[\\[\]()]/g, '\\$&');
+const PROJECT = ['Users', 'test', 'project'];
 
 describe('HoverProvider Helper Methods', () => {
     let hover_provider: HoverProvider;
@@ -15,56 +31,56 @@ describe('HoverProvider Helper Methods', () => {
 
     describe('get_display_path', () => {
         it('should convert file:// URI to filesystem path', () => {
-            const uri = 'file:///Users/test/project/file.do';
+            const uri = uri_of(...PROJECT, 'file.do');
             const result = (hover_provider as any).get_display_path(uri);
-            expect(result).toBe('/Users/test/project/file.do');
+            expect(result).toBe(abs(...PROJECT, 'file.do'));
         });
 
         it('should handle URI without file:// prefix', () => {
-            const uri = '/Users/test/project/file.do';
+            const uri = abs(...PROJECT, 'file.do');
             const result = (hover_provider as any).get_display_path(uri);
-            expect(result).toBe('/Users/test/project/file.do');
+            expect(result).toBe(abs(...PROJECT, 'file.do'));
         });
 
         it('should return relative path when file is within workspace root', () => {
-            const uri = 'file:///Users/test/project/src/analysis.do';
-            const workspace_root = 'file:///Users/test/project';
+            const uri = uri_of(...PROJECT, 'src', 'analysis.do');
+            const workspace_root = uri_of(...PROJECT);
             const result = (hover_provider as any).get_display_path(uri, workspace_root);
-            expect(result).toBe('src/analysis.do');
+            expect(result).toBe(path.join('src', 'analysis.do'));
         });
 
         it('should handle workspace root without file:// prefix', () => {
-            const uri = 'file:///Users/test/project/src/analysis.do';
-            const workspace_root = '/Users/test/project';
+            const uri = uri_of(...PROJECT, 'src', 'analysis.do');
+            const workspace_root = abs(...PROJECT);
             const result = (hover_provider as any).get_display_path(uri, workspace_root);
-            expect(result).toBe('src/analysis.do');
+            expect(result).toBe(path.join('src', 'analysis.do'));
         });
 
         it('should return full path when file is outside workspace', () => {
-            const uri = 'file:///Users/test/other/file.do';
-            const workspace_root = 'file:///Users/test/project';
+            const uri = uri_of('Users', 'test', 'other', 'file.do');
+            const workspace_root = uri_of(...PROJECT);
             const result = (hover_provider as any).get_display_path(uri, workspace_root);
-            expect(result).toBe('/Users/test/other/file.do');
+            expect(result).toBe(abs('Users', 'test', 'other', 'file.do'));
         });
 
         it('should return full path when workspace_root is undefined', () => {
-            const uri = 'file:///Users/test/project/file.do';
+            const uri = uri_of(...PROJECT, 'file.do');
             const result = (hover_provider as any).get_display_path(uri);
-            expect(result).toBe('/Users/test/project/file.do');
+            expect(result).toBe(abs(...PROJECT, 'file.do'));
         });
 
         it('should handle relative path with leading slash correctly', () => {
-            const uri = 'file:///Users/test/project/src/analysis.do';
-            const workspace_root = 'file:///Users/test/project/';
+            const uri = uri_of(...PROJECT, 'src', 'analysis.do');
+            const workspace_root = `${uri_of(...PROJECT)}/`;
             const result = (hover_provider as any).get_display_path(uri, workspace_root);
-            expect(result).toBe('src/analysis.do');
+            expect(result).toBe(path.join('src', 'analysis.do'));
         });
 
         it('should handle nested subdirectories', () => {
-            const uri = 'file:///Users/test/project/src/data/clean.do';
-            const workspace_root = 'file:///Users/test/project';
+            const uri = uri_of(...PROJECT, 'src', 'data', 'clean.do');
+            const workspace_root = uri_of(...PROJECT);
             const result = (hover_provider as any).get_display_path(uri, workspace_root);
-            expect(result).toBe('src/data/clean.do');
+            expect(result).toBe(path.join('src', 'data', 'clean.do'));
         });
     });
 
@@ -77,58 +93,67 @@ describe('HoverProvider Helper Methods', () => {
         });
 
         it('should return markdown link for cross-file symbols', () => {
-            const source_uri = 'file:///Users/test/project/utils.do';
-            const current_uri = 'file:///Users/test/project/main.do';
+            const source_uri = uri_of(...PROJECT, 'utils.do');
+            const current_uri = uri_of(...PROJECT, 'main.do');
             const result = (hover_provider as any).format_source_link(source_uri, current_uri);
-            expect(result).toBe('[/Users/test/project/utils.do](file:///Users/test/project/utils.do)');
+            expect(result).toBe(`[${link_text(abs(...PROJECT, 'utils.do'))}](${source_uri})`);
         });
 
         it('should use get_display_path for link text with workspace root', () => {
-            const source_uri = 'file:///Users/test/project/src/utils.do';
-            const current_uri = 'file:///Users/test/project/main.do';
-            const workspace_root = 'file:///Users/test/project';
+            const source_uri = uri_of(...PROJECT, 'src', 'utils.do');
+            const current_uri = uri_of(...PROJECT, 'main.do');
+            const workspace_root = uri_of(...PROJECT);
             const result = (hover_provider as any).format_source_link(source_uri, current_uri, workspace_root);
-            expect(result).toBe('[src/utils.do](file:///Users/test/project/src/utils.do)');
+            expect(result).toBe(`[${link_text(path.join('src', 'utils.do'))}](${source_uri})`);
         });
 
         it('should handle files outside workspace', () => {
-            const source_uri = 'file:///Users/test/other/external.do';
-            const current_uri = 'file:///Users/test/project/main.do';
-            const workspace_root = 'file:///Users/test/project';
+            const source_uri = uri_of('Users', 'test', 'other', 'external.do');
+            const current_uri = uri_of(...PROJECT, 'main.do');
+            const workspace_root = uri_of(...PROJECT);
             const result = (hover_provider as any).format_source_link(source_uri, current_uri, workspace_root);
-            expect(result).toBe('[/Users/test/other/external.do](file:///Users/test/other/external.do)');
+            expect(result).toBe(
+                `[${link_text(abs('Users', 'test', 'other', 'external.do'))}](${source_uri})`,
+            );
         });
 
         it('should work without workspace root', () => {
-            const source_uri = 'file:///Users/test/project/utils.do';
-            const current_uri = 'file:///Users/test/project/main.do';
+            const source_uri = uri_of(...PROJECT, 'utils.do');
+            const current_uri = uri_of(...PROJECT, 'main.do');
             const result = (hover_provider as any).format_source_link(source_uri, current_uri);
-            expect(result).toBe('[/Users/test/project/utils.do](file:///Users/test/project/utils.do)');
+            expect(result).toBe(`[${link_text(abs(...PROJECT, 'utils.do'))}](${source_uri})`);
         });
 
         it('should handle identical URIs with different formats', () => {
             // After normalization, these should be recognized as the same file
-            const source_uri = 'file:///Users/test/project/main.do';
-            const current_uri = '/Users/test/project/main.do';
+            const source_uri = uri_of(...PROJECT, 'main.do');
+            const current_uri = abs(...PROJECT, 'main.do');
             const result = (hover_provider as any).format_source_link(source_uri, current_uri);
             expect(result).toBe('');
         });
 
         it('should handle nested directory structures', () => {
-            const source_uri = 'file:///Users/test/project/src/data/clean.do';
-            const current_uri = 'file:///Users/test/project/main.do';
-            const workspace_root = 'file:///Users/test/project';
+            const source_uri = uri_of(...PROJECT, 'src', 'data', 'clean.do');
+            const current_uri = uri_of(...PROJECT, 'main.do');
+            const workspace_root = uri_of(...PROJECT);
             const result = (hover_provider as any).format_source_link(source_uri, current_uri, workspace_root);
-            expect(result).toBe('[src/data/clean.do](file:///Users/test/project/src/data/clean.do)');
+            expect(result).toBe(
+                `[${link_text(path.join('src', 'data', 'clean.do'))}](${source_uri})`,
+            );
         });
 
         it('should escape markdown special characters in link display text', () => {
-            const source_uri = 'file:///Users/test/project/dir[1]/file(2).do';
-            const current_uri = 'file:///Users/test/project/main.do';
-            const workspace_root = 'file:///Users/test/project';
+            const source_uri = uri_of(...PROJECT, 'dir[1]', 'file(2).do');
+            const current_uri = uri_of(...PROJECT, 'main.do');
+            const workspace_root = uri_of(...PROJECT);
             const result = (hover_provider as any).format_source_link(source_uri, current_uri, workspace_root);
             // Display text is workspace-relative and must escape [],()
-            expect(result).toBe('[dir\\[1\\]/file\\(2\\).do](file:///Users/test/project/dir[1]/file(2).do)');
+            // (and, on Windows, the native separator).
+            expect(result).toBe(
+                `[${link_text(path.join('dir[1]', 'file(2).do'))}](${source_uri})`,
+            );
+            expect(link_text(path.join('dir[1]', 'file(2).do')))
+                .toContain('dir\\[1\\]');
         });
 
         it('should return plain text for non-file URIs', () => {
@@ -735,7 +760,10 @@ describe('HoverProvider Helper Methods', () => {
         });
 
         it('should work without workspace root', () => {
+            // The symbol's source URI is a literal POSIX-style URI, so
+            // its display path is whatever this host makes of it.
             const current_uri = 'file:///Users/test/project/main.do';
+            const source_path = uri_to_fs_path('file:///Users/test/project/utils.do');
 
             const result = (hover_provider as any).get_hover_for_user_program(
                 'my_program',
@@ -745,7 +773,8 @@ describe('HoverProvider Helper Methods', () => {
 
             expect(result).toEqual({
                 kind: 'markdown',
-                value: '**Program:** `my_program`\n\n**Source:** [/Users/test/project/utils.do](file:///Users/test/project/utils.do)'
+                value: '**Program:** `my_program`\n\n**Source:** '
+                    + `[${link_text(source_path)}](file:///Users/test/project/utils.do)`
             });
         });
 
@@ -882,13 +911,13 @@ describe('HoverProvider Helper Methods', () => {
         });
 
         it('should still handle file:// URIs', () => {
-            const result = (hover_provider as any).normalize_file_path('file:///Users/test/file.do');
-            expect(result).toBe('/Users/test/file.do');
+            const result = (hover_provider as any).normalize_file_path(uri_of('Users', 'test', 'file.do'));
+            expect(result).toBe(abs('Users', 'test', 'file.do'));
         });
 
         it('should still handle filesystem paths', () => {
-            const result = (hover_provider as any).normalize_file_path('/Users/test/file.do');
-            expect(result).toBe('/Users/test/file.do');
+            const result = (hover_provider as any).normalize_file_path(abs('Users', 'test', 'file.do'));
+            expect(result).toBe(abs('Users', 'test', 'file.do'));
         });
 
         it('should return non-null for Windows drive paths', () => {
@@ -928,19 +957,21 @@ describe('HoverProvider Helper Methods', () => {
         });
 
         it('should still produce clickable links for file:// URIs', () => {
+            const source_uri = uri_of('Users', 'test', 'utils.do');
             const result = (hover_provider as any).format_source_link(
-                'file:///Users/test/utils.do',
-                'file:///Users/test/main.do'
+                source_uri,
+                uri_of('Users', 'test', 'main.do')
             );
-            expect(result).toBe('[/Users/test/utils.do](file:///Users/test/utils.do)');
+            expect(result).toBe(`[${link_text(abs('Users', 'test', 'utils.do'))}](${source_uri})`);
         });
 
         it('should escape markdown in display text for file URIs', () => {
             const result = (hover_provider as any).format_source_link(
-                'file:///Users/test/file[1](copy).do',
-                'file:///Users/test/main.do'
+                uri_of('Users', 'test', 'file[1](copy).do'),
+                uri_of('Users', 'test', 'main.do')
             );
-            expect(result).toContain('[/Users/test/file\\[1\\]\\(copy\\).do]');
+            expect(result).toContain(`[${link_text(abs('Users', 'test', 'file[1](copy).do'))}]`);
+            expect(result).toContain('file\\[1\\]\\(copy\\).do]');
         });
 
         it('should return markdown link for Windows drive paths', () => {

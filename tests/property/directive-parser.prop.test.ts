@@ -6,7 +6,14 @@
 
 import { describe, test, expect } from 'bun:test';
 import * as fc from 'fast-check';
+import * as node_path from 'path';
 import { DirectiveParser } from '../../src/directive-parser';
+
+// Directive paths resolve with the host's path rules (native separators
+// and, on Windows, a drive), so fixture directories are absolute on
+// this host.
+const TEST_DIR = node_path.resolve('/Users/test');
+const in_test_dir = (name: string): string => node_path.join(TEST_DIR, name);
 
 describe('Directive Parser Property Tests', () => {
     const parser = new DirectiveParser();
@@ -123,18 +130,18 @@ describe('Directive Parser Property Tests', () => {
                     (path) => {
                         const mock_file_exists = (path_to_check: string) => {
                             // Both exact path and .do version exist
-                            return path_to_check === `/Users/test/${path}` ||
-                                   path_to_check === `/Users/test/${path}.do`;
+                            return path_to_check === in_test_dir(path) ||
+                                   path_to_check === in_test_dir(`${path}.do`);
                         };
 
                         const resolved = parser.resolve_path_with_fallback(
                             path,
-                            '/Users/test',
+                            TEST_DIR,
                             mock_file_exists
                         );
 
                         // Should resolve to exact path
-                        expect(resolved).toBe(`/Users/test/${path}`);
+                        expect(resolved).toBe(in_test_dir(path));
                     }
                 ),
                 { numRuns: 100 }
@@ -151,17 +158,17 @@ describe('Directive Parser Property Tests', () => {
                     (path) => {
                         const mock_file_exists = (path_to_check: string) => {
                             // Only .do version exists
-                            return path_to_check === `/Users/test/${path}.do`;
+                            return path_to_check === in_test_dir(`${path}.do`);
                         };
 
                         const resolved = parser.resolve_path_with_fallback(
                             path,
-                            '/Users/test',
+                            TEST_DIR,
                             mock_file_exists
                         );
 
                         // Should resolve to .do version
-                        expect(resolved).toBe(`/Users/test/${path}.do`);
+                        expect(resolved).toBe(in_test_dir(`${path}.do`));
                     }
                 ),
                 { numRuns: 100 }
@@ -180,12 +187,12 @@ describe('Directive Parser Property Tests', () => {
 
                         const resolved = parser.resolve_path_with_fallback(
                             path,
-                            '/Users/test',
+                            TEST_DIR,
                             mock_file_exists
                         );
 
                         // Should return original resolved path
-                        expect(resolved).toBe(`/Users/test/${path}`);
+                        expect(resolved).toBe(in_test_dir(path));
                     }
                 ),
                 { numRuns: 100 }
@@ -310,7 +317,7 @@ describe('Directive Parser Property Tests', () => {
             fc.assert(
                 fc.property(
                     fc.record({
-                        containing_dir: fc.constant('/Users/test/project'),
+                        containing_dir: fc.constant(node_path.resolve('/Users/test/project')),
                         relative_path: fc.constantFrom(
                             'file.do',
                             './file.do',
@@ -323,11 +330,11 @@ describe('Directive Parser Property Tests', () => {
                         const resolved = parser.resolve_path(relative_path, containing_dir);
 
                         // Should be absolute
-                        expect(resolved.startsWith('/')).toBe(true);
-                        // Should not contain ..
-                        expect(resolved.includes('..')).toBe(false);
-                        // Should not contain ./
-                        expect(resolved.includes('./')).toBe(false);
+                        expect(node_path.isAbsolute(resolved)).toBe(true);
+                        // Should not contain .. or . segments
+                        const the_segments = resolved.split(/[\\/]/);
+                        expect(the_segments.includes('..')).toBe(false);
+                        expect(the_segments.includes('.')).toBe(false);
                     }
                 ),
                 { numRuns: 100 }
@@ -335,17 +342,17 @@ describe('Directive Parser Property Tests', () => {
         });
 
         test('parent directory navigation works', () => {
-            const containing_dir = '/Users/test/project/subdir';
+            const containing_dir = node_path.resolve('/Users/test/project/subdir');
             const resolved = parser.resolve_path('../parent.do', containing_dir);
-            expect(resolved).toBe('/Users/test/project/parent.do');
+            expect(resolved).toBe(node_path.resolve('/Users/test/project/parent.do'));
         });
 
         test('absolute paths are preserved', () => {
             fc.assert(
                 fc.property(
-                    fc.constant('/absolute/path/file.do'),
+                    fc.constant(node_path.resolve('/absolute/path/file.do')),
                     (absolute_path) => {
-                        const resolved = parser.resolve_path(absolute_path, '/any/dir');
+                        const resolved = parser.resolve_path(absolute_path, node_path.resolve('/any/dir'));
                         expect(resolved).toBe(absolute_path);
                     }
                 ),

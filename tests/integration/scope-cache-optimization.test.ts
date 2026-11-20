@@ -9,6 +9,7 @@ import * as path from 'path';
 import * as os from 'os';
 import { ScopeResolver } from '../../src/scope-resolver';
 import { create_test_scope_resolver_logger } from '../test-logger';
+import { URI } from 'vscode-uri';
 
 describe('Scope Cache Optimization Integration Tests', () => {
     let resolver: ScopeResolver;
@@ -34,12 +35,12 @@ describe('Scope Cache Optimization Integration Tests', () => {
             // Create parent file
             const parent_content = 'global parent_var = 1';
             const parent_path = create_file('parent.do', parent_content);
-            const parent_uri = `file://${parent_path}`;
+            const parent_uri = URI.file(parent_path).toString();
 
             // Create child file with directive
             const child_content_v1 = `// @lsp-done-by: ${parent_path}\nlocal x = 1`;
             const child_path = create_file('child.do', child_content_v1);
-            const child_uri = `file://${child_path}`;
+            const child_uri = URI.file(child_path).toString();
 
             // First resolve - populates both caches
             await resolver.resolve(child_uri, child_content_v1);
@@ -66,12 +67,12 @@ describe('Scope Cache Optimization Integration Tests', () => {
             // Create parent file
             const parent_content_v1 = 'global parent_var = 1';
             const parent_path = create_file('parent.do', parent_content_v1);
-            const parent_uri = `file://${parent_path}`;
+            const parent_uri = URI.file(parent_path).toString();
 
             // Create child file with directive
             const child_content = `// @lsp-done-by: ${parent_path}\nlocal x = \`parent_var'`;
             const child_path = create_file('child.do', child_content);
-            const child_uri = `file://${child_path}`;
+            const child_uri = URI.file(child_path).toString();
 
             // First resolve
             await resolver.resolve(child_uri, child_content);
@@ -105,12 +106,12 @@ describe('Scope Cache Optimization Integration Tests', () => {
             // Create parent file
             const parent_content = 'global parent_var = 1';
             const parent_path = create_file('parent.do', parent_content);
-            const parent_uri = `file://${parent_path}`;
+            const parent_uri = URI.file(parent_path).toString();
 
             // Create child file with directive
             const child_content = `// @lsp-done-by: ${parent_path}\nlocal x = \`parent_var'`;
             const child_path = create_file('child.do', child_content);
-            const child_uri = `file://${child_path}`;
+            const child_uri = URI.file(child_path).toString();
 
             // First resolve - works fine
             const result1 = await silent_resolver.resolve(child_uri, child_content);
@@ -142,7 +143,7 @@ describe('Scope Cache Optimization Integration Tests', () => {
             // Create child file with directive
             const child_content = `// @lsp-done-by: ${parent_path}\nlocal x = 1`;
             const child_path = create_file('child.do', child_content);
-            const child_uri = `file://${child_path}`;
+            const child_uri = URI.file(child_path).toString();
 
             // First resolve
             await resolver.resolve(child_uri, child_content);
@@ -164,7 +165,7 @@ describe('Scope Cache Optimization Integration Tests', () => {
             // Create grandparent file
             const grandparent_content = 'global grandparent_var = 1';
             const grandparent_path = create_file('grandparent.do', grandparent_content);
-            const grandparent_uri = `file://${grandparent_path}`;
+            const grandparent_uri = URI.file(grandparent_path).toString();
 
             // Create parent file with directive to grandparent
             const parent_content = `// @lsp-done-by: ${grandparent_path}\nglobal parent_var = 1`;
@@ -173,7 +174,7 @@ describe('Scope Cache Optimization Integration Tests', () => {
             // Create child file with directive to parent
             const child_content = `// @lsp-done-by: ${parent_path}\nlocal x = 1`;
             const child_path = create_file('child.do', child_content);
-            const child_uri = `file://${child_path}`;
+            const child_uri = URI.file(child_path).toString();
 
             // Resolve child (loads entire chain)
             await resolver.resolve(child_uri, child_content);
@@ -200,7 +201,7 @@ global after_call = 2`;
             // Create child file with directive (no explicit call site - triggers inference)
             const child_content = `// @lsp-done-by: ${parent_path}\nlocal x = \`parent_var'`;
             const child_path = create_file('child.do', child_content);
-            const child_uri = `file://${child_path}`;
+            const child_uri = URI.file(child_path).toString();
 
             // Clear caches to ensure fresh read
             resolver.clear_cache();
@@ -227,7 +228,7 @@ global after_match = 2`;
             // Create child file with match-based call site (note: space after path, not comma)
             const child_content = `// @lsp-done-by: ${parent_path} match="CALL_SITE_MARKER"\nlocal x = \`before_match'`;
             const child_path = create_file('child.do', child_content);
-            const child_uri = `file://${child_path}`;
+            const child_uri = URI.file(child_path).toString();
 
             resolver.clear_cache();
             resolver.reset_cache_metrics();
@@ -254,7 +255,7 @@ global after_match = 2`;
             // Create child file with directive
             const child_content = `// @lsp-done-by: ${parent_path}\nlocal x = 1`;
             const child_path = create_file('child.do', child_content);
-            const child_uri = `file://${child_path}`;
+            const child_uri = URI.file(child_path).toString();
 
             // First resolve to populate cache
             await resolver.resolve(child_uri, child_content);
@@ -282,7 +283,7 @@ global after_do = 2`;
             // Create child file with directive (no explicit call site - should infer from "do child.do")
             const child_content = `// @lsp-done-by: ${parent_path}\nlocal x = \`before_do'`;
             const child_path = create_file('child.do', child_content);
-            const child_uri = `file://${child_path}`;
+            const child_uri = URI.file(child_path).toString();
 
             resolver.clear_cache();
             resolver.reset_cache_metrics();

@@ -12,6 +12,7 @@ import * as os from 'os';
 import { ScopeResolver } from '../../src/scope-resolver';
 import { ForwardScopeResolver } from '../../src/forward-scope-resolver';
 import { URI } from 'vscode-uri';
+import { uri_to_fs_path } from '../../src/utils/fs-path';
 import type { SymbolTable, ForwardCall } from '../../src/types';
 import { Range } from 'vscode-languageserver';
 
@@ -57,7 +58,7 @@ describe('Callee Change Caller Revalidation Integration', () => {
 
         const content_provider = {
             read_file: async (uri: string) => {
-                const fs_path = URI.parse(uri).fsPath;
+                const fs_path = uri_to_fs_path(uri);
                 const content = file_contents.get(fs_path);
                 if (content === undefined) {
                     throw new Error(`File not found: ${fs_path}`);
@@ -65,11 +66,11 @@ describe('Callee Change Caller Revalidation Integration', () => {
                 return content;
             },
             exists: async (uri: string) => {
-                const fs_path = URI.parse(uri).fsPath;
+                const fs_path = uri_to_fs_path(uri);
                 return file_contents.has(fs_path);
             },
             stat: async (uri: string) => {
-                const fs_path = URI.parse(uri).fsPath;
+                const fs_path = uri_to_fs_path(uri);
                 return file_contents.has(fs_path) ? { mtimeMs: Date.now(), size: 100 } : undefined;
             }
         };

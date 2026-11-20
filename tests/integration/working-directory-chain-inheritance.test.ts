@@ -112,9 +112,11 @@ local bh_var = 1
             // The inherited working directory should be the parent of dhs/
             if (result.inherited_working_directory) {
                 const expected_wd = path.resolve(temp_dir);
-                // Normalize both paths to handle trailing slash differences
-                const normalized_inherited = result.inherited_working_directory.replace(/\/$/, '');
-                const normalized_expected = expected_wd.replace(/\/$/, '');
+                // Normalize both paths to handle trailing separator
+                // differences (`@lsp-cd ../` keeps its trailing `\` on
+                // Windows).
+                const normalized_inherited = result.inherited_working_directory.replace(/[\\/]$/, '');
+                const normalized_expected = expected_wd.replace(/[\\/]$/, '');
                 expect(normalized_inherited).toBe(normalized_expected);
             }
         });

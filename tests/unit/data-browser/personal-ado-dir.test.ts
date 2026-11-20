@@ -3,7 +3,11 @@ import {
     expect,
     it,
 } from 'bun:test';
+import * as path from 'path';
 import { resolve_personal_ado_dir } from '../../../client/src/data-browser/install-path';
+
+// `platform` picks the layout; the path is joined with the host's
+// separator, as it is when the extension runs on that platform.
 
 describe('resolve_personal_ado_dir', () => {
     it('defaults to OLDPLACE on macOS', () => {
@@ -13,7 +17,7 @@ describe('resolve_personal_ado_dir', () => {
             'darwin'
         );
 
-        expect(my_result).toBe('/Users/tester/ado');
+        expect(my_result).toBe(path.join('/Users/tester', 'ado'));
     });
 
     it('keeps PERSONAL fallback on Linux', () => {
@@ -23,7 +27,7 @@ describe('resolve_personal_ado_dir', () => {
             'linux'
         );
 
-        expect(my_result).toBe('/home/tester/ado/personal');
+        expect(my_result).toBe(path.join('/home/tester', 'ado', 'personal'));
     });
 
     it('expands tilde for custom overrides', () => {

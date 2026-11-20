@@ -25,6 +25,9 @@ export {
   arbitrary_non_reserved_identifier,
 } from './primitives';
 
+// Parser-checked command names
+export { arbitrary_plain_command } from './plain-commands';
+
 // AST node generators
 export {
   arbitrary_command_node,
