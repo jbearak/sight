@@ -163,6 +163,32 @@ describe('ClientUriSpelling', () => {
         expect(response.result.uri).toBe(SENT);
     });
 
+    it('rewrites the answer to a workspace-folders request only', () => {
+        const spelling = new ClientUriSpelling();
+        spelling.handle_outgoing({
+            jsonrpc: '2.0', id: 7, method: 'workspace/workspaceFolders',
+        });
+        const folders = {
+            jsonrpc: '2.0', id: 7, result: [{ uri: SENT, name: 'p' }],
+        };
+        spelling.handle_incoming(folders);
+        expect(folders.result[0]?.uri).toBe(WANT);
+        // The same id answered again is some other request's reply.
+        const other = { jsonrpc: '2.0', id: 7, result: [{ uri: SENT }] };
+        spelling.handle_incoming(other);
+        expect(other.result[0]?.uri).toBe(SENT);
+    });
+
+    it('leaves a completion item\'s data alone', () => {
+        const spelling = new ClientUriSpelling();
+        spelling.handle_incoming(notify('textDocument/didOpen', SENT));
+        const sent = spelling.handle_outgoing({
+            jsonrpc: '2.0', id: 8,
+            result: { label: 'x', data: { uri: WANT } },
+        });
+        expect(sent.result.data.uri).toBe(WANT);
+    });
+
     it('puts the spelling back in outgoing params and results', () => {
         const spelling = new ClientUriSpelling();
         spelling.handle_incoming(notify('textDocument/didOpen', SENT));

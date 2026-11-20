@@ -98,6 +98,9 @@ function rewrite_uri_list(record: JsonRecord | undefined, key: string): void {
  * - `event.added[].uri`, `event.removed[].uri` (workspace folders);
  * - `changes[].uri` (watched files);
  * - `diagnosticUris[]`, here and under `initializationOptions`.
+ *
+ * The one response that carries URIs, the client's answer to
+ * `workspace/workspaceFolders`, is rewritten by `ClientUriSpelling`.
  */
 export function canonicalise_params_uris(params: unknown): void {
     const my_params = as_record(params);
@@ -127,8 +130,14 @@ export function canonicalise_params_uris(params: unknown): void {
 
 const DID_OPEN_METHOD = 'textDocument/didOpen';
 const DID_CLOSE_METHOD = 'textDocument/didClose';
+const WORKSPACE_FOLDERS_METHOD = 'workspace/workspaceFolders';
 /** Outgoing fields that hold a URI, at any depth. */
 const OUTGOING_URI_KEYS = new Set(['uri', 'targetUri', 'scopeUri']);
+/**
+ * An outgoing field whose contents are the server's own and come back
+ * unchanged (a completion item's `data`); never rewritten.
+ */
+const OPAQUE_KEY = 'data';
 /**
  * How many closed documents' spellings are kept. A document's last
  * diagnostics are cleared after it closes, so its spelling must
@@ -145,13 +154,28 @@ export class ClientUriSpelling {
     private readonly the_open_spellings = new Map<string, string>();
     /** The same for closed documents, oldest close first. */
     private readonly the_closed_spellings = new Map<string, string>();
+    /** Ids of the server's unanswered workspace-folder requests. */
+    private readonly the_folder_request_ids = new Set<number | string>();
 
     /** Rewrite one incoming JSON-RPC message in place. */
     handle_incoming(message: unknown): void {
         const my_message = as_record(message);
         const my_method = my_message?.['method'];
-        if (!my_message || typeof my_method !== 'string') {
-            // A response to one of the server's own requests.
+        if (!my_message) {
+            return;
+        }
+        if (typeof my_method !== 'string') {
+            // A response to one of the server's own requests. Only
+            // the workspace folders carry URIs.
+            const my_id = my_message['id'];
+            if (
+                (typeof my_id === 'number' || typeof my_id === 'string')
+                && this.the_folder_request_ids.delete(my_id)
+            ) {
+                for (const my_folder of as_records(my_message['result'])) {
+                    rewrite_field(my_folder, 'uri');
+                }
+            }
             return;
         }
         const my_document = as_record(
@@ -193,6 +217,15 @@ export class ClientUriSpelling {
      * location, say), so it is never changed: what differs is copied.
      */
     handle_outgoing<T>(message: T): T {
+        const my_sent = as_record(message);
+        const my_sent_id = my_sent?.['id'];
+        if (
+            my_sent?.['method'] === WORKSPACE_FOLDERS_METHOD
+            && (typeof my_sent_id === 'number'
+                || typeof my_sent_id === 'string')
+        ) {
+            this.the_folder_request_ids.add(my_sent_id);
+        }
         if (
             this.the_open_spellings.size === 0
             && this.the_closed_spellings.size === 0
@@ -249,6 +282,9 @@ export class ClientUriSpelling {
         }
         let my_copy: JsonRecord | undefined;
         for (const [my_key, my_value] of Object.entries(my_record)) {
+            if (my_key === OPAQUE_KEY) {
+                continue;
+            }
             const my_restored = typeof my_value === 'string'
                 ? (OUTGOING_URI_KEYS.has(my_key)
                     ? this.for_client(my_value)

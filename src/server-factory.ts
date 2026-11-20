@@ -134,7 +134,11 @@ function create_transport_connection(transport: TransportType): Connection {
     const connection_options: ConnectionOptions = {
         messageStrategy: {
             handleMessage: (message, next) => {
-                if ('method' in message && message.method === 'shutdown') {
+                if (
+                    'method' in message && message.method === 'shutdown'
+                    // A request; a notification is not a shutdown.
+                    && 'id' in message
+                ) {
                     shutdown_received = true;
                 }
                 client_uri_spelling.handle_incoming(message);
@@ -148,22 +152,39 @@ function create_transport_connection(transport: TransportType): Connection {
             write(client_uri_spelling.handle_outgoing(message));
         return writer;
     };
-    if (transport === 'stdio') {
-        // Use stdio transport for standalone usage. Given a reader and
-        // a writer, the library no longer exits when the client closes
-        // the input, as it does for a bare stream; do that here.
+    // The Node IPC entry point (server.ts) lets the command line pick
+    // another transport, as the library does: `--stdio`, a socket or
+    // a pipe.
+    const has_ipc_flag = process.argv.includes('--node-ipc');
+    const use_stdio = transport === 'stdio'
+        || (!has_ipc_flag && process.argv.includes('--stdio'));
+    if (use_stdio) {
+        // Given a reader and a writer, the library no longer exits
+        // when the client closes the input, as it does for a bare
+        // stream; do that here.
         const exit_with_input = (): void => {
             process.exit(shutdown_received ? 0 : 1);
         };
         process.stdin.on('end', exit_with_input);
         process.stdin.on('close', exit_with_input);
-        return createConnection(
-            new StreamMessageReader(process.stdin),
-            restore_spellings(new StreamMessageWriter(process.stdout)),
-            connection_options
+        const reader = new StreamMessageReader(process.stdin);
+        const writer = restore_spellings(
+            new StreamMessageWriter(process.stdout)
         );
+        return transport === 'stdio'
+            // Standalone usage
+            ? createConnection(reader, writer, connection_options)
+            : createConnection(
+                ProposedFeatures.all, reader, writer, connection_options
+            );
     }
-    // Use Node IPC transport for VS Code
+    if (!has_ipc_flag) {
+        // A socket or a pipe named on the command line (or nothing,
+        // which the library reports). Replies there keep the
+        // server's spelling.
+        return createConnection(ProposedFeatures.all, connection_options);
+    }
+    // Node IPC transport for VS Code
     return createConnection(
         ProposedFeatures.all,
         new IPCMessageReader(process),
