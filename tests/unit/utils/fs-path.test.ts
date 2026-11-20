@@ -402,6 +402,35 @@ describe('UNC host case on win32', () => {
         )).toBe(false);
     });
 
+    it('folds the host of an extended UNC path', () => {
+        expect(is_path_within_root(
+            '\\\\?\\UNC\\Server\\Share\\a.do',
+            '\\\\?\\UNC\\server\\Share',
+            'win32',
+        )).toBe(true);
+        // A device prefix has no host.
+        expect(canonical_fs_path('\\\\.\\PIPE\\x', 'win32'))
+            .toBe('\\\\.\\PIPE\\x');
+        expect(canonical_fs_path('\\\\?\\C:\\Dir', 'win32'))
+            .toBe('\\\\?\\C:\\Dir');
+    });
+
+    it('still reports a case-only file name under a UNC root', () => {
+        const my_tree = {
+            '\\\\server\\share\\proj': [['Clean.do', true]],
+        } satisfies Record<string, Array<[string, boolean]>>;
+        const my_outcome = resolve_path_rich(
+            '\\\\Server\\share\\proj\\clean.do',
+            {
+                // The root as the server holds it: host lower-cased.
+                workspace_roots: ['\\\\server\\share\\proj'],
+                fs: make_fs(my_tree, '\\'),
+                platform: 'win32',
+            },
+        );
+        expect(my_outcome.kind).toBe('case_only');
+    });
+
     it('still tells the share and directories apart by case', () => {
         expect(is_path_within_root(
             '\\\\server\\share\\proj\\a.do',
@@ -445,6 +474,16 @@ describe('drive-relative paths on win32', () => {
         });
     });
 
+    it('resolves `do C:main.do` at the workspace root as a last resort', () => {
+        const my_outcome = resolve_forward_call_rich(
+            'C:main.do',
+            'C:\\ws\\helpers',
+            'C:\\ws\\Raw',
+            { workspace_roots: ['C:\\ws'], fs, platform: 'win32' },
+        );
+        expect(my_outcome).toEqual({ kind: 'exact', path: 'C:\\ws\\main.do' });
+    });
+
     it('resolves `cd C:Raw` in the working directory', () => {
         const my_result = build_cd_timeline({
             starting_wd: 'C:\\ws',
@@ -482,6 +521,13 @@ describe('DirectiveParser.resolve_path on win32', () => {
         expect(parser.resolve_path(
             '..\\parent.do', 'c:\\ws\\sub', 'win32',
         )).toBe('C:\\ws\\parent.do');
+    });
+
+    it('resolves a drive-relative path beside the file', () => {
+        expect(parser.resolve_path('C:parent.do', 'C:\\ws', 'win32'))
+            .toBe('C:\\ws\\parent.do');
+        expect(parser.resolve_path('c:sub\\parent.do', 'C:\\ws', 'win32'))
+            .toBe('C:\\ws\\sub\\parent.do');
     });
 
     it('keeps a UNC path a UNC path', () => {

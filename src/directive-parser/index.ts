@@ -9,6 +9,7 @@ import * as fs from 'fs';
 import { Range } from 'vscode-languageserver-textdocument';
 import {
     canonical_fs_path,
+    drive_relative_rest,
     path_module_for,
     uri_to_fs_path,
     type PathPlatform,
@@ -731,9 +732,13 @@ export class DirectiveParser {
         }
 
         return canonical_fs_path(
-            the_path.normalize(
-                the_path.join(containing_dir, normalized_separators)
-            ),
+            the_path.normalize(the_path.join(
+                containing_dir,
+                // `C:parent.do` beside a file on drive C is `parent.do`.
+                drive_relative_rest(
+                    normalized_separators, containing_dir, platform
+                )
+            )),
             platform
         );
     }

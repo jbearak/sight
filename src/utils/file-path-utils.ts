@@ -980,7 +980,12 @@ export function resolve_forward_call_rich(
         );
         if (my_strict_root !== null) {
             const my_root_candidate = the_path.normalize(
-                the_path.join(my_strict_root, my_normalized_raw),
+                the_path.join(
+                    my_strict_root,
+                    drive_relative_rest(
+                        my_normalized_raw, my_strict_root, platform,
+                    ),
+                ),
             );
             if (!the_candidates.includes(my_root_candidate)) {
                 the_candidates.push(my_root_candidate);
