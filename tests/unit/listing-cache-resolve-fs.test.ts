@@ -8,7 +8,10 @@ import { describe, it, expect, afterEach } from 'bun:test';
 import * as fs from 'fs';
 import * as os from 'os';
 import * as path from 'path';
-import { create_listing_cache_resolve_fs } from '../../src/utils/file-path-utils';
+import {
+    create_listing_cache_resolve_fs,
+    type ListingStat,
+} from '../../src/utils/file-path-utils';
 
 let tmp_dir: string | undefined;
 
@@ -48,12 +51,61 @@ describe('create_listing_cache_resolve_fs', () => {
             .toEqual(['a.do', 'b.do']);
     });
 
+    // A directory's identity and timestamps as the cache would read
+    // them, set by the test: real ones depend on the clock and the
+    // filesystem.
+    function fake_stat(overrides: Partial<ListingStat> = {}) {
+        const the_stats = new Map<string, ListingStat>();
+        const stat = (dir_path: string): ListingStat =>
+            the_stats.get(dir_path) ??
+            { dev: 1n, ino: 1n, mtimeNs: 0n, ctimeNs: 0n, ...overrides };
+        return { the_stats, stat };
+    }
+
     it('does not cache a directory that changed moments ago', () => {
         const root = make_directory(['a.do']);
-        const listing = create_listing_cache_resolve_fs();
-        const first = listing.readdirSync(root, { withFileTypes: true });
-        expect(listing.readdirSync(root, { withFileTypes: true }))
-            .not.toBe(first);
+        const now_ns = BigInt(Date.now()) * 1_000_000n;
+        const recent = create_listing_cache_resolve_fs({
+            stat: fake_stat({ mtimeNs: now_ns, ctimeNs: now_ns }).stat,
+        });
+        expect(recent.readdirSync(root, { withFileTypes: true }))
+            .not.toBe(recent.readdirSync(root, { withFileTypes: true }));
+        // The same directory, unchanged for long, is cached.
+        const old = create_listing_cache_resolve_fs({ stat: fake_stat().stat });
+        expect(old.readdirSync(root, { withFileTypes: true }))
+            .toBe(old.readdirSync(root, { withFileTypes: true }));
+    });
+
+    it('does not cache the root of a volume or a directory with no inode', () => {
+        const root = make_directory(['a.do']);
+        // The parent is on another device: `root` is a volume's root,
+        // whose timestamps some filesystems never move.
+        const volume = fake_stat();
+        volume.the_stats.set(path.dirname(root),
+            { dev: 2n, ino: 9n, mtimeNs: 0n, ctimeNs: 0n });
+        const on_volume = create_listing_cache_resolve_fs({ stat: volume.stat });
+        expect(on_volume.readdirSync(root, { withFileTypes: true }))
+            .not.toBe(on_volume.readdirSync(root, { withFileTypes: true }));
+        const no_inode = create_listing_cache_resolve_fs({
+            stat: fake_stat({ ino: 0n }).stat,
+        });
+        expect(no_inode.readdirSync(root, { withFileTypes: true }))
+            .not.toBe(no_inode.readdirSync(root, { withFileTypes: true }));
+    });
+
+    it('shares one listing between two paths to a directory', () => {
+        const root = make_directory([]);
+        for (const my_name of ['one', 'two']) {
+            fs.mkdirSync(path.join(root, my_name));
+        }
+        // Both paths report one identity, as two links to a directory do.
+        const listing = create_listing_cache_resolve_fs({
+            stat: fake_stat().stat,
+        });
+        expect(listing.readdirSync(
+            path.join(root, 'two'), { withFileTypes: true }))
+            .toBe(listing.readdirSync(
+                path.join(root, 'one'), { withFileTypes: true }));
     });
 
     it('checks existence and stats on disk every time', () => {
@@ -70,29 +122,28 @@ describe('create_listing_cache_resolve_fs', () => {
     });
 
     it('reads a path again when it names another directory', () => {
-        // A symlink pointed at another directory can show the same
-        // timestamps; only the directory's identity differs.
+        // A path that comes to name another directory (a renamed
+        // directory, a retargeted link) can show the same timestamps;
+        // only the directory's identity differs.
         const root = make_directory([]);
         for (const my_name of ['one', 'two']) {
             fs.mkdirSync(path.join(root, my_name));
             fs.writeFileSync(path.join(root, my_name, `${my_name}.do`), '');
         }
-        const link = path.join(root, 'link');
-        fs.symlinkSync(path.join(root, 'one'), link, 'dir');
-        let inode = 1n;
-        const listing = create_listing_cache_resolve_fs({
-            settle_ms: 0,
-            stat: () => ({ dev: 1n, ino: inode, mtimeNs: 0n, ctimeNs: 0n }),
-        });
+        const current = path.join(root, 'current');
+        fs.renameSync(path.join(root, 'one'), current);
+        const fake = fake_stat();
+        const listing = create_listing_cache_resolve_fs({ stat: fake.stat });
         const names = (): string[] =>
-            listing.readdirSync(link, { withFileTypes: true })
+            listing.readdirSync(current, { withFileTypes: true })
                 .map((my_entry) => my_entry.name);
         expect(names()).toEqual(['one.do']);
-        fs.rmSync(link);
-        fs.symlinkSync(path.join(root, 'two'), link, 'dir');
+        fs.renameSync(current, path.join(root, 'one'));
+        fs.renameSync(path.join(root, 'two'), current);
         // Same identity: the cached listing is still used.
         expect(names()).toEqual(['one.do']);
-        inode = 2n;
+        fake.the_stats.set(current,
+            { dev: 1n, ino: 2n, mtimeNs: 0n, ctimeNs: 0n });
         expect(names()).toEqual(['two.do']);
     });
 });
