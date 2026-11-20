@@ -104,6 +104,18 @@ describe('PATH Detection Property Tests', () => {
     });
 
     /**
+     * Windows compares paths without regard to case; elsewhere a
+     * PATH entry that differs only by case is another directory.
+     */
+    it('should ignore case on Windows only', () => {
+        const home = homedir();
+        const target = `${home}/SightBin`;
+
+        process.env.PATH = ['/usr/bin', `${home}/sightbin`].join(delimiter);
+        expect(is_path_in_env(target)).toBe(process.platform === 'win32');
+    });
+
+    /**
      * Feature: binary-installation, Property 2: PATH Detection
      * 
      * Should handle ~ notation for home directory.

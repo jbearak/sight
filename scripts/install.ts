@@ -217,8 +217,15 @@ export function is_path_in_env(target_dir: string): boolean {
     const path_env = process.env.PATH || '';
     const home = homedir();
     
+    // Windows compares paths without regard to case (`C:\Users\Me\bin`
+    // and `c:\users\me\BIN` are one directory).
+    const comparable = (dir: string): string =>
+        process.platform === 'win32' ? dir.toLowerCase() : dir;
+
     // Normalize the target directory (strip trailing slashes and backslashes)
-    const normalized_target = resolve(target_dir).replace(/[/\\]+$/, '');
+    const normalized_target = comparable(
+        resolve(target_dir).replace(/[/\\]+$/, '')
+    );
     
     // Determine separator based on platform
     const separator = process.platform === 'win32' ? ';' : ':';
@@ -237,7 +244,7 @@ export function is_path_in_env(target_dir: string): boolean {
         // Normalize and remove trailing slashes/backslashes
         expanded_path = resolve(expanded_path).replace(/[/\\]+$/, '');
         
-        if (expanded_path === normalized_target) {
+        if (comparable(expanded_path) === normalized_target) {
             return true;
         }
     }

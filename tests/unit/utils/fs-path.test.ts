@@ -9,6 +9,7 @@
 import { describe, expect, it } from 'bun:test';
 import {
     canonical_fs_path,
+    drive_relative_rest,
     is_path_within_root,
     slashed_comparison_path,
     uri_to_fs_path,
@@ -23,6 +24,7 @@ import {
 } from '../../../src/utils/file-path-utils';
 import { get_workspace_root_for_path } from '../../../src/utils/workspace-roots';
 import type { CdCommand } from '../../../src/types';
+import { DirectiveParser } from '../../../src/directive-parser';
 
 /**
  * In-memory filesystem. Map keys are directories, spelled with `sep`
@@ -94,6 +96,13 @@ describe('canonical_fs_path', () => {
     it('keeps the case of the rest of the path on win32', () => {
         expect(canonical_fs_path('d:\\Data\\RAW\\x.do', 'win32'))
             .toBe('D:\\Data\\RAW\\x.do');
+    });
+
+    it('lower-cases a UNC host name and keeps the rest', () => {
+        expect(canonical_fs_path('\\\\Server\\Share\\Dir\\a.do', 'win32'))
+            .toBe('\\\\server\\Share\\Dir\\a.do');
+        expect(canonical_fs_path('//SERVER/Share/a.do', 'win32'))
+            .toBe('\\\\server\\Share\\a.do');
     });
 
     it('leaves UNC and drive-less paths alone apart from separators', () => {
@@ -377,5 +386,112 @@ describe('build_cd_timeline on win32', () => {
             platform: 'win32',
         });
         expect(my_result.diagnostics).toEqual([]);
+    });
+});
+
+describe('UNC host case on win32', () => {
+    it('finds a URI-derived path inside a root typed with another case', () => {
+        // A URI lower-cases the host; Node keeps the root's as typed.
+        const my_path = uri_to_fs_path('file://server/share/proj/a.do', 'win32');
+        expect(my_path).toBe('\\\\server\\share\\proj\\a.do');
+        expect(is_path_within_root(
+            my_path, '\\\\Server\\share\\proj', 'win32',
+        )).toBe(true);
+        expect(is_path_within_root(
+            my_path, '\\\\other\\share\\proj', 'win32',
+        )).toBe(false);
+    });
+
+    it('still tells the share and directories apart by case', () => {
+        expect(is_path_within_root(
+            '\\\\server\\share\\proj\\a.do',
+            '\\\\server\\share\\Proj',
+            'win32',
+        )).toBe(false);
+    });
+});
+
+describe('drive-relative paths on win32', () => {
+    const fs = make_fs(WINDOWS_TREE, '\\');
+
+    it('gives the rest of a path on the base directory\'s drive', () => {
+        expect(drive_relative_rest('C:foo.do', 'C:\\ws', 'win32'))
+            .toBe('foo.do');
+        expect(drive_relative_rest('c:sub/foo.do', 'C:\\ws', 'win32'))
+            .toBe('sub/foo.do');
+    });
+
+    it('leaves another drive, an absolute path and posix alone', () => {
+        expect(drive_relative_rest('D:foo.do', 'C:\\ws', 'win32'))
+            .toBe('D:foo.do');
+        expect(drive_relative_rest('C:/foo.do', 'C:\\ws', 'win32'))
+            .toBe('C:/foo.do');
+        expect(drive_relative_rest('foo.do', 'C:\\ws', 'win32'))
+            .toBe('foo.do');
+        expect(drive_relative_rest('C:foo.do', '/ws', 'linux'))
+            .toBe('C:foo.do');
+    });
+
+    it('resolves `do C:Clean.do` in the working directory', () => {
+        const my_outcome = resolve_forward_call_rich(
+            'c:Clean.do',
+            'C:\\ws',
+            'C:\\ws\\helpers',
+            { workspace_roots: ['C:\\ws'], fs, platform: 'win32' },
+        );
+        expect(my_outcome).toEqual({
+            kind: 'exact',
+            path: 'C:\\ws\\helpers\\Clean.do',
+        });
+    });
+
+    it('resolves `cd C:Raw` in the working directory', () => {
+        const my_result = build_cd_timeline({
+            starting_wd: 'C:\\ws',
+            caller_dir: 'C:\\ws\\helpers',
+            cd_commands: [{
+                raw_path: 'C:Raw',
+                range: {
+                    start: { line: 0, character: 0 },
+                    end: { line: 0, character: 8 },
+                },
+                is_static: true,
+            }],
+            workspace_roots: ['C:\\ws'],
+            fs,
+            platform: 'win32',
+        });
+        expect(my_result.diagnostics).toEqual([]);
+        expect(my_result.timeline.entries.map(my_entry => my_entry.wd))
+            .toEqual(['C:\\ws\\Raw']);
+    });
+});
+
+describe('DirectiveParser.resolve_path on win32', () => {
+    const parser = new DirectiveParser();
+
+    it('gives a drive path in canonical form', () => {
+        expect(parser.resolve_path(
+            'c:\\data\\..\\x\\parent.do', 'C:\\ws', 'win32',
+        )).toBe('C:\\x\\parent.do');
+        expect(parser.resolve_path('c:/x/parent.do', 'C:\\ws', 'win32'))
+            .toBe('C:\\x\\parent.do');
+    });
+
+    it('gives a relative path in canonical form', () => {
+        expect(parser.resolve_path(
+            '..\\parent.do', 'c:\\ws\\sub', 'win32',
+        )).toBe('C:\\ws\\parent.do');
+    });
+
+    it('keeps a UNC path a UNC path', () => {
+        expect(parser.resolve_path(
+            '//Server/share/a/../parent.do', 'C:\\ws', 'win32',
+        )).toBe('\\\\server\\share\\parent.do');
+    });
+
+    it('keeps the `/` form of a drive path on posix', () => {
+        expect(parser.resolve_path('C:\\x\\..\\parent.do', '/ws', 'linux'))
+            .toBe('C:/parent.do');
     });
 });

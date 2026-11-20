@@ -32,6 +32,9 @@ const LOWER_DRIVE_LETTER_PATTERN = /^([a-z]):/;
 const FORWARD_SLASH_PATTERN = /\//g;
 const BACKSLASH_PATTERN = /\\/g;
 const URI_DRIVE_PATH_PATTERN = /^\/[a-zA-Z]:/;
+const UNC_HOST_PATTERN = /^\\\\[^\\]+/;
+const DRIVE_RELATIVE_PATTERN = /^([a-zA-Z]):(?![\\/])/;
+const DRIVE_PREFIX_PATTERN = /^([a-zA-Z]):/;
 
 /** The Node `path` implementation for `platform`. */
 export function path_module_for(
@@ -51,7 +54,9 @@ function upper_case_drive_letter(fs_path: string): string {
 /**
  * Put `fs_path` in Sight's canonical form for `platform`.
  *
- * On Windows: `/` becomes `\` and a leading drive letter is upper-cased.
+ * On Windows: `/` becomes `\`, a leading drive letter is upper-cased
+ * and a UNC host name (`\\Server\share`) is lower-cased, which is the
+ * form a URI gives it and which Windows treats as the same host.
  * On every other platform the path is returned unchanged. The path is
  * not resolved or normalised otherwise (no `.`/`..` folding).
  */
@@ -64,7 +69,34 @@ export function canonical_fs_path(
     }
     return upper_case_drive_letter(
         fs_path.replace(FORWARD_SLASH_PATTERN, '\\'),
-    );
+    ).replace(UNC_HOST_PATTERN, my_host => my_host.toLowerCase());
+}
+
+/**
+ * On Windows `C:foo.do` names `foo.do` in drive C's current directory.
+ * When `base_dir` is on that drive, give the part after the drive
+ * (`foo.do`), to be joined with `base_dir` like any relative path.
+ * A path on another drive, whose current directory is unknown, and
+ * every path on another platform are returned unchanged.
+ */
+export function drive_relative_rest(
+    fs_path: string,
+    base_dir: string,
+    platform: PathPlatform = process.platform,
+): string {
+    if (platform !== 'win32') {
+        return fs_path;
+    }
+    const my_drive = DRIVE_RELATIVE_PATTERN.exec(fs_path)?.[1];
+    const my_base_drive = DRIVE_PREFIX_PATTERN.exec(base_dir)?.[1];
+    if (
+        my_drive === undefined ||
+        my_base_drive === undefined ||
+        my_drive.toUpperCase() !== my_base_drive.toUpperCase()
+    ) {
+        return fs_path;
+    }
+    return fs_path.slice(2);
 }
 
 /**

@@ -18,6 +18,7 @@ import {
 import { get_workspace_root_for_path } from './workspace-roots';
 import {
     canonical_fs_path,
+    drive_relative_rest,
     path_module_for,
     slashed_comparison_path,
     type PathPlatform,
@@ -946,8 +947,14 @@ export function resolve_forward_call_rich(
 
     // Tier 1: WD-join (relative paths only)
     if (working_directory && !my_is_abs) {
+        // `C:foo.do` on the working directory's drive is `foo.do` there.
         const my_wd_candidate = the_path.normalize(
-            the_path.join(working_directory, my_normalized_raw),
+            the_path.join(
+                working_directory,
+                drive_relative_rest(
+                    my_normalized_raw, working_directory, platform,
+                ),
+            ),
         );
         the_candidates.push(my_wd_candidate);
     }
@@ -1175,7 +1182,12 @@ export function build_cd_timeline(params: {
         const my_candidate = my_is_abs
             ? the_path.normalize(my_normalized_raw)
             : current_wd
-                ? the_path.normalize(the_path.join(current_wd, my_normalized_raw))
+                ? the_path.normalize(the_path.join(
+                    current_wd,
+                    drive_relative_rest(
+                        my_normalized_raw, current_wd, platform,
+                    ),
+                ))
                 : the_path.resolve(caller_dir, my_cd.raw_path);
         const my_outcome = resolve_path_rich(my_candidate, {
             workspace_roots,
