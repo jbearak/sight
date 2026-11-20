@@ -305,6 +305,22 @@ describe('sight check — working directory inherited through do-chains', () => 
         });
     });
 
+    for (const my_directive of ['include', 'run']) {
+        it(`resolves a \`sight: ${my_directive}\` directive the same way`, async () => {
+            const result = await missing_calls({
+                'main.do': '// sight: cd work\ndo jobs/a.do\n',
+                'work/jobs/a.do':
+                    `// sight: ${my_directive} lib.do\ndisplay 1\n`,
+                'work/lib.do': 'display 1\n',
+            });
+            expect(result).toEqual({
+                check: ['work/jobs/a.do:1'],
+                graph: ['work/jobs/a.do:1'],
+                nested: ['main.do:1'],
+            });
+        });
+    }
+
     it('still finds a forward directive beside a direct child', async () => {
         const result = await missing_calls({
             'main.do': '// sight: cd work\ndo jobs/a.do\n',

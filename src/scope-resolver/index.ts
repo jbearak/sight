@@ -2580,7 +2580,7 @@ export class ScopeResolver {
             my_directive_result.directives.length > 0;
         const directive_working_directory = has_backward_directives
             ? effective_working_directory
-            : own_working_directory ?? path.dirname(URI.parse(uri).fsPath);
+            : own_working_directory ?? path.dirname(uri_to_fs_path(uri));
         all_forward_calls.push(...prepare_forward_calls({
             uri,
             command_calls: [],
