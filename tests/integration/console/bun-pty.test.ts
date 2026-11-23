@@ -1,11 +1,13 @@
 /**
  * Tests for Bun's PTY (src/console/pty.ts), which `sight console` uses
  * on the command line. Skipped where pseudo-terminals can't be opened
- * (some sandboxes).
+ * (some sandboxes) and where it doesn't run Stata (Windows).
  */
 
 import { describe, expect, it } from 'bun:test';
-import { spawn_stata_pty, type StataPty } from '../../../src/console/pty';
+import {
+    is_pty_supported, spawn_stata_pty, type StataPty,
+} from '../../../src/console/pty';
 
 function pty_available(): boolean {
     try {
@@ -48,7 +50,7 @@ function run_shell(script: string): { pty: StataPty; output: () => string } {
     return { pty, output: () => output };
 }
 
-describe.skipIf(!pty_available())('Bun PTY', () => {
+describe.skipIf(!is_pty_supported() || !pty_available())('Bun PTY', () => {
     it('interrupts what the command started, too', async () => {
         // Like Stata during `shell sleep 60`: the shell defers its trap
         // until its foreground child ends, so a SIGINT to the shell
