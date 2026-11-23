@@ -6,6 +6,7 @@
  * through `globalThis` and checked at runtime rather than assumed.
  */
 
+import { spawnSync } from 'child_process';
 import * as os from 'os';
 
 /** termios `c_lflag` bits we read or change, per platform. */
@@ -128,8 +129,24 @@ export function spawn_stata_pty(options: StataPtyOptions): StataPty {
         // no foreground process group), so the terminal can't turn a
         // typed ^C into SIGINT or announce a resize with SIGWINCH. Send
         // both signals to Stata directly.
+        //
+        // A terminal's ^C also reaches what Stata started (such as the
+        // command its `shell` runs, which Stata waits for), so interrupt
+        // signals those too. They can't be reached as a process group:
+        // the child shares sight console's group, and Bun's `detached`
+        // would make the PTY its controlling terminal, bringing job
+        // control (Stata stopped by SIGTTIN after `shell`). Stata is
+        // signalled first, so the signal is pending by the time what it
+        // waits for ends.
         interrupt: () => {
+            if (child.exitCode !== null || child.signalCode !== null) {
+                return;
+            }
+            const descendants = descendant_pids(child.pid);
             signal_child(child, 'SIGINT');
+            for (const my_pid of descendants) {
+                signal_pid(my_pid, 'SIGINT');
+            }
         },
         resize: (columns, rows) => {
             if (!closed) {
@@ -158,6 +175,60 @@ function signal_child(child: BunSubprocess, signal: NodeJS.Signals): void {
     } catch {
         // Already gone.
     }
+}
+
+function signal_pid(pid: number, signal: NodeJS.Signals): void {
+    try {
+        process.kill(pid, signal);
+    } catch {
+        // Already gone.
+    }
+}
+
+/** Matches a `ps -o pid=,ppid=` line. */
+const PS_LINE_PATTERN = /^\s*(\d+)\s+(\d+)\s*$/;
+
+/**
+ * The pids of every process descended from `root_pid` (not including
+ * it), from one `ps` snapshot. Empty if `ps` can't be run. A process
+ * whose parent already exited has been reparented and isn't found.
+ */
+export function descendant_pids(root_pid: number): number[] {
+    const result = spawnSync('ps', ['-A', '-o', 'pid=,ppid='], {
+        encoding: 'utf8',
+        timeout: 2000,
+    });
+    if (result.status !== 0 || typeof result.stdout !== 'string') {
+        return [];
+    }
+    const children_of = new Map<number, number[]>();
+    for (const my_line of result.stdout.split('\n')) {
+        const match = PS_LINE_PATTERN.exec(my_line);
+        if (!match) {
+            continue;
+        }
+        const pid = Number(match[1]);
+        const parent_pid = Number(match[2]);
+        const siblings = children_of.get(parent_pid);
+        if (siblings) {
+            siblings.push(pid);
+        } else {
+            children_of.set(parent_pid, [pid]);
+        }
+    }
+    const descendants: number[] = [];
+    const seen = new Set<number>([root_pid]);
+    const pending = [root_pid];
+    for (let parent = pending.pop(); parent !== undefined; parent = pending.pop()) {
+        for (const my_pid of children_of.get(parent) ?? []) {
+            if (!seen.has(my_pid)) {
+                seen.add(my_pid);
+                descendants.push(my_pid);
+                pending.push(my_pid);
+            }
+        }
+    }
+    return descendants;
 }
 
 function exit_status_of(child: BunSubprocess): number {
