@@ -135,15 +135,18 @@ export function spawn_stata_pty(options: StataPtyOptions): StataPty {
         // signals those too. They can't be reached as a process group:
         // the child shares sight console's group, and Bun's `detached`
         // would make the PTY its controlling terminal, bringing job
-        // control (Stata stopped by SIGTTIN after `shell`).
+        // control (Stata stopped by SIGTTIN after `shell`). Stata is
+        // signalled first, so the signal is pending by the time what it
+        // waits for ends.
         interrupt: () => {
             if (child.exitCode !== null || child.signalCode !== null) {
                 return;
             }
-            for (const my_pid of descendant_pids(child.pid)) {
+            const descendants = descendant_pids(child.pid);
+            signal_child(child, 'SIGINT');
+            for (const my_pid of descendants) {
                 signal_pid(my_pid, 'SIGINT');
             }
-            signal_child(child, 'SIGINT');
         },
         resize: (columns, rows) => {
             if (!closed) {
