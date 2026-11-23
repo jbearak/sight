@@ -256,8 +256,8 @@ describe_helper('sight-pty helper', () => {
         // Like Stata during `shell sleep 60`: the shell defers its trap
         // until its foreground child ends, so a SIGINT to the shell
         // alone would wait out the sleep.
-        const shell = run_shell("trap 'echo interrupted' INT; sleep 30; echo after");
-        await sleep(300);
+        const shell = run_shell("trap 'echo interrupted' INT; sh -c 'echo started; exec sleep 30'; echo after");
+        await wait_for(() => shell.output().includes('started'), 'the sleep');
         const started_ms = Date.now();
         shell.pty.interrupt();
         await wait_for(() => shell.output().includes('after'), 'the shell to go on', 3000);
