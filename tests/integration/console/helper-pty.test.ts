@@ -252,6 +252,20 @@ describe_helper('sight-pty helper', () => {
         expect(shell.output()).toContain('interrupted');
     });
 
+    it('interrupts what the command started, too', async () => {
+        // Like Stata during `shell sleep 60`: the shell defers its trap
+        // until its foreground child ends, so a SIGINT to the shell
+        // alone would wait out the sleep.
+        const shell = run_shell("trap 'echo interrupted' INT; sh -c 'echo started; exec sleep 30'; echo after");
+        await wait_for(() => shell.output().includes('started'), 'the sleep');
+        const started_ms = Date.now();
+        shell.pty.interrupt();
+        await wait_for(() => shell.output().includes('after'), 'the shell to go on', 3000);
+        expect(Date.now() - started_ms).toBeLessThan(3000);
+        expect(shell.output()).toContain('interrupted');
+        await shell.pty.exit_status;
+    });
+
     it('hangs up the command on kill, and kills one that ignores the hangup', async () => {
         const polite = run_shell('sleep 10');
         await sleep(200);
