@@ -17,10 +17,10 @@
  * fd 0 (in):  bytes for the command's terminal.
  * fd 3 (in):  control lines: "W COLS ROWS" (resize, then SIGWINCH),
  *             "I" (SIGINT), "H" (SIGHUP, then SIGKILL after a grace
- *             period), "K" (SIGKILL now). Hang-up and kill go to the
- *             command's process group, so what it started (such as
- *             Stata's `shell`) ends with it: with no controlling
- *             terminal, nothing else would hang those up.
+ *             period), "K" (SIGKILL now). Interrupt, hang-up and kill
+ *             go to the command's process group, so what it started
+ *             (such as Stata's `shell`) gets them too: with no
+ *             controlling terminal, nothing else would signal those.
  * fd 1 (out): frames of 1 type byte, a 4-byte big-endian length and
  *             the payload, in order:
  *               'O'  bytes the command wrote;
@@ -542,7 +542,10 @@ int main(int argc, char **argv)
                                 kill(child, SIGWINCH);
                             }
                         } else if (line[0] == 'I' && !child_done) {
-                            kill(child, SIGINT);
+                            /* The whole group, as a terminal's ^C
+                             * would: Stata waits for what its
+                             * `shell` runs, which must end first. */
+                            kill(-child, SIGINT);
                         } else if (line[0] == 'H') {
                             HANG_UP();
                         } else if (line[0] == 'K' && !child_done) {
