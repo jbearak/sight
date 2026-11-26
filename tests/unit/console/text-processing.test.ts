@@ -46,11 +46,11 @@ describe('highlight_stata', () => {
         }));
     });
 
-    it('colors the command word, strings, numbers, macros and comments', () => {
+    it('colors the command word, strings, macros and comments', () => {
         const output = highlight_stata('display "hi" 3 `x\' $y // note');
         expect(output).toContain(`${SGR.bold_blue}display${SGR.reset}`);
         expect(output).toContain(`${SGR.green}"hi"${SGR.reset}`);
-        expect(output).toContain(`${SGR.blue}3${SGR.reset}`);
+        expect(output).toContain(' 3 ');
         expect(output).toContain(`${SGR.cyan}\`x'${SGR.reset}`);
         expect(output).toContain(`${SGR.cyan}$y${SGR.reset}`);
         expect(output).toContain(`${SGR.dim}// note${SGR.reset}`);
@@ -66,7 +66,7 @@ describe('highlight_stata', () => {
             '\x1b[35mcapture\x1b[0m \x1b[1;34mregress\x1b[0m y '
             + '\x1b[32m"a"\x1b[0m \x1b[36m`x\'\x1b[0m '
             + '\x1b[35mif\x1b[0m z \x1b[35min\x1b[0m '
-            + '\x1b[34m1\x1b[0m/\x1b[34m5\x1b[0m '
+            + '1/5 '
             + '\x1b[2m// fit\x1b[0m',
         );
     });

@@ -4,17 +4,18 @@
  * Colors are the 16 base ANSI colors so the user's terminal theme picks
  * the actual palette. The palette is the console's own, not the
  * editor's: the terminal's colors are set apart from any editor theme,
- * so matching the editor would hold only for one theme pair. It follows
- * Raven's console where the two overlap (green strings, blue numbers)
- * and leaves red to errors and yellow to notes:
- * commands bold blue; prefixes, control words (`if`, `foreach`, ...)
- * and the `if`/`in` qualifiers magenta; strings green; numbers blue;
- * macros cyan; comments dim. Comments use dim rather than bright
- * black, which some themes (Solarized) set to the background color.
+ * so matching the editor would hold only for one theme pair. Red is
+ * left to errors and yellow to notes. Commands are bold blue;
+ * prefixes, control words (`if`, `foreach`, ...) and the `if`/`in`
+ * qualifiers magenta; strings green (as in Raven's console); macros
+ * cyan; comments dim. Numbers stay plain. Plain blue is avoided:
+ * several default palettes (xterm, the Windows console) make it nearly
+ * invisible on black. Comments use dim rather than bright black, which
+ * some themes (Solarized) set to the background color.
  *
  * The command word is found by position: the first word of the
- * statement after the standard prefixes. Prefixes are matched exactly; Stata is case-sensitive, so
- * `Quietly` is not a prefix.
+ * statement after the standard prefixes. Prefixes are matched exactly;
+ * Stata is case-sensitive, so `Quietly` is not a prefix.
  */
 
 import { StataLexer } from '../lexer';
@@ -23,7 +24,6 @@ import type { Token } from '../types';
 export const SGR = {
     reset: '\x1b[0m',
     bold_blue: '\x1b[1;34m',
-    blue: '\x1b[34m',
     green: '\x1b[32m',
     cyan: '\x1b[36m',
     magenta: '\x1b[35m',
@@ -55,8 +55,6 @@ function color_for(token: Token, state: { expect_command: boolean; in_by: boolea
     switch (token.type) {
         case 'STRING':
             return SGR.green;
-        case 'NUMBER':
-            return SGR.blue;
         case 'MACRO_REF_LOCAL':
         case 'MACRO_REF_GLOBAL':
             return SGR.cyan;
