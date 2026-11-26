@@ -102,7 +102,7 @@ describe.skipIf(!available)('sight console in a pseudo-terminal', () => {
             driven.type('display "hi"\r');
             await driven.wait_for(/^hi$/m);
             // The submitted line was highlighted.
-            expect(driven.raw()).toContain('\x1b[1;34mdisplay\x1b[0m \x1b[33m"hi"\x1b[0m');
+            expect(driven.raw()).toContain('\x1b[1;34mdisplay\x1b[0m \x1b[32m"hi"\x1b[0m');
 
             await at_prompt(driven);
             driven.type('foo\r');
@@ -223,7 +223,7 @@ describe.skipIf(!available)('sight console in a pseudo-terminal', () => {
             await driven.wait_for(/^7$/m);
             const lines = driven.screen().split('\n');
             expect(lines.filter((my_line) => my_line === '. display 7').length).toBe(1);
-            expect(driven.raw()).toContain('\x1b[1;34mdisplay\x1b[0m \x1b[32m7\x1b[0m');
+            expect(driven.raw()).toContain('\x1b[1;34mdisplay\x1b[0m \x1b[34m7\x1b[0m');
 
             await at_prompt(driven);
             driven.type('more\r');

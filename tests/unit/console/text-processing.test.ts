@@ -49,29 +49,25 @@ describe('highlight_stata', () => {
     it('colors the command word, strings, numbers, macros and comments', () => {
         const output = highlight_stata('display "hi" 3 `x\' $y // note');
         expect(output).toContain(`${SGR.bold_blue}display${SGR.reset}`);
-        expect(output).toContain(`${SGR.yellow}"hi"${SGR.reset}`);
-        expect(output).toContain(`${SGR.green}3${SGR.reset}`);
+        expect(output).toContain(`${SGR.green}"hi"${SGR.reset}`);
+        expect(output).toContain(`${SGR.blue}3${SGR.reset}`);
         expect(output).toContain(`${SGR.cyan}\`x'${SGR.reset}`);
         expect(output).toContain(`${SGR.cyan}$y${SGR.reset}`);
-        expect(output).toContain(`${SGR.dim_green}// note${SGR.reset}`);
+        expect(output).toContain(`${SGR.bright_black}// note${SGR.reset}`);
     });
 
-    it('uses the hues the editor gives the same scopes', () => {
-        // Literal codes pin the mapping to VS Code's default themes:
-        // keyword.control magenta, keyword blue, string orange/red ->
-        // yellow, numeric green, variable light blue -> cyan, comment
-        // green.
+    it('keeps each kind of token on its own terminal color', () => {
+        // Literal codes pin the palette. Red and yellow stay free for
+        // errors and notes, and no two kinds differ only by dim.
         const output = highlight_stata(
-            'capture regress y `x\' if z in 1/5 // fit',
+            'capture regress y "a" `x\' if z in 1/5 // fit',
         );
         expect(output).toBe(
             '\x1b[35mcapture\x1b[0m \x1b[1;34mregress\x1b[0m y '
-            + '\x1b[36m`x\'\x1b[0m \x1b[35mif\x1b[0m z '
-            + '\x1b[34min\x1b[0m \x1b[32m1\x1b[0m/\x1b[32m5\x1b[0m '
-            + '\x1b[2;32m// fit\x1b[0m',
-        );
-        expect(highlight_stata('display "a"')).toContain(
-            '\x1b[33m"a"\x1b[0m',
+            + '\x1b[32m"a"\x1b[0m \x1b[36m`x\'\x1b[0m '
+            + '\x1b[35mif\x1b[0m z \x1b[35min\x1b[0m '
+            + '\x1b[34m1\x1b[0m/\x1b[34m5\x1b[0m '
+            + '\x1b[90m// fit\x1b[0m',
         );
     });
 

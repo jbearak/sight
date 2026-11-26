@@ -2,12 +2,14 @@
  * Syntax highlighting for one line of console input, using Sight's lexer.
  *
  * Colors are the 16 base ANSI colors so the user's terminal theme picks
- * the actual palette (as Raven's console does). Each kind of token gets
- * the ANSI color nearest the hue VS Code's default themes give the same
- * TextMate scope in the editor, so code looks alike in both places:
- * commands blue, prefixes and `if` magenta (keyword.control), `in` blue,
- * strings yellow (nearest to orange; red is kept for errors), numbers
- * green, macros cyan, comments dim green. The command word is found
+ * the actual palette. The palette is the console's own, not the
+ * editor's: the terminal's colors are set apart from any editor theme,
+ * so matching the editor would hold only for one theme pair. It follows
+ * Raven's console where the two overlap (green strings, blue numbers,
+ * gray comments) and leaves red to errors and yellow to notes:
+ * commands bold blue; prefixes, control words (`if`, `foreach`, ...)
+ * and the `if`/`in` qualifiers magenta; strings green; numbers blue;
+ * macros cyan; comments bright black. The command word is found
  * by position: the first word of the statement after the standard
  * prefixes. Prefixes are matched exactly; Stata is case-sensitive, so
  * `Quietly` is not a prefix.
@@ -26,7 +28,7 @@ export const SGR = {
     red: '\x1b[31m',
     yellow: '\x1b[33m',
     dim: '\x1b[2m',
-    dim_green: '\x1b[2;32m',
+    bright_black: '\x1b[90m',
 } as const;
 
 /** Input above this size is shown uncolored, keeping keystrokes cheap. */
@@ -39,31 +41,27 @@ const COMMAND_PREFIXES = new Set([
 ]);
 const BY_PREFIXES = new Set(['by', 'bys', 'byso', 'bysor', 'bysort']);
 /**
- * Command words the grammar scopes as keyword.control, so the editor
- * shows them like prefixes rather than like ordinary commands.
+ * Control-flow command words (keyword.control in the grammar), shown
+ * like prefixes rather than like ordinary commands.
  */
 const CONTROL_COMMANDS = new Set([
     'if', 'else', 'foreach', 'forvalues', 'forv', 'while', 'continue',
     'end', 'do', 'run', 'include',
 ]);
-/** `if` is keyword.control in the grammar; `in` is keyword.other. */
-const QUALIFIER_COLORS = new Map<string, string>([
-    ['if', SGR.magenta],
-    ['in', SGR.blue],
-]);
+const QUALIFIER_KEYWORDS = new Set(['if', 'in']);
 
 function color_for(token: Token, state: { expect_command: boolean; in_by: boolean }): string | null {
     switch (token.type) {
         case 'STRING':
-            return SGR.yellow;
-        case 'NUMBER':
             return SGR.green;
+        case 'NUMBER':
+            return SGR.blue;
         case 'MACRO_REF_LOCAL':
         case 'MACRO_REF_GLOBAL':
             return SGR.cyan;
         case 'COMMENT_LINE':
         case 'COMMENT_BLOCK':
-            return SGR.dim_green;
+            return SGR.bright_black;
         case 'COLON':
             if (state.in_by) {
                 state.in_by = false;
@@ -90,7 +88,7 @@ function color_for(token: Token, state: { expect_command: boolean; in_by: boolea
                 return CONTROL_COMMANDS.has(token.value)
                     ? SGR.magenta : SGR.bold_blue;
             }
-            return QUALIFIER_COLORS.get(token.value) ?? null;
+            return QUALIFIER_KEYWORDS.has(token.value) ? SGR.magenta : null;
         default:
             if (state.expect_command && token.type !== 'WHITESPACE') {
                 state.expect_command = false;

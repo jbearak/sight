@@ -137,10 +137,12 @@ are red, `--Break--` is red, lines starting `note:` or `warning:` are
 yellow, and do-file echo lines (`. cmd`, `  4. cmd`) are highlighted.
 Output that already contains color codes is left alone.
 
-Highlighted code follows the editor's colors in VS Code's default
-themes, as closely as 16 colors allow: commands blue, prefixes and `if`
-magenta, strings yellow (red is kept for errors), numbers green, macros
-cyan, and comments dim green.
+Typed and echoed code is highlighted: commands bold blue; prefixes,
+control words such as `if` and `foreach`, and the `if` and `in`
+qualifiers magenta; strings green; numbers blue; macros cyan; and
+comments gray. These are the console's own colors, not the editor's:
+a terminal's 16 colors come from its own theme, so they can't follow
+the editor's.
 
 ## Known limits
 
