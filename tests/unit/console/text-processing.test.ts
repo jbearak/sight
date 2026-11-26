@@ -53,7 +53,7 @@ describe('highlight_stata', () => {
         expect(output).toContain(`${SGR.blue}3${SGR.reset}`);
         expect(output).toContain(`${SGR.cyan}\`x'${SGR.reset}`);
         expect(output).toContain(`${SGR.cyan}$y${SGR.reset}`);
-        expect(output).toContain(`${SGR.bright_black}// note${SGR.reset}`);
+        expect(output).toContain(`${SGR.dim}// note${SGR.reset}`);
     });
 
     it('keeps each kind of token on its own terminal color', () => {
@@ -67,7 +67,7 @@ describe('highlight_stata', () => {
             + '\x1b[32m"a"\x1b[0m \x1b[36m`x\'\x1b[0m '
             + '\x1b[35mif\x1b[0m z \x1b[35min\x1b[0m '
             + '\x1b[34m1\x1b[0m/\x1b[34m5\x1b[0m '
-            + '\x1b[90m// fit\x1b[0m',
+            + '\x1b[2m// fit\x1b[0m',
         );
     });
 

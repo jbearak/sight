@@ -5,13 +5,15 @@
  * the actual palette. The palette is the console's own, not the
  * editor's: the terminal's colors are set apart from any editor theme,
  * so matching the editor would hold only for one theme pair. It follows
- * Raven's console where the two overlap (green strings, blue numbers,
- * gray comments) and leaves red to errors and yellow to notes:
+ * Raven's console where the two overlap (green strings, blue numbers)
+ * and leaves red to errors and yellow to notes:
  * commands bold blue; prefixes, control words (`if`, `foreach`, ...)
  * and the `if`/`in` qualifiers magenta; strings green; numbers blue;
- * macros cyan; comments bright black. The command word is found
- * by position: the first word of the statement after the standard
- * prefixes. Prefixes are matched exactly; Stata is case-sensitive, so
+ * macros cyan; comments dim. Comments use dim rather than bright
+ * black, which some themes (Solarized) set to the background color.
+ *
+ * The command word is found by position: the first word of the
+ * statement after the standard prefixes. Prefixes are matched exactly; Stata is case-sensitive, so
  * `Quietly` is not a prefix.
  */
 
@@ -28,7 +30,6 @@ export const SGR = {
     red: '\x1b[31m',
     yellow: '\x1b[33m',
     dim: '\x1b[2m',
-    bright_black: '\x1b[90m',
 } as const;
 
 /** Input above this size is shown uncolored, keeping keystrokes cheap. */
@@ -61,7 +62,7 @@ function color_for(token: Token, state: { expect_command: boolean; in_by: boolea
             return SGR.cyan;
         case 'COMMENT_LINE':
         case 'COMMENT_BLOCK':
-            return SGR.bright_black;
+            return SGR.dim;
         case 'COLON':
             if (state.in_by) {
                 state.in_by = false;
