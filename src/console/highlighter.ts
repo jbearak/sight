@@ -38,6 +38,14 @@ const COMMAND_PREFIXES = new Set([
     'nobreak', 'break',
 ]);
 const BY_PREFIXES = new Set(['by', 'bys', 'byso', 'bysor', 'bysort']);
+/**
+ * Command words the grammar scopes as keyword.control, so the editor
+ * shows them like prefixes rather than like ordinary commands.
+ */
+const CONTROL_COMMANDS = new Set([
+    'if', 'else', 'foreach', 'forvalues', 'forv', 'while', 'continue',
+    'end', 'do', 'run', 'include',
+]);
 /** `if` is keyword.control in the grammar; `in` is keyword.other. */
 const QUALIFIER_COLORS = new Map<string, string>([
     ['if', SGR.magenta],
@@ -75,7 +83,8 @@ function color_for(token: Token, state: { expect_command: boolean; in_by: boolea
                     state.in_by = true;
                     return SGR.magenta;
                 }
-                return SGR.bold_blue;
+                return CONTROL_COMMANDS.has(token.value)
+                    ? SGR.magenta : SGR.bold_blue;
             }
             return QUALIFIER_COLORS.get(token.value) ?? null;
         default:

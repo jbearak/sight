@@ -83,6 +83,15 @@ describe('highlight_stata', () => {
         expect(output).toContain(`${SGR.magenta}if${SGR.reset}`);
     });
 
+    it('colors control-flow command words like prefixes', () => {
+        for (const my_line of ['if x {', 'quietly if x {', 'foreach v of varlist * {']) {
+            const word = my_line.replace(/^quietly /, '').split(' ')[0];
+            expect(highlight_stata(my_line)).toContain(
+                `\x1b[35m${word}\x1b[0m`,
+            );
+        }
+    });
+
     it('finds the command after nobreak and break', () => {
         for (const my_prefix of ['nobreak', 'break']) {
             const output = highlight_stata(`${my_prefix} regress y x`);
