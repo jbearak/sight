@@ -70,6 +70,10 @@ function color_for(token: Token, state: { expect_command: boolean; in_by: boolea
                 state.expect_command = true;
             }
             return null;
+        case 'RBRACE':
+            // A leading `}` keeps the command position open for
+            // `} else {`.
+            return null;
         case 'WORD':
             if (state.in_by) {
                 return null;
