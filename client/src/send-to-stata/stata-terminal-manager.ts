@@ -824,17 +824,11 @@ export async function get_or_create_stata_terminal(
  */
 export async function open_stata_pane(): Promise<vscode.Terminal> {
     if (!last_active_profile_terminal && !creation_in_flight) {
-        // A new pane shows itself, with focus.
-        const kind = console_pane_kind();
-        if (kind === 'automation') {
-            return create_console_terminal();
-        }
-        if (kind === 'pty') {
-            const new_pane = await resolve_new_pane();
-            // A send may have opened one meanwhile.
-            if (new_pane && !last_active_profile_terminal) {
-                return create_console_terminal(new_pane.pty);
-            }
+        const new_pane = await resolve_new_pane();
+        // A send may have opened one meanwhile. A new pane shows
+        // itself, with focus.
+        if (new_pane && !last_active_profile_terminal) {
+            return create_console_terminal(new_pane.pty);
         }
     }
     const { terminal } = await get_or_create_stata_terminal();
