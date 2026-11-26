@@ -4,9 +4,8 @@
  * on Windows, the offer to use send-to-stata (the Stata app) when the
  * console ends without getting Stata.
  *
- * Every pending send ends exactly once: typed into its ready terminal
- * (or, for one its command line carried, run there), dispatched to the
- * app, or dropped (its temp file deleted).
+ * Every pending send ends exactly once: typed into its ready terminal,
+ * dispatched to the app, or dropped (its temp file deleted).
  */
 
 import type { StataCommand } from './index.js';
@@ -110,11 +109,6 @@ export interface ConsoleQueueTimings {
 
 interface ConsoleTerminalEntry {
     state: ConsoleTerminalState;
-    /**
-     * Sends handed to the console on its command line, which it runs
-     * itself at its first prompt: not typed, but pending until then.
-     */
-    baked: PendingSend[];
     pending: PendingSend[];
 }
 
@@ -127,14 +121,6 @@ interface ShowingOffer {
 }
 
 const OFFER_TIMED_OUT = Symbol('offer timed out');
-
-/** An entry's untyped sends, in order, leaving it none. */
-function take_all(entry: ConsoleTerminalEntry): PendingSend[] {
-    const the_sends = [...entry.baked, ...entry.pending];
-    entry.baked = [];
-    entry.pending = [];
-    return the_sends;
-}
 
 function count_sends(count: number): string {
     return count === 1 ? '1 send' : `${count} sends`;
@@ -183,20 +169,12 @@ export class ConsoleTerminalQueue<TTerminal> {
         };
     }
 
-    /**
-     * Start tracking a console pane, with the sends its command line
-     * carries (`baked`), if any.
-     */
-    track(terminal: TTerminal, baked: PendingSend[] = []): void {
+    /** Start tracking a console pane. */
+    track(terminal: TTerminal): void {
         if (this.entries.has(terminal)) {
             return;
         }
-        this.entries.set(terminal, {
-            state: 'starting', baked: [...baked], pending: [],
-        });
-        if (baked.length > 0) {
-            this.report_pending_count();
-        }
+        this.entries.set(terminal, { state: 'starting', pending: [] });
     }
 
     /**
@@ -208,25 +186,6 @@ export class ConsoleTerminalQueue<TTerminal> {
         if (entry) {
             this.make_ready(terminal, entry);
         }
-    }
-
-    /**
-     * A send the console's command line carries, for a console tracked
-     * before its launch was known: pending until readiness, cleaned up
-     * at once if it is ready already, dropped if it has closed.
-     */
-    carry(terminal: TTerminal, send: PendingSend): void {
-        const entry = this.entries.get(terminal);
-        if (!entry) {
-            this.host.delete_file(send.temp_file_path);
-            return;
-        }
-        if (entry.state === 'ready') {
-            this.host.schedule_cleanup(send.temp_file_path);
-            return;
-        }
-        entry.baked.push(send);
-        this.report_pending_count();
     }
 
     is_tracked(terminal: TTerminal): boolean {
@@ -260,7 +219,7 @@ export class ConsoleTerminalQueue<TTerminal> {
     pending_count(): number {
         let count = this.dispatching_count;
         for (const my_entry of this.entries.values()) {
-            count += my_entry.baked.length + my_entry.pending.length;
+            count += my_entry.pending.length;
         }
         if (this.showing_offer) {
             count += this.showing_offer.pending.length;
@@ -281,7 +240,8 @@ export class ConsoleTerminalQueue<TTerminal> {
         this.entries.delete(terminal);
         entry.state = 'closed';
 
-        const the_sends = take_all(entry);
+        const the_sends = entry.pending;
+        entry.pending = [];
         const reason = exit.code === undefined || exit.backend === 'pty'
             ? undefined
             : CONSOLE_OFFER_REASONS.get(exit.code);
@@ -323,17 +283,17 @@ export class ConsoleTerminalQueue<TTerminal> {
         }
         this.entries.delete(terminal);
         entry.state = 'closed';
-        const the_sends = take_all(entry);
+        const the_sends = entry.pending;
+        entry.pending = [];
         this.report_pending_count();
         return the_sends;
     }
 
     /**
      * Forget every pane (extension deactivation), deleting the temp
-     * files of the sends it never typed. A send on a console's command
-     * line is cleaned up later instead: the console may still run it.
-     * An offer still showing is void: its sends are dropped now, and
-     * its answer, if one comes, does nothing.
+     * files of the sends it never typed. An offer still showing is
+     * void: its sends are dropped now, and its answer, if one comes,
+     * does nothing.
      */
     dispose(): void {
         this.is_disposed = true;
@@ -346,11 +306,7 @@ export class ConsoleTerminalQueue<TTerminal> {
             this.stop_offer_wait?.();
         }
         for (const my_entry of this.entries.values()) {
-            for (const my_send of my_entry.baked) {
-                this.host.schedule_cleanup(my_send.temp_file_path);
-            }
             this.drop(my_entry.pending);
-            my_entry.baked = [];
             my_entry.pending = [];
             my_entry.state = 'closed';
         }
@@ -525,10 +481,6 @@ export class ConsoleTerminalQueue<TTerminal> {
             return;
         }
         entry.state = 'ready';
-        for (const my_send of entry.baked) {
-            this.host.schedule_cleanup(my_send.temp_file_path);
-        }
-        entry.baked = [];
         const the_sends = entry.pending;
         entry.pending = [];
         for (let i = 0; i < the_sends.length; i++) {

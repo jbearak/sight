@@ -639,89 +639,17 @@ describe('console terminal queue: overlapping closes', () => {
     });
 });
 
-describe('console terminal queue: sends carried on the command line', () => {
-    test('count as pending, are not typed, and are cleaned up at readiness', () => {
-        const host = new FakeHost();
-        const queue = create_queue(host);
-        const terminal = { id: 't1' };
-        queue.track(terminal, [send('/first.do')]);
-        expect(queue.pending_count()).toBe(1);
-        expect(host.the_counts.at(-1)).toBe(1);
-        expect(queue.send(terminal, send('/second.do'))).toBe(true);
-        expect(queue.pending_count()).toBe(2);
-
-        queue.mark_ready(terminal);
-        expect(host.the_typed).toEqual(['t1:/second.do']);
-        expect(host.the_events).toEqual([
-            'cleanup /first.do', 'type /second.do', 'cleanup /second.do',
-        ]);
-        expect(queue.pending_count()).toBe(0);
-    });
-
-    test('are dropped, first, when the console closes before readiness', async () => {
-        const host = new FakeHost();
-        const queue = create_queue(host);
-        const terminal = { id: 't1' };
-        queue.track(terminal, [send('/first.do')]);
-        queue.send(terminal, send('/second.do'));
-        await queue.handle_closed(terminal, {
-            reason: 'process', code: 1, backend: 'pty',
-        });
-        expect(host.the_deleted).toEqual(['/first.do', '/second.do']);
-        expect(host.the_notices).toEqual([
-            'Dropped 2 sends to Stata: sight console exited with code 1 '
-            + 'before it was ready.',
-        ]);
-    });
-
-    test('are handed back first by take_pending', () => {
-        const host = new FakeHost();
-        const queue = create_queue(host);
-        const terminal = { id: 't1' };
-        queue.track(terminal, [send('/first.do')]);
-        queue.send(terminal, send('/second.do'));
-        expect(queue.take_pending(terminal)).toEqual([
-            send('/first.do'), send('/second.do'),
-        ]);
-        expect(queue.pending_count()).toBe(0);
-    });
-});
-
-describe('console terminal queue: carry', () => {
-    test('adds to a starting console, cleans up for a ready one, drops for a closed one', () => {
-        const host = new FakeHost();
-        const queue = create_queue(host);
-        const starting = { id: 't1' };
-        queue.track(starting);
-        queue.carry(starting, send('/a.do'));
-        expect(queue.pending_count()).toBe(1);
-        queue.mark_ready(starting);
-        expect(host.the_cleanups).toEqual(['/a.do']);
-        expect(host.the_typed).toEqual([]);
-
-        queue.carry(starting, send('/b.do'));
-        expect(host.the_cleanups).toEqual(['/a.do', '/b.do']);
-
-        queue.carry({ id: 'gone' }, send('/c.do'));
-        expect(host.the_deleted).toEqual(['/c.do']);
-    });
-});
-
 describe('console terminal queue: dispose', () => {
     test('deletes the temp files of sends it never typed', () => {
         const host = new FakeHost();
         const queue = create_queue(host);
         const terminal = { id: 't1' };
-        // The first send rides on the console's command line; the
-        // second waits for the console to be ready.
-        queue.track(terminal, [send('/baked.do')]);
+        queue.track(terminal);
         expect(queue.send(terminal, send('/queued.do'))).toBe(true);
 
         queue.dispose();
 
         expect(host.the_deleted).toEqual(['/queued.do']);
-        // The console may still read its command-line file.
-        expect(host.the_cleanups).toEqual(['/baked.do']);
         expect(queue.is_tracked(terminal)).toBe(false);
         expect(queue.pending_count()).toBe(0);
     });
