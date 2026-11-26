@@ -139,7 +139,8 @@ Output that already contains color codes is left alone.
 
 Typed and echoed code is highlighted: commands bold blue; prefixes,
 control words such as `if` and `foreach`, and the `if` and `in`
-qualifiers magenta; strings green; macros cyan; and comments dimmed.
+qualifiers magenta; strings green; macros cyan; comments dimmed; and
+numbers in the terminal's default color.
 These are the console's own colors, not the editor's: a terminal's 16
 colors come from its own theme, so they can't follow the editor's.
 

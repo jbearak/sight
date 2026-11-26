@@ -8,9 +8,9 @@
  * left to errors and yellow to notes. Commands are bold blue;
  * prefixes, control words (`if`, `foreach`, ...) and the `if`/`in`
  * qualifiers magenta; strings green (as in Raven's console); macros
- * cyan; comments dim. Numbers stay plain. Plain blue is avoided:
- * several default palettes (xterm, the Windows console) make it nearly
- * invisible on black. Comments use dim rather than bright black, which
+ * cyan; comments dim. Numbers stay plain. Only command words use
+ * blue, and always bold: plain blue is nearly invisible on black in
+ * several default palettes (xterm, the Windows console). Comments use dim rather than bright black, which
  * some themes (Solarized) set to the background color.
  *
  * The command word is found by position: the first word of the
