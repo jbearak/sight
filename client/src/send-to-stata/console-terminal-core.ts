@@ -291,10 +291,9 @@ export class ConsoleTerminalQueue<TTerminal> {
 
     /**
      * Forget every pane (extension deactivation), deleting the temp
-     * files of the sends it never typed. A send on a console's command
-     * line is cleaned up later instead: the console may still run it.
-     * An offer still showing is void: its sends are dropped now, and
-     * its answer, if one comes, does nothing.
+     * files of the sends it never typed. An offer still showing is
+     * void: its sends are dropped now, and its answer, if one comes,
+     * does nothing.
      */
     dispose(): void {
         this.is_disposed = true;
