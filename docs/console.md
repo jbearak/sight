@@ -35,7 +35,9 @@ Commands and Stata itself behave as usual.
 
 In VS Code, Sight's extension runs the console in its Stata pane
 without the `sight` binary or Bun: it carries what it needs (see
-[Send to Stata](send-to-stata.md#macos-and-linux-sight-console)).
+[Send to Stata](send-to-stata.md#macos-and-linux-sight-console)). To
+open the pane without sending code, run **Sight: Open Stata Pane**
+from the Command Palette.
 
 ## Usage
 

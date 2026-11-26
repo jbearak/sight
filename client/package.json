@@ -62,7 +62,7 @@
       "profiles": [
         {
           "id": "sight.stataTerminal",
-          "title": "Stata",
+          "title": "Stata (Sight)",
           "icon": "terminal"
         }
       ]
@@ -625,6 +625,10 @@
       {
         "command": "sight.chooseSendTarget",
         "title": "Sight: Choose Where to Send Code"
+      },
+      {
+        "command": "sight.openStataPane",
+        "title": "Sight: Open Stata Pane"
       }
     ],
     "keybindings": [
