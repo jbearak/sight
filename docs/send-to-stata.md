@@ -12,7 +12,7 @@ The extension offers three ways to send code to Stata:
 
 - **Stata GUI Application** (`external`): Sends code to the standalone Stata application via AppleScript (macOS) or the send-to-stata helper, which pastes code into Stata's Command window (Windows).
 - **Integrated Stata Terminal** (`integrated`): Opens and sends code to a dedicated Stata terminal inside VS Code (the Stata pane), which runs [sight console](console.md): Stata with syntax highlighting, completion and colored output. On macOS and Linux, including remote sessions (SSH, WSL, Dev Containers, Tunnels), it runs console Stata (`stata-mp`, `stata-se`, `stata-ic`, `stata-be`, or `stata`); see [macOS and Linux: sight console](#macos-and-linux-sight-console). On native Windows, where Stata has no interactive CLI, it drives the Stata application; see [Windows: sight console](#windows-sight-console).
-- **Active Terminal** (the `Terminal` submenu commands): Sends code to whatever terminal is currently active in VS Code, regardless of type. This is useful for sending commands to Stata running inside `tmux`, a Docker container, or any other terminal session that isn't the extension's built-in Stata terminal. When the active terminal is a Stata pane, these commands (CD to File Folder and CD to Workspace Folder too) send through the pane's queue, like the integrated target, so a send made while the pane is starting waits for it. In a Stata console in a Perch session, CD to File Folder and CD to Workspace Folder are typed into the terminal, as in any other terminal. Each shows the terminal panel if it is hidden, leaving the focus in the editor.
+- **Active Terminal** (the `Terminal` submenu commands): Sends code to whatever terminal is currently active in VS Code, regardless of type. This is useful for sending commands to Stata running inside `tmux`, a Docker container, or any other terminal session that isn't the extension's built-in Stata terminal. When the active terminal is a Stata pane, these commands (CD to File Folder and CD to Workspace Folder too) send through the pane's queue, like the integrated target, so a send made while the pane is starting waits for it. Each shows the terminal panel if it is hidden, leaving the focus in the editor.
 
 ### Target Setting
 
@@ -74,21 +74,6 @@ The pane runs console Stata directly, as before sight console, when:
 - the helper fails to start (for example, the system blocks it). The extension says so once, sends what was waiting to plain Stata, and uses plain Stata until the window reloads.
 
 The console has been tested with real Stata on macOS; on Linux it has been tested only with a stand-in for Stata.
-
-### Remote windows with Perch
-
-In a remote window (Remote-SSH, WSL, Dev Containers, Tunnels), if the [Perch](https://github.com/jbearak/perch) extension is installed on the remote host, the Stata pane runs in a Perch session. Stata then keeps running when you close the window or the connection drops, and the next send, or reopening the window, finds it again. There's no setting: installing Perch on the remote host turns this on, and without Perch nothing changes. Installing or removing Perch affects consoles started after that.
-
-In any window, local or remote, Perch's **Perch: New Persistent Terminal...** list includes **Stata console** (from Sight), which starts a console in a Perch session and makes it the window's console. In a local window, that's the only way a console starts in Perch (along with Perch restoring its terminal when the window reloads); consoles Sight starts on its own still open in the ordinary pane.
-
-What differs from the pane described above:
-
-- Closing the Stata terminal detaches it; Stata keeps running. Sends still reach it, and the terminal reopens from Perch's Sessions view or when the window reloads. To end Stata, type `exit`, or end the session in Perch.
-- Code goes only to Stata sessions with a terminal in this window, or ones this window started. If Sight finds Stata sessions it started from other windows when it needs a new console, it asks whether to send code to one of them or start a new one.
-- A detached Stata waits at `--more--` until someone attaches and presses a key, since nothing answers it. Put `set more off` in your `profile.do`.
-- A detached Stata may keep holding its license seat while it runs.
-- If Perch can't confirm that a send reached Stata (the connection ended mid-send), Sight says the code may not have run and doesn't send it again.
-- A send is typed into the console as keys, at once: it isn't held for a prompt, so while Stata runs a command or shows `--more--` its keys reach Stata as if you typed them.
 
 ### Windows: sight console
 

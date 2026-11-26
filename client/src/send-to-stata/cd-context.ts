@@ -18,7 +18,6 @@ import { send_to_terminal } from './terminal.js';
 import {
     send_to_console_pane_terminal,
     send_to_stata_terminal,
-    SendCancelledError,
 } from './stata-terminal-manager.js';
 
 const CONTEXT_KEY = 'sight.cdMenuVisible';
@@ -173,7 +172,7 @@ export async function execute_cd_command(
             }
         } else {
             // A Stata pane takes it through its queue; any other
-            // terminal, a Perch session's too, gets it typed.
+            // terminal gets it typed.
             const pane_queued = send_to_console_pane_terminal(
                 vscode.window.activeTerminal, 'do', temp_file_path
             );
@@ -184,11 +183,9 @@ export async function execute_cd_command(
             }
         }
     } catch (my_error) {
-        if (!(my_error instanceof SendCancelledError)) {
-            vscode.window.showErrorMessage(
-                `Error: ${my_error instanceof Error
-                    ? my_error.message : my_error}`);
-        }
+        vscode.window.showErrorMessage(
+            `Error: ${my_error instanceof Error
+                ? my_error.message : my_error}`);
     } finally {
         if (!is_queued) {
             schedule_temp_file_cleanup(temp_file_path);
