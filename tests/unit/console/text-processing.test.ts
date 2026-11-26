@@ -49,25 +49,60 @@ describe('highlight_stata', () => {
     it('colors the command word, strings, numbers, macros and comments', () => {
         const output = highlight_stata('display "hi" 3 `x\' $y // note');
         expect(output).toContain(`${SGR.bold_blue}display${SGR.reset}`);
-        expect(output).toContain(`${SGR.green}"hi"${SGR.reset}`);
-        expect(output).toContain(`${SGR.cyan}3${SGR.reset}`);
-        expect(output).toContain(`${SGR.magenta}\`x'${SGR.reset}`);
-        expect(output).toContain(`${SGR.magenta}$y${SGR.reset}`);
-        expect(output).toContain(`${SGR.dim}// note${SGR.reset}`);
+        expect(output).toContain(`${SGR.yellow}"hi"${SGR.reset}`);
+        expect(output).toContain(`${SGR.green}3${SGR.reset}`);
+        expect(output).toContain(`${SGR.cyan}\`x'${SGR.reset}`);
+        expect(output).toContain(`${SGR.cyan}$y${SGR.reset}`);
+        expect(output).toContain(`${SGR.dim_green}// note${SGR.reset}`);
+    });
+
+    it('uses the hues the editor gives the same scopes', () => {
+        // Literal codes pin the mapping to VS Code's default themes:
+        // keyword.control magenta, keyword blue, string orange/red ->
+        // yellow, numeric green, variable light blue -> cyan, comment
+        // green.
+        const output = highlight_stata(
+            'capture regress y `x\' if z in 1/5 // fit',
+        );
+        expect(output).toBe(
+            '\x1b[35mcapture\x1b[0m \x1b[1;34mregress\x1b[0m y '
+            + '\x1b[36m`x\'\x1b[0m \x1b[35mif\x1b[0m z '
+            + '\x1b[34min\x1b[0m \x1b[32m1\x1b[0m/\x1b[32m5\x1b[0m '
+            + '\x1b[2;32m// fit\x1b[0m',
+        );
+        expect(highlight_stata('display "a"')).toContain(
+            '\x1b[33m"a"\x1b[0m',
+        );
     });
 
     it('finds the command after prefixes and by-lists', () => {
         const output = highlight_stata('quietly by foo: regress y x if z');
-        expect(output).toContain(`${SGR.blue}quietly${SGR.reset}`);
-        expect(output).toContain(`${SGR.blue}by${SGR.reset} foo:`);
+        expect(output).toContain(`${SGR.magenta}quietly${SGR.reset}`);
+        expect(output).toContain(`${SGR.magenta}by${SGR.reset} foo:`);
         expect(output).toContain(`${SGR.bold_blue}regress${SGR.reset}`);
-        expect(output).toContain(`${SGR.blue}if${SGR.reset}`);
+        expect(output).toContain(`${SGR.magenta}if${SGR.reset}`);
+    });
+
+    it('colors control-flow command words like prefixes', () => {
+        const the_lines = [
+            'if x {', 'quietly if x {', 'foreach v of varlist * {',
+            '} else {', '} else if x {',
+        ];
+        for (const my_line of the_lines) {
+            const word = my_line.replace(/^(quietly|\}) /, '').split(' ')[0];
+            expect(highlight_stata(my_line)).toContain(
+                `\x1b[35m${word}\x1b[0m`,
+            );
+        }
+        expect(highlight_stata('} else if x {')).toContain(
+            '\x1b[35mif\x1b[0m',
+        );
     });
 
     it('finds the command after nobreak and break', () => {
         for (const my_prefix of ['nobreak', 'break']) {
             const output = highlight_stata(`${my_prefix} regress y x`);
-            expect(output).toContain(`${SGR.blue}${my_prefix}${SGR.reset}`);
+            expect(output).toContain(`${SGR.magenta}${my_prefix}${SGR.reset}`);
             expect(output).toContain(`${SGR.bold_blue}regress${SGR.reset}`);
         }
     });
