@@ -1055,6 +1055,32 @@ function wrap(file_path: string): string {
     return '`"' + file_path + `"'`;
 }
 
+/**
+ * Create a console harness with its registered commands captured, so
+ * a test can run Open Stata Pane as VS Code would.
+ */
+async function create_console_harness_with_commands(
+    pty_helper_path?: string | null
+): Promise<{
+    harness: ConsoleHarness;
+    the_registered: Map<string, (...args: unknown[]) => unknown>;
+}> {
+    const the_registered = new Map<
+        string, (...args: unknown[]) => unknown
+    >();
+    (globalThis as Record<string, unknown>)[
+        SHARED_VSCODE_TEST_STATE_KEY
+    ] = { registered_commands: the_registered };
+    try {
+        const harness = await create_console_harness(60000, pty_helper_path);
+        return { harness, the_registered };
+    } finally {
+        delete (globalThis as Record<string, unknown>)[
+            SHARED_VSCODE_TEST_STATE_KEY
+        ];
+    }
+}
+
 describe.serial('Feature: Stata pane running sight console on local Windows', () => {
     beforeAll(register_module_mocks);
 
@@ -1092,6 +1118,22 @@ describe.serial('Feature: Stata pane running sight console on local Windows', ()
             options: CreateTerminalOptions;
         };
         expect(second.options.pty).not.toBe(profile.options.pty);
+    });
+
+    test('Open Stata Pane opens a pane without sending anything', async () => {
+        const { harness, the_registered } =
+            await create_console_harness_with_commands();
+        await the_registered.get('sight.openStataPane')?.();
+
+        expect(harness.the_terminals).toHaveLength(1);
+        expect(harness.vscode_state.the_create_options[0].pty).toBeDefined();
+        // Focused, so the user can type at the prompt.
+        expect(harness.vscode_state.the_show_calls).toEqual([false]);
+        const fake = await console_started(harness);
+        fake.ready.resolve(true);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(fake.the_inputs).toEqual([]);
+        expect(harness.vscode_state.the_error_messages).toEqual([]);
     });
 
     test('sends queue until the console is ready, then are typed in order', async () => {
@@ -1997,5 +2039,64 @@ describe.serial('Feature: Stata pane running sight console on macOS and Linux', 
         await harness.terminal_manager.send_to_stata_terminal('do', third);
         expect(harness.vscode_state.the_create_options).toHaveLength(2);
         expect(harness.vscode_state.the_send_calls.at(-1)).toBe(`do ${wrap(third)}`);
+    });
+
+    test('Open Stata Pane opens a pane once, and sends then go to it', async () => {
+        const { harness, the_registered } =
+            await create_console_harness_with_commands(HELPER_PATH);
+        const open_pane = the_registered.get('sight.openStataPane');
+        expect(open_pane).toBeDefined();
+        await open_pane!();
+
+        expect(harness.the_terminals).toHaveLength(1);
+        expect(harness.vscode_state.the_create_options[0].name)
+            .toBe('Stata');
+        expect(harness.vscode_state.the_show_calls).toEqual([false]);
+        const fake = await console_started(harness);
+        expect(fake.host.pty).toEqual({
+            helper_path: HELPER_PATH,
+            stata_path: '/usr/local/bin/stata-mp',
+        });
+        fake.ready.resolve(true);
+        await new Promise(resolve => setTimeout(resolve, 0));
+        expect(fake.the_inputs).toEqual([]);
+
+        // Running it again shows the same pane.
+        await open_pane!();
+        expect(harness.the_terminals).toHaveLength(1);
+        expect(harness.vscode_state.the_show_calls).toEqual([false, false]);
+
+        const first = await create_tracked_send_file('first');
+        expect(
+            await harness.terminal_manager.send_to_stata_terminal('do', first)
+        ).toBe(false);
+        expect(harness.the_terminals).toHaveLength(1);
+        expect(fake.the_inputs).toEqual([`do ${wrap(first)}\r`]);
+    });
+
+    test('without a helper, Open Stata Pane starts plain Stata with no command', async () => {
+        const { harness, the_registered } =
+            await create_console_harness_with_commands(null);
+        await the_registered.get('sight.openStataPane')?.();
+
+        const the_options = harness.vscode_state.the_create_options;
+        expect(the_options).toHaveLength(1);
+        expect(the_options[0].pty).toBeUndefined();
+        expect(the_options[0].shellPath).toBe('/usr/local/bin/stata-mp');
+        expect(the_options[0].shellArgs).toEqual([]);
+        expect(harness.vscode_state.the_send_calls).toEqual([]);
+        expect(harness.vscode_state.the_show_calls).toEqual([false]);
+    });
+
+    test('Open Stata Pane says so when it finds no Stata', async () => {
+        const { harness, the_registered } =
+            await create_console_harness_with_commands(HELPER_PATH);
+        harness.vscode_state.stata_cli = null;
+        await the_registered.get('sight.openStataPane')?.();
+
+        expect(harness.the_terminals).toHaveLength(0);
+        expect(harness.vscode_state.the_error_messages).toEqual([
+            expect.stringContaining('Stata CLI not found'),
+        ]);
     });
 });

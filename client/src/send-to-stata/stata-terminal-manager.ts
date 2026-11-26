@@ -26,6 +26,7 @@ import {
 } from './console-terminal-core.js';
 
 const PROFILE_ID = 'sight.stataTerminal';
+export const OPEN_STATA_PANE_COMMAND = 'sight.openStataPane';
 const TERMINAL_NAME = 'Stata';
 const TERMINAL_READY_TIMEOUT_MS = 5000;
 // Best-effort readiness heuristic for commands that must be TYPED into the
@@ -723,6 +724,16 @@ export function register_stata_terminal(
 
     context.subscriptions.push(
         vscode.window.registerTerminalProfileProvider(PROFILE_ID, provider),
+        vscode.commands.registerCommand(OPEN_STATA_PANE_COMMAND, async () => {
+            try {
+                await open_stata_pane();
+            } catch (my_error) {
+                vscode.window.showErrorMessage(
+                    my_error instanceof Error
+                        ? my_error.message : String(my_error)
+                );
+            }
+        }),
         vscode.window.onDidOpenTerminal(handle_terminal_opened),
         vscode.window.onDidCloseTerminal(handle_terminal_closed),
         vscode.window.onDidChangeActiveTerminal(
@@ -802,6 +813,33 @@ export async function get_or_create_stata_terminal(
         terminal,
         created_with_initial_command: bakes_command,
     };
+}
+
+/**
+ * Show the last-used Stata terminal, opening one (a console pane where
+ * possible) if there is none, without sending anything. Backs the Open
+ * Stata Pane command, which a user's own terminal profile can't hide:
+ * VS Code drops a contributed profile whose title matches one of the
+ * user's profiles.
+ */
+export async function open_stata_pane(): Promise<vscode.Terminal> {
+    if (!last_active_profile_terminal && !creation_in_flight) {
+        // A new pane shows itself, with focus.
+        const kind = console_pane_kind();
+        if (kind === 'automation') {
+            return create_console_terminal();
+        }
+        if (kind === 'pty') {
+            const new_pane = await resolve_new_pane();
+            // A send may have opened one meanwhile.
+            if (new_pane && !last_active_profile_terminal) {
+                return create_console_terminal(new_pane.pty);
+            }
+        }
+    }
+    const { terminal } = await get_or_create_stata_terminal();
+    terminal.show(false);
+    return terminal;
 }
 
 /**

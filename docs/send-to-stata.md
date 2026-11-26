@@ -43,9 +43,13 @@ Which to pick:
 
 To change your answer later, run **Sight: Choose Where to Send Code** from the Command Palette. When the setting is `integrated` or `external`, the same command can switch between them or go back to asking.
 
-### Stata Terminal Profile
+### Opening the Stata pane without sending code
 
-The extension adds a "Stata" terminal profile to VS Code's terminal dropdown. You can open a Stata terminal manually from the terminal profile picker at any time. It opens the same Stata pane as the `integrated` target. On macOS and Linux, the Stata CLI binary is detected automatically:
+To open the Stata pane without sending code, run **Sight: Open Stata Pane** from the Command Palette. It shows the Stata pane that sends go to, or opens one if there is none, and puts the cursor at its prompt.
+
+The extension also adds a "Stata (Sight)" terminal profile to VS Code's terminal dropdown. It opens a new Stata pane each time, the same as the `integrated` target opens. VS Code hides an extension's profile when one of your own terminal profiles has the same title, so if you've named one of yours "Stata (Sight)", use the command.
+
+On macOS and Linux, the Stata CLI binary is detected automatically:
 
 1. Checks your PATH for `stata-mp`, `stata-se`, `stata-be`, `stata-ic`, or `stata` (in priority order)
 2. On macOS, falls back to checking inside `/Applications/Stata/*.app/Contents/MacOS/` and `/Applications/StataNow/*.app/Contents/MacOS/` (StataNow installs under `/Applications/StataNow/`)
@@ -77,7 +81,7 @@ The console has been tested with real Stata on macOS; on Linux it has been teste
 
 ### Windows: sight console
 
-On native Windows (not in a remote session), the `integrated` target and the "Stata" terminal profile open a **Stata pane** in VS Code's terminal panel that runs [sight console](console.md) inside the extension. There's no separate program to install. The console drives the Stata application through its Automation interface, so it needs Stata's Automation registered. See [console.md](console.md) for what the console does.
+On native Windows (not in a remote session), the `integrated` target, **Sight: Open Stata Pane** and the "Stata (Sight)" terminal profile open a **Stata pane** in VS Code's terminal panel that runs [sight console](console.md) inside the extension. There's no separate program to install. The console drives the Stata application through its Automation interface, so it needs Stata's Automation registered. See [console.md](console.md) for what the console does.
 
 Each pane starts its own Stata, in a new window, so a second pane gets a second Stata window. Stata windows you already have open stay open and untouched; the console never takes one over (see [Which Stata it uses](console.md#which-stata-it-uses), including what that means for other Automation programs). To work in a Stata window that is already open, use the `external` target, which sends code to it.
 
