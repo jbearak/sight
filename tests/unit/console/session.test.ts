@@ -643,6 +643,13 @@ describe('ConsoleSession', () => {
             expect(screen.join('')).not.toContain(EXIT_CLEAR_NOTICE);
         });
 
+        it('disarms when an editor send is rejected as too long', () => {
+            const { pty, session } = refused();
+            session.send_line(`display "${'x'.repeat(MAX_CANONICAL_LINE_BYTES)}"`);
+            session.handle_input('\x04');
+            expect(pty.written).toEqual(['exit\r', 'exit\r']);
+        });
+
         it('does not arm for a typed exit', () => {
             const { pty, session, screen, at_prompt } = setup();
             at_prompt();

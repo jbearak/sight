@@ -456,6 +456,9 @@ export class ConsoleSession {
 
     /** Returns false if the line was rejected (not given to Stata). */
     private submit(line: string, on_sent?: LineSentCallback): boolean {
+        // Any line, even one rejected below, cancels a Ctrl+D confirmation.
+        this.exit_clear_armed = false;
+        this.eof_exit_output = null;
         const max_bytes = this.options.backend.max_line_bytes();
         if (max_bytes !== null && Buffer.byteLength(line, 'utf8') > max_bytes) {
             this.message = `Line is longer than ${max_bytes} bytes and `
@@ -466,8 +469,6 @@ export class ConsoleSession {
         }
         const kind = this.prompt_kind;
         this.editor.menu = null;
-        this.exit_clear_armed = false;
-        this.eof_exit_output = null;
         const stata_echoes = this.options.backend.echoes_input();
         const drawn = !(stata_echoes && kind === null);
         // Draw the final line without the menu or note rows under it.
