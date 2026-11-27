@@ -614,8 +614,11 @@ describe('ConsoleSession', () => {
         });
 
         it('disarms on a key the decoder ignores (F1)', () => {
-            const { pty, session } = refused();
+            const { pty, session, screen } = refused();
+            screen.length = 0;
             session.handle_input('\x1bOP');
+            expect(screen.join('')).toContain('\x1b[J');
+            expect(screen.join('')).not.toContain(EXIT_CLEAR_NOTICE);
             session.handle_input('\x04');
             expect(pty.written).toEqual(['exit\r', 'exit\r']);
         });

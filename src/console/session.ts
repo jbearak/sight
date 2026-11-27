@@ -182,6 +182,11 @@ export class ConsoleSession {
             // pending Ctrl+D `exit, clear` confirmation.
             this.exit_clear_armed = false;
             this.eof_exit_output = null;
+            if (this.message === EXIT_CLEAR_NOTICE) {
+                // Keys that leave the screen alone must still remove it.
+                this.message = null;
+                this.show_editor();
+            }
         }
         for (const my_event of this.decoder.push(text)) {
             this.handle_key(my_event);
@@ -284,12 +289,7 @@ export class ConsoleSession {
         if (this.exited) {
             return;
         }
-        const had_exit_notice = this.message === EXIT_CLEAR_NOTICE;
         this.message = null;
-        if (had_exit_notice) {
-            // Keys that leave the screen alone must still remove it.
-            this.show_editor();
-        }
         const confirms_exit = this.exit_clear_armed
             && event.type === 'ctrl' && event.letter === 'd';
         this.exit_clear_armed = false;
