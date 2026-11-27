@@ -37,6 +37,11 @@ export const COLOR_FLUSH_MS = 30;
 export const ESCAPE_TIMEOUT_MS = 25;
 /** What Stata's console inserts where it wraps an echoed long line. */
 const ECHO_WRAP_MARKER = '\r\n> ';
+/** First line of Stata's reply when `exit` would lose unsaved data. */
+const EXIT_REFUSED_TEXT = 'no; dataset in memory has changed since last saved';
+/** Shown when a Ctrl+D `exit` was refused; a second Ctrl+D confirms. */
+export const EXIT_CLEAR_NOTICE = 'Data not saved. Press Ctrl+D again to '
+    + 'discard it and exit (exit, clear).';
 
 export interface Clock {
     set_timeout(callback: () => void, delay_ms: number): unknown;
@@ -82,6 +87,16 @@ export class ConsoleSession {
     /** One-off message shown under the input until the next keystroke. */
     private message: string | null = null;
     /**
+     * Output (without ANSI codes) since an `exit` sent by Ctrl+D, while
+     * waiting to see whether Stata refused it; null otherwise.
+     */
+    private eof_exit_output: string | null = null;
+    /**
+     * Stata refused a Ctrl+D `exit` over unsaved data: the next key, if
+     * it is Ctrl+D, sends `exit, clear`. Any other key or line disarms.
+     */
+    private exit_clear_armed = false;
+    /**
      * The rest of the echo Stata is expected to print for the line just
      * submitted, and what of it has been held back so far.
      */
@@ -126,6 +141,9 @@ export class ConsoleSession {
         const output = this.consume_echo(text);
         if (output.length === 0) {
             return;
+        }
+        if (this.eof_exit_output !== null) {
+            this.eof_exit_output += strip_ansi(output);
         }
         this.prompt_kind = null;
         this.hide_editor();
@@ -261,6 +279,15 @@ export class ConsoleSession {
             return;
         }
         this.message = null;
+        const confirms_exit = this.exit_clear_armed
+            && event.type === 'ctrl' && event.letter === 'd';
+        this.exit_clear_armed = false;
+        if (confirms_exit && this.prompt_kind === 'stata'
+            && this.editor.buffer.length === 0) {
+            this.editor.set_buffer('exit, clear');
+            this.submit('exit, clear');
+            return;
+        }
         if (event.type === 'ctrl' && event.letter === 'c') {
             this.interrupt();
             return;
@@ -293,7 +320,10 @@ export class ConsoleSession {
                 // block it would become part of the block.
                 if (this.prompt_kind === 'stata') {
                     this.editor.set_buffer('exit');
-                    this.submit('exit');
+                    if (this.submit('exit')) {
+                        // Watch for a refusal over unsaved data.
+                        this.eof_exit_output = '';
+                    }
                 }
                 return;
             case 'clear_screen':
@@ -423,6 +453,8 @@ export class ConsoleSession {
         }
         const kind = this.prompt_kind;
         this.editor.menu = null;
+        this.exit_clear_armed = false;
+        this.eof_exit_output = null;
         const stata_echoes = this.options.backend.echoes_input();
         const drawn = !(stata_echoes && kind === null);
         // Draw the final line without the menu or note rows under it.
@@ -573,6 +605,14 @@ export class ConsoleSession {
             return;
         }
         this.prompt_kind = kind;
+        if (this.eof_exit_output !== null && kind === 'stata') {
+            const refused = this.eof_exit_output.includes(EXIT_REFUSED_TEXT);
+            this.eof_exit_output = null;
+            if (refused) {
+                this.exit_clear_armed = true;
+                this.message = EXIT_CLEAR_NOTICE;
+            }
+        }
         // A held send goes before staged pasted lines.
         const has_held = COMMAND_PROMPT_KINDS.has(kind) && this.held_sends.length > 0;
         if (!has_held && COMMAND_PROMPT_KINDS.has(kind) && this.editor.buffer.length === 0
@@ -617,6 +657,8 @@ export class ConsoleSession {
             cursor,
             menu: with_extras ? this.editor.menu : null,
             note: with_extras ? this.note() : null,
+            note_warning: this.message === EXIT_CLEAR_NOTICE
+                && this.options.color_mode !== 'off',
             columns: this.options.columns(),
         }, previous);
         this.options.write(result.output);

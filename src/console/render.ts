@@ -22,6 +22,8 @@ export interface RenderInput {
     menu: CompletionMenu | null;
     /** A dim line shown under the input, such as staged-paste status. */
     note: string | null;
+    /** Draw the note in yellow, as a warning, instead of dim. */
+    note_warning?: boolean;
     columns: number;
 }
 
@@ -94,7 +96,8 @@ function extra_lines(input: RenderInput, columns: number): string[] {
         }
     }
     if (input.note) {
-        lines.push(`${SGR.dim}${truncate(input.note, columns - 1)}${SGR.reset}`);
+        const style = input.note_warning ? SGR.yellow : SGR.dim;
+        lines.push(`${style}${truncate(input.note, columns - 1)}${SGR.reset}`);
     }
     return lines;
 }
