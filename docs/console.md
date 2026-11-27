@@ -76,12 +76,15 @@ status.
 | `Ctrl+Y` | Pastes the text you last cut |
 | `Ctrl+T` | Swaps two characters |
 | `Ctrl+C` | Clears the line and interrupts Stata |
-| `Ctrl+D` | At the `.` prompt with an empty line, sends `exit` |
+| `Ctrl+D` | At the `.` prompt with an empty line, sends `exit`; pressed again after Stata refuses, `exit, clear` |
 | `Ctrl+L` | Clears the screen |
 | `Esc` | Closes the completion menu, or discards staged pasted lines |
 
 `Ctrl+D` sends `exit`, so Stata still refuses to quit when the data in
-memory has changed (`exit, clear` quits anyway). Inside a block, such as
+memory has changed. When it refuses, Sight says so under the prompt,
+and pressing `Ctrl+D` again sends `exit, clear`, which quits and
+discards the changes. Any other key first cancels this, so the next
+`Ctrl+D` sends plain `exit` again. Inside a block, such as
 after `foreach ... {`, `Ctrl+D` does nothing, because `exit` would become
 part of the block.
 
@@ -237,7 +240,8 @@ running:
 **The console's Stata closes when the console ends**, with any unsaved
 data, as when you close a terminal running console Stata on macOS or
 Linux. Type `exit` (or press Ctrl+D) to quit as usual; Stata refuses if
-data in memory changed, and `exit, clear` quits anyway. Closing the
+data in memory changed, and `exit, clear` (or a second Ctrl+D) quits
+anyway. Closing the
 Stata window also ends the console.
 
 Ctrl+C while the console is starting stops it. Once it has asked Stata

@@ -10,6 +10,7 @@ import {
     ConsoleSession,
     ESCAPE_TIMEOUT_MS,
     MAX_CANONICAL_LINE_BYTES,
+    EXIT_CLEAR_NOTICE,
     PROMPT_QUIET_MS,
     type Clock,
     type Completer,
@@ -81,6 +82,7 @@ function setup(options: {
     completer?: Completer | null;
     history?: string[];
     on_ready?: () => void;
+    color_mode?: 'streams' | 'off';
 } = {}) {
     const clock = new ManualClock();
     const pty = new FakePty();
@@ -93,7 +95,7 @@ function setup(options: {
         clock,
         history: { all: () => history, add: (line) => history.push(line) },
         completer: options.completer ?? null,
-        color_mode: 'streams',
+        color_mode: options.color_mode ?? 'streams',
         on_ready: options.on_ready,
     });
     const at_prompt = (text = '. '): void => {
@@ -553,6 +555,127 @@ describe('ConsoleSession', () => {
         at_prompt('\n. ');
         session.handle_input('\x04');
         expect(pty.written).toEqual(['exit\r']);
+    });
+
+    describe('a second Ctrl+D after Stata refuses exit', () => {
+        const REFUSAL = 'no; dataset in memory has changed since last saved\r\n'
+            + '    Save the data or specify option clear to exit anyway.\r\n'
+            + 'r(4);\r\n\r\n. ';
+
+        function refused(options: { color_mode?: 'streams' | 'off' } = {}) {
+            const harness = setup(options);
+            harness.at_prompt();
+            harness.session.handle_input('\x04');
+            harness.at_prompt(REFUSAL);
+            return harness;
+        }
+
+        it('shows a warning and sends exit, clear', () => {
+            const { pty, session, screen } = refused();
+            expect(screen.join('')).toContain(`\x1b[33m${EXIT_CLEAR_NOTICE}`);
+            session.handle_input('\x04');
+            expect(pty.written).toEqual(['exit\r', 'exit, clear\r']);
+        });
+
+        it('arms when the refusal arrives in pieces (frames variant)', () => {
+            const { pty, session, clock, at_prompt } = setup();
+            at_prompt();
+            session.handle_input('\x04');
+            session.handle_output('no; dataset in memory has ch');
+            clock.advance(PROMPT_QUIET_MS + 1);
+            at_prompt('anged since last saved\r\n    There are unsaved data '
+                + 'in frame f2. Save the data or specify option clear\r\n'
+                + '    to exit anyway.\r\nr(4);\r\n\r\n. ');
+            session.handle_input('\x04');
+            expect(pty.written).toEqual(['exit\r', 'exit, clear\r']);
+        });
+
+        it('disarms on any other key', () => {
+            const { pty, session } = refused();
+            session.handle_input('x');
+            session.handle_input('\x7f');
+            session.handle_input('\x04');
+            expect(pty.written).toEqual(['exit\r', 'exit\r']);
+        });
+
+        it('disarms on Ctrl+C', () => {
+            const { pty, session } = refused();
+            session.handle_input('\x03');
+            session.handle_input('\x04');
+            expect(pty.written).toEqual(['exit\r', 'exit\r']);
+        });
+
+        it('disarms when the editor sends a line', () => {
+            const { pty, session, at_prompt } = refused();
+            session.send_line('display 1');
+            at_prompt('1\r\n\r\n. ');
+            session.handle_input('\x04');
+            expect(pty.written).toEqual(['exit\r', 'display 1\r', 'exit\r']);
+        });
+
+        it('disarms on a key the decoder ignores (F1)', () => {
+            const { pty, session, screen } = refused();
+            screen.length = 0;
+            session.handle_input('\x1bOP');
+            expect(screen.join('')).toContain('\x1b[J');
+            expect(screen.join('')).not.toContain(EXIT_CLEAR_NOTICE);
+            session.handle_input('\x04');
+            expect(pty.written).toEqual(['exit\r', 'exit\r']);
+        });
+
+        it('does not arm after a key pressed before the refusal', () => {
+            const { pty, session, at_prompt } = setup();
+            at_prompt();
+            session.handle_input('\x04');
+            session.handle_input('x');
+            session.handle_input('\x7f');
+            at_prompt(REFUSAL);
+            session.handle_input('\x04');
+            expect(pty.written).toEqual(['exit\r', 'exit\r']);
+        });
+
+        it('removes the notice on Esc', () => {
+            const { session, screen } = refused();
+            screen.length = 0;
+            session.handle_input('\x1b');
+            session.handle_input('\x1b');
+            expect(screen.join('')).toContain('\x1b[J');
+            expect(screen.join('')).not.toContain(EXIT_CLEAR_NOTICE);
+        });
+
+        it('disarms when an editor send is rejected as too long', () => {
+            const { pty, session } = refused();
+            session.send_line(`display "${'x'.repeat(MAX_CANONICAL_LINE_BYTES)}"`);
+            session.handle_input('\x04');
+            expect(pty.written).toEqual(['exit\r', 'exit\r']);
+        });
+
+        it('does not arm for a typed exit', () => {
+            const { pty, session, screen, at_prompt } = setup();
+            at_prompt();
+            session.handle_input('exit\r');
+            at_prompt(REFUSAL);
+            expect(screen.join('')).not.toContain(EXIT_CLEAR_NOTICE);
+            session.handle_input('\x04');
+            expect(pty.written).toEqual(['exit\r', 'exit\r']);
+        });
+
+        it('does not arm for other output after Ctrl+D', () => {
+            const { pty, session, screen, at_prompt } = setup();
+            at_prompt();
+            session.handle_input('\x04');
+            at_prompt('something else\r\n. ');
+            expect(screen.join('')).not.toContain(EXIT_CLEAR_NOTICE);
+            session.handle_input('\x04');
+            expect(pty.written).toEqual(['exit\r', 'exit\r']);
+        });
+
+        it('draws the notice uncolored when colors are off', () => {
+            const { screen } = refused({ color_mode: 'off' });
+            const text = screen.join('');
+            expect(text).toContain(EXIT_CLEAR_NOTICE);
+            expect(text).not.toContain(`\x1b[33m${EXIT_CLEAR_NOTICE}`);
+        });
     });
 
     it('refuses lines the terminal line buffer would truncate', () => {
