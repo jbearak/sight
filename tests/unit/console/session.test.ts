@@ -613,6 +613,33 @@ describe('ConsoleSession', () => {
             expect(pty.written).toEqual(['exit\r', 'display 1\r', 'exit\r']);
         });
 
+        it('disarms on a key the decoder ignores (F1)', () => {
+            const { pty, session } = refused();
+            session.handle_input('\x1bOP');
+            session.handle_input('\x04');
+            expect(pty.written).toEqual(['exit\r', 'exit\r']);
+        });
+
+        it('does not arm after a key pressed before the refusal', () => {
+            const { pty, session, at_prompt } = setup();
+            at_prompt();
+            session.handle_input('\x04');
+            session.handle_input('x');
+            session.handle_input('\x7f');
+            at_prompt(REFUSAL);
+            session.handle_input('\x04');
+            expect(pty.written).toEqual(['exit\r', 'exit\r']);
+        });
+
+        it('removes the notice on Esc', () => {
+            const { session, screen } = refused();
+            screen.length = 0;
+            session.handle_input('\x1b');
+            session.handle_input('\x1b');
+            expect(screen.join('')).toContain('\x1b[J');
+            expect(screen.join('')).not.toContain(EXIT_CLEAR_NOTICE);
+        });
+
         it('does not arm for a typed exit', () => {
             const { pty, session, screen, at_prompt } = setup();
             at_prompt();

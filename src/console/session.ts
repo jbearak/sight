@@ -177,6 +177,12 @@ export class ConsoleSession {
             return;
         }
         this.clear_timer('escape');
+        if (text !== '\x04') {
+            // Any other input, even keys the decoder ignores, cancels a
+            // pending Ctrl+D `exit, clear` confirmation.
+            this.exit_clear_armed = false;
+            this.eof_exit_output = null;
+        }
         for (const my_event of this.decoder.push(text)) {
             this.handle_key(my_event);
         }
@@ -278,10 +284,17 @@ export class ConsoleSession {
         if (this.exited) {
             return;
         }
+        const had_exit_notice = this.message === EXIT_CLEAR_NOTICE;
         this.message = null;
+        if (had_exit_notice) {
+            // Keys that leave the screen alone must still remove it.
+            this.show_editor();
+        }
         const confirms_exit = this.exit_clear_armed
             && event.type === 'ctrl' && event.letter === 'd';
         this.exit_clear_armed = false;
+        // A key pressed before Stata answers the `exit` cancels it too.
+        this.eof_exit_output = null;
         if (confirms_exit && this.prompt_kind === 'stata'
             && this.editor.buffer.length === 0) {
             this.editor.set_buffer('exit, clear');
